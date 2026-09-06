@@ -1,0 +1,40 @@
+[Unit]
+Description=NoiseFence SMTP antispam gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=noisefence
+Group=noisefence
+WorkingDirectory=/opt/noisefence
+EnvironmentFile=-/etc/noisefence/secrets.env
+Environment=RUST_LOG=noisefence=info
+ExecStartPre=/opt/noisefence/noisefence --config /etc/noisefence/config.toml check-config
+ExecStart=/opt/noisefence/noisefence --config /etc/noisefence/config.toml serve
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=40
+StateDirectory=noisefence
+StateDirectoryMode=0700
+UMask=0077
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+LimitNOFILE=8192
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

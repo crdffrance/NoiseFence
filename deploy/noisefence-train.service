@@ -1,0 +1,17 @@
+[Unit]
+Description=Export human feedback and train a NoiseFence model candidate (never auto-activate)
+
+[Service]
+Type=oneshot
+User=noisefence
+Group=noisefence
+WorkingDirectory=/var/lib/noisefence/models
+UMask=0077
+EnvironmentFile=-/etc/noisefence/secrets.env
+ExecStart=/opt/noisefence/noisefence --config /etc/noisefence/config.toml export-feedback feedback.jsonl
+ExecStart=/opt/noisefence/noisefence train feedback.jsonl --output candidate.json
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/noisefence
+ProtectHome=true
+PrivateTmp=true

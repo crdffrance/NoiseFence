@@ -1,0 +1,44 @@
+{
+  "model_sha256": "f5d50dbdb61f08db1ea35c04820d5686a22db6b3c0f40ce0aad154d63e31951c",
+  "corpus_sha256": "c2ba27e1d18a9e7b715625ab5d2b891ff66cd8984b5f33f2f54ab76349061c65",
+  "created": 1788712694,
+  "threshold": 95.0,
+  "split": "deterministic campaign-grouped 80/10/10; no temporal representativeness claim",
+  "train": 4659,
+  "validation": {
+    "ham": 430,
+    "spam": 179,
+    "true_positive": 103,
+    "false_positive": 0,
+    "recall": 0.5754189944134078,
+    "precision": 1.0,
+    "false_positive_rate": 0.0,
+    "recall_ci95": [
+      0.502172392638316,
+      0.6454965232309119
+    ],
+    "fpr_ci95": [
+      0.0,
+      0.008854522182219089
+    ]
+  },
+  "test": {
+    "ham": 414,
+    "spam": 192,
+    "true_positive": 117,
+    "false_positive": 0,
+    "recall": 0.609375,
+    "precision": 1.0,
+    "false_positive_rate": 0.0,
+    "recall_ci95": [
+      0.5388648697530334,
+      0.6755943170448642
+    ],
+    "fpr_ci95": [
+      0.0,
+      0.009193579860495817
+    ]
+  },
+  "eligible": false,
+  "limitation": "Public historical data does not demonstrate current production capture. This evaluates text classification only; the full live pipeline needs separate recent validation."
+}

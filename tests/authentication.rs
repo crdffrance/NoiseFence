@@ -1,0 +1,146 @@
+mod common;
+use mail_auth::{
+    AuthenticatedMessage, DkimResult, MessageAuthenticator, Parameters, ResolverCache, Txt,
+    common::{
+        crypto::{RsaKey, Sha256},
+        headers::HeaderWriter,
+        parse::TxtRecordParser,
+        verify::DomainKey,
+    },
+    dkim::DkimSigner,
+};
+use noisefence::{config::Mode, engine::Engine, message};
+use std::{
+    borrow::Borrow,
+    collections::HashMap,
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
+
+// A deterministic local DNS cache: an unexpected network query fails the test.
+struct TestDns(Mutex<HashMap<Box<str>, Txt>>);
+impl ResolverCache<Box<str>, Txt> for TestDns {
+    fn get<Q>(&self, key: &Q) -> Option<Txt>
+    where
+        Box<str>: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        Some(
+            self.0
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .expect("unexpected DNS name"),
+        )
+    }
+    fn remove<Q>(&self, key: &Q) -> Option<Txt>
+    where
+        Box<str>: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.0.lock().unwrap().remove(key)
+    }
+    fn insert(&self, key: Box<str>, value: Txt, _: std::time::Instant) {
+        self.0.lock().unwrap().insert(key, value);
+    }
+}
+
+#[tokio::test]
+async fn original_dkim_survives_observation_subject_tag_breaks_dkim_and_arc_seals_modified_body() {
+    let key =
+        rustls_pemfile::private_key(&mut include_bytes!("fixtures/public-test-key.txt").as_slice())
+            .unwrap()
+            .unwrap();
+    let signature = DkimSigner::from_key(RsaKey::<Sha256>::from_key_der(key).unwrap())
+        .domain("example.org")
+        .selector("test")
+        .headers(["From", "To", "Subject", "Date", "Message-ID"])
+        .sign(common::MESSAGE)
+        .unwrap();
+    let original = [signature.to_header().as_bytes(), common::MESSAGE].concat();
+    let dns = TestDns(Mutex::new(HashMap::from([(
+        "test._domainkey.example.org.".into(),
+        Txt::DomainKey(Arc::new(
+            DomainKey::parse(include_bytes!("fixtures/public-test-key.dns")).unwrap(),
+        )),
+    )])));
+    let authenticator = MessageAuthenticator::new_system_conf().unwrap();
+    let parsed = AuthenticatedMessage::parse(&original).unwrap();
+    let results = authenticator
+        .verify_dkim(Parameters::new(&parsed).with_txt_cache(&dns))
+        .await;
+    assert_eq!(*results[0].result(), DkimResult::Pass);
+    let observed = message::rewrite(&original, false, "X-NoiseFence-Score: 0\r\n").unwrap();
+    let parsed_observed = AuthenticatedMessage::parse(&observed).unwrap();
+    let results = authenticator
+        .verify_dkim(Parameters::new(&parsed_observed).with_txt_cache(&dns))
+        .await;
+    assert_eq!(*results[0].result(), DkimResult::Pass);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    // Force the tagging branch for this isolated unit test without a live DNS resolver.
+    cfg.filter.mode = Mode::Tag;
+    cfg.filter.threshold = 0.0;
+    cfg.filter.arc_domain = Some("example.org".into());
+    cfg.filter.arc_selector = Some("test".into());
+    cfg.filter.arc_key = Some(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/public-test-key.txt"),
+    );
+    let engine = Engine::new(Arc::new(cfg)).unwrap();
+    let (scan, marked) = engine
+        .process(
+            &original,
+            "192.0.2.1".parse().unwrap(),
+            "mail.example.org",
+            "sender@example.org",
+            &uuid::Uuid::new_v4().to_string(),
+        )
+        .await
+        .unwrap();
+    assert!(scan.complete && scan.tagged);
+    assert_eq!(
+        message::fields(&original).unwrap().1,
+        message::fields(&marked).unwrap().1
+    );
+    let parsed = AuthenticatedMessage::parse(&marked).unwrap();
+    let results = authenticator
+        .verify_dkim(Parameters::new(&parsed).with_txt_cache(&dns))
+        .await;
+    assert_ne!(*results[0].result(), DkimResult::Pass);
+    let arc = authenticator
+        .verify_arc(Parameters::new(&parsed).with_txt_cache(&dns))
+        .await;
+    assert_eq!(*arc.result(), DkimResult::Pass);
+    let tampered = [marked.as_slice(), b"tampered\r\n"].concat();
+    let parsed = AuthenticatedMessage::parse(&tampered).unwrap();
+    let arc = authenticator
+        .verify_arc(Parameters::new(&parsed).with_txt_cache(&dns))
+        .await;
+    assert_ne!(*arc.result(), DkimResult::Pass);
+}
+
+#[tokio::test]
+async fn excessive_signature_work_fails_open_without_a_subject_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::new(common::config(dir.path())).unwrap();
+    let raw = [
+        "DKIM-Signature: invalid\r\n".repeat(17).as_bytes(),
+        common::MESSAGE,
+    ]
+    .concat();
+    let (scan, output) = engine
+        .process(
+            &raw,
+            "192.0.2.1".parse().unwrap(),
+            "mail.example.org",
+            "sender@example.org",
+            &uuid::Uuid::new_v4().to_string(),
+        )
+        .await
+        .unwrap();
+    assert!(!scan.complete && !scan.tagged);
+    assert!(scan.reasons.iter().any(|r| r.id == "signature_budget"));
+    assert!(!String::from_utf8_lossy(&output).contains("[SPAM]"));
+}

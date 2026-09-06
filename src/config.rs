@@ -1,0 +1,395 @@
+use anyhow::{Context, Result, bail, ensure};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    pub hostname: String,
+    pub data_dir: PathBuf,
+    pub smtp: Smtp,
+    pub web: Web,
+    pub filter: Filter,
+    pub relay: Relay,
+    pub domains: Vec<Domain>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Smtp {
+    pub listen: SocketAddr,
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
+    #[serde(default = "default_size")]
+    pub max_message_bytes: usize,
+    #[serde(default = "default_connections")]
+    pub max_connections: usize,
+    #[serde(default = "default_per_ip")]
+    pub max_connections_per_ip: usize,
+    #[serde(default = "default_timeout")]
+    pub command_timeout_seconds: u64,
+    #[serde(default = "default_rcpts")]
+    pub max_recipients: usize,
+    #[serde(default = "default_free")]
+    pub minimum_free_bytes: u64,
+}
+fn default_size() -> usize {
+    25 * 1024 * 1024
+}
+fn default_connections() -> usize {
+    128
+}
+fn default_per_ip() -> usize {
+    8
+}
+fn default_timeout() -> u64 {
+    300
+}
+fn default_rcpts() -> usize {
+    100
+}
+fn default_free() -> u64 {
+    1024 * 1024 * 1024
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Web {
+    pub listen: SocketAddr,
+    pub public_origin: String,
+    pub static_dir: PathBuf,
+    #[serde(default = "yes")]
+    pub secure_cookies: bool,
+}
+fn yes() -> bool {
+    true
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    Observe,
+    Tag,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Filter {
+    #[serde(default)]
+    pub mode: Mode,
+    #[serde(default = "threshold")]
+    pub threshold: f64,
+    pub model: Option<PathBuf>,
+    #[serde(default = "yes")]
+    pub authentication: bool,
+    pub spamhaus_key_env: Option<String>,
+    pub arc_key: Option<PathBuf>,
+    pub arc_domain: Option<String>,
+    pub arc_selector: Option<String>,
+    pub proton_report: Option<PathBuf>,
+    #[serde(default = "analysis_limit")]
+    pub max_analysis_bytes: usize,
+}
+fn threshold() -> f64 {
+    95.0
+}
+fn analysis_limit() -> usize {
+    2 * 1024 * 1024
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Relay {
+    #[serde(default = "workers")]
+    pub workers: usize,
+    #[serde(default = "yes")]
+    pub require_tls: bool,
+    // Only for an isolated loopback integration test sink, never an internet relay.
+    #[serde(default)]
+    pub allow_loopback_plaintext: bool,
+    #[serde(default = "port")]
+    pub port: u16,
+    #[serde(default = "max_age")]
+    pub max_queue_age_seconds: i64,
+    pub postmaster: String,
+}
+fn workers() -> usize {
+    8
+}
+fn port() -> u16 {
+    25
+}
+fn max_age() -> i64 {
+    5 * 86400
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Domain {
+    pub name: String,
+    pub next_hops: Vec<String>,
+    pub recipients: Vec<String>,
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Recipient {
+    pub address: String,
+    pub destination: String,
+    pub hosts: Vec<String>,
+}
+
+pub fn valid_domain(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 253
+        && s.is_ascii()
+        && s.split('.').all(|l| {
+            !l.is_empty()
+                && l.len() <= 63
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+}
+pub fn valid_address(s: &str) -> bool {
+    let Some((local, domain)) = s.rsplit_once('@') else {
+        return false;
+    };
+    let local_valid = if local.starts_with('"') && local.ends_with('"') && local.len() >= 2 {
+        let mut escaped = false;
+        let mut valid = true;
+        for c in local.as_bytes()[1..local.len() - 1].iter().copied() {
+            if escaped {
+                valid &= (32..=126).contains(&c);
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else {
+                valid &= (32..=126).contains(&c) && c != b'"';
+            }
+        }
+        valid && !escaped
+    } else {
+        !local.starts_with('.')
+            && !local.ends_with('.')
+            && !local.contains("..")
+            && local
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"!#$%&'*+-/=?^_`{|}~.".contains(&c))
+    };
+    !local.is_empty() && local.len() <= 64 && s.len() <= 254 && valid_domain(domain) && local_valid
+}
+impl Config {
+    pub fn load(path: &Path) -> Result<Self> {
+        let value: Self =
+            toml::from_str(&std::fs::read_to_string(path).context("read configuration")?)?;
+        value.validate()?;
+        Ok(value)
+    }
+    pub fn validate(&self) -> Result<()> {
+        ensure!(valid_domain(&self.hostname), "invalid hostname");
+        ensure!(
+            self.smtp.max_connections > 0
+                && self.smtp.max_connections <= 4096
+                && self.smtp.max_connections_per_ip > 0,
+            "invalid connection limits"
+        );
+        ensure!(
+            self.smtp.max_message_bytes >= 1024 && self.smtp.max_message_bytes <= 100 * 1024 * 1024,
+            "message size must be 1 KiB..100 MiB"
+        );
+        ensure!(
+            self.smtp.max_recipients > 0 && self.smtp.max_recipients <= 1000,
+            "invalid recipient limit"
+        );
+        ensure!(self.smtp.command_timeout_seconds > 0, "invalid timeout");
+        ensure!(
+            self.smtp.tls_cert.is_some() == self.smtp.tls_key.is_some(),
+            "TLS requires both certificate and key"
+        );
+        ensure!(
+            self.smtp.listen.ip().is_loopback() || self.smtp.tls_cert.is_some(),
+            "public SMTP requires a STARTTLS certificate"
+        );
+        ensure!(
+            self.web.listen.ip().is_loopback(),
+            "bind web API to loopback behind the HTTPS proxy"
+        );
+        ensure!(
+            !self.web.public_origin.ends_with('/')
+                && !self.web.public_origin.contains(['\r', '\n']),
+            "invalid public_origin"
+        );
+        ensure!(
+            self.web.public_origin.starts_with("https://")
+                || (!self.web.secure_cookies
+                    && self.web.public_origin.starts_with("http://127.0.0.1:")),
+            "HTTPS origin required outside loopback development"
+        );
+        ensure!(
+            !self.web.public_origin.starts_with("https://") || self.web.secure_cookies,
+            "HTTPS production requires Secure session cookies"
+        );
+        ensure!(
+            self.filter.threshold.is_finite() && (0.0..=100.0).contains(&self.filter.threshold),
+            "invalid threshold"
+        );
+        ensure!(
+            (1024..=10 * 1024 * 1024).contains(&self.filter.max_analysis_bytes),
+            "invalid analysis budget"
+        );
+        ensure!(
+            self.relay.workers > 0
+                && self.relay.workers <= 128
+                && self.relay.max_queue_age_seconds >= 60,
+            "invalid relay limits"
+        );
+        ensure!(
+            self.relay.require_tls || self.relay.allow_loopback_plaintext,
+            "plaintext relay only allowed in isolated loopback tests"
+        );
+        ensure!(
+            valid_address(&self.relay.postmaster),
+            "invalid postmaster address"
+        );
+        ensure!(!self.domains.is_empty(), "configure at least one domain");
+        let mut names = std::collections::HashSet::new();
+        for d in &self.domains {
+            ensure!(
+                valid_domain(&d.name) && names.insert(d.name.to_lowercase()),
+                "invalid or duplicate domain"
+            );
+            ensure!(!d.next_hops.is_empty(), "missing next hops");
+            for h in &d.next_hops {
+                ensure!(
+                    valid_domain(h)
+                        && !h.eq_ignore_ascii_case(&self.hostname)
+                        && !h.eq_ignore_ascii_case(&d.name),
+                    "unsafe or looping next hop"
+                );
+            }
+            for r in &d.recipients {
+                ensure!(
+                    valid_address(r) && r.rsplit_once('@').unwrap().1.eq_ignore_ascii_case(&d.name),
+                    "recipient outside domain: {r}"
+                );
+            }
+            for (alias, dest) in &d.aliases {
+                ensure!(
+                    valid_address(alias)
+                        && alias
+                            .rsplit_once('@')
+                            .unwrap()
+                            .1
+                            .eq_ignore_ascii_case(&d.name)
+                        && d.recipients.contains(dest)
+                        && !d.recipients.contains(alias),
+                    "invalid alias {alias}"
+                );
+            }
+        }
+        let arc_count = [
+            self.filter.arc_key.is_some(),
+            self.filter.arc_domain.is_some(),
+            self.filter.arc_selector.is_some(),
+        ]
+        .iter()
+        .filter(|v| **v)
+        .count();
+        ensure!(
+            arc_count == 0 || arc_count == 3,
+            "ARC needs key, domain and selector"
+        );
+        if let Some(d) = &self.filter.arc_domain {
+            ensure!(valid_domain(d), "invalid ARC domain");
+        }
+        if let Some(s) = &self.filter.arc_selector {
+            ensure!(valid_domain(s), "invalid ARC selector");
+        }
+        if self.filter.mode == Mode::Tag {
+            ensure!(
+                arc_count == 3 && self.filter.authentication,
+                "tag mode requires authentication and ARC sealing"
+            );
+            let report = self
+                .filter
+                .proton_report
+                .as_ref()
+                .context("tag mode requires a Proton compatibility report")?;
+            let report: CompatibilityReport = serde_json::from_slice(&std::fs::read(report)?)?;
+            report.validate(self)?;
+        }
+        Ok(())
+    }
+    pub fn recipient(&self, address: &str) -> Option<Recipient> {
+        let (local, domain) = address.rsplit_once('@')?;
+        let d = self
+            .domains
+            .iter()
+            .find(|d| d.name.eq_ignore_ascii_case(domain))?;
+        let address = format!("{local}@{}", d.name);
+        let dest = if d.recipients.contains(&address) {
+            address.clone()
+        } else {
+            d.aliases.get(&address)?.clone()
+        };
+        Some(Recipient {
+            address,
+            destination: dest,
+            hosts: d.next_hops.clone(),
+        })
+    }
+}
+pub const PROTON_CASES: &[&str] = &[
+    "dkim",
+    "spf_only",
+    "dmarc_reject",
+    "mailing_list",
+    "forwarded",
+    "international_subject",
+    "bypass",
+    "proton_internal",
+];
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CompatibilityReport {
+    pub hostname: String,
+    pub domains: Vec<String>,
+    pub tested_at: i64,
+    pub prefix: String,
+    pub cases: BTreeMap<String, CompatibilityCase>,
+    pub bypass_limit_accepted: bool,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CompatibilityCase {
+    pub passed: bool,
+    pub evidence: String,
+}
+impl CompatibilityReport {
+    pub fn validate(&self, config: &Config) -> Result<()> {
+        ensure!(
+            self.hostname == config.hostname && self.prefix == "[SPAM]",
+            "report does not match deployment"
+        );
+        ensure!(
+            self.tested_at <= crate::now() && crate::now() - self.tested_at < 30 * 86400,
+            "report must be less than 30 days old"
+        );
+        ensure!(
+            config
+                .domains
+                .iter()
+                .all(|d| self.domains.contains(&d.name)),
+            "report missing a configured domain"
+        );
+        for case in PROTON_CASES {
+            match self.cases.get(*case) {
+                Some(c) if c.passed && c.evidence.trim().len() >= 20 => {}
+                _ => bail!("Proton case {case} has not been validated with evidence"),
+            }
+        }
+        ensure!(
+            self.bypass_limit_accepted,
+            "document and accept the Proton direct/internal delivery coverage limitation"
+        );
+        Ok(())
+    }
+}

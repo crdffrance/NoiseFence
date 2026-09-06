@@ -1,0 +1,69 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.98.0'
+      - name: Check version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/version.py --check --tag "$RELEASE_TAG"
+      - name: Build static console
+        working-directory: web
+        run: npm ci && npx tsc --noEmit && npm run lint && npm run build
+      - name: Build and test Linux binary on Bookworm
+        run: |
+          docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
+            rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
+            sh -c 'cargo test --locked && cargo build --release --locked'
+      - run: python3 scripts/collect_licenses.py
+      - name: Assemble release
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: python3 scripts/package_release.py --binary target/release/noisefence --platform "$PLATFORM"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            release/noisefence-*.tar.gz
+            release/noisefence-*.tar.gz.sha256
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish experimental release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release/*.tar.gz release/*.sha256 \
+            --verify-tag --prerelease --title "NoiseFence $RELEASE_TAG" \
+            --notes-file CHANGELOG.md

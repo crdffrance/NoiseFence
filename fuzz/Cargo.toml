@@ -1,0 +1,30 @@
+[package]
+name = "noisefence-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+noisefence = { path = ".." }
+tokio = { version = "1", features = ["rt", "io-util", "time"] }
+
+[[bin]]
+name = "message"
+path = "fuzz_targets/message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smtp"
+path = "fuzz_targets/smtp.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

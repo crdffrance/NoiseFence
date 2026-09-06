@@ -1,0 +1,30 @@
+hostname = "gateway.example.test"
+data_dir = "var/development"
+
+[smtp]
+listen = "127.0.0.1:2525"
+minimum_free_bytes = 10485760
+
+[web]
+listen = "127.0.0.1:18080"
+public_origin = "http://127.0.0.1:3000"
+static_dir = "web/dist/client"
+secure_cookies = false
+
+[filter]
+mode = "observe"
+threshold = 95.0
+authentication = false
+
+[relay]
+require_tls = false
+allow_loopback_plaintext = true
+port = 2526
+postmaster = "postmaster@example.test"
+
+[[domains]]
+name = "example.test"
+next_hops = ["127.0.0.1"]
+recipients = ["alice@example.test", "bob@example.test"]
+[domains.aliases]
+"billing@example.test" = "alice@example.test"

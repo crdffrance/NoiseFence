@@ -1,0 +1,47 @@
+# Template only. Confirm DNS names, certificates, recipients and Linux paths.
+hostname = "mx.example.org"
+data_dir = "/var/lib/noisefence"
+
+[smtp]
+listen = "0.0.0.0:25"
+tls_cert = "/etc/noisefence/tls/fullchain.pem"
+tls_key = "/etc/noisefence/tls/key.pem"
+max_message_bytes = 26214400
+max_connections = 128
+max_connections_per_ip = 8
+max_recipients = 100
+command_timeout_seconds = 300
+minimum_free_bytes = 1073741824
+
+[web]
+listen = "127.0.0.1:8080"
+public_origin = "https://noisefence.example.org"
+static_dir = "/opt/noisefence/web"
+secure_cookies = true
+
+[filter]
+mode = "observe"
+threshold = 95.0
+authentication = true
+max_analysis_bytes = 2097152
+# spamhaus_key_env = "SPAMHAUS_DQS_KEY"
+# model = "/var/lib/noisefence/models/active.json"
+# arc_key = "/etc/noisefence/arc/rsa.pem" # RSA PKCS#1 PEM
+# arc_domain = "example.org"
+# arc_selector = "gateway2026"
+# proton_report = "/etc/noisefence/proton-validation.json"
+
+[relay]
+workers = 8
+require_tls = true
+port = 25
+max_queue_age_seconds = 432000
+postmaster = "postmaster@example.org"
+
+[[domains]]
+name = "example.org"
+next_hops = ["mail.protonmail.ch", "mailsec.protonmail.ch"]
+# List only real active Proton addresses. Empty = refuse every recipient.
+recipients = []
+[domains.aliases]
+# "alias@example.org" = "canonical@example.org"
