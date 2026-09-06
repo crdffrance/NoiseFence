@@ -4,6 +4,10 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+- Déploiement des certificats SMTP Let’s Encrypt par hook Certbot : validation du nom,
+  de la chaîne et de la clé, permissions restreintes, bascule atomique et retour arrière
+  si le redémarrage échoue. Tests du renouvellement ajoutés à la CI.
+
 ## [0.1.0] - 2026-09-06
 
 Première version open source de **NoiseFence**, sous GPL-3.0-only.

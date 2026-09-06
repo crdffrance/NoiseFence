@@ -32,6 +32,66 @@ Créer un compte système `noisefence`. Installer le binaire sous `/opt/noisefen
 
 Installer `deploy/noisefence.service` et configurer un proxy HTTPS avec le modèle `deploy/Caddyfile`. Renseigner des certificats SMTP valides pour le hostname de la passerelle ; le certificat HTTPS du proxy n’est pas automatiquement celui du SMTP. Prévoir le renouvellement et le redémarrage du service pour charger les nouveaux certificats.
 
+### Certificat SMTP Let’s Encrypt
+
+Le hook `deploy/certbot-deploy.py` nécessite Python 3.11+, OpenSSL et systemd.
+Le nom A du serveur doit pointer vers son IP, le reverse doit être cohérent, et le
+port TCP/80 doit être accessible pour le challenge HTTP-01. Ne publier un AAAA que
+si IPv6 fonctionne. Le mode Certbot standalone utilise temporairement le port 80 ;
+il faut le conserver disponible pour les renouvellements. Si un serveur HTTP est
+installé ensuite, adapter la méthode ACME à son webroot ou au DNS.
+
+Sur Debian, installer Certbot puis obtenir le certificat du hostname réellement
+configuré dans NoiseFence. Remplacer les valeurs d’exemple :
+
+```sh
+sudo apt-get install --no-install-recommends certbot
+sudo certbot certonly --standalone --preferred-challenges http \
+  --non-interactive --agree-tos --email admin@example.org \
+  --cert-name mx.example.org -d mx.example.org --key-type rsa --rsa-key-size 2048
+```
+
+Configurer `smtp.tls_cert = "/etc/noisefence/tls/current/fullchain.pem"` et
+`smtp.tls_key = "/etc/noisefence/tls/current/key.pem"`. Le hook ne change ni
+l’adresse d’écoute SMTP, ni les destinataires, ni le mode de filtrage.
+
+```sh
+sudo install -d -m 0755 /usr/local/libexec /etc/letsencrypt/renewal-hooks/deploy
+sudo install -m 0755 deploy/certbot-deploy.py /usr/local/libexec/noisefence-certbot-deploy
+sudo ln -sfn /usr/local/libexec/noisefence-certbot-deploy \
+  /etc/letsencrypt/renewal-hooks/deploy/noisefence
+sudo env RENEWED_LINEAGE=/etc/letsencrypt/live/mx.example.org \
+  /usr/local/libexec/noisefence-certbot-deploy
+sudo systemctl enable --now certbot.timer
+```
+
+Seul le certificat dont le nom Certbot correspond au hostname NoiseFence est traité.
+Avant activation, le hook vérifie la chaîne de confiance, le nom DNS, la validité
+pour au moins 24 heures et la correspondance de la clé privée. Il prépare un
+répertoire de version en `root:noisefence`, fichiers 0640 et répertoires 0750,
+puis remplace atomiquement le lien `current`. Il redémarre le service s’il est actif
+pour charger le nouveau certificat. Si la commande de redémarrage échoue, il restaure
+le lien précédent et tente de redémarrer l’ancienne version. Les anciennes versions
+du certificat sont conservées dans `tls/versions` pour le retour arrière.
+
+Vérifier l’émission future avec `sudo certbot renew --cert-name mx.example.org --dry-run`.
+Cette simulation ne déploie pas son certificat de test et n’exécute pas les hooks
+de déploiement par défaut. Contrôler aussi `systemctl list-timers certbot.timer`,
+`journalctl -u certbot.service` et l’expiration du certificat effectivement présenté
+par SMTP. Ajouter une alerte si celui-ci expire dans moins de 14 jours.
+
+Sur le port réellement configuré, valider STARTTLS et le nom du certificat :
+
+```sh
+openssl s_client -starttls smtp -connect 127.0.0.1:2525 \
+  -servername mx.example.org -verify_hostname mx.example.org \
+  -verify_return_error -brief </dev/null
+```
+
+Utiliser `mx.example.org:25` pour vérifier une écoute publique déjà activée. Le
+certificat SMTP ne met pas la console web en HTTPS et ne valide pas le relais Proton.
+Référence : [guide Certbot](https://eff-certbot.readthedocs.io/en/stable/using.html).
+
 Le port API 8080 reste lié à loopback. Exposer SMTP/25 et HTTPS/443, plus le port requis par la méthode choisie d’obtention des certificats. Les contrôles d’origine et cookies sécurisés restent actifs en production.
 
 Créer les comptes et leurs adresses via la CLI avant de donner accès à la console. La table des destinataires doit rester synchronisée avec les adresses Proton actives : pas de sondage opportuniste `RCPT TO` chez Proton, pas de catch-all implicite. Les alias sont des correspondances explicites vers une adresse canonique locale au domaine. Le rôle administrateur donne accès aux mesures globales, pas aux messages d’autres utilisateurs sans attribution d’adresse.
