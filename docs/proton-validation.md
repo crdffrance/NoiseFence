@@ -6,7 +6,7 @@ La passerelle conserve Proton comme destination. Sa mise en production dépend d
 
 1. Utiliser une adresse ou un sous-domaine de test contrôlé dans Proton, et un expéditeur de test contrôlé. Renseigner les adresses et le serveur de test dans une configuration locale exclue de Git.
 2. Confirmer auprès de l’hébergeur que TCP/25 est disponible dans les deux sens. Contrôler A/AAAA, reverse DNS et certificat de la passerelle. Ne publier AAAA que si le routage IPv6 fonctionne.
-3. Copier `config/crdf.example.toml`, renseigner les destinataires réels et les certificats, conserver `mode = "observe"`.
+3. Copier `config/production.example.toml` vers `config/local.toml`, renseigner les destinataires réels et les certificats, conserver `mode = "observe"`.
 4. Préparer une clé RSA ARC et publier la clé publique sous `SELECTEUR._domainkey.example.org`. Fournir la clé privée, le domaine et le sélecteur dans la configuration. Les clés PKCS#1 et PKCS#8 PEM sont acceptées. La clé reste lisible uniquement par le service.
 5. Vérifier le support actuel du relais avec Proton. [Proton décrit une confiance ARC limitée à certains intermédiaires](https://proton.me/blog/what-is-authenticated-received-chain-arc) ; une chaîne ARC valide ne suffit pas à nous ajouter à cette liste. ARC reste implémenté pour l’interopérabilité Proton ; le protocole historique n’est pas présenté comme une garantie de délivrabilité.
 
