@@ -1,0 +1,17 @@
+{
+  "version": "8.0.0",
+  "commit": "a6ac0e3b02e3a9c3c40f3d3fc6784f869ada43e9",
+  "repository": "https://github.com/extremeshok/clamav-unofficial-sigs",
+  "license": "BSD-3-Clause",
+  "sanesecurity_key": {
+    "url": "https://www.sanesecurity.com/publickey.gpg",
+    "sha256": "ca6ad39c62ecc8dd362a0b02b3e0c5a427b146657c72f015a96e541c70608bae",
+    "fingerprint": "4E025A1CBA90A0653F38D2D8D691DED931EA4D9E"
+  },
+  "files": {
+    "clamav-unofficial-sigs.sh": "02e7c4407e16e84d120b579d783feaae739eedafba2e080e57955b27a38ba874",
+    "config/master.conf": "9a9b924dcd2a8110165bed604a588a0b5db57e4778273fbba8d01ca6b31f5b36",
+    "config/os/os.debian.conf": "86ddaa41bcc73237d5cb870148a38dc8ae79e2c43f0c2577c1f1ccbba7102b79",
+    "LICENSE": "5e693bd6ef3337a9393e0ea1415e638ea57c28e3d1029b6a4ff377687308051f"
+  }
+}

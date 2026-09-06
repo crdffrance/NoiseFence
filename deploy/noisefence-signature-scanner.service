@@ -1,0 +1,27 @@
+[Unit]
+Description=NoiseFence advisory ClamAV signature scanner
+After=network-online.target
+
+[Service]
+Type=simple
+User=clamav
+Group=clamav
+ExecStart=/usr/sbin/clamd --foreground=true --config-file=/etc/clamav/noisefence-signatures.conf
+Restart=on-failure
+RestartSec=30
+RuntimeDirectory=noisefence-signatures
+RuntimeDirectoryMode=0750
+StateDirectory=noisefence-signatures
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/lib/noisefence-signatures
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=1G
+CPUQuota=100%
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

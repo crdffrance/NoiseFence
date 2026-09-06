@@ -14,6 +14,9 @@ pub struct Config {
     pub smtp: Smtp,
     pub web: Web,
     pub filter: Filter,
+    pub antivirus: Option<crate::antivirus::AntivirusConfig>,
+    pub signatures: Option<crate::antivirus::AntivirusConfig>,
+    pub llm: Option<crate::llm::LlmConfig>,
     pub relay: Relay,
     pub domains: Vec<Domain>,
 }
@@ -187,6 +190,33 @@ impl Config {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(valid_domain(&self.hostname), "invalid hostname");
+        if let Some(llm) = &self.llm {
+            llm.validate()?;
+        }
+        if let Some(antivirus) = &self.antivirus {
+            antivirus.validate()?;
+            ensure!(
+                antivirus.max_bytes >= self.smtp.max_message_bytes,
+                "ClamAV stream limit must cover the SMTP message size limit"
+            );
+        }
+        if let Some(signatures) = &self.signatures {
+            signatures.validate()?;
+            ensure!(
+                signatures.max_bytes >= self.smtp.max_message_bytes,
+                "signature stream limit must cover SMTP message size"
+            );
+            ensure!(
+                signatures.trusted_unofficial_prefixes.is_empty(),
+                "complementary signatures must remain advisory"
+            );
+            ensure!(
+                self.antivirus
+                    .as_ref()
+                    .is_none_or(|av| av.socket != signatures.socket),
+                "official and complementary signatures require separate scanner sockets"
+            );
+        }
         ensure!(
             self.smtp.max_connections > 0
                 && self.smtp.max_connections <= 4096

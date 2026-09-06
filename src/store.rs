@@ -47,6 +47,9 @@ pub struct VisibleMail {
     pub reasons: Vec<crate::engine::Signal>,
     pub recipients: Vec<VisibleRecipient>,
     pub feedback: Option<bool>,
+    pub antivirus: crate::antivirus::AntivirusResult,
+    pub signatures: crate::antivirus::AntivirusResult,
+    pub llm: crate::llm::LlmResult,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct User {
@@ -295,7 +298,7 @@ impl Store {
                 let (id,created,sender,scan,feedback)=row?;let s:Scan=serde_json::from_str(&scan)?;
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status FROM deliveries d JOIN grants g ON g.address=d.destination WHERE d.message_id=?1 AND g.username=?2")?;
                 let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{address:r.get(0)?,status:r.get(1)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback});
+                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm});
             }Ok(out)
         }).await
     }

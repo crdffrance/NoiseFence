@@ -125,6 +125,11 @@ Au démarrage, les livraisons interrompues repassent en attente. Les fichiers de
 
 ## Entraînement périodique
 
+Pour les connecteurs facultatifs de la branche de développement, consulter
+[ClamAV et les signatures](antivirus.md) et [l'isolation Scaleway](scaleway.md).
+Ils n'existent pas dans le binaire de la release 0.1.0. Le [plan de validation](detection-roadmap.md)
+décrit la comparaison des technologies et les conditions d'activation.
+
 Créer `/var/lib/noisefence/models` avant d’installer le timer fourni. Il exporte les annotations actuelles et entraîne un candidat ; il échoue explicitement quand un sous-ensemble ne contient pas les deux classes. Son activation est volontairement indépendante de la réception SMTP.
 
 Comparer le candidat sur un corpus récent conservé pour la validation. Un modèle qui respecte son évaluation textuelle nécessite encore la validation du pipeline complet. `model-activate` vérifie le hachage du modèle et le rapport, puis remplace atomiquement le modèle actif. Redémarrer le service pour charger la nouvelle version. Conserver la version précédente pour un retour arrière.

@@ -48,10 +48,25 @@ pub struct Scan {
     pub sender: String,
     pub fingerprint: String,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub antivirus: crate::antivirus::AntivirusResult,
+    #[serde(default)]
+    pub signatures: crate::antivirus::AntivirusResult,
+    #[serde(default)]
+    pub llm: crate::llm::LlmResult,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum Algorithm {
+    #[default]
+    Logistic,
+    BernoulliNb,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Model {
     pub version: String,
+    #[serde(default)]
+    pub algorithm: Algorithm,
     pub feature_version: u32,
     pub bias: f64,
     pub weights: Vec<f64>,
@@ -64,7 +79,8 @@ impl Model {
     pub fn load(path: &Path) -> Result<Self> {
         let m: Self = serde_json::from_slice(&std::fs::read(path)?)?;
         ensure!(
-            m.feature_version == 1
+            ((m.feature_version == 1 && m.algorithm == Algorithm::Logistic)
+                || (m.feature_version == 2 && m.algorithm == Algorithm::BernoulliNb))
                 && m.weights.len() == FEATURE_COUNT
                 && m.weights.iter().all(|v| v.is_finite())
                 && (m.idf.is_empty()
@@ -72,6 +88,10 @@ impl Model {
                         && m.idf.iter().all(|x| x.is_finite() && *x > 0.0)))
                 && m.bias.is_finite(),
             "invalid model"
+        );
+        ensure!(
+            m.algorithm != Algorithm::BernoulliNb || m.idf.is_empty(),
+            "Bernoulli model must use binary presence features"
         );
         ensure!(
             !m.version.is_empty()
@@ -83,6 +103,13 @@ impl Model {
         Ok(m)
     }
     pub fn logit(&self, f: &[(usize, f64)]) -> f64 {
+        if self.algorithm == Algorithm::BernoulliNb {
+            return self.bias
+                + f.iter()
+                    .filter(|(_, value)| *value != 0.0)
+                    .map(|(index, _)| self.weights[*index])
+                    .sum::<f64>();
+        }
         if self.idf.is_empty() {
             return self.bias + f.iter().map(|(i, x)| self.weights[*i] * x).sum::<f64>();
         }
@@ -300,9 +327,16 @@ pub struct Engine {
     arc_key: Option<String>,
     dqs_key: Option<String>,
     dqs_cache: Mutex<HashMap<String, (Instant, bool)>>,
+    llm: Option<crate::llm::Client>,
 }
 impl Engine {
     pub fn new(config: Arc<Config>) -> Result<Self> {
+        let llm = config
+            .llm
+            .as_ref()
+            .filter(|c| c.monthly_budget_micro_eur > 0)
+            .map(|c| crate::llm::Client::new(c.clone(), &config.data_dir))
+            .transpose()?;
         let model = config
             .filter
             .model
@@ -339,6 +373,7 @@ impl Engine {
             arc_key,
             dqs_key,
             dqs_cache: Mutex::new(HashMap::new()),
+            llm,
         })
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
@@ -459,6 +494,77 @@ impl Engine {
         let started = Instant::now();
         let mut scan = extract(raw, self.config.filter.max_analysis_bytes);
         let headers = message::fields(raw)?.0;
+        let (antivirus, signatures) = tokio::join!(
+            async {
+                match &self.config.antivirus {
+                    Some(config) => crate::antivirus::scan(config, raw).await,
+                    None => Default::default(),
+                }
+            },
+            async {
+                match &self.config.signatures {
+                    Some(config) => crate::antivirus::scan(config, raw).await,
+                    None => Default::default(),
+                }
+            }
+        );
+        scan.antivirus = antivirus;
+        scan.signatures = signatures;
+        if self.config.antivirus.is_some() {
+            use crate::antivirus::AntivirusStatus;
+            let (detail, weight) = match scan.antivirus.status {
+                AntivirusStatus::Disabled | AntivirusStatus::Clean => (None, 0.0),
+                AntivirusStatus::Malware => {
+                    (Some("Détection antivirus de fichier malveillant"), 0.0)
+                }
+                AntivirusStatus::Suspicious => (Some("Signature antivirus consultative"), 1.0),
+                AntivirusStatus::Unscannable => {
+                    scan.complete = false;
+                    (Some("Analyse antivirus limitée ou contenu chiffré"), 0.0)
+                }
+                AntivirusStatus::Unavailable => {
+                    scan.complete = false;
+                    (Some("Service antivirus indisponible ou délai dépassé"), 0.0)
+                }
+            };
+            if let Some(detail) = detail {
+                scan.reasons.push(Signal {
+                    id: "antivirus".into(),
+                    detail: match &scan.antivirus.signature {
+                        Some(signature) => format!("{detail} : {signature}"),
+                        None => detail.into(),
+                    },
+                    weight,
+                });
+            }
+        }
+        if self.config.signatures.is_some() {
+            use crate::antivirus::AntivirusStatus;
+            // This separate daemon is an advisory source, regardless of its signature label.
+            if scan.signatures.status == AntivirusStatus::Malware {
+                scan.signatures.status = AntivirusStatus::Suspicious;
+            }
+            match scan.signatures.status {
+                AntivirusStatus::Suspicious => scan.reasons.push(Signal {
+                    id: "complementary_signature".into(),
+                    detail: format!(
+                        "Signature complémentaire consultative : {}",
+                        scan.signatures.signature.as_deref().unwrap_or("inconnue")
+                    ),
+                    weight: 1.0,
+                }),
+                AntivirusStatus::Unscannable | AntivirusStatus::Unavailable => {
+                    scan.complete = false;
+                    scan.reasons.push(Signal {
+                        id: "complementary_signature_unavailable".into(),
+                        detail: "Analyse des signatures complémentaires indisponible ou limitée"
+                            .into(),
+                        weight: 0.0,
+                    });
+                }
+                _ => {}
+            }
+        }
         if headers
             .iter()
             .filter(|h| message::name(h) == "dkim-signature")
@@ -537,8 +643,48 @@ impl Engine {
             }
             self.reputation(ip, raw, &mut scan).await?;
             self.score(&mut scan);
-            let tag =
-                self.config.filter.mode == Mode::Tag && scan.score >= self.config.filter.threshold;
+            if scan.complete
+                && let Some(llm) = &self.llm
+                && scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware
+            {
+                // Preserve an attempted-check marker if the enclosing DNS/LLM deadline cancels it.
+                scan.llm.status = crate::llm::LlmStatus::Unavailable;
+                scan.llm.prompt_version = crate::llm::PROMPT_VERSION.into();
+                scan.llm.model = self.config.llm.as_ref().unwrap().model.clone();
+                scan.llm = llm.classify(raw, scan.score).await;
+                if let Some(verdict) = &scan.llm.verdict {
+                    let weight = match verdict.category {
+                        crate::llm::Category::Spam | crate::llm::Category::Phishing
+                            if verdict.confidence >= 0.9 && verdict.spam_probability >= 0.9 =>
+                        {
+                            1.5
+                        }
+                        crate::llm::Category::Legitimate
+                            if verdict.confidence >= 0.95 && verdict.spam_probability <= 0.1 =>
+                        {
+                            -0.5
+                        }
+                        _ => 0.0,
+                    };
+                    scan.reasons.push(Signal {
+                        id: "llm_advisory".into(),
+                        detail: format!("Analyse LLM consultative : {}", verdict.explanation),
+                        weight,
+                    });
+                    self.score(&mut scan);
+                } else if matches!(scan.llm.status, crate::llm::LlmStatus::Unavailable) {
+                    scan.complete = false;
+                    scan.reasons.push(Signal {
+                        id: "llm_unavailable".into(),
+                        detail: "Analyse LLM indisponible ; résultat local conservé sans préfixe"
+                            .into(),
+                        weight: 0.0,
+                    });
+                }
+            }
+            let tag = scan.complete
+                && self.config.filter.mode == Mode::Tag
+                && scan.score >= self.config.filter.threshold;
             // If the chain cannot be extended, preserve the signed subject and fail open.
             if tag && !arc.can_be_sealed() {
                 anyhow::bail!("ARC chain cannot be extended");

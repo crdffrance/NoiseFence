@@ -1,0 +1,23 @@
+[Unit]
+Description=NoiseFence complementary ClamAV signature updates
+After=network-online.target noisefence-signature-scanner.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clamav
+Group=clamav
+StateDirectory=noisefence-signatures clamav-unofficial-sigs
+LogsDirectory=clamav-unofficial-sigs
+ExecStartPre=/usr/bin/test -x /usr/bin/gpg
+ExecStart=/usr/local/sbin/clamav-unofficial-sigs
+TimeoutStartSec=20min
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/noisefence-signatures /var/lib/clamav-unofficial-sigs /var/log/clamav-unofficial-sigs
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=768M
+CPUQuota=100%

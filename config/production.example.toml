@@ -31,6 +31,35 @@ max_analysis_bytes = 2097152
 # arc_selector = "gateway2026"
 # proton_report = "/etc/noisefence/proton-validation.json"
 
+# Optional local scanner; see docs/antivirus.md before enabling it.
+# [antivirus]
+# socket = "/run/clamav/clamd.ctl"
+# timeout_ms = 3000
+# max_bytes = 26214400
+# trusted_unofficial_prefixes = []
+
+# Separate advisory scanner: prevents a spam match from hiding a malware match.
+# [signatures]
+# socket = "/run/noisefence-signatures/clamd.ctl"
+# timeout_ms = 3000
+# max_bytes = 26214400
+
+# Optional paid external text analysis; disabled until explicitly configured.
+# [llm]
+# project_id = "00000000-0000-0000-0000-000000000000" # Replace with isolated project
+# model = "mistral-small-3.2-24b-instruct-2506"
+# api_key_env = "NOISEFENCE_SCALEWAY_API_KEY"
+# monthly_budget_micro_eur = 0 # 0 disables calls; 20000000 = EUR 20
+# input_micro_eur_per_million = 150000 # Recheck provider prices before enabling
+# output_micro_eur_per_million = 350000
+# pricing_checked_at = 0 # Unix UTC timestamp; calls stop after 30 days
+# timeout_ms = 2500
+# max_text_bytes = 12000
+# max_output_tokens = 256
+# score_low = 20.0
+# score_high = 98.0
+# max_parallel = 2
+
 [relay]
 workers = 8
 require_tls = true

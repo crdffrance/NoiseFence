@@ -5,7 +5,7 @@ leurs licences respectives. `Cargo.lock` et `web/package-lock.json` identifient 
 versions exactes et permettent de retrouver leurs sources dans les registres officiels.
 
 Le serveur utilise notamment Tokio, rustls/ring, mail-auth, mail-parser, Axum,
-rusqlite/SQLite et Argon2. Les composants graphiques proviennent de shadcn/ui (MIT)
+rusqlite/SQLite, Argon2 et reqwest (MIT/Apache-2.0). Les composants graphiques proviennent de shadcn/ui (MIT)
 et Base UI (MIT), avec React (MIT) et Lucide (ISC). Les composants générés conservés
 dans `web/components/ui` dérivent de shadcn/ui ; leurs notices sont reproduites dans
 `licenses/shadcn-ui-MIT.txt`.
@@ -17,3 +17,11 @@ ce dossier associe chaque dépendance à sa déclaration de licence et à ses no
 Le corpus public SpamAssassin se télécharge séparément à la demande de l’exploitant.
 Les emails du corpus, les modèles entraînés et les annotations utilisateurs ne sont
 pas distribués comme code du projet.
+
+ClamAV s'installe séparément et conserve sa licence GPL. Le programme facultatif
+clamav-unofficial-sigs conserve sa licence BSD-3-Clause et ses mentions d'origine ;
+le téléchargeur récupère aussi son fichier LICENSE, à installer avec le programme.
+Les bases de signatures ont leurs propres conditions d'utilisation et ne sont pas
+redistribuées dans les archives NoiseFence. Le manifeste épingle les sources du
+programme, pas une copie perpétuelle des bases. L'accès Scaleway relève du compte
+et des conditions du fournisseur ; aucun modèle LLM ni secret n'est distribué.

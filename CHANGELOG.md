@@ -4,6 +4,17 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+- Préversion de développement `0.2.0-dev.1` : connecteurs ClamAV officiels et
+  signatures complémentaires sur sockets Unix distinctes, limites et verdicts
+  visibles dans la console. Profil Sanesecurity LOW, sources et clé épinglées,
+  services systemd et test réel EICAR fournis. Pas de quarantaine implémentée.
+- Client Scaleway facultatif : HTTPS vérifié, extrait MIME borné, JSON fermé,
+  budget SQLite réservé avant appel, tarification explicite et aucune relance
+  automatique. Échanges testés localement ; validation cloud encore nécessaire.
+- Candidat Bernoulli Bayes et comparaison reproductible avec la régression
+  logistique. Contrôles d'activation conservés ; objectifs de qualité non atteints.
+- Plan de données récentes, comparaison des technologies, calibration et validation
+  du pipeline complet. Aucun de ces nouveaux connecteurs n'est activé par défaut.
 - Déploiement des certificats SMTP Let’s Encrypt par hook Certbot : validation du nom,
   de la chaîne et de la clé, permissions restreintes, bascule atomique et retour arrière
   si le redémarrage échoue. Tests du renouvellement ajoutés à la CI.

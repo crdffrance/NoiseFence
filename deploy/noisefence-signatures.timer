@@ -1,0 +1,11 @@
+[Unit]
+Description=Update NoiseFence complementary signatures every two hours
+
+[Timer]
+OnCalendar=*-*-* 00/2:00:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=noisefence-signatures.service
+
+[Install]
+WantedBy=timers.target

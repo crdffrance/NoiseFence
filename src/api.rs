@@ -398,6 +398,22 @@ async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>>
     }
     let mut result=app.store.run(|db|{let (queued,failed,oldest)=db.query_row("SELECT SUM(status IN ('pending','sending')),SUM(status='failed'),MIN(CASE WHEN status IN ('pending','sending') THEN m.created END) FROM deliveries d JOIN messages m ON m.id=d.message_id",[],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?)))?;let (count,incomplete,p95)=db.query_row("SELECT COUNT(*),COALESCE(SUM(json_extract(scan,'$.complete')=0),0),COALESCE(MAX(json_extract(scan,'$.elapsed_ms')),0) FROM messages WHERE created>?1",[now()-3600],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"queued_deliveries":queued,"unnotified_failures":failed,"oldest_pending_age_seconds":oldest.map(|t|now()-t),"received_last_hour":count,"incomplete_last_hour":incomplete,"max_analysis_ms_last_hour":p95}))}).await?;
     result["disk_available_bytes"] = json!(crate::store::available_bytes(&app.store.root)?);
+    if let Some(config) = &app.config.llm {
+        let path = app.store.root.join("llm-budget.sqlite3");
+        let mut usage = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+            if path.exists() {
+                crate::llm::Budget::open(&path)?.current()
+            } else {
+                Ok(json!({"accounted_micro_eur":0,"requests":0}))
+            }
+        })
+        .await
+        .map_err(anyhow::Error::from)??;
+        usage["monthly_budget_micro_eur"] = json!(config.monthly_budget_micro_eur);
+        usage["model"] = json!(config.model);
+        usage["pricing_checked_at"] = json!(config.pricing_checked_at);
+        result["llm_budget"] = usage;
+    }
     Ok(Json(result))
 }
 async fn security_headers(req: Request, next: Next) -> Response {

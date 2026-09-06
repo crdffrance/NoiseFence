@@ -54,6 +54,8 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value_t = 95.0)]
         threshold: f64,
+        #[arg(long, value_enum, default_value_t = noisefence::engine::Algorithm::Logistic)]
+        algorithm: noisefence::engine::Algorithm,
     },
     ModelActivate {
         candidate: PathBuf,
@@ -111,11 +113,12 @@ async fn main() -> Result<()> {
             input,
             output,
             threshold,
+            algorithm,
         } => {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&noisefence::corpus::train(
-                    input, output, *threshold
+                serde_json::to_string_pretty(&noisefence::corpus::train_with_algorithm(
+                    input, output, *threshold, *algorithm
                 )?)?
             );
             return Ok(());

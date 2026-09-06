@@ -1,5 +1,5 @@
 use crate::{
-    engine::{FEATURE_COUNT, Model, Scan, extract, sigmoid},
+    engine::{Algorithm, FEATURE_COUNT, Model, Scan, extract, sigmoid},
     message, now,
 };
 use anyhow::{Result, ensure};
@@ -30,6 +30,8 @@ pub struct Metrics {
 }
 #[derive(Serialize, Deserialize)]
 pub struct Report {
+    #[serde(default)]
+    pub algorithm: Algorithm,
     pub model_sha256: String,
     pub corpus_sha256: String,
     pub created: i64,
@@ -100,6 +102,11 @@ pub fn load_examples(path: &Path) -> Result<Vec<Example>> {
                     .all(|(i, x)| *i < FEATURE_COUNT && x.is_finite() && x.abs() <= 1.0),
             "invalid corpus features"
         );
+        let indices: HashSet<usize> = e.features.iter().map(|(i, _)| *i).collect();
+        ensure!(
+            indices.len() == e.features.len(),
+            "duplicate corpus feature index"
+        );
         if let Some(label) = labels.insert(e.fingerprint.clone(), e.spam) {
             ensure!(
                 label == e.spam,
@@ -147,6 +154,14 @@ pub fn import(ham: &Path, spam: &Path, output: &Path) -> Result<usize> {
     Ok(count)
 }
 pub fn train(input: &Path, output: &Path, threshold: f64) -> Result<Report> {
+    train_with_algorithm(input, output, threshold, Algorithm::Logistic)
+}
+pub fn train_with_algorithm(
+    input: &Path,
+    output: &Path,
+    threshold: f64,
+    algorithm: Algorithm,
+) -> Result<Report> {
     ensure!(
         threshold.is_finite() && (0.0..=100.0).contains(&threshold),
         "invalid threshold"
@@ -175,60 +190,77 @@ pub fn train(input: &Path, output: &Path, threshold: f64) -> Result<Report> {
         );
     }
     let mut model = Model {
-        version: format!("lr-{}", now()),
-        feature_version: 1,
+        version: format!(
+            "{}-{}",
+            if algorithm == Algorithm::Logistic {
+                "lr"
+            } else {
+                "bnb"
+            },
+            now()
+        ),
+        algorithm,
+        feature_version: if algorithm == Algorithm::Logistic {
+            1
+        } else {
+            2
+        },
         bias: 0.0,
         weights: vec![0.0; FEATURE_COUNT],
         idf: vec![1.0; FEATURE_COUNT],
         trained_at: now(),
         examples: train.len(),
     };
-    let mut frequencies = vec![0usize; FEATURE_COUNT];
-    for e in &train {
-        for (i, _) in &e.features {
-            frequencies[*i] += 1;
-        }
-    }
-    for (idf, df) in model.idf.iter_mut().zip(frequencies) {
-        *idf = ((train.len() + 1) as f64 / (df + 1) as f64).ln() + 1.0;
-    }
-    let matrix: Vec<Vec<(usize, f64)>> = train
-        .iter()
-        .map(|e| {
-            let norm = e
-                .features
-                .iter()
-                .map(|(i, x)| (x * model.idf[*i]).powi(2))
-                .sum::<f64>()
-                .sqrt()
-                .max(1e-12);
-            e.features
-                .iter()
-                .map(|(i, x)| (*i, x * model.idf[*i] / norm))
-                .collect()
-        })
-        .collect();
-    // IDF is fitted only on training data. Full-batch L2 logistic regression.
-    for _ in 0..1000 {
-        let mut gradient = vec![0.0; FEATURE_COUNT];
-        let mut bias = 0.0;
-        for (e, features) in train.iter().zip(&matrix) {
-            let logit = model.bias
-                + features
-                    .iter()
-                    .map(|(i, x)| model.weights[*i] * x)
-                    .sum::<f64>();
-            let error = sigmoid(logit) - if e.spam { 1.0 } else { 0.0 };
-            bias += error;
-            for (i, x) in features {
-                gradient[*i] += error * x;
+    if algorithm == Algorithm::Logistic {
+        let mut frequencies = vec![0usize; FEATURE_COUNT];
+        for e in &train {
+            for (i, _) in &e.features {
+                frequencies[*i] += 1;
             }
         }
-        let n = train.len() as f64;
-        model.bias -= 4.0 * bias / n;
-        for (w, g) in model.weights.iter_mut().zip(gradient) {
-            *w -= 4.0 * (g / n + 0.00001 * *w);
+        for (idf, df) in model.idf.iter_mut().zip(frequencies) {
+            *idf = ((train.len() + 1) as f64 / (df + 1) as f64).ln() + 1.0;
         }
+        let matrix: Vec<Vec<(usize, f64)>> = train
+            .iter()
+            .map(|e| {
+                let norm = e
+                    .features
+                    .iter()
+                    .map(|(i, x)| (x * model.idf[*i]).powi(2))
+                    .sum::<f64>()
+                    .sqrt()
+                    .max(1e-12);
+                e.features
+                    .iter()
+                    .map(|(i, x)| (*i, x * model.idf[*i] / norm))
+                    .collect()
+            })
+            .collect();
+        // IDF is fitted only on training data. Full-batch L2 logistic regression.
+        for _ in 0..1000 {
+            let mut gradient = vec![0.0; FEATURE_COUNT];
+            let mut bias = 0.0;
+            for (e, features) in train.iter().zip(&matrix) {
+                let logit = model.bias
+                    + features
+                        .iter()
+                        .map(|(i, x)| model.weights[*i] * x)
+                        .sum::<f64>();
+                let error = sigmoid(logit) - if e.spam { 1.0 } else { 0.0 };
+                bias += error;
+                for (i, x) in features {
+                    gradient[*i] += error * x;
+                }
+            }
+            let n = train.len() as f64;
+            model.bias -= 4.0 * bias / n;
+            for (w, g) in model.weights.iter_mut().zip(gradient) {
+                *w -= 4.0 * (g / n + 0.00001 * *w);
+            }
+        }
+    } else {
+        fit_bernoulli(&mut model, &train);
     }
     // Operating-point calibration uses validation ham only, never the test set.
     // Map its most permissive <=0.1% FPR cutoff to the configured suspicion index.
@@ -250,12 +282,38 @@ pub fn train(input: &Path, output: &Path, threshold: f64) -> Result<Report> {
         && validation.false_positive_rate <= 0.001
         && test.recall >= 0.95
         && test.fpr_ci95[1] <= 0.001;
-    let report=Report{model_sha256:message::digest(&bytes),corpus_sha256:message::digest(&fs::read(input)?),created:now(),threshold,split:"deterministic campaign-grouped 80/10/10; no temporal representativeness claim".into(),train:train.len(),validation,test,eligible,limitation:"Public historical data does not demonstrate current production capture. This evaluates text classification only; the full live pipeline needs separate recent validation.".into()};
+    let report=Report{algorithm,model_sha256:message::digest(&bytes),corpus_sha256:message::digest(&fs::read(input)?),created:now(),threshold,split:"deterministic campaign-grouped 80/10/10; no temporal representativeness claim".into(),train:train.len(),validation,test,eligible,limitation:"Public historical data does not demonstrate current production capture. This evaluates text classification only; the full live pipeline needs separate recent validation.".into()};
     fs::write(
         format!("{}.report.json", output.display()),
         serde_json::to_vec_pretty(&report)?,
     )?;
     Ok(report)
+}
+fn fit_bernoulli(model: &mut Model, examples: &[Example]) {
+    let mut counts = [vec![0usize; FEATURE_COUNT], vec![0usize; FEATURE_COUNT]];
+    let mut totals = [0usize; 2];
+    for example in examples {
+        let class = usize::from(example.spam);
+        totals[class] += 1;
+        for (index, value) in &example.features {
+            if *value != 0.0 {
+                counts[class][*index] += 1;
+            }
+        }
+    }
+    model.idf.clear();
+    model.bias = ((totals[1] + 1) as f64 / (totals[0] + 1) as f64).ln();
+    for (weight, (ham_count, spam_count)) in model
+        .weights
+        .iter_mut()
+        .zip(counts[0].iter().zip(&counts[1]))
+    {
+        let ham = (*ham_count + 1) as f64 / (totals[0] + 2) as f64;
+        let spam = (*spam_count + 1) as f64 / (totals[1] + 2) as f64;
+        let absent = ((1.0 - spam) / (1.0 - ham)).ln();
+        model.bias += absent;
+        *weight = (spam / ham).ln() - absent;
+    }
 }
 pub fn activate(candidate: &Path, report: &Path, destination: &Path) -> Result<()> {
     Model::load(candidate)?;
@@ -328,9 +386,51 @@ mod tests {
         assert!(wilson(0, 4000)[1] < 0.001);
     }
     #[test]
+    fn bernoulli_uses_presence_and_laplace_smoothed_likelihoods() {
+        let mut model = Model {
+            version: "bnb-test".into(),
+            algorithm: Algorithm::BernoulliNb,
+            feature_version: 2,
+            bias: 0.0,
+            weights: vec![0.0; FEATURE_COUNT],
+            idf: vec![],
+            trained_at: 0,
+            examples: 2,
+        };
+        let examples = vec![
+            Example {
+                spam: true,
+                fingerprint: "a".repeat(64),
+                features: vec![(1, 0.1)],
+            },
+            Example {
+                spam: false,
+                fingerprint: "b".repeat(64),
+                features: vec![(2, 0.9)],
+            },
+        ];
+        fit_bernoulli(&mut model, &examples);
+        assert!((sigmoid(model.logit(&[(1, 0.1)])) - 0.8).abs() < 1e-10);
+        assert!((sigmoid(model.logit(&[(2, 0.9)])) - 0.2).abs() < 1e-10);
+        assert_eq!(model.logit(&[(1, 0.1)]), model.logit(&[(1, 0.99)]));
+        assert!(model.idf.is_empty());
+        assert!(model.weights.iter().all(|weight| weight.is_finite()));
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("model.json");
+        fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+        assert_eq!(
+            Model::load(&path).unwrap().algorithm,
+            Algorithm::BernoulliNb
+        );
+        model.feature_version = 1;
+        fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+        assert!(Model::load(&path).is_err());
+    }
+    #[test]
     fn metrics_defined_for_empty_corpus() {
         let m = Model {
             version: "test".into(),
+            algorithm: Algorithm::Logistic,
             feature_version: 1,
             bias: 0.0,
             weights: vec![0.0; FEATURE_COUNT],

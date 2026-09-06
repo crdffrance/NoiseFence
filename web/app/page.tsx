@@ -38,6 +38,22 @@ type Mail = {
   reasons: { id: string; detail: string; weight: number }[];
   recipients: { address: string; status: string }[];
   feedback: boolean | null;
+  antivirus?: {
+    status: 'disabled' | 'clean' | 'malware' | 'suspicious' | 'unscannable' | 'unavailable';
+    signature: string | null;
+    elapsed_ms: number;
+  };
+  signatures?: {
+    status: 'disabled' | 'clean' | 'malware' | 'suspicious' | 'unscannable' | 'unavailable';
+    signature: string | null;
+    elapsed_ms: number;
+  };
+  llm?: {
+    status: 'disabled' | 'not_needed' | 'busy' | 'budget_limited' | 'pricing_expired' | 'unavailable' | 'complete';
+    model: string;
+    prompt_version: string;
+    elapsed_ms: number;
+  };
 };
 type Stats = {
   received: number;
@@ -309,6 +325,38 @@ export default function Home() {
                   <span>/ 100</span>
                 </div>
                 <p className="muted">Indice de suspicion · {selected.model}</p>
+                {selected.llm && selected.llm.status !== 'disabled' && (
+                  <p className="muted">Analyse complémentaire Scaleway : {{
+                    not_needed: 'non sollicitée pour ce message',
+                    busy: 'capacité occupée, analyse locale conservée',
+                    budget_limited: 'plafond atteint, analyse locale conservée',
+                    pricing_expired: 'tarifs à revalider, analyse locale conservée',
+                    unavailable: 'indisponible',
+                    complete: 'effectuée',
+                  }[selected.llm.status]}{selected.llm.status === 'complete' && ` · ${selected.llm.model} · ${selected.llm.elapsed_ms} ms`}</p>
+                )}
+                {selected.antivirus && selected.antivirus.status !== 'disabled' && (
+                  <div className="notice">
+                    <strong>Antivirus : {{
+                      clean: 'aucune détection',
+                      malware: 'fichier malveillant détecté',
+                      suspicious: 'signal suspect à examiner',
+                      unscannable: 'analyse limitée ou contenu chiffré',
+                      unavailable: 'service indisponible',
+                    }[selected.antivirus.status]}</strong>
+                    {selected.antivirus.signature && <p>{selected.antivirus.signature}</p>}
+                    <small>ClamAV · {selected.antivirus.elapsed_ms} ms</small>
+                  </div>
+                )}
+                {selected.signatures && selected.signatures.status !== 'disabled' && (
+                  <p className="muted">Signatures complémentaires : {{
+                    clean: 'aucune détection',
+                    malware: 'signal consultatif à examiner',
+                    suspicious: 'signal consultatif à examiner',
+                    unscannable: 'analyse limitée',
+                    unavailable: 'service indisponible',
+                  }[selected.signatures.status]} · {selected.signatures.elapsed_ms} ms</p>
+                )}
                 {!selected.complete && (
                   <p className="notice">
                     Analyse incomplète : aucun préfixe ajouté.

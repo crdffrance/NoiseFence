@@ -2,7 +2,9 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. En mode `tag`, les messages suspects reçoivent `[SPAM]` dans l’objet. Le score ne provoque ni rejet ni quarantaine.
 
-**Version 0.1.0 — expérimentale, en observation par défaut.** La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures et limites dans [le rapport de validation](docs/validation-results.md).
+**Version de développement 0.2.0-dev.1 — expérimentale, en observation par défaut.** La dernière release publiée est la [0.1.0](https://github.com/crdffrance/NoiseFence/releases/tag/v0.1.0). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures et limites dans [le rapport de validation](docs/validation-results.md).
+
+Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 
 Logiciel open source sous [GPL-3.0-only](LICENSE), développé par CRDF Labs et les contributeurs NoiseFence. Dépôt : [crdffrance/NoiseFence](https://github.com/crdffrance/NoiseFence).
 
@@ -36,6 +38,8 @@ Le compte `alice` ne voit que les messages livrés à `alice@example.test`, y co
 | `relay` | SMTP sortant, validation TLS, tentatives par destinataire et notifications d’échec |
 | `engine` | MIME, signaux, SPF/DKIM/DMARC/ARC, réputation, classification et marquage |
 | `corpus` | Import, déduplication, entraînement, mesures et activation contrôlée des modèles |
+| `antivirus` | Scans ClamD bornés sur deux sockets : antivirus officiel et signatures consultatives |
+| `llm` | Extraits textuels facultatifs vers Scaleway, schéma JSON et budget durable |
 | `api` / `web` | Comptes, historique, corrections et console statique |
 
 Le service confirme `250` après synchronisation du fichier, de son répertoire et de la transaction SQLite. Les destinataires ont des états indépendants. Une réponse finale `250` de Proton marque la livraison réussie, même si la connexion échoue ensuite pendant QUIT. Si la réponse finale est perdue, SMTP peut produire un doublon : le service ne promet pas de livraison « exactement une fois ».
@@ -55,7 +59,7 @@ noisefence --config /etc/noisefence/config.toml user-reset-password alice
 noisefence --config config/development.toml scan message.eml
 ```
 
-`scan` effectue une analyse locale hors connexion, sans prétendre vérifier SPF, DKIM ou la réputation du serveur d’origine. Les vérifications réseau sont exécutées pendant une réception SMTP ou une préparation d’essai Proton. Un redémarrage charge les changements de configuration et de modèle.
+`scan` effectue uniquement l'extraction et la classification locales, sans solliciter ClamAV, les signatures, le LLM ou l'authentification DNS. Les connecteurs configurés sont exécutés pendant une réception SMTP ou une préparation d’essai Proton. Un redémarrage charge les changements de configuration et de modèle.
 
 ## Entraînement et mesure
 
@@ -64,10 +68,16 @@ python3 scripts/fetch_corpus.py corpus/apache
 noisefence corpus-import --ham corpus/apache/ham --spam corpus/apache/spam --output corpus/apache.jsonl
 mkdir -p models
 noisefence train corpus/apache.jsonl --output models/candidate.json
+noisefence train corpus/apache.jsonl --algorithm bernoulli-nb --output models/bayes.json
 noisefence model-activate models/candidate.json --report models/candidate.json.report.json --destination models/active.json
 ```
 
 L’import ignore les pièces jointes et les anciens en-têtes antispam. Le modèle est une régression logistique L2 sur mots/bigrammes et caractéristiques de structure hachés, avec pondération IDF ajustée uniquement sur l’entraînement. Les doublons normalisés sont regroupés avant une séparation déterministe 80/10/10. Cette séparation ne garantit pas que toutes les variantes d’une campagne ont été reconnues comme apparentées.
+
+L'option Bernoulli Bayes constitue un candidat de comparaison sur présence des mêmes
+caractéristiques, avec lissage de Laplace. Elle utilise un format de modèle distinct,
+refusé par les anciens binaires. Sur le test historique, son rappel de 0,52 % est
+inférieur aux 60,94 % de la régression logistique : aucun des deux n'est activé.
 
 Le seuil est calibré sur les messages légitimes du jeu de validation, puis exprimé à l’indice de suspicion demandé (95 par défaut). Cet indice n’est pas une probabilité de spam calibrée. Le jeu de test n’intervient pas dans l’ajustement du seuil. Le rapport contient rappel, précision, faux positifs et intervalles de Wilson à 95 %. `model-activate` refuse les rapports qui ne satisfont pas les objectifs, notamment la borne supérieure des faux positifs. Le petit jeu public ne suffit généralement pas à établir un taux inférieur à 0,1 % avec confiance.
 

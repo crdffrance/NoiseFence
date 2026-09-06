@@ -1,7 +1,9 @@
+pub mod antivirus;
 pub mod api;
 pub mod config;
 pub mod corpus;
 pub mod engine;
+pub mod llm;
 pub mod message;
 pub mod relay;
 pub mod smtp;

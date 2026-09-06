@@ -2,7 +2,7 @@
 
 ## Code et protocoles
 
-28 tests automatisés : SMTP et PIPELINING, alias et refus du relais ouvert,
+La release 0.1.0 dispose de 28 tests Rust automatisés : SMTP et PIPELINING, alias et refus du relais ouvert,
 DATA interrompu, pression disque, ambiguïtés CRLF, reprise de file,
 destinataires multiples, notifications d’échec, transaction annulée,
 TLS réel et certificat non fiable, droits par utilisateur et BCC, sessions et CSRF,
@@ -22,6 +22,32 @@ La console passe TypeScript et le lint. L’export statique est compilé, servi 
 avec réponse HTTP 200 ; l’API sans session renvoie 401. L’audit npm indique zéro
 vulnérabilité connue à cette date. Aucune validation visuelle automatisée ni conformité
 WebMCP n’est revendiquée.
+
+## Connecteurs de la version de développement
+
+La branche de développement `0.2.0-dev.1` ajoute 10 tests Rust, soit 38 tests
+automatiques hors test ClamAV réel : échanges INSTREAM bornés, panne du scanner,
+persistance des verdicts, séparation des signatures consultatives, calcul Bayes,
+budget LLM concurrent et persistant, exclusion des champs destinataires et pièces
+jointes, et réponses HTTPS/JSON valides ou hostiles. Six tests Python Linux couvrent
+les certificats et le téléchargement des sources épinglées.
+
+Le test ClamAV réel, ignoré par défaut dans `cargo test`, a été exécuté séparément
+dans un conteneur Linux ARM64 : ClamAV 1.4.3, daily 28115, main 63 et bytecode 339.
+Le message sain passe ; EICAR est détecté dans une pièce jointe MIME encodée base64.
+Cela vérifie le transport et le décodage, pas le taux de détection des menaces récentes.
+FreshClam recommande 1.4.6 : vérifier les paquets maintenus avant déploiement.
+
+Le même harnais a exécuté clamav-unofficial-sigs 8.0.0 comme utilisateur `clamav`.
+Il a vérifié séparément les signatures GPG et la copie installée des bases
+`sanesecurity.ftm`, `sigwhitelist.ign2`, `phish.ndb` et `junk.ndb` avec la clé épinglée,
+puis chargé le scanner complémentaire et scanné un fichier sain. Les sockets
+officielles et complémentaires étaient distinctes. Ces essais ne mesurent pas
+le rappel ou les faux positifs des signatures sur le trafic réel.
+
+La console de développement passe lint, TypeScript et export statique. Les échanges
+Scaleway sont simulés par un serveur HTTPS local ; aucun appel cloud réel, droit IAM
+ou effet sur la délivrabilité n'est validé par ces tests.
 
 ## Modèle candidat : objectifs non atteints
 
@@ -47,6 +73,12 @@ Le contrôle d’activation refuse donc ce candidat. Cette mesure porte sur le c
 local ; les règles, l’authentification et la réputation du pipeline complet doivent être
 évaluées séparément sur un corpus récent et représentatif. Aucun modèle candidat n’est
 activé dans la configuration livrée.
+
+Le candidat Bernoulli Bayes de la branche de développement utilise exactement la
+même séparation. Il détecte 1 spam sur 192 (rappel 0,52 %, IC 95 % 0,092–2,891 %),
+avec 0 faux positif sur 414 messages légitimes. Le seuil conservateur est calibré
+uniquement sur la validation. Il est refusé et ne remplace pas la logistique.
+Son [rapport complet](model-bayes.report.json) rend cette comparaison reproductible.
 
 ## Rapidité et robustesse
 
