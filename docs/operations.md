@@ -2,7 +2,7 @@
 
 ## Installation
 
-Compiler sur la cible Linux avec `cargo build --release --locked`. La compilation effectuée sur macOS ne produit pas un binaire Linux. La CI fournie définit les contrôles Linux mais n’a pas été exécutée sur un serveur distant dans cette session.
+Compiler sur la cible Linux avec `cargo build --release --locked`. La compilation effectuée sur macOS ne produit pas un binaire Linux. La CI vérifie le code Rust et la console sur Linux ; consulter [GitHub Actions](https://github.com/crdffrance/NoiseFence/actions) pour le résultat correspondant au commit déployé.
 
 Les archives locales `release/noisefence-0.1.0-linux-amd64.tar.gz` et
 `release/noisefence-0.1.0-linux-arm64.tar.gz` sont construites dans des conteneurs Linux
