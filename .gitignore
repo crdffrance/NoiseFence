@@ -24,3 +24,5 @@
 /.codex/
 /.openai/
 /web/.openai/
+__pycache__/
+*.pyc

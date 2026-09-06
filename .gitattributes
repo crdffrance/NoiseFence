@@ -1,0 +1,2 @@
+# SMTP test fixtures are wire bytes: never normalize their CRLF endings.
+*.eml -text whitespace=cr-at-eol
