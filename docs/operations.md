@@ -13,6 +13,19 @@ Après extraction, vérifier `sha256sum -c SHA256SUMS`. Le binaire est `noisefen
 le dossier `web` contient uniquement la console publique. Installer ces deux éléments
 aux emplacements ci-dessous. `build.json` enregistre l’image et l’empreinte des sources.
 
+Pour une installation versionnée, exécuter `sudo sh deploy/install.sh /chemin/vers/la/release /chemin/vers/config.local.toml`.
+L’installateur conserve les versions dans `/opt/noisefence/releases/VERSION`, remplace
+le lien `current` et préserve une configuration existante. Il refuse d’écraser une
+autre construction de la même version. Pour revenir en arrière, restaurer le lien
+`current` vers la version précédente puis redémarrer `noisefence.service`.
+
+Une première installation peut écouter seulement sur loopback, avec SMTP sur 2525 et
+l’API sur 18080, en observation et sans destinataire activé. Dans ce cas, consulter la
+console avec un tunnel `ssh -L 18080:127.0.0.1:18080 UTILISATEUR@SERVEUR`, puis ouvrir
+`http://127.0.0.1:18080`. Créer ensuite le compte via `user-add` et saisir son mot de passe
+sur le serveur. Le passage à SMTP public/25 exige DNS, certificats, destinataires réels
+et validation Proton ; il ne résulte pas automatiquement de l’installation du binaire.
+
 Compiler la console avec `npm ci` puis `npm run build` dans `web`. Le répertoire public à distribuer est **`web/dist/client`**. Ne servir ni `web/dist/server`, ni les sources, ni les fichiers de configuration.
 
 Créer un compte système `noisefence`. Installer le binaire sous `/opt/noisefence/noisefence`, les fichiers statiques sous `/opt/noisefence/web`, la configuration sous `/etc/noisefence/config.toml`, et les données sous `/var/lib/noisefence` (propriétaire `noisefence`, mode 0700). Les secrets et clés doivent être lisibles par ce compte sans être accessibles aux autres utilisateurs.
