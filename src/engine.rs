@@ -36,8 +36,31 @@ pub struct Signal {
     pub detail: String,
     pub weight: f64,
 }
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticStatus {
+    #[default]
+    Disabled,
+    Complete,
+    Busy,
+    Unavailable,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SemanticResult {
+    pub status: SemanticStatus,
+    pub model: String,
+    pub encoder: String,
+    pub elapsed_ms: u64,
+    pub logit: Option<f64>,
+    pub contribution: Option<f64>,
+    /// Retained as model features under the same 30-day metadata policy.
+    #[serde(default)]
+    pub features: Vec<f32>,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    #[serde(default = "legacy_feature_version")]
+    pub feature_version: u32,
     pub score: f64,
     pub tagged: bool,
     pub complete: bool,
@@ -54,6 +77,11 @@ pub struct Scan {
     pub signatures: crate::antivirus::AntivirusResult,
     #[serde(default)]
     pub llm: crate::llm::LlmResult,
+    #[serde(default)]
+    pub semantic: SemanticResult,
+}
+pub fn legacy_feature_version() -> u32 {
+    1
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -79,12 +107,18 @@ impl Model {
     pub fn load(path: &Path) -> Result<Self> {
         let m: Self = serde_json::from_slice(&std::fs::read(path)?)?;
         ensure!(
-            ((m.feature_version == 1 && m.algorithm == Algorithm::Logistic)
+            (((m.feature_version == 1 || m.feature_version == crate::features::VERSION)
+                && m.algorithm == Algorithm::Logistic)
                 || (m.feature_version == 2 && m.algorithm == Algorithm::BernoulliNb))
-                && m.weights.len() == FEATURE_COUNT
+                && m.weights.len()
+                    == if m.feature_version == crate::features::VERSION {
+                        crate::features::DIMENSION
+                    } else {
+                        FEATURE_COUNT
+                    }
                 && m.weights.iter().all(|v| v.is_finite())
                 && (m.idf.is_empty()
-                    || (m.idf.len() == FEATURE_COUNT
+                    || (m.idf.len() == m.weights.len()
                         && m.idf.iter().all(|x| x.is_finite() && *x > 0.0)))
                 && m.bias.is_finite(),
             "invalid model"
@@ -92,6 +126,11 @@ impl Model {
         ensure!(
             m.algorithm != Algorithm::BernoulliNb || m.idf.is_empty(),
             "Bernoulli model must use binary presence features"
+        );
+        ensure!(
+            m.feature_version != crate::features::VERSION
+                || m.idf.len() == crate::features::DIMENSION,
+            "feature schema 3 requires its fitted TF-IDF transform"
         );
         ensure!(
             !m.version.is_empty()
@@ -146,6 +185,7 @@ fn hash_token(s: &str) -> usize {
 }
 pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     let mut scan = Scan {
+        feature_version: 1,
         complete: true,
         model: "rules-1".into(),
         ..Scan::default()
@@ -320,6 +360,28 @@ pub fn domains_in_text(text: &str) -> Vec<String> {
     domains.truncate(12);
     domains
 }
+
+/// Reputation sees decoded MIME bodies, not transport/filter headers or raw encodings.
+pub fn domains_in_message(raw: &[u8]) -> Vec<String> {
+    let Some(message) = mail_parser::MessageParser::default().parse(raw) else {
+        return Vec::new();
+    };
+    if message.parts.len() > 200 {
+        return Vec::new();
+    }
+    let mut domains = Vec::new();
+    for body in (0..message.text_body_count().min(20))
+        .filter_map(|i| message.body_text(i))
+        .chain((0..message.html_body_count().min(20)).filter_map(|i| message.body_html(i)))
+    {
+        let bounded: String = body.chars().take(100_000).collect();
+        domains.extend(domains_in_text(&bounded));
+    }
+    domains.sort_unstable();
+    domains.dedup();
+    domains.truncate(12);
+    domains
+}
 pub struct Engine {
     config: Arc<Config>,
     pub authenticator: MessageAuthenticator,
@@ -328,6 +390,8 @@ pub struct Engine {
     dqs_key: Option<String>,
     dqs_cache: Mutex<HashMap<String, (Instant, bool)>>,
     llm: Option<crate::llm::Client>,
+    #[cfg(feature = "semantic")]
+    semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
 impl Engine {
     pub fn new(config: Arc<Config>) -> Result<Self> {
@@ -343,6 +407,31 @@ impl Engine {
             .as_ref()
             .map(|p| Model::load(p))
             .transpose()?;
+        #[cfg(feature = "semantic")]
+        let semantic = config
+            .filter
+            .semantic
+            .as_ref()
+            .map(|settings| {
+                ensure!(
+                    model
+                        .as_ref()
+                        .is_some_and(|m| m.feature_version == crate::features::VERSION),
+                    "semantic combination requires lexical feature schema 3"
+                );
+                crate::semantic::Hybrid::load(
+                    settings,
+                    config.filter.model.as_ref().unwrap(),
+                    config.filter.threshold,
+                )
+                .map(Arc::new)
+            })
+            .transpose()?;
+        #[cfg(not(feature = "semantic"))]
+        ensure!(
+            config.filter.semantic.is_none(),
+            "semantic support is not compiled in this binary"
+        );
         let arc_key = config
             .filter
             .arc_key
@@ -374,16 +463,51 @@ impl Engine {
             dqs_key,
             dqs_cache: Mutex::new(HashMap::new()),
             llm,
+            #[cfg(feature = "semantic")]
+            semantic,
         })
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
-        let mut scan = extract(raw, self.config.filter.max_analysis_bytes);
+        let mut scan = self.extract(raw);
+        #[cfg(feature = "semantic")]
+        if scan.complete
+            && let Some(model) = &self.semantic
+        {
+            scan.semantic = model.offline(raw);
+            Self::check_semantic(&mut scan);
+        }
         self.score(&mut scan);
         scan
     }
+    #[cfg(feature = "semantic")]
+    fn check_semantic(scan: &mut Scan) {
+        if matches!(
+            scan.semantic.status,
+            SemanticStatus::Busy | SemanticStatus::Unavailable
+        ) {
+            scan.complete = false;
+            scan.reasons.push(Signal {
+                id: "semantic_unavailable".into(),
+                detail: "Analyse multilingue incomplète ; résultat lexical conservé sans préfixe"
+                    .into(),
+                weight: 0.0,
+            });
+        }
+    }
+    fn extract(&self, raw: &[u8]) -> Scan {
+        if self
+            .model
+            .as_ref()
+            .is_some_and(|m| m.feature_version == crate::features::VERSION)
+        {
+            crate::features::extract(raw, self.config.filter.max_analysis_bytes)
+        } else {
+            extract(raw, self.config.filter.max_analysis_bytes)
+        }
+    }
     fn score(&self, scan: &mut Scan) {
         scan.reasons.retain(|r| r.id != "model_contribution");
-        let content = self
+        let mut content = self
             .model
             .as_ref()
             .map(|m| {
@@ -391,8 +515,19 @@ impl Engine {
                 m.logit(&scan.features)
             })
             .unwrap_or(-5.0);
+        if scan.semantic.status == SemanticStatus::Complete {
+            content += scan.semantic.contribution.unwrap_or(0.0);
+            scan.model = scan.semantic.model.clone();
+        }
         let rules = scan.reasons.iter().map(|r| r.weight).sum::<f64>();
-        scan.score = (sigmoid(content + rules) * 1000.0).round() / 10.0;
+        let score = sigmoid(content + rules) * 100.0;
+        scan.score = if scan.feature_version == crate::features::VERSION {
+            // Round only for display. Rounding here shifts a calibrated cutoff
+            // and can classify a legitimate 94.99 as spam at a threshold of 95.
+            score
+        } else {
+            (score * 10.0).round() / 10.0
+        };
         if self.model.is_some() {
             scan.reasons.push(Signal {
                 id: "model_contribution".into(),
@@ -457,7 +592,7 @@ impl Engine {
                 weight: 4.0,
             });
         }
-        let mut domains = domains_in_text(&String::from_utf8_lossy(raw));
+        let mut domains = domains_in_message(raw);
         if let Some((_, d)) = scan.sender.rsplit_once('@')
             && crate::config::valid_domain(d)
         {
@@ -492,8 +627,15 @@ impl Engine {
         id: &str,
     ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
-        let mut scan = extract(raw, self.config.filter.max_analysis_bytes);
+        let mut scan = self.extract(raw);
         let headers = message::fields(raw)?.0;
+        #[cfg(feature = "semantic")]
+        if scan.complete
+            && let Some(model) = &self.semantic
+        {
+            scan.semantic = model.analyze(raw.to_vec()).await;
+            Self::check_semantic(&mut scan);
+        }
         let (antivirus, signatures) = tokio::join!(
             async {
                 match &self.config.antivirus {
@@ -790,6 +932,48 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn semantic_score_is_added_once_and_failure_preserves_lexical_fallback() {
+        let config = Config::load(Path::new("config/development.toml")).unwrap();
+        let engine = Engine::new(Arc::new(config)).unwrap();
+        let mut scan = extract(
+            b"From: sender@example.org\r\nSubject: Meeting\r\n\r\nMeeting tomorrow.",
+            2048,
+        );
+        scan.feature_version = crate::features::VERSION;
+        engine.score(&mut scan);
+        let fallback = scan.score;
+        scan.semantic = SemanticResult {
+            status: SemanticStatus::Complete,
+            model: "hybrid-fixture".into(),
+            contribution: Some(8.0),
+            ..Default::default()
+        };
+        engine.score(&mut scan);
+        let combined = scan.score;
+        assert!((combined - sigmoid(3.0) * 100.0).abs() < 1e-9);
+        engine.score(&mut scan);
+        assert_eq!(scan.score, combined);
+        scan.semantic.status = SemanticStatus::Busy;
+        Engine::check_semantic(&mut scan);
+        engine.score(&mut scan);
+        assert!(!scan.complete);
+        assert_eq!(scan.score, fallback);
+        assert!(
+            scan.reasons
+                .iter()
+                .any(|reason| reason.id == "semantic_unavailable")
+        );
+    }
+    #[test]
+    fn reputation_decodes_mime_links_and_ignores_filter_headers_and_attachments() {
+        let encoded = b"From: sender@example.org\r\nX-Old-Filter: https://ignore.example/result\r\nContent-Type: multipart/mixed; boundary=test\r\n\r\n--test\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\naHR0cHM6Ly9oaWRkZW4uZXhhbXBsZS9sb2dpbg==\r\n--test\r\nContent-Type: text/html\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n<a href=3D\"https://split.exa=\r\nmple/login\">Open</a>\r\n--test\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=notes.txt\r\n\r\nhttps://attachment.example/document\r\n--test--\r\n";
+        assert_eq!(
+            domains_in_message(encoded),
+            ["hidden.example", "split.example"]
+        );
+    }
     #[test]
     fn dnsbl_errors_not_spam() {
         for s in ["127.255.255.250", "127.0.1.255", "8.8.8.8"] {

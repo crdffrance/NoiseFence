@@ -2,7 +2,7 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. En mode `tag`, les messages suspects reçoivent `[SPAM]` dans l’objet. Le score ne provoque ni rejet ni quarantaine.
 
-**Version de développement 0.2.0-dev.1 — expérimentale, en observation par défaut.** Les archives Linux sont publiées dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures et limites dans [le rapport de validation](docs/validation-results.md).
+**Version de développement 0.3.0-dev.1 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
 Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 
@@ -10,7 +10,7 @@ Logiciel open source sous [GPL-3.0-only](LICENSE), développé par CRDF Labs et 
 
 ## Démarrage local
 
-Prérequis : Rust 1.88 ou plus récent, Node 24 ou plus récent, Unix. Depuis la racine du projet :
+Environnement validé : Rust 1.98, Node 24, Unix. Depuis la racine du projet :
 
 ```sh
 cargo build --locked
@@ -60,6 +60,11 @@ noisefence --config config/development.toml scan message.eml
 ```
 
 `scan` effectue uniquement l'extraction et la classification locales, sans solliciter ClamAV, les signatures, le LLM ou l'authentification DNS. Les connecteurs configurés sont exécutés pendant une réception SMTP ou une préparation d’essai Proton. Un redémarrage charge les changements de configuration et de modèle.
+
+La commande `analyze` exécute les connecteurs configurés une fois, sans mettre le
+message en file ni l'envoyer. Le [protocole de recherche](research/README.md) décrit
+les corpus, les caractéristiques natives Rust, l'entraînement des candidats et la
+validation séparée. Les modèles de recherche ne sont pas activés automatiquement.
 
 ## Entraînement et mesure
 

@@ -1,0 +1,209 @@
+[
+  {
+    "url": "https://monkey.org/~jose/phishing/README.txt",
+    "sha256": "4589b63a4149bff0b65e82c2110baaebee36e5d9219009a31cc78bb6ab597fab",
+    "bytes": 961,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "metadata",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/LICENSE.txt",
+    "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+    "bytes": 18657,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "metadata",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2015",
+    "sha256": "7523e62a5e6e4ee8134ab8b1a628e423097a7779e1003b28422864aa34f1c319",
+    "bytes": 8815568,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2016",
+    "sha256": "42393e4d686193bfb879d1608c23fd4d3b698ccd4d73f0e1d2276ba709718483",
+    "bytes": 12578274,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2017",
+    "sha256": "110fba876b38b44035bf065788952674bc68a7b6879c345a515a9ac844b1d704",
+    "bytes": 11352450,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2018",
+    "sha256": "83f49cf2a76c7b29b205d22d8778e46848e36af0f15ee1df126a543696acd48d",
+    "bytes": 8775701,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2019",
+    "sha256": "cab39d6fcb38cf80cdaabb3e6ffd1222777e2fcaac7e8480321b7f729c2e3c0e",
+    "bytes": 5211476,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2020",
+    "sha256": "99e20bf25f5e8556d37103f2c8140cd75181a62d3df91df8acf9d9aece9f08bb",
+    "bytes": 5826445,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2021",
+    "sha256": "636707cff42245d1482e4ae8a2c03369717a5e06bf9d1a0f4ec5dcd846661cee",
+    "bytes": 2719946,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2022",
+    "sha256": "a6291e2cb990204766fce425423949b403cce4ae6a660fc8d08812e40a063fa7",
+    "bytes": 4775954,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2023",
+    "sha256": "5007f1c1dc91b15e93e988afa3a1cf402e15c88f765d3057be8bfec50dae1fe8",
+    "bytes": 7763704,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2024",
+    "sha256": "60afa40a2757170093a2bde31ec9cda4e54d33992203ce04bfbbc86d2e5e5b99",
+    "bytes": 15457816,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": false
+  },
+  {
+    "url": "https://monkey.org/~jose/phishing/phishing-2025",
+    "sha256": "f1fa7e0fe35c9a16f36d9aa20ade7e1d3908d1d0c1d917b8c53c8aa799ec1c8f",
+    "bytes": 18769863,
+    "attribution": "Jose Nazario",
+    "license": "CC-BY-4.0",
+    "kind": "real_phishing_mbox",
+    "external_test": true
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/ham/beck-s.tar.gz",
+    "sha256": "28ad9e6b40a323fba13ece2e63a0aee6f66435ac3f1fd2974a6777eeb39456a2",
+    "bytes": 1203077,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "ham"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/ham/farmer-d.tar.gz",
+    "sha256": "e7aedf0a0ace79f088ecbefeb2070999e5c4d874058150878d0d17d558af4d6f",
+    "bytes": 1558735,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "ham"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/ham/kaminski-v.tar.gz",
+    "sha256": "e90e7170ea31e8136dafc5cddd44f798bd17a24ba8fddc5f2db1810281383270",
+    "bytes": 2710567,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "ham"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/ham/kitchen-l.tar.gz",
+    "sha256": "4532348c4eb6b3a4ff97ed880a349c5592458debb93956e52c294f612ba1c57b",
+    "bytes": 5310170,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "ham"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/ham/lokay-m.tar.gz",
+    "sha256": "1da35e329dd9089e621b5008bf0a62252fcfc37498873b9c189bfe3055c3fa90",
+    "bytes": 1818177,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "ham"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/ham/williams-w3.tar.gz",
+    "sha256": "6396885561aff122b164dc8f56aca0f0656b5835d284c8fc7536a448546f41d6",
+    "bytes": 861594,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "ham"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/spam/BG.tar.gz",
+    "sha256": "4a4eb6e9c1bcd899d21ae09bbd4d880f541b5d42d967a47b10198c304e110f8c",
+    "bytes": 12183597,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "spam"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/spam/GP.tar.gz",
+    "sha256": "b3d60059c1d17d8cbc1c9f42c7070ad41768cf0c7efa7055bce9af96e40f3a5a",
+    "bytes": 17117502,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "spam"
+  },
+  {
+    "url": "https://www2.aueb.gr/users/ion/data/enron-spam/raw/spam/SH.tar.gz",
+    "sha256": "387a6ad9d2dad8e1c8881b387d9ab08c2dca348c4ad19d54176a82531eb3e323",
+    "bytes": 12639265,
+    "attribution": "Metsis, Androutsopoulos and Paliouras, Enron-Spam, CEAS 2006",
+    "license": "See original Enron-Spam readme; raw mail redistribution not assumed",
+    "kind": "historical_raw_email_archive",
+    "external_test": false,
+    "label": "spam"
+  }
+]

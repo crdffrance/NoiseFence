@@ -12,6 +12,8 @@ use std::{
 };
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Example {
+    #[serde(default = "crate::engine::legacy_feature_version")]
+    pub feature_version: u32,
     pub spam: bool,
     pub fingerprint: String,
     pub features: Vec<(usize, f64)>,
@@ -94,7 +96,8 @@ pub fn load_examples(path: &Path) -> Result<Vec<Example>> {
     for line in BufReader::new(File::open(path)?).lines() {
         let e: Example = serde_json::from_str(&line?)?;
         ensure!(
-            e.fingerprint.len() == 64
+            e.feature_version == 1
+                && e.fingerprint.len() == 64
                 && e.fingerprint.bytes().all(|b| b.is_ascii_hexdigit())
                 && e.features.len() <= FEATURE_COUNT
                 && e.features
@@ -142,6 +145,7 @@ pub fn import(ham: &Path, spam: &Path, output: &Path) -> Result<usize> {
                 file,
                 "{}",
                 serde_json::to_string(&Example {
+                    feature_version: 1,
                     spam: label,
                     fingerprint: scan.fingerprint,
                     features: scan.features
@@ -345,6 +349,7 @@ pub async fn export_feedback(store: &crate::store::Store, output: &Path) -> Resu
                 f,
                 "{}",
                 serde_json::to_string(&Example {
+                    feature_version: scan.feature_version,
                     spam,
                     fingerprint: scan.fingerprint,
                     features: scan.features
@@ -399,11 +404,13 @@ mod tests {
         };
         let examples = vec![
             Example {
+                feature_version: 1,
                 spam: true,
                 fingerprint: "a".repeat(64),
                 features: vec![(1, 0.1)],
             },
             Example {
+                feature_version: 1,
                 spam: false,
                 fingerprint: "b".repeat(64),
                 features: vec![(2, 0.9)],

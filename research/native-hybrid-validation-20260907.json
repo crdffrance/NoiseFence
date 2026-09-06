@@ -1,0 +1,93 @@
+{
+  "model": "research-hybrid-e5-20260907",
+  "encoder_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "python_rust": {
+    "fixtures": 24,
+    "max_score_absolute_error": 3.257143987411837e-06,
+    "tokens_equal": true,
+    "decisions_equal": true,
+    "max_embedding_absolute_error": 1.0803341865539551e-07,
+    "synthetic_multilingual_fixtures": 5,
+    "synthetic_max_embedding_absolute_error": 1.5925616025924683e-07
+  },
+  "linux": {
+    "vcpus": 4,
+    "ram_bytes": 8134709248,
+    "cases": [
+      {
+        "arch": "x86_64",
+        "bytes": 10127,
+        "feature_version": 3,
+        "iterations": 100,
+        "model": "research-hybrid-e5-20260907",
+        "os": "linux",
+        "p50_us": 296460,
+        "p95_us": 340490,
+        "p99_us": 380506,
+        "scope": "native MIME/text features plus fitted model; excludes DNS, scanners, LLM, queue and model loading",
+        "semantic_enabled": true
+      },
+      {
+        "arch": "x86_64",
+        "bytes": 1048521,
+        "feature_version": 3,
+        "iterations": 100,
+        "model": "research-hybrid-e5-20260907",
+        "os": "linux",
+        "p50_us": 340415,
+        "p95_us": 373483,
+        "p99_us": 393923,
+        "scope": "native MIME/text features plus fitted model; excludes DNS, scanners, LLM, queue and model loading",
+        "semantic_enabled": true
+      }
+    ],
+    "memory_sample": {
+      "scope": "observed native benchmark process; VmHWM includes loading",
+      "processes": [
+        {
+          "VmRSS": "794032 kB",
+          "VmHWM": "1220424 kB",
+          "Threads": "9"
+        }
+      ]
+    }
+  },
+  "quality_eligible": false,
+  "scope": "Native model parity and isolated performance; full live pipeline quality not established",
+  "pipeline_controls": {
+    "cases": [
+      {
+        "case": "complete",
+        "score": 84.57469047163804,
+        "complete": true,
+        "semantic_status": "complete",
+        "elapsed_ms": 160,
+        "tagged": false,
+        "sent": false
+      },
+      {
+        "case": "timeout",
+        "score": 87.1412795948881,
+        "complete": false,
+        "semantic_status": "unavailable",
+        "elapsed_ms": 81,
+        "tagged": false,
+        "sent": false
+      }
+    ],
+    "queued_messages": 0,
+    "message_kind": "synthetic 1 MiB resource control; not a detection-quality benchmark"
+  },
+  "checks": {
+    "rust_with_semantic_passed": 49,
+    "rust_live_clamav_ignored": 1,
+    "python_passed": 12,
+    "clippy_default": true,
+    "clippy_semantic": true,
+    "web_lint": true,
+    "web_types": true,
+    "web_static_build": true,
+    "rust_default_passed": 44,
+    "fuzz_executed": false
+  }
+}

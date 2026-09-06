@@ -1,0 +1,1430 @@
+{
+  "model_sha256": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+  "corpus_sha256": "2ab3be9664fbd8345e4b8af5d7822283faed83729b49e290051f6074a12df499",
+  "created": 1788730703,
+  "selected": {
+    "family": "nb_logistic",
+    "C": 100.0,
+    "development": {
+      "ham": 2022,
+      "spam": 2672,
+      "true_positive": 2569,
+      "false_positive": 2,
+      "recall": 0.9614520958083832,
+      "precision": 0.999222092570984,
+      "false_positive_rate": 0.0009891196834817012,
+      "recall_ci95": [
+        0.9534653362833709,
+        0.9681139268942105
+      ],
+      "fpr_ci95": [
+        0.0002712942149322979,
+        0.0035994227094112707
+      ],
+      "average_precision": 0.9997948757659767,
+      "roc_auc": 0.9997417997832229
+    },
+    "fit_seconds": 9.78,
+    "iterations": [
+      13
+    ]
+  },
+  "feature_version": 3,
+  "dimension": 262144,
+  "operating_point_raw_logit": 3.1628649208101676,
+  "threshold": 95.0,
+  "partitions": {
+    "train": {
+      "ham": 11867,
+      "spam": 15630,
+      "true_positive": 15512,
+      "false_positive": 0,
+      "recall": 0.9924504158669226,
+      "precision": 1.0,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.9909671811272263,
+        0.9936916463623302
+      ],
+      "fpr_ci95": [
+        2.710505431213761e-20,
+        0.00032360459315541683
+      ],
+      "average_precision": 1.0,
+      "roc_auc": 1.0
+    },
+    "development": {
+      "ham": 2022,
+      "spam": 2672,
+      "true_positive": 2581,
+      "false_positive": 3,
+      "recall": 0.9659431137724551,
+      "precision": 0.9988390092879257,
+      "false_positive_rate": 0.001483679525222552,
+      "recall_ci95": [
+        0.9583695188011739,
+        0.9721788856238779
+      ],
+      "fpr_ci95": [
+        0.0005047103737200606,
+        0.004353250636922474
+      ],
+      "average_precision": 0.9997948757659767,
+      "roc_auc": 0.9997417997832229
+    },
+    "calibration": {
+      "ham": 2008,
+      "spam": 2640,
+      "true_positive": 2532,
+      "false_positive": 2,
+      "recall": 0.9590909090909091,
+      "precision": 0.9992107340173638,
+      "false_positive_rate": 0.00099601593625498,
+      "recall_ci95": [
+        0.950844044904667,
+        0.9660036699659681
+      ],
+      "fpr_ci95": [
+        0.00027318600287398655,
+        0.0036244664618936147
+      ],
+      "average_precision": 0.9997801884608488,
+      "roc_auc": 0.9997096839913074
+    },
+    "test": {
+      "ham": 3989,
+      "spam": 5107,
+      "true_positive": 4882,
+      "false_positive": 2,
+      "recall": 0.9559428235754847,
+      "precision": 0.9995904995904996,
+      "false_positive_rate": 0.000501378791677112,
+      "recall_ci95": [
+        0.9499633536622863,
+        0.9612368934051668
+      ],
+      "fpr_ci95": [
+        0.0001375069185190008,
+        0.0018263724144235451
+      ],
+      "average_precision": 0.9998758569999833,
+      "roc_auc": 0.9998442456524387
+    },
+    "external": {
+      "ham": 0,
+      "spam": 426,
+      "true_positive": 399,
+      "false_positive": 0,
+      "recall": 0.9366197183098591,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9093563844639662,
+        0.9560789809859208
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    }
+  },
+  "by_source": {
+    "development:apache-ham": {
+      "ham": 427,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 2,
+      "recall": null,
+      "precision": 0.0,
+      "false_positive_rate": 0.00468384074941452,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0.0012854192301035676,
+        0.01691491562661586
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:apache-spam": {
+      "ham": 0,
+      "spam": 129,
+      "true_positive": 117,
+      "false_positive": 0,
+      "recall": 0.9069767441860465,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8444311574779089,
+        0.9459847332548645
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-BG": {
+      "ham": 0,
+      "spam": 769,
+      "true_positive": 748,
+      "false_positive": 0,
+      "recall": 0.9726918075422627,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9586140577708473,
+        0.9820704664643753
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-GP": {
+      "ham": 0,
+      "spam": 1201,
+      "true_positive": 1163,
+      "false_positive": 0,
+      "recall": 0.9683597002497918,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9568704823340094,
+        0.9768623268782138
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-SH": {
+      "ham": 0,
+      "spam": 349,
+      "true_positive": 336,
+      "false_positive": 0,
+      "recall": 0.9627507163323782,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9373210675335846,
+        0.9781042373032292
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-beck-s": {
+      "ham": 183,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.02055999158292086
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-farmer-d": {
+      "ham": 310,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.012240125428708422
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-kaminski-v": {
+      "ham": 419,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.009084867958331154
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-kitchen-l": {
+      "ham": 348,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.010918152833864339
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-lokay-m": {
+      "ham": 210,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 1,
+      "recall": null,
+      "precision": 0.0,
+      "false_positive_rate": 0.004761904761904762,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0.0008410882735945795,
+        0.026475685811790724
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:enron-williams-w3": {
+      "ham": 125,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        1.734723475976807e-18,
+        0.029815393708326456
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2015": {
+      "ham": 0,
+      "spam": 25,
+      "true_positive": 23,
+      "false_positive": 0,
+      "recall": 0.92,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7503389104960468,
+        0.9777795987151524
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2016": {
+      "ham": 0,
+      "spam": 30,
+      "true_positive": 29,
+      "false_positive": 0,
+      "recall": 0.9666666666666667,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8332960900859082,
+        0.9940914096183874
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2017": {
+      "ham": 0,
+      "spam": 24,
+      "true_positive": 24,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8620237953250198,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2018": {
+      "ham": 0,
+      "spam": 26,
+      "true_positive": 26,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8712710781407846,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2019": {
+      "ham": 0,
+      "spam": 22,
+      "true_positive": 22,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8513451253913791,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2020": {
+      "ham": 0,
+      "spam": 13,
+      "true_positive": 13,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7719046276458016,
+        0.9999999999999999
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2021": {
+      "ham": 0,
+      "spam": 8,
+      "true_positive": 8,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.6755924351161198,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2022": {
+      "ham": 0,
+      "spam": 10,
+      "true_positive": 10,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7224672001371107,
+        0.9999999999999999
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2023": {
+      "ham": 0,
+      "spam": 35,
+      "true_positive": 34,
+      "false_positive": 0,
+      "recall": 0.9714285714285714,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8546691276638632,
+        0.9949385081445556
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "development:nazario-2024": {
+      "ham": 0,
+      "spam": 31,
+      "true_positive": 28,
+      "false_positive": 0,
+      "recall": 0.9032258064516129,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7510006155660716,
+        0.9665353558368026
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:apache-ham": {
+      "ham": 418,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.009106404172395386
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:apache-spam": {
+      "ham": 0,
+      "spam": 144,
+      "true_positive": 121,
+      "false_positive": 0,
+      "recall": 0.8402777777777778,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7717246031630561,
+        0.8911476437812661
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-BG": {
+      "ham": 0,
+      "spam": 726,
+      "true_positive": 707,
+      "false_positive": 0,
+      "recall": 0.9738292011019284,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9594877665665454,
+        0.9831827157484724
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-GP": {
+      "ham": 0,
+      "spam": 1179,
+      "true_positive": 1137,
+      "false_positive": 0,
+      "recall": 0.9643765903307888,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9521986114504538,
+        0.9735383009940314
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-SH": {
+      "ham": 0,
+      "spam": 317,
+      "true_positive": 304,
+      "false_positive": 0,
+      "recall": 0.9589905362776026,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.931110321952379,
+        0.9758796944551597
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-beck-s": {
+      "ham": 163,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.023024605801502687
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-farmer-d": {
+      "ham": 301,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.012601497301433819
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-kaminski-v": {
+      "ham": 376,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.010113321575324678
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-kitchen-l": {
+      "ham": 380,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.010007930963206886
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-lokay-m": {
+      "ham": 240,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 2,
+      "recall": null,
+      "precision": 0.0,
+      "false_positive_rate": 0.008333333333333333,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0.0022882832869742277,
+        0.029869737988891937
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:enron-williams-w3": {
+      "ham": 130,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.028701561194431423
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2015": {
+      "ham": 0,
+      "spam": 24,
+      "true_positive": 23,
+      "false_positive": 0,
+      "recall": 0.9583333333333334,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7975819352134406,
+        0.9926065438344942
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2016": {
+      "ham": 0,
+      "spam": 47,
+      "true_positive": 45,
+      "false_positive": 0,
+      "recall": 0.9574468085106383,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8575147232210055,
+        0.9882517240332106
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2017": {
+      "ham": 0,
+      "spam": 33,
+      "true_positive": 32,
+      "false_positive": 0,
+      "recall": 0.9696969696969697,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.846812746178811,
+        0.9946305894631283
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2018": {
+      "ham": 0,
+      "spam": 28,
+      "true_positive": 27,
+      "false_positive": 0,
+      "recall": 0.9642857142857143,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8228780225664668,
+        0.9936674801509623
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2019": {
+      "ham": 0,
+      "spam": 19,
+      "true_positive": 17,
+      "false_positive": 0,
+      "recall": 0.8947368421052632,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.6860591728889099,
+        0.9706414397011299
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2020": {
+      "ham": 0,
+      "spam": 10,
+      "true_positive": 9,
+      "false_positive": 0,
+      "recall": 0.9,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.5958499732047615,
+        0.9821237869049271
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2021": {
+      "ham": 0,
+      "spam": 13,
+      "true_positive": 12,
+      "false_positive": 0,
+      "recall": 0.9230769230769231,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.6668604907890041,
+        0.9862895787574435
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2022": {
+      "ham": 0,
+      "spam": 22,
+      "true_positive": 21,
+      "false_positive": 0,
+      "recall": 0.9545454545454546,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7820195416134267,
+        0.991930572378736
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2023": {
+      "ham": 0,
+      "spam": 36,
+      "true_positive": 36,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9035813714055363,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "calibration:nazario-2024": {
+      "ham": 0,
+      "spam": 42,
+      "true_positive": 41,
+      "false_positive": 0,
+      "recall": 0.9761904761904762,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8767879842623334,
+        0.9957845958655673
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:apache-ham": {
+      "ham": 804,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 2,
+      "recall": null,
+      "precision": 0.0,
+      "false_positive_rate": 0.0024875621890547263,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0.000682444549996269,
+        0.009024235807980494
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:apache-spam": {
+      "ham": 0,
+      "spam": 266,
+      "true_positive": 225,
+      "false_positive": 0,
+      "recall": 0.8458646616541353,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.797578545488695,
+        0.884303329906388
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-BG": {
+      "ham": 0,
+      "spam": 1421,
+      "true_positive": 1369,
+      "false_positive": 0,
+      "recall": 0.9634060520760028,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9523276383523004,
+        0.9719857242656348
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-GP": {
+      "ham": 0,
+      "spam": 2337,
+      "true_positive": 2251,
+      "false_positive": 0,
+      "recall": 0.9632006846384253,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9547759932940674,
+        0.9701050967267484
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-SH": {
+      "ham": 0,
+      "spam": 629,
+      "true_positive": 600,
+      "false_positive": 0,
+      "recall": 0.9538950715421304,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9345702044670146,
+        0.9677094929852728
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-beck-s": {
+      "ham": 323,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.011753278897220798
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-farmer-d": {
+      "ham": 665,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        4.336808689942018e-19,
+        0.00574345200949028
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-kaminski-v": {
+      "ham": 787,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.004857432267679192
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-kitchen-l": {
+      "ham": 757,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.005048960957843168
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-lokay-m": {
+      "ham": 407,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.00935022193651268
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:enron-williams-w3": {
+      "ham": 246,
+      "spam": 0,
+      "true_positive": 0,
+      "false_positive": 0,
+      "recall": null,
+      "precision": null,
+      "false_positive_rate": 0.0,
+      "recall_ci95": [
+        0.0,
+        1.0
+      ],
+      "fpr_ci95": [
+        0,
+        0.015375585936884312
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2015": {
+      "ham": 0,
+      "spam": 60,
+      "true_positive": 57,
+      "false_positive": 0,
+      "recall": 0.95,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8629948352365147,
+        0.9828504978356043
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2016": {
+      "ham": 0,
+      "spam": 71,
+      "true_positive": 71,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9486720478031097,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2017": {
+      "ham": 0,
+      "spam": 48,
+      "true_positive": 46,
+      "false_positive": 0,
+      "recall": 0.9583333333333334,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8602434412954456,
+        0.9884981065106133
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2018": {
+      "ham": 0,
+      "spam": 35,
+      "true_positive": 32,
+      "false_positive": 0,
+      "recall": 0.9142857142857143,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.7762072603410349,
+        0.9704176317330301
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2019": {
+      "ham": 0,
+      "spam": 34,
+      "true_positive": 33,
+      "false_positive": 0,
+      "recall": 0.9705882352941176,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8508442670731406,
+        0.9947890937237309
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2020": {
+      "ham": 0,
+      "spam": 27,
+      "true_positive": 26,
+      "false_positive": 0,
+      "recall": 0.9629629629629629,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8171653406642414,
+        0.9934318540192149
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2021": {
+      "ham": 0,
+      "spam": 7,
+      "true_positive": 7,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.6456695649333126,
+        1
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2022": {
+      "ham": 0,
+      "spam": 42,
+      "true_positive": 42,
+      "false_positive": 0,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.916201209134296,
+        0.9999999999999999
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2023": {
+      "ham": 0,
+      "spam": 67,
+      "true_positive": 63,
+      "false_positive": 0,
+      "recall": 0.9402985074626866,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8563049895862846,
+        0.9765406488601809
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "test:nazario-2024": {
+      "ham": 0,
+      "spam": 63,
+      "true_positive": 60,
+      "false_positive": 0,
+      "recall": 0.9523809523809523,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.8690903216209392,
+        0.9836738311320045
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    },
+    "external:nazario-2025": {
+      "ham": 0,
+      "spam": 426,
+      "true_positive": 399,
+      "false_positive": 0,
+      "recall": 0.9366197183098591,
+      "precision": 1.0,
+      "false_positive_rate": null,
+      "recall_ci95": [
+        0.9093563844639662,
+        0.9560789809859208
+      ],
+      "fpr_ci95": [
+        0.0,
+        1.0
+      ],
+      "average_precision": null,
+      "roc_auc": null
+    }
+  },
+  "internal_numeric_target_met": false,
+  "eligible": false,
+  "limitation": "Historical ham and one-source recent phishing do not establish representative recent FPR or full-pipeline quality. Keep production activation gated.",
+  "research_snapshot": "2026-09-06",
+  "status": "research_candidate_not_approved_for_production",
+  "source_lock": "research/sources.lock.json",
+  "grouping": {
+    "input": 61198,
+    "groups": 46361,
+    "near_or_exact_duplicates_removed": 14837,
+    "internal_campaigns": 45935,
+    "external_campaigns": 426,
+    "older_messages_withheld_by_external_overlap": 10
+  },
+  "native_parity": {
+    "passed": true,
+    "fixtures": 22,
+    "max_score_absolute_error": 1.4210854715202004e-14
+  },
+  "local_benchmarks": [
+    {
+      "arch": "aarch64",
+      "bytes": 10127,
+      "feature_version": 3,
+      "iterations": 1000,
+      "model": "research-nb-logistic-1788730448-calibrated",
+      "os": "macos",
+      "p50_us": 961,
+      "p95_us": 1106,
+      "p99_us": 1246,
+      "scope": "native MIME/text features plus fitted model; excludes DNS, scanners, LLM, queue and model loading"
+    },
+    {
+      "arch": "aarch64",
+      "bytes": 1048521,
+      "feature_version": 3,
+      "iterations": 100,
+      "model": "research-nb-logistic-1788730448-calibrated",
+      "os": "macos",
+      "p50_us": 16907,
+      "p95_us": 17386,
+      "p99_us": 30233,
+      "scope": "native MIME/text features plus fitted model; excludes DNS, scanners, LLM, queue and model loading"
+    }
+  ],
+  "linux_benchmarks": {
+    "machine": {
+      "vcpus": 4,
+      "ram_bytes": 8134709248,
+      "os": "Debian GNU/Linux 13",
+      "arch": "x86_64"
+    },
+    "cases": [
+      {
+        "arch": "x86_64",
+        "bytes": 10127,
+        "feature_version": 3,
+        "iterations": 1000,
+        "model": "research-nb-logistic-1788730448-calibrated",
+        "os": "linux",
+        "p50_us": 1777,
+        "p95_us": 1837,
+        "p99_us": 2166,
+        "scope": "native MIME/text features plus fitted model; excludes DNS, scanners, LLM, queue and model loading"
+      },
+      {
+        "arch": "x86_64",
+        "bytes": 1048521,
+        "feature_version": 3,
+        "iterations": 100,
+        "model": "research-nb-logistic-1788730448-calibrated",
+        "os": "linux",
+        "p50_us": 30308,
+        "p95_us": 31819,
+        "p99_us": 64954,
+        "scope": "native MIME/text features plus fitted model; excludes DNS, scanners, LLM, queue and model loading"
+      }
+    ]
+  }
+}

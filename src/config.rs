@@ -84,6 +84,7 @@ pub struct Filter {
     #[serde(default = "threshold")]
     pub threshold: f64,
     pub model: Option<PathBuf>,
+    pub semantic: Option<SemanticFilter>,
     #[serde(default = "yes")]
     pub authentication: bool,
     pub spamhaus_key_env: Option<String>,
@@ -93,6 +94,22 @@ pub struct Filter {
     pub proton_report: Option<PathBuf>,
     #[serde(default = "analysis_limit")]
     pub max_analysis_bytes: usize,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SemanticFilter {
+    pub encoder_dir: PathBuf,
+    pub combination: PathBuf,
+    #[serde(default = "semantic_parallel")]
+    pub max_parallel: usize,
+    #[serde(default = "semantic_timeout")]
+    pub timeout_ms: u64,
+}
+fn semantic_parallel() -> usize {
+    1
+}
+fn semantic_timeout() -> u64 {
+    500
 }
 fn threshold() -> f64 {
     95.0
@@ -267,6 +284,21 @@ impl Config {
             (1024..=10 * 1024 * 1024).contains(&self.filter.max_analysis_bytes),
             "invalid analysis budget"
         );
+        if let Some(semantic) = &self.filter.semantic {
+            ensure!(
+                cfg!(feature = "semantic"),
+                "semantic configuration requires a binary built with --features semantic"
+            );
+            ensure!(
+                self.filter.model.is_some(),
+                "semantic combination requires its calibrated lexical model"
+            );
+            ensure!(
+                (1..=2).contains(&semantic.max_parallel)
+                    && (50..=5000).contains(&semantic.timeout_ms),
+                "invalid semantic resource limits"
+            );
+        }
         ensure!(
             self.relay.workers > 0
                 && self.relay.workers <= 128

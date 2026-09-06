@@ -4,6 +4,29 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.1] - 2026-09-07
+
+- R&D reproductible sur Apache, Enron-Spam brut et Nazario 2015–2025 : sources
+  épinglées, regroupement des doublons proches et partitions indépendantes pour
+  apprentissage, sélection, calibration et test. Nazario 2025 reste hors apprentissage.
+- Modèles logistiques TF-IDF et avec rapports de vraisemblance bayésiens, comparaison
+  de régularisations et export de poids JSON pour une inférence native Rust.
+- Schéma de caractéristiques 3 : mots, bigrammes, groupes de caractères et structure,
+  avec exclusion du contenu HTML non visible et des anciens marqueurs antispam.
+  Conservation du support des anciens modèles et versionnement des caractéristiques.
+- Commandes `features-export` et `analyze` pour les essais sans livraison SMTP.
+  Aucun candidat de recherche n'est automatiquement activé en production.
+- Comparaison facultative d'un encodeur multilingue local figé, avec fichiers
+  épinglés, tête logistique et sélection sur le développement uniquement.
+- Vérification de réputation sur les liens des corps MIME décodés : les liens
+  Base64 et quoted-printable ne disparaissent plus, et les anciens en-têtes de
+  filtres ne fournissent plus de domaines à interroger.
+- Mesures natives du modèle sur macOS ARM64 et Debian x86-64 de 4 vCPU / 8 Go.
+- Encodeur multilingue optionnel exécuté en Rust avec Candle, empreintes vérifiées,
+  combinaison liée au modèle lexical et concordance Python/Rust contrôlée.
+  Inférence hors des threads réseau, concurrence et délais bornés, score de repli
+  calibré et statut visible dans la console. Aucun modèle activé automatiquement.
+
 ## [0.2.0-dev.2] - 2026-09-06
 
 - Accepter le champ `tool_calls: []` effectivement renvoyé par Scaleway lorsqu'aucun
@@ -49,7 +72,8 @@ Limites connues : compatibilité réelle Proton non validée ; rappel du candida
 60,94 %, sous l’objectif de 95 % ; le taux ≤ 0,1 % de faux positifs n’est pas démontré.
 Le modèle candidat ne passe pas le contrôle d’activation. SMTPUTF8 reste désactivé.
 
-[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.2.0-dev.2...HEAD
+[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.3.0-dev.1...HEAD
+[0.3.0-dev.1]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.1
 [0.2.0-dev.2]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.2.0-dev.2
 [0.2.0-dev.1]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.2.0-dev.1
 [0.1.0]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.1.0

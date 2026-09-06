@@ -1,7 +1,10 @@
 # Renforcer NoiseFence : architecture et entraînement
 
 Le but est une protection mesurée, pas un nombre maximal de moteurs. Le candidat
-historique actuel détecte 60,94 % des spams de son test et n’est pas activé. Ajouter
+de recherche du 6 septembre atteint 95,59 % de rappel sur son test interne et
+93,66 % sur le phishing de l'archive Nazario 2025. Il n'est pas activé : les
+critères statistiques et la représentativité récente restent insuffisants. Voir
+la [fiche du modèle](../research/model-card-20260906.md). Ajouter
 un antivirus ou un LLM ne transforme pas ce résultat en une garantie de capture.
 Chaque couche doit montrer son gain sur un jeu indépendant et son coût en erreurs,
 latence, mémoire et appels externes.
@@ -10,8 +13,9 @@ latence, mémoire et appels externes.
 
 Implémentés : connecteurs de scan ClamAV sur sockets distinctes, stockage des
 verdicts et affichage, classifieurs logistique et Bernoulli Bayes, client Scaleway
-avec budget durable et validation JSON. Le test réel EICAR passe dans un conteneur
-local ; les tests LLM utilisent un serveur HTTPS simulé, sans envoi à Scaleway.
+avec budget durable et validation JSON. Les scanners et le client Scaleway ont
+été testés localement et sur le serveur. Les tests automatisés LLM utilisent un
+serveur HTTPS simulé ; les diagnostics réels sont distincts des mesures de qualité.
 Les guides [antivirus](antivirus.md) et [Scaleway](scaleway.md) décrivent l'activation.
 
 La comparaison historique utilise les mêmes 4 659 exemples d'entraînement,
@@ -20,10 +24,19 @@ La comparaison historique utilise les mêmes 4 659 exemples d'entraînement,
 414 messages légitimes. Les deux candidats sont refusés. Ajouter Bayes ne constitue
 donc pas un gain démontré ; il reste un point de comparaison expérimental.
 
-Restent à réaliser : politique opérationnelle pour les fichiers malveillants,
-installation et surveillance sur la cible, isolation et essais réels Scaleway,
-corpus récent indépendant, calibration de la combinaison et mesures complètes.
-La quarantaine, les arbres et l'encodeur multilingue ne sont pas implémentés.
+La nouvelle comparaison utilise 46 361 représentants de groupes similaires,
+avec apprentissage, développement, calibration et test séparés. Le schéma 3
+ajoute des groupes de caractères et un texte HTML nettoyé ; son export est vérifié
+avec l'inférence Rust. Le protocole et les sources sont dans `research/`.
+
+Un encodeur multilingue figé et des têtes logistiques ont aussi été comparés hors
+ligne. La combinaison retenue sur le développement détecte 31 spams supplémentaires
+au même nombre de faux positifs observés ; voir la
+[fiche de comparaison](../research/semantic-card-20260907.md). Son portage Rust
+reproduit les 24 décisions de contrôle et prend 373,5 ms au p95 sur un message
+de près de 1 Mo sur le VPS, hors connecteurs. Restent à réaliser : corpus récent représentatif
+indépendant, calibration de la combinaison avec les autres moteurs, évaluation
+par langue et mesures complètes sur la cible. La politique reste sans quarantaine.
 
 ## Chaîne de décision
 

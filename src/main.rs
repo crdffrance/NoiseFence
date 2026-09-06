@@ -36,6 +36,18 @@ enum Command {
     Scan {
         message: PathBuf,
     },
+    /// Run configured analysis once without queueing or delivering the message.
+    Analyze {
+        message: PathBuf,
+        #[arg(long)]
+        source_ip: std::net::IpAddr,
+        #[arg(long)]
+        helo: String,
+        #[arg(long)]
+        mail_from: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
     Queue,
     Retry {
         message_id: String,
@@ -47,6 +59,17 @@ enum Command {
         spam: PathBuf,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Export versioned features from a local research manifest; no message delivery.
+    FeaturesExport {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 3)]
+        feature_version: u32,
     },
     Train {
         input: PathBuf,
@@ -71,6 +94,18 @@ enum Command {
         message: PathBuf,
         #[arg(long, default_value_t = 1000)]
         iterations: usize,
+    },
+    /// Measure native feature extraction plus model inference, excluding connectors.
+    ModelBenchmark {
+        message: PathBuf,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long, default_value_t = 1000)]
+        iterations: usize,
+        #[arg(long, requires = "encoder")]
+        semantic_combination: Option<PathBuf>,
+        #[arg(long, requires = "semantic_combination")]
+        encoder: Option<PathBuf>,
     },
     ProtonReportTemplate {
         output: PathBuf,
@@ -102,6 +137,39 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::ModelBenchmark {
+            message,
+            model,
+            iterations,
+            semantic_combination,
+            encoder,
+        } => {
+            let semantic = semantic_combination.as_ref().zip(encoder.as_ref()).map(
+                |(combination, encoder_dir)| noisefence::config::SemanticFilter {
+                    combination: combination.clone(),
+                    encoder_dir: encoder_dir.clone(),
+                    max_parallel: 1,
+                    timeout_ms: 500,
+                },
+            );
+            println!(
+                "{}",
+                noisefence::research::benchmark(model, message, *iterations, semantic.as_ref())?
+            );
+            return Ok(());
+        }
+        Command::FeaturesExport {
+            manifest,
+            root,
+            output,
+            feature_version,
+        } => {
+            println!(
+                "{}",
+                noisefence::research::export(manifest, root, output, *feature_version)?
+            );
+            return Ok(());
+        }
         Command::CorpusImport { ham, spam, output } => {
             println!(
                 "{} examples imported",
@@ -142,6 +210,48 @@ async fn main() -> Result<()> {
         _ => {}
     }
     let config = Arc::new(Config::load(&cli.config)?);
+    if let Command::Analyze {
+        message,
+        source_ip,
+        helo,
+        mail_from,
+        output,
+    } = &cli.command
+    {
+        ensure!(!output.exists(), "analysis output already exists");
+        ensure!(
+            noisefence::config::valid_address(mail_from) && noisefence::config::valid_domain(helo),
+            "invalid analysis envelope or greeting"
+        );
+        let raw = std::fs::read(message)?;
+        noisefence::message::validate(&raw)?;
+        let engine = Engine::new(config.clone())?;
+        let (analysis, _) = engine
+            .process(
+                &raw,
+                *source_ip,
+                helo,
+                mail_from,
+                &uuid::Uuid::new_v4().to_string(),
+            )
+            .await?;
+        let payload = serde_json::to_vec_pretty(&analysis)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(output)?;
+        std::io::Write::write_all(&mut file, &payload)?;
+        file.sync_all()?;
+        println!(
+            "{}",
+            serde_json::json!({"output":output,"complete":analysis.complete,"score":analysis.score,"model":analysis.model,"elapsed_ms":analysis.elapsed_ms,"sent":false})
+        );
+        return Ok(());
+    }
     if let Command::CheckConfig = cli.command {
         println!(
             "Configuration valid ({:?}); no network connection or DNS change performed.",

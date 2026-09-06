@@ -20,7 +20,7 @@ def collect(kind,name,version,license_name,directory):
 
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
-    metadata=json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=ROOT))
+    metadata=json.loads(subprocess.check_output(['cargo','metadata','--locked','--all-features','--format-version','1'],cwd=ROOT))
     manifest=[]
     for package in metadata['packages']:
         if package['source']:

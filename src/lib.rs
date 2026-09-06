@@ -3,9 +3,13 @@ pub mod api;
 pub mod config;
 pub mod corpus;
 pub mod engine;
+pub mod features;
 pub mod llm;
 pub mod message;
 pub mod relay;
+pub mod research;
+#[cfg(feature = "semantic")]
+pub mod semantic;
 pub mod smtp;
 pub mod store;
 

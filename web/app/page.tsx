@@ -54,6 +54,12 @@ type Mail = {
     prompt_version: string;
     elapsed_ms: number;
   };
+  semantic?: {
+    status: 'disabled' | 'complete' | 'busy' | 'unavailable';
+    model: string;
+    encoder: string;
+    elapsed_ms: number;
+  };
 };
 type Stats = {
   received: number;
@@ -325,6 +331,13 @@ export default function Home() {
                   <span>/ 100</span>
                 </div>
                 <p className="muted">Indice de suspicion · {selected.model}</p>
+                {selected.semantic && selected.semantic.status !== 'disabled' && (
+                  <p className="muted">Analyse multilingue locale : {{
+                    complete: 'effectuée',
+                    busy: 'capacité occupée, analyse incomplète',
+                    unavailable: 'indisponible ou délai dépassé',
+                  }[selected.semantic.status]} · {selected.semantic.elapsed_ms} ms</p>
+                )}
                 {selected.llm && selected.llm.status !== 'disabled' && (
                   <p className="muted">Analyse complémentaire Scaleway : {{
                     not_needed: 'non sollicitée pour ce message',

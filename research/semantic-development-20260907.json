@@ -1,0 +1,686 @@
+{
+  "selected": {
+    "family": "lexical_plus_semantic",
+    "C": 10.0,
+    "semantic_logit_weight": 0.1,
+    "development": {
+      "ham": 2022,
+      "spam": 2672,
+      "true_positive": 2600,
+      "false_positive": 2,
+      "recall": 0.9730538922155688,
+      "precision": 0.9992313604919293,
+      "false_positive_rate": 0.0009891196834817012,
+      "recall_ci95": [
+        0.9662020208390331,
+        0.9785475238945135
+      ],
+      "fpr_ci95": [
+        0.0002712942149322979,
+        0.0035994227094112707
+      ],
+      "average_precision": 0.9997943181136049,
+      "roc_auc": 0.9997442059501176
+    },
+    "fit_seconds": 1.0040688330000003
+  },
+  "baseline": {
+    "family": "lexical",
+    "development": {
+      "ham": 2022,
+      "spam": 2672,
+      "true_positive": 2569,
+      "false_positive": 2,
+      "recall": 0.9614520958083832,
+      "precision": 0.999222092570984,
+      "false_positive_rate": 0.0009891196834817012,
+      "recall_ci95": [
+        0.9534653362833709,
+        0.9681139268942105
+      ],
+      "fpr_ci95": [
+        0.0002712942149322979,
+        0.0035994227094112707
+      ],
+      "average_precision": 0.9997948757659767,
+      "roc_auc": 0.9997417997832229
+    }
+  },
+  "candidates": [
+    {
+      "family": "lexical",
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2569,
+        "false_positive": 2,
+        "recall": 0.9614520958083832,
+        "precision": 0.999222092570984,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9534653362833709,
+          0.9681139268942105
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997948757659767,
+        "roc_auc": 0.9997417997832229
+      }
+    },
+    {
+      "family": "semantic",
+      "C": 0.1,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 1121,
+        "false_positive": 2,
+        "recall": 0.4195359281437126,
+        "precision": 0.9982190560997328,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.40095330153077063,
+          0.4383495844520518
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9918416322546135,
+        "roc_auc": 0.99036700338196
+      },
+      "fit_seconds": 0.42020091699999984
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 0.1,
+      "semantic_logit_weight": 0.1,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2576,
+        "false_positive": 2,
+        "recall": 0.9640718562874252,
+        "precision": 0.9992242048099301,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9563225914535567,
+          0.9704886707850493
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997882071611293,
+        "roc_auc": 0.9997353216415833
+      },
+      "fit_seconds": 0.42177333400000006
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 0.1,
+      "semantic_logit_weight": 0.25,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2580,
+        "false_positive": 2,
+        "recall": 0.9655688622754491,
+        "precision": 0.9992254066615027,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9579597088053207,
+          0.9718412671824421
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997711066054981,
+        "roc_auc": 0.9997175530245147
+      },
+      "fit_seconds": 0.42320154200000015
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 0.1,
+      "semantic_logit_weight": 0.5,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2587,
+        "false_positive": 2,
+        "recall": 0.968188622754491,
+        "precision": 0.9992275009656237,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.960833101893503,
+          0.9741998731552841
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997380597391149,
+        "roc_auc": 0.9996847921367946
+      },
+      "fit_seconds": 0.42462958399999984
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 0.1,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2552,
+        "false_positive": 2,
+        "recall": 0.9550898203592815,
+        "precision": 0.9992169146436961,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.94656218152346,
+          0.9623107982202053
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9996573368987313,
+        "roc_auc": 0.9996059438985531
+      },
+      "fit_seconds": 0.4260277920000002
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 0.1,
+      "semantic_logit_weight": 2.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2438,
+        "false_positive": 2,
+        "recall": 0.9124251497005988,
+        "precision": 0.9991803278688525,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9011063028297266,
+          0.92255983506297
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9994870578901065,
+        "roc_auc": 0.9994469517937419
+      },
+      "fit_seconds": 0.42739812499999985
+    },
+    {
+      "family": "semantic",
+      "C": 1.0,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 1738,
+        "false_positive": 2,
+        "recall": 0.6504491017964071,
+        "precision": 0.9988505747126437,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.6321650858290337,
+          0.6683011459612238
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9951327881256129,
+        "roc_auc": 0.9941048911079917
+      },
+      "fit_seconds": 0.6073090420000002
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 1.0,
+      "semantic_logit_weight": 0.1,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2591,
+        "false_positive": 2,
+        "recall": 0.969685628742515,
+        "precision": 0.9992286926340147,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9624802695306619,
+          0.975542419267282
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997892390952975,
+        "roc_auc": 0.9997369874494334
+      },
+      "fit_seconds": 0.6087928750000002
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 1.0,
+      "semantic_logit_weight": 0.25,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2594,
+        "false_positive": 2,
+        "recall": 0.9708083832335329,
+        "precision": 0.9992295839753467,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9637183468974992,
+          0.9765466272123122
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.999773023991952,
+        "roc_auc": 0.9997214399094985
+      },
+      "fit_seconds": 0.6101803750000001
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 1.0,
+      "semantic_logit_weight": 0.5,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2568,
+        "false_positive": 2,
+        "recall": 0.9610778443113772,
+        "precision": 0.9992217898832685,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9530579118299987,
+          0.9677739229102935
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997231901776958,
+        "roc_auc": 0.9996723911227989
+      },
+      "fit_seconds": 0.611620625
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 1.0,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2513,
+        "false_positive": 2,
+        "recall": 0.9404940119760479,
+        "precision": 0.9992047713717693,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9308758840579993,
+          0.948847386631387
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9996279192696513,
+        "roc_auc": 0.9995798462422336
+      },
+      "fit_seconds": 0.6130180840000001
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 1.0,
+      "semantic_logit_weight": 2.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2404,
+        "false_positive": 2,
+        "recall": 0.8997005988023952,
+        "precision": 0.999168744804655,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.8877303961061155,
+          0.9105231749187482
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9994058884630648,
+        "roc_auc": 0.9993553323619823
+      },
+      "fit_seconds": 0.6144787090000001
+    },
+    {
+      "family": "semantic",
+      "C": 10.0,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 1930,
+        "false_positive": 2,
+        "recall": 0.7223053892215568,
+        "precision": 0.9989648033126294,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.705014018207739,
+          0.7389584735420446
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9959255470618925,
+        "roc_auc": 0.9949079955815372
+      },
+      "fit_seconds": 1.0025120829999996
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 10.0,
+      "semantic_logit_weight": 0.1,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2600,
+        "false_positive": 2,
+        "recall": 0.9730538922155688,
+        "precision": 0.9992313604919293,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9662020208390331,
+          0.9785475238945135
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997943181136049,
+        "roc_auc": 0.9997442059501176
+      },
+      "fit_seconds": 1.0040688330000003
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 10.0,
+      "semantic_logit_weight": 0.25,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2580,
+        "false_positive": 2,
+        "recall": 0.9655688622754491,
+        "precision": 0.9992254066615027,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9579597088053207,
+          0.9718412671824421
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.999770569539672,
+        "roc_auc": 0.9997218100890207
+      },
+      "fit_seconds": 1.005538
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 10.0,
+      "semantic_logit_weight": 0.5,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2544,
+        "false_positive": 2,
+        "recall": 0.9520958083832335,
+        "precision": 0.9992144540455616,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9433289917094656,
+          0.9595645605358858
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997246528198789,
+        "roc_auc": 0.9996772034565883
+      },
+      "fit_seconds": 1.006917041
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 10.0,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2522,
+        "false_positive": 2,
+        "recall": 0.9438622754491018,
+        "precision": 0.9992076069730587,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9344801473142388,
+          0.9519699793107506
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9995922596612514,
+        "roc_auc": 0.9995385712255016
+      },
+      "fit_seconds": 1.0084030829999997
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 10.0,
+      "semantic_logit_weight": 2.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2489,
+        "false_positive": 2,
+        "recall": 0.9315119760479041,
+        "precision": 0.9991971095945403,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9213023000100073,
+          0.9404826881844381
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.999304450395769,
+        "roc_auc": 0.9992178106694622
+      },
+      "fit_seconds": 1.009878375
+    },
+    {
+      "family": "semantic",
+      "C": 100.0,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 1904,
+        "false_positive": 2,
+        "recall": 0.7125748502994012,
+        "precision": 0.9989506820566632,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.6951196693081612,
+          0.7294196830721034
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9957112143353299,
+        "roc_auc": 0.9945565101251503
+      },
+      "fit_seconds": 1.5920015420000002
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 100.0,
+      "semantic_logit_weight": 0.1,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2598,
+        "false_positive": 2,
+        "recall": 0.9723053892215568,
+        "precision": 0.9992307692307693,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9653729658434068,
+          0.9778817220155612
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997955203167339,
+        "roc_auc": 0.9997471673862957
+      },
+      "fit_seconds": 1.5935675419999997
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 100.0,
+      "semantic_logit_weight": 0.25,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2579,
+        "false_positive": 2,
+        "recall": 0.9651946107784432,
+        "precision": 0.9992251065478497,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9575501143381858,
+          0.9715034332122877
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.99977105271598,
+        "roc_auc": 0.9997256969740045
+      },
+      "fit_seconds": 1.5949734580000001
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 100.0,
+      "semantic_logit_weight": 0.5,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2565,
+        "false_positive": 2,
+        "recall": 0.9599550898203593,
+        "precision": 0.9992208804051422,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9518367141426143,
+          0.9667528352858104
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9997029125194912,
+        "roc_auc": 0.9996564734033417
+      },
+      "fit_seconds": 1.5963712499999998
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 100.0,
+      "semantic_logit_weight": 1.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2555,
+        "false_positive": 2,
+        "recall": 0.9562125748502994,
+        "precision": 0.9992178333985139,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.9477770174163255,
+          0.9633382476392073
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9995351288447148,
+        "roc_auc": 0.9994717538217334
+      },
+      "fit_seconds": 1.5977639579999998
+    },
+    {
+      "family": "lexical_plus_semantic",
+      "C": 100.0,
+      "semantic_logit_weight": 2.0,
+      "development": {
+        "ham": 2022,
+        "spam": 2672,
+        "true_positive": 2461,
+        "false_positive": 2,
+        "recall": 0.9210329341317365,
+        "precision": 0.999187982135607,
+        "false_positive_rate": 0.0009891196834817012,
+        "recall_ci95": [
+          0.910192338476669,
+          0.9306646534736789
+        ],
+        "fpr_ci95": [
+          0.0002712942149322979,
+          0.0035994227094112707
+        ],
+        "average_precision": 0.9991573858023856,
+        "roc_auc": 0.9990292042028702
+      },
+      "fit_seconds": 1.599128458
+    }
+  ],
+  "trained_messages": 27497,
+  "development_messages": 4694,
+  "test_evaluated": false,
+  "eligible": false,
+  "limitation": "Development selection only. No native inference integration or new independent evaluation. Encoder pretraining data overlap cannot be ruled out.",
+  "encoder": {
+    "id": "intfloat/multilingual-e5-small",
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "frozen": true,
+    "dimensions": 384,
+    "max_tokens": 256
+  },
+  "scope": "Development comparison only; selected before reference test evaluation. No production activation."
+}

@@ -31,6 +31,15 @@ max_analysis_bytes = 2097152
 # arc_selector = "gateway2026"
 # proton_report = "/etc/noisefence/proton-validation.json"
 
+# Optional local semantic combination; requires a binary built with --features semantic.
+# Use the matching calibrated filter.model and an independently validated combination.
+# See research/README.md for native trials and resource controls.
+# [filter.semantic]
+# encoder_dir = "/var/lib/noisefence/models/encoder"
+# combination = "/var/lib/noisefence/models/native-combination.json"
+# max_parallel = 1
+# timeout_ms = 500
+
 # Optional local scanner; see docs/antivirus.md before enabling it.
 # [antivirus]
 # socket = "/run/clamav/clamd.ctl"

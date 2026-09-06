@@ -1,0 +1,21 @@
+{
+  "source": "https://api.osv.dev/v1/querybatch",
+  "packages_checked": 388,
+  "findings": [
+    {
+      "package": "paste",
+      "version": "1.0.15",
+      "id": "RUSTSEC-2024-0436",
+      "classification": "informational: unmaintained",
+      "reference": "https://rustsec.org/advisories/RUSTSEC-2024-0436.html"
+    },
+    {
+      "package": "rustls-pemfile",
+      "version": "2.2.0",
+      "id": "RUSTSEC-2025-0134",
+      "classification": "informational: unmaintained",
+      "reference": "https://rustsec.org/advisories/RUSTSEC-2025-0134.html"
+    }
+  ],
+  "limitations": "Snapshot of published package advisories; does not establish absence of vulnerabilities. Includes optional and target-specific dependencies."
+}
