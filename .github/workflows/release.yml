@@ -36,7 +36,7 @@ jobs:
         run: |
           docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
             rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
-            sh -c 'cargo test --locked --features semantic && cargo build --release --locked --features semantic'
+            sh -c 'cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
       - run: python3 scripts/collect_licenses.py
       - name: Assemble release
         env:

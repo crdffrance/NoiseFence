@@ -26,6 +26,9 @@ attendre le succès de la CI, puis créer et pousser le tag annoté correspondan
 Le workflow `release.yml` compile dans une image Rust Bookworm identifiée par son digest,
 sur x86-64 et ARM64. Il assemble les binaires, le frontend statique, les licences, les
 exemples et la documentation, puis publie une GitHub Release avec les sommes SHA-256.
+Les tests utilisent `cargo test --release`, avec le même profil que le binaire
+distribué. Ce profil évite aussi le [défaut de compilation debug ARM64 de gemm-f16](https://github.com/sarah-quinones/gemm/issues/31).
+La CI principale vérifie également le moteur multilingue sur un runner ARM64.
 Les sources exactes sont accessibles depuis le tag de la release. Les rapports, les
 modèles entraînés, les clés et les configurations propres au serveur restent hors Git.
 

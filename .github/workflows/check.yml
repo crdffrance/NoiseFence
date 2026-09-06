@@ -25,8 +25,17 @@ jobs:
   rust:
     strategy:
       matrix:
-        features: ['', '--features semantic']
-    runs-on: ubuntu-latest
+        include:
+          - runner: ubuntu-latest
+            features: ''
+            profile: ''
+          - runner: ubuntu-latest
+            features: '--features semantic'
+            profile: ''
+          - runner: ubuntu-24.04-arm
+            features: '--features semantic'
+            profile: '--release'
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -35,8 +44,8 @@ jobs:
           components: rustfmt, clippy
       - run: python3 scripts/version.py --check
       - run: cargo fmt --check
-      - run: cargo clippy --locked --all-targets ${{ matrix.features }} -- -D warnings
-      - run: cargo test --locked ${{ matrix.features }}
+      - run: cargo clippy --locked --all-targets ${{ matrix.profile }} ${{ matrix.features }} -- -D warnings
+      - run: cargo test --locked ${{ matrix.profile }} ${{ matrix.features }}
       - run: cargo build --release --locked ${{ matrix.features }}
   web:
     runs-on: ubuntu-latest
