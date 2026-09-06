@@ -2,7 +2,7 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. En mode `tag`, les messages suspects reçoivent `[SPAM]` dans l’objet. Le score ne provoque ni rejet ni quarantaine.
 
-**Version de développement 0.2.0-dev.1 — expérimentale, en observation par défaut.** La dernière release publiée est la [0.1.0](https://github.com/crdffrance/NoiseFence/releases/tag/v0.1.0). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures et limites dans [le rapport de validation](docs/validation-results.md).
+**Version de développement 0.2.0-dev.1 — expérimentale, en observation par défaut.** Les archives Linux sont publiées dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures et limites dans [le rapport de validation](docs/validation-results.md).
 
 Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 

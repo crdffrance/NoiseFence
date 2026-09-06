@@ -4,6 +4,8 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.2.0-dev.1] - 2026-09-06
+
 - Préversion de développement `0.2.0-dev.1` : connecteurs ClamAV officiels et
   signatures complémentaires sur sockets Unix distinctes, limites et verdicts
   visibles dans la console. Profil Sanesecurity LOW, sources et clé épinglées,
@@ -34,5 +36,6 @@ Limites connues : compatibilité réelle Proton non validée ; rappel du candida
 60,94 %, sous l’objectif de 95 % ; le taux ≤ 0,1 % de faux positifs n’est pas démontré.
 Le modèle candidat ne passe pas le contrôle d’activation. SMTPUTF8 reste désactivé.
 
-[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.2.0-dev.1...HEAD
+[0.2.0-dev.1]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.2.0-dev.1
 [0.1.0]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.1.0
