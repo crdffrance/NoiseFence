@@ -66,8 +66,24 @@ instrumentées et les essais réels de disque plein/crash matériel restent à r
 
 ## Jalon Proton en attente
 
-Les essais réels Proton ne sont pas encore réalisés. Aucun MX n’a été modifié.
-Les huit cas du protocole [proton-validation.md](proton-validation.md) restent à exécuter.
+Un premier essai de transport a été réalisé depuis le serveur Linux vers une boîte
+Proton contrôlée : un message direct, un message via la file NoiseFence, et un
+message via la file avec objet déjà préfixé et international. L’envoi direct a reçu
+`250` sous TLS 1.3 ; les deux relais ont été acceptés par Proton, marqués livrés,
+puis leurs corps ont été supprimés du spool. L’utilisateur a confirmé les trois
+messages dans le dossier spam. Le bon affichage des caractères internationaux
+n’a pas encore été confirmé.
+
+Ces messages synthétiques n’avaient pas de signature DKIM et le SPF du domaine
+expéditeur n’autorisait pas l’IP du serveur. Comme le témoin direct arrive lui aussi
+en spam, l’essai ne permet pas d’attribuer ce classement au préfixe. La réputation
+du serveur et l’authentification doivent être isolées dans les prochains essais.
+Le troisième message avait un objet déjà préfixé : ce n’était pas un essai réel de
+modification suivie d’un sceau ARC publié. Les preuves propres au déploiement et
+les adresses de test restent hors du dépôt public.
+
+Aucun MX n’a été modifié. La bascule reste suspendue. Les huit cas complets du
+protocole [proton-validation.md](proton-validation.md) restent à exécuter.
 Le mode observation reste la configuration de départ et le marquage exige un rapport
 récent renseigné avec des preuves de livraison. Les détails du serveur et les adresses
 réelles appartiennent à la configuration locale de chaque déploiement.
