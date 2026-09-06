@@ -1,0 +1,20 @@
+[Unit]
+Description=NoiseFence operational health checks
+After=noisefence.service
+
+[Service]
+Type=oneshot
+User=noisefence
+Group=noisefence
+Environment=TZ=UTC
+ExecStart=/usr/bin/python3 /usr/local/libexec/noisefence-health --config /etc/noisefence/config.toml --output /var/lib/noisefence/operational-health.json
+TimeoutStartSec=45
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/noisefence
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+CPUQuota=25%

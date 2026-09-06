@@ -2,8 +2,10 @@
 
 Ces connecteurs sont facultatifs et désactivés sans configuration. Dans cette
 version de développement, ils enregistrent les détections et leurs raisons ; ils
-ne retiennent ni ne suppriment les messages. Une politique de quarantaine ou de
-livraison avec avertissement doit être définie avant une activation en production.
+ne retiennent ni ne suppriment les messages. L'activation actuelle est consultative :
+les verdicts sont visibles dans la console, sans quarantaine ni rejet antivirus.
+Toute politique de rétention ou de modification des messages doit être validée
+séparément, notamment avec le relais Proton.
 
 Deux processus sont prévus : ClamAV avec les bases officielles, puis un scanner
 consultatif avec les bases Sanesecurity. Leurs scans tournent en parallèle. Cette
@@ -14,9 +16,30 @@ uniquement aux comptes de service. Aucun port ClamD TCP n'est nécessaire.
 ## Bases officielles sous Debian
 
 Installer des paquets ClamAV encore maintenus pour la distribution cible et vérifier
-les avis de sécurité. Le conteneur de test Bookworm utilise 1.4.3, tandis que
-FreshClam recommande 1.4.6 au 6 septembre 2026 ; ce test de protocole ne constitue
-pas une recommandation de déployer une ancienne version.
+les avis de sécurité. Au 6 septembre 2026, Debian 13 propose encore 1.4.3 et son
+[suivi de sécurité](https://security-tracker.debian.org/tracker/source-package/clamav)
+signale des vulnérabilités corrigées dans 1.4.6. Ne pas déployer cette ancienne
+version sur les messages entrants. Le conteneur historique Bookworm teste le
+protocole ; ce n'est pas la version retenue pour le serveur.
+
+Le déploiement utilise le [paquet officiel Cisco Talos 1.4.6](https://github.com/Cisco-Talos/clamav/releases/tag/clamav-1.4.6),
+installé sous `/usr/local`. Pour AMD64, le paquet `clamav-1.4.6.linux.x86_64.deb`
+a pour SHA256 `d3ee9e401974855a1edc1761b1425417d126de618d5f0c91cd51209f69f6fcc2`.
+Vérifier l'empreinte publiée par le fournisseur avant `dpkg -i`, puis exécuter
+`ldconfig`. Ce paquet ne crée ni compte, ni configuration, ni services systemd.
+
+Créer un compte système `clamav`, les répertoires `/etc/clamav`, `/var/lib/clamav`
+et `/var/log/clamav`, puis installer `deploy/clamd.conf` et `deploy/freshclam.conf`.
+Installer `deploy/clamav-upstream.service` comme `clamav-daemon.service` et
+`deploy/freshclam-upstream.service` comme `clamav-freshclam.service`. Ajouter
+`noisefence` au groupe `clamav`. Démarrer FreshClam, attendre la validation des
+bases, puis démarrer le scanner. Le scanner complémentaire doit également utiliser
+`/usr/local/sbin/clamd` dans son unité systemd. Les outils de rechargement se trouvent
+dans `/usr/local/bin`. Ne pas installer en parallèle les anciens démons Debian.
+
+Le paquet amont doit être suivi pour ses mises à jour de sécurité ; FreshClam met
+à jour les signatures, pas les exécutables. Si Debian fournit ensuite une version
+corrigée, la variante suivante utilise ses chemins et unités natifs :
 
 ```sh
 sudo apt-get install --no-install-recommends clamav clamav-daemon clamav-freshclam clamdscan
@@ -89,6 +112,13 @@ quotidiennes officielles ou les mises à jour complémentaires ont plus de 48 he
 Interroger `VERSION` sur chaque socket pour relever la version du moteur ; le
 journal du programme de mise à jour fournit les versions des bases complémentaires.
 Un processus actif avec des bases anciennes ne prouve pas une protection à jour.
+
+`deploy/health-check.py` et les unités `noisefence-health.service`/`.timer`
+contrôlent toutes les cinq minutes services, sockets, date de la base quotidienne,
+dernier contrôle Sanesecurity, file, disque, certificat et budget LLM. Le rapport
+est enregistré dans `/var/lib/noisefence/operational-health.json` et dans le journal
+systemd. Un incident fait échouer l'unité ; raccorder ce statut à la supervision
+de l'opérateur pour les notifications. Aucun email d'alerte n'est envoyé par ce script.
 
 Le harnais `tests/clamav/Dockerfile` exécute un véritable scan EICAR dans une pièce
 jointe MIME et un scan sain sans envoyer d'email. Il utilise des volumes distincts

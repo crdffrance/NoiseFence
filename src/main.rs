@@ -215,20 +215,20 @@ async fn main() -> Result<()> {
                 &uuid::Uuid::new_v4().to_string(),
             )
             .await?;
-        ensure!(
-            original_scan.complete && tagged_scan.complete && tagged_scan.tagged,
-            "probe checks incomplete; no tagged variant produced"
-        );
         std::fs::create_dir_all(&output)?;
-        std::fs::write(output.join("direct.eml"), raw)?;
-        std::fs::write(output.join("relay-untagged.eml"), untagged)?;
-        std::fs::write(output.join("relay-tagged.eml"), tagged)?;
         std::fs::write(
             output.join("analysis.json"),
             serde_json::to_vec_pretty(
                 &serde_json::json!({"source_ip":source_ip,"helo":helo,"mail_from":mail_from,"untagged":original_scan,"tagged":tagged_scan}),
             )?,
         )?;
+        ensure!(
+            original_scan.complete && tagged_scan.complete && tagged_scan.tagged,
+            "probe checks incomplete; see analysis.json; no tagged variant produced"
+        );
+        std::fs::write(output.join("direct.eml"), raw)?;
+        std::fs::write(output.join("relay-untagged.eml"), untagged)?;
+        std::fs::write(output.join("relay-tagged.eml"), tagged)?;
         println!(
             "Three probe files prepared. No message sent. Use only controlled test recipients."
         );

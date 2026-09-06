@@ -267,7 +267,6 @@ pub struct Client {
 impl Client {
     pub fn new(config: LlmConfig, data_dir: &Path) -> Result<Self> {
         config.validate()?;
-        config.validate()?;
         let mut headers = HeaderMap::new();
         let key = std::env::var(&config.api_key_env)
             .context("missing LLM API key environment variable")?;
@@ -472,8 +471,14 @@ fn parse_reply(bytes: &[u8], model: &str) -> Result<(Verdict, u64, u64)> {
     ensure!(
         choices[0]["message"]
             .get("tool_calls")
-            .is_none_or(|v| v.is_null()),
+            .is_none_or(|v| v.is_null() || v.as_array().is_some_and(Vec::is_empty)),
         "LLM tool calls are not allowed"
+    );
+    ensure!(
+        choices[0]["message"]
+            .get("function_call")
+            .is_none_or(Value::is_null),
+        "LLM function calls are not allowed"
     );
     let content = choices[0]["message"]["content"]
         .as_str()
@@ -550,7 +555,7 @@ mod tests {
                 if invalid {
                     verdict["action"] = json!("release message");
                 }
-                let body = json!({"model":"test-model","choices":[{"finish_reason":"stop","message":{"content":verdict.to_string()}}],
+                let body = json!({"model":"test-model","choices":[{"finish_reason":"stop","message":{"content":verdict.to_string(),"tool_calls":[],"function_call":null}}],
                     "usage":{"prompt_tokens":10,"completion_tokens":20}}).to_string();
                 io.get_mut().write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
             });
@@ -602,6 +607,27 @@ mod tests {
                 result.accounted_micro_eur
             );
         }
+    }
+    #[test]
+    fn empty_tool_lists_are_valid_but_executable_calls_are_rejected() {
+        let verdict = json!({"category":"legitimate","spam_probability":0.1,"confidence":0.9,"explanation":"Confirmation de réunion"});
+        let mut reply = json!({"model":"test-model","choices":[{"finish_reason":"stop","message":{"content":verdict.to_string()}}],"usage":{"prompt_tokens":198,"completion_tokens":119}});
+        assert!(parse_reply(&serde_json::to_vec(&reply).unwrap(), "test-model").is_ok());
+        for empty in [Value::Null, json!([])] {
+            reply["choices"][0]["message"]["tool_calls"] = empty;
+            assert!(parse_reply(&serde_json::to_vec(&reply).unwrap(), "test-model").is_ok());
+        }
+        for calls in [
+            json!([{"function":{"name":"release"}}]),
+            json!({}),
+            json!(""),
+        ] {
+            reply["choices"][0]["message"]["tool_calls"] = calls;
+            assert!(parse_reply(&serde_json::to_vec(&reply).unwrap(), "test-model").is_err());
+        }
+        reply["choices"][0]["message"]["tool_calls"] = json!([]);
+        reply["choices"][0]["message"]["function_call"] = json!({"name":"release"});
+        assert!(parse_reply(&serde_json::to_vec(&reply).unwrap(), "test-model").is_err());
     }
     #[test]
     fn budget_survives_restart_and_prevents_concurrent_overspending() {

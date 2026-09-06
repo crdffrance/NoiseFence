@@ -1,0 +1,11 @@
+[Unit]
+Description=Check NoiseFence services, queue, certificates and signature freshness
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=20
+Unit=noisefence-health.service
+
+[Install]
+WantedBy=timers.target

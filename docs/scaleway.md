@@ -1,8 +1,14 @@
 # Analyse facultative avec Scaleway
 
-Le client Rust est implémenté et testé contre un serveur HTTPS local. Il nécessite
-encore la validation avec un véritable projet Scaleway, ses droits IAM et le modèle
-choisi. Aucun compte, projet ni clé de déploiement n'est intégré au dépôt.
+Le client Rust est implémenté, testé contre un serveur HTTPS local et confronté à
+l'API réelle de Scaleway. Les essais synthétiques ont confirmé l'accès dans le
+projet dédié et un refus HTTP 403 dans un autre projet. Aucun compte, identifiant
+de projet déployé ni clé de production n'est intégré au dépôt.
+
+La réponse réelle contient `tool_calls: []` en l'absence d'appel d'outil. Cette
+forme est acceptée depuis 0.2.0-dev.2, au même titre qu'un champ absent ou nul.
+Une liste non vide, un autre type ou un `function_call` non nul reste refusé.
+Ces essais valident l'intégration, pas un taux de détection sur un corpus réel.
 
 ## Isolation et activation
 

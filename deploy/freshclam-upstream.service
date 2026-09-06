@@ -1,0 +1,28 @@
+# Install as clamav-freshclam.service with the official /usr/local package.
+[Unit]
+Description=NoiseFence official ClamAV database updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=clamav
+Group=clamav
+ExecStart=/usr/local/bin/freshclam --daemon --foreground=true --config-file=/etc/clamav/freshclam.conf
+Restart=on-failure
+RestartSec=300
+StateDirectory=clamav
+LogsDirectory=clamav
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/clamav /var/log/clamav
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=768M
+CPUQuota=100%
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

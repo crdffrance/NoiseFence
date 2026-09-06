@@ -1,0 +1,29 @@
+# Install as clamav-daemon.service when using the official /usr/local package.
+[Unit]
+Description=NoiseFence official ClamAV scanner
+After=network-online.target
+
+[Service]
+Type=simple
+User=clamav
+Group=clamav
+ExecStart=/usr/local/sbin/clamd --foreground=true --config-file=/etc/clamav/clamd.conf
+Restart=on-failure
+RestartSec=30
+RuntimeDirectory=clamav
+RuntimeDirectoryMode=0750
+StateDirectory=clamav
+LogsDirectory=clamav
+UMask=0027
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=32
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/lib/clamav
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

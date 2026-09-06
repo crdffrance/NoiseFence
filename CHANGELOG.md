@@ -4,6 +4,16 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.2.0-dev.2] - 2026-09-06
+
+- Accepter le champ `tool_calls: []` effectivement renvoyé par Scaleway lorsqu'aucun
+  outil n'est appelé ; continuer à refuser les appels réels et les anciens
+  `function_call`. Test de régression HTTPS et contrôle des cas interdits.
+- Conserver le rapport d'analyse des essais Proton incomplets pour leur diagnostic.
+- Configurations Nginx HTTPS, renouvellement Certbot via webroot et services pour
+  ClamAV amont 1.4.6, afin d'éviter la version Debian 13 encore vulnérable.
+- Supervision périodique des services, scanners, signatures, file, disque, certificat
+  et budget LLM. L'analyse reste consultative jusqu'aux validations de livraison.
 - Normaliser les permissions de l'archive installée pour permettre son exécution
   par le compte de service après une extraction dans un répertoire privé.
 
@@ -39,6 +49,7 @@ Limites connues : compatibilité réelle Proton non validée ; rappel du candida
 60,94 %, sous l’objectif de 95 % ; le taux ≤ 0,1 % de faux positifs n’est pas démontré.
 Le modèle candidat ne passe pas le contrôle d’activation. SMTPUTF8 reste désactivé.
 
-[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.2.0-dev.1...HEAD
+[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.2.0-dev.2...HEAD
+[0.2.0-dev.2]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.2.0-dev.2
 [0.2.0-dev.1]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.2.0-dev.1
 [0.1.0]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.1.0
