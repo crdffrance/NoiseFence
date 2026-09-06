@@ -29,6 +29,10 @@ else
     cp -a . "$destination/"
     chown -R root:root "$destination"
 fi
+# Private extraction directories can be 0700 even for a public release archive.
+# Make the installed bundle readable/traversable by the service account while
+# preserving executable files and excluding group/other write access.
+chmod -R u=rwX,go=rX "$destination"
 for entry in noisefence web; do
     if [ -e "$base/$entry" ] && [ ! -L "$base/$entry" ]; then
         echo "Refusing to replace non-symlink $base/$entry; migrate it first." >&2; exit 1

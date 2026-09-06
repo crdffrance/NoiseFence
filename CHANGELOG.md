@@ -4,6 +4,9 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+- Normaliser les permissions de l'archive installée pour permettre son exécution
+  par le compte de service après une extraction dans un répertoire privé.
+
 ## [0.2.0-dev.1] - 2026-09-06
 
 - Préversion de développement `0.2.0-dev.1` : connecteurs ClamAV officiels et
