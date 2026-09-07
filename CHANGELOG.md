@@ -4,6 +4,20 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.11] - 2026-09-07
+
+- Évaluer hors ligne chaque ligne d'un export de population avec
+  `fusion-population-predict`, sans transformer les observations manquantes ou
+  incompatibles en messages légitimes. Vérifier les compteurs, les identités,
+  le modèle et les octets exacts du jeu ; publier atomiquement sans écrasement.
+- Comparer les cinq candidats figés sur toute la population, avec annotations
+  humaines et arbitrages documentés, détection des campagnes déjà utilisées,
+  comptage des inconnus et bornes conservatrices. Distinguer mesures par message
+  et stabilité par campagne ; empêcher une réévaluation accidentelle du même jeu.
+- Tester la chaîne complète d'évaluation sur des cas synthétiques incluant les
+  pannes, conflits et données anciennes. Ces mesures ne valident aucun modèle
+  pour le trafic réel et n'activent aucun nouveau classement en production.
+
 ## [0.3.0-dev.10] - 2026-09-07
 
 - Unifier la décision persistée entre le SMTP, la console, les recherches et les

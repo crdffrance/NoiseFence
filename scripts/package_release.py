@@ -37,7 +37,7 @@ def main():
     # Data-only feedback fitting runtime, without corpora, private models or hub clients.
     (output/'research').mkdir()
     for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',
-                     'train_fusion.py','fusion-protocol.json','fusion.md','labeling-protocol.md']:
+                     'train_fusion.py','evaluate_population.py','fusion-protocol.json','fusion.md','labeling-protocol.md']:
         shutil.copy2(ROOT/'research'/filename,output/'research'/filename)
     for filename in ['README.md','LICENSE','THIRD_PARTY.md','CHANGELOG.md','Cargo.lock']:
         shutil.copy2(ROOT/filename,output/filename)

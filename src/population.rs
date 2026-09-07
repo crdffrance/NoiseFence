@@ -2,7 +2,7 @@
 //! Administrator CLI only; no bodies, recipients or content vectors are read out.
 use crate::{engine::Scan, evidence::Source, fusion, message, store::Store};
 use anyhow::{Result, ensure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
@@ -14,7 +14,8 @@ pub const SCHEMA: &str = "noisefence-population-1";
 const MAX_ROWS: usize = 50_000;
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 
-#[derive(Default, Debug, Serialize)]
+#[derive(Default, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Report {
     pub considered: usize,
     pub automatic_dsn: usize,

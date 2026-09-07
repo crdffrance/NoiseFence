@@ -13,6 +13,7 @@ use std::{collections::BTreeMap, io::Read, path::Path, sync::OnceLock};
 pub const SCHEMA: &str = "noisefence-fusion-model-1";
 pub const FEATURE_SCHEMA: &str = "noisefence-fusion-features-1";
 pub mod io;
+pub mod population;
 pub mod runtime;
 pub const PROTOCOL: &[u8] = include_bytes!("../research/fusion-protocol.json");
 const STATES: [State; 7] = [

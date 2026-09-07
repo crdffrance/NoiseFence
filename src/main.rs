@@ -131,6 +131,14 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Predict every retained population row offline, including unassessable cases.
+    FusionPopulationPredict {
+        input: PathBuf,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
     Benchmark {
         message: PathBuf,
         #[arg(long, default_value_t = 1000)]
@@ -178,6 +186,19 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::FusionPopulationPredict {
+            input,
+            model,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&noisefence::fusion::population::predict(
+                    input, model, output
+                )?)?
+            );
+            return Ok(());
+        }
         Command::FusionExport { input, output } => {
             println!(
                 "{}",

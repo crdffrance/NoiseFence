@@ -189,7 +189,10 @@ python3 research/verify_fusion.py var/fusion-parity
 Ce contrôle construit 400 observations synthétiques, apprend les cinq variantes,
 fait varier toutes les familles de contrôles, compare 2 000 prédictions
 Python/Rust et vérifie la règle sans préfixe pour les analyses limitées, erreurs
-de réputation et saturations LLM. Aucun email ni appel de détecteur n'est produit. La CI
+de réputation et saturations LLM. Il vérifie ensuite 400 lignes d'une population
+synthétique et 2 000 prédictions supplémentaires : données absentes, anciens
+classements, conflits humains, limites d'analyse et refus de réutilisation du
+test. Aucun email ni appel de détecteur n'est produit. La CI
 exécute ce contrôle avec les autres tests ; sa réussite n'est pas une mesure de
 qualité antispam.
 
@@ -306,5 +309,115 @@ sans écrasement même en concurrence. Choisir un intervalle plus court au besoi
 aucune troncature silencieuse. Les fichiers restent privés et soumis à la
 conservation de 30 jours, même après suppression des corps de la file.
 
+## Évaluer un candidat figé sur cette population
+
+La commande native suivante conserve **toutes** les lignes, même sans label ou
+empreinte de campagne. Elle ne charge pas la configuration, ne consulte pas le
+DNS et ne transmet aucun email :
+
+```sh
+noisefence fusion-population-predict /chemin/prive/population.jsonl \
+  --model /chemin/prive/candidate/full.json --output /chemin/prive/predictions.jsonl
+```
+
+Elle lie le SHA-256 du modèle aux mêmes octets que ceux parsés et celui de la
+population aux octets lus jusqu'au bilan final. En-tête, bilan, comptes,
+identités dupliquées et champs JSON sont vérifiés. Un export tronqué ne publie
+aucun résultat. La sortie est atomique, `0600`, sans remplacement d'un fichier
+existant. Les compteurs `automatic_dsn` et `invalid_scan` de l'export v1 ne sont
+pas reconstructibles par ligne ; leurs bornes sont vérifiées et cette limite
+reste déclarée.
+
+Une observation SMTP valide et compatible donne la même prédiction que le
+moteur natif. Une panne ou un profil inconnu donne `would_tag = false` et reste
+dans les occasions de capture manquées. Une observation absente, invalide,
+non SMTP ou liée à d'autres artefacts donne `prediction = null` : c'est un
+résultat **inconnu**, jamais un vrai négatif supposé. Une erreur de modèle
+interrompt la commande. La complétude des détecteurs d'origine fait foi, pas
+la décision d'un ancien candidat stockée dans le message.
+
+Ce résultat est hypothétique : il suppose une revue de promotion valide, le
+mode marquage et la compatibilité Proton. `tagged` conserve le préfixe enregistré
+lors du traitement d'origine ; il ne faut pas le confondre avec la nouvelle
+prédiction ni avec le dossier d'arrivée final dans Proton.
+
+Pour une évaluation contrôlée, préparer une annotation par identité de la
+population, sans consulter les prédictions des candidats. Champs exacts :
+
+```json
+{"id":"<SHA-256>","label":"legit","campaign":"<SHA-256 ou null>","language":"fr","kind":"invoice","basis":"reviewed","review_reference":"<référence à la revue humaine>","reviewed_at":1788825600}
+```
+
+Les labels sont `legit`, `spam`, `phishing`, `unwanted_binary` ou `uncertain`.
+`basis = feedback` exige un consensus exporté cohérent. `reviewed` accepte une
+revue humaine d'un message non annoté ou cohérent avec ce consensus.
+`adjudicated` exige une référence de revue explicite pour arbitrer un conflit
+ou corriger le consensus. Un cas encore incertain reste `basis = unresolved`,
+avec `review_reference` et `reviewed_at` à `null`. Les scores automatiques ne
+constituent pas une annotation. Une campagne inconnue reste `null` ; ne pas
+inventer de SimHash pour compléter le jeu. Les revues peuvent rester dans un
+registre privé, sans nom de personne dans ce fichier.
+
+Le manifeste `population-evaluation.json` utilise le schéma
+`noisefence-population-evaluation-1` et les champs suivants :
+
+| Champ | Contenu |
+| --- | --- |
+| `population`, `annotations` | Chaque fichier privé sous forme `{ "path": "…", "sha256": "…" }` |
+| `experiment` | Manifeste d'entraînement original, sous la même forme liée par hash |
+| `fit` | Reçu `candidate/fit.json`, lié par hash |
+| `models` | Objet avec exactement `content`, `identity`, `reputation`, `scanners`, `full`, chacun lié par chemin et hash |
+| `binary` | Binaire NoiseFence local audité, lié par chemin et hash ; il sera exécuté |
+| `sampling` | `kind`, `description`, `authorization`, `start_at`, `end_at` ; même convention que l'entraînement, fin ici exclusive et bornes identiques à l'export |
+| `review` | `reference`, `reviewed_at`, `blinded` et `independent_campaigns` ; les deux derniers sont des booléens attestant la revue réelle |
+
+Lancer avec l'environnement Python de recherche verrouillé :
+
+```sh
+python3 research/evaluate_population.py /chemin/prive/population-evaluation.json \
+  /chemin/prive/population-test
+```
+
+L'évaluateur vérifie les fichiers figés et lance lui-même les cinq variantes du
+binaire. Il ne réentraîne rien et ne choisit pas de nouveau seuil sur ce test.
+Il vérifie les campagnes contre **toutes** les lignes de l'expérience originale,
+y compris ses doublons, cas incertains et anciens tests, puis contre l'historique
+des modèles de base. Le regroupement est transitif : identité, empreinte brute,
+empreinte de contenu, campagne déclarée et distance SimHash ≤ 3. Les champs
+absents ne relient jamais deux lignes entre elles.
+
+Le rapport publie des mesures conditionnelles sur les seuls résultats connus,
+leur couverture exacte, puis une borne conservatrice sur toute la vérité connue :
+un résultat inconnu vaut FP pour un légitime et FN pour un indésirable. Les
+vérités inconnues sont comptées séparément et interdisent une conclusion sur toute
+la population. Les mesures par langue, type et disponibilité gardent cette même
+comptabilité.
+
+Les intervalles de Wilson par message supposent l'indépendance des messages,
+souvent violée par les campagnes répétées. Une mesure supplémentaire de stabilité
+compte une campagne légitime en erreur dès qu'une copie est marquée, et une
+campagne indésirable comme capturée seulement si toutes ses copies le sont.
+Les campagnes de vérité mixte ou inconnue restent signalées. Cette mesure
+conservatrice n'est pas un bootstrap ; ses intervalles supposent encore des
+campagnes indépendantes, à auditer.
+
+`target_supported_on_this_population` demande une revue aveugle et représentative,
+aucun résultat ni label inconnu, des empreintes de campagne complètes, au moins
+10 000 légitimes et 2 000 indésirables **par message et par campagne**, une borne
+basse de rappel ≥ 95 % et une borne haute de faux positifs ≤ 0,1 %. Ce critère est
+plus exigeant que le simple objectif ponctuel. `production_eligible` reste faux :
+la latence du traitement complet et les essais Proton sont des validations
+séparées.
+
+Un reçu est créé avant les prédictions dans le dossier de sortie et dans
+`candidate/population-tests/<empreinte>.json`. Une seconde exécution sur le même
+jeu avec ce dossier candidat est refusée, même vers une autre sortie. Un échec
+après le début des prédictions consomme aussi le test. Copier les dossiers,
+modifier les labels après examen des prédictions ou réutiliser les campagnes ne
+rend pas le test neuf. Les hashes et déclarations empêchent les confusions
+accidentelles ; ils ne prouvent ni la sincérité d'une revue ni l'exhaustivité d'un
+historique contre un opérateur qui les falsifierait.
+
 Références : [calibration des probabilités](https://scikit-learn.org/stable/modules/calibration.html),
-[choix du seuil sur un lot distinct](https://scikit-learn.org/stable/modules/classification_threshold.html).
+[choix du seuil sur un lot distinct](https://scikit-learn.org/stable/modules/classification_threshold.html),
+[prévention des fuites entre apprentissage et test](https://scikit-learn.org/stable/common_pitfalls.html#data-leakage).

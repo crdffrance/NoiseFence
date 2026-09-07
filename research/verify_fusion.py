@@ -9,6 +9,7 @@ import subprocess
 
 import numpy as np
 import train_fusion as fusion
+import verify_population
 
 
 def pin(path):
@@ -78,6 +79,7 @@ def main():
               'max_logit_error': maximum_logit_error, 'max_probability_error': maximum_probability_error,
               'decision_disagreements': 0, 'production_eligible': False, 'mail_sent': False}
     fusion.private_json(args.output/'parity.json', report)
+    report['population'] = verify_population.verify(args.output, args.binary, args.output/'population')
     print(json.dumps(report, indent=2))
 
 

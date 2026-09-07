@@ -84,15 +84,15 @@ def pinned_path(root, entry):
     return path
 
 
-def lines(path, maximum=MAX_ROWS + 2):
+def lines(path, maximum=MAX_ROWS + 2, max_line=1024 * 1024):
     consumed = 0
     with path.open('rb') as source:
         for index in range(maximum + 1):
-            raw = source.readline(1024 * 1024 + 1)
+            raw = source.readline(max_line + 1)
             if not raw:
                 return
             consumed += len(raw)
-            require(index < maximum and len(raw) <= 1024 * 1024 and consumed <= MAX_BYTES,
+            require(index < maximum and len(raw) <= max_line and consumed <= MAX_BYTES,
                     'Oversized JSONL input')
             yield decode(raw)
 

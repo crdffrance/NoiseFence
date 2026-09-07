@@ -1,0 +1,32 @@
+{
+  "schema": "noisefence-population-software-validation-1",
+  "synthetic": true,
+  "population_rows": 400,
+  "predictions_checked": 2000,
+  "unassessable_per_variant": 4,
+  "unknown_truth_per_variant": 1,
+  "decision_disagreements": 0,
+  "reuse_refused": true,
+  "production_eligible": false,
+  "mail_sent": false,
+  "external_analysis_calls": 0,
+  "application": "0.3.0-dev.11",
+  "protocol_sha256": "8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce",
+  "checks": [
+    "native prediction parity on all rows",
+    "missing evidence and artifact mismatch remain unknown",
+    "known incomplete analysis cannot tag",
+    "old decision does not replace detector completeness",
+    "human label conflict and unlabelled rows remain accounted",
+    "campaign duplicates remain in volume metrics",
+    "input and model SHA-256 binding",
+    "atomic private output without overwrite",
+    "malformed/truncated/duplicate JSON is rejected",
+    "test reuse in a new output directory is refused"
+  ],
+  "limitations": [
+    "Fabricated software fixtures, not real SMTP traffic or a capture-rate evaluation.",
+    "Recent representative human-labelled messages and a complete base-history audit are still required.",
+    "No new classifier is activated; Proton compatibility and end-to-end latency remain separate."
+  ]
+}
