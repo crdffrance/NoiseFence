@@ -2,7 +2,6 @@
 use anyhow::{Result, ensure};
 use serde::Deserialize;
 use std::{
-    collections::BTreeSet,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
@@ -16,25 +15,6 @@ struct Record {
     #[serde(default)]
     external_test: bool,
     year: Option<u32>,
-}
-
-fn simhash(text: &str) -> String {
-    let mut votes = [0i32; 64];
-    let words: BTreeSet<&str> = text.split_whitespace().take(20_000).collect();
-    for word in words {
-        let digest = crate::message::digest(word.as_bytes());
-        let hash = u64::from_str_radix(&digest[..16], 16).unwrap();
-        for (bit, vote) in votes.iter_mut().enumerate() {
-            *vote += if hash & (1 << bit) != 0 { 1 } else { -1 };
-        }
-    }
-    let mut hash = 0u64;
-    for (bit, vote) in votes.into_iter().enumerate() {
-        if vote > 0 {
-            hash |= 1 << bit;
-        }
-    }
-    format!("{hash:016x}")
 }
 
 pub fn benchmark(
@@ -146,7 +126,7 @@ pub fn export(
                 "feature_version":version, "spam":record.spam, "source":record.source,
                 "external_test":record.external_test, "year":record.year,
                 "fingerprint":scan.fingerprint, "campaign":crate::message::digest(campaign.as_bytes()),
-                "simhash":simhash(&campaign), "features":scan.features,
+                "simhash":crate::features::simhash(&campaign), "features":scan.features,
                 "raw_sha256":crate::message::digest(&raw), "rule_logit":scan.reasons.iter().map(|r| r.weight).sum::<f64>()
             })
         )?;

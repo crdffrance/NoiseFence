@@ -4,6 +4,7 @@ pub mod config;
 pub mod corpus;
 pub mod engine;
 pub mod features;
+pub mod learning;
 pub mod llm;
 pub mod message;
 pub mod relay;

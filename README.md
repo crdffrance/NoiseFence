@@ -2,7 +2,7 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. En mode `tag`, les messages suspects reçoivent `[SPAM]` dans l’objet. Le score ne provoque ni rejet ni quarantaine.
 
-**Version de développement 0.3.0-dev.2 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
+**Version de développement 0.3.0-dev.3 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
 Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 
@@ -88,7 +88,7 @@ Le seuil est calibré sur les messages légitimes du jeu de validation, puis exp
 
 Le rapport du modèle textuel ne mesure pas toute la chaîne avec DNS, règles et comportement de Proton. Les corpus Apache datant principalement de 2002–2005 ne prouvent pas une efficacité sur le trafic actuel. Garder le mode observation, collecter des annotations représentatives, puis évaluer le pipeline complet sur des données récentes indépendantes avant de revendiquer 95 % de capture et 0,1 % de faux positifs.
 
-Les utilisateurs corrigent leurs propres messages. Les retours contradictoires entre destinataires sont exclus de l’export. Les services `deploy/noisefence-train.*` préparent un candidat hebdomadaire ; ils ne l’activent pas. Un manque d’exemples des deux classes fait échouer l’entraînement explicitement.
+Les utilisateurs corrigent leurs propres messages. Les retours contradictoires entre destinataires sont exclus de l’export. Les services `deploy/noisefence-train.*` préparent un candidat hebdomadaire ; ils ne l’activent pas. Un manque d’exemples des deux classes fait échouer l’entraînement explicitement. Le [pipeline de corrections du schéma 3](docs/feedback-training.md) conserve les vecteurs et leur protocole, puis prépare un candidat lexical ou hybride lié à son modèle lexical. Les corrections seules ne constituent pas une évaluation représentative.
 
 ## Validation et déploiement
 

@@ -4,6 +4,18 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.3] - 2026-09-07
+
+- Export privé et atomique des corrections de schéma 3, avec empreinte de campagne,
+  vecteur sémantique et protocole exact de l’encodeur. Exclure les désaccords,
+  droits révoqués, lignes expirées et caractéristiques incompatibles.
+- Entraîner des candidats lexicaux/hybrides à partir des caractéristiques retenues,
+  sans corps ni accès réseau. Séparer apprentissage, développement, calibration
+  et test par campagne ; publier ensemble les poids, la combinaison liée et le
+  rapport. Les corrections seules ne rendent jamais un candidat éligible.
+- Adapter le service d’entraînement au schéma actif, limiter ses ressources et
+  préserver le précédent candidat lors d’un échec. Aucune activation automatique.
+
 ## [0.3.0-dev.2] - 2026-09-07
 
 - Tester les archives Linux avec le profil optimisé effectivement distribué.

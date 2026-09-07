@@ -16,7 +16,7 @@ jobs:
           cache: pip
           cache-dependency-path: research/requirements.txt
       - run: python3 -m pip install -r research/requirements.txt
-      - run: python3 -m unittest discover -s tests_python -p test_research.py -v
+      - run: python3 -m unittest discover -s tests_python -v
   deployment:
     runs-on: ubuntu-latest
     steps:
@@ -47,6 +47,19 @@ jobs:
       - run: cargo clippy --locked --all-targets ${{ matrix.profile }} ${{ matrix.features }} -- -D warnings
       - run: cargo test --locked ${{ matrix.profile }} ${{ matrix.features }}
       - run: cargo build --release --locked ${{ matrix.features }}
+      - uses: actions/setup-python@v5
+        if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
+        with:
+          python-version: '3.11'
+      - name: Check feedback export and training against native predictions
+        if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+        run: |
+          python3 -m pip install -r research/requirements.txt
+          cargo build --locked --features semantic --example feedback_probe
+          python3 research/verify_feedback.py var/feedback-parity --binary target/release/noisefence
   web:
     runs-on: ubuntu-latest
     defaults:

@@ -2,7 +2,10 @@
 //! No DNS, link fetches, attachment execution, or historical filter headers.
 use crate::{engine::Scan, message};
 use regex::Regex;
-use std::{collections::BTreeMap, sync::OnceLock};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::OnceLock,
+};
 
 pub const VERSION: u32 = 3;
 pub const DIMENSION: usize = 262_144;
@@ -74,6 +77,26 @@ pub fn campaign_text(raw: &[u8]) -> Option<String> {
         .get_or_init(|| Regex::new(r"\d+").unwrap())
         .replace_all(&text, "#");
     Some(text.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// Campaign grouping hint, retained with features after the raw message expires.
+pub fn simhash(text: &str) -> String {
+    let mut votes = [0i32; 64];
+    let words: BTreeSet<&str> = text.split_whitespace().take(20_000).collect();
+    for word in words {
+        let digest = message::digest(word.as_bytes());
+        let hash = u64::from_str_radix(&digest[..16], 16).unwrap();
+        for (bit, vote) in votes.iter_mut().enumerate() {
+            *vote += if hash & (1 << bit) != 0 { 1 } else { -1 };
+        }
+    }
+    let mut hash = 0u64;
+    for (bit, vote) in votes.into_iter().enumerate() {
+        if vote > 0 {
+            hash |= 1 << bit;
+        }
+    }
+    format!("{hash:016x}")
 }
 
 pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
@@ -217,7 +240,9 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
         .sqrt()
         .max(1e-12);
     scan.features = counts.into_iter().map(|(i, v)| (i, v / norm)).collect();
-    scan.fingerprint = message::digest(campaign_text(raw).unwrap_or_default().as_bytes());
+    let campaign = campaign_text(raw).unwrap_or_default();
+    scan.fingerprint = message::digest(campaign.as_bytes());
+    scan.campaign_simhash = Some(simhash(&campaign));
     scan
 }
 

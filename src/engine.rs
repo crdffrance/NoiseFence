@@ -56,6 +56,9 @@ pub struct SemanticResult {
     /// Retained as model features under the same 30-day metadata policy.
     #[serde(default)]
     pub features: Vec<f32>,
+    /// Missing on older rows: their encoder revision must never be inferred.
+    #[serde(default)]
+    pub protocol: Option<crate::learning::SemanticProtocol>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
@@ -70,6 +73,8 @@ pub struct Scan {
     pub subject: String,
     pub sender: String,
     pub fingerprint: String,
+    #[serde(default)]
+    pub campaign_simhash: Option<String>,
     pub elapsed_ms: u64,
     #[serde(default)]
     pub antivirus: crate::antivirus::AntivirusResult,

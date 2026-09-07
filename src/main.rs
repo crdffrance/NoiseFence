@@ -90,6 +90,12 @@ enum Command {
     ExportFeedback {
         output: PathBuf,
     },
+    /// Export private schema-3 learning vectors; never queues or delivers mail.
+    ExportLearning {
+        output: PathBuf,
+        #[arg(long)]
+        require_semantic: bool,
+    },
     Benchmark {
         message: PathBuf,
         #[arg(long, default_value_t = 1000)]
@@ -420,6 +426,17 @@ async fn main() -> Result<()> {
             );
             let count=store.run(move|db|Ok(db.execute("UPDATE deliveries SET next_attempt=?2 WHERE message_id=?1 AND status='pending'",rusqlite::params![message_id,noisefence::now()])?)).await?;
             println!("{count} pending deliveries scheduled.");
+        }
+        Command::ExportLearning {
+            output,
+            require_semantic,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &noisefence::learning::export(&store, &output, require_semantic).await?
+                )?
+            );
         }
         Command::ExportFeedback { output } => {
             println!(

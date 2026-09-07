@@ -7,10 +7,7 @@ use serde::Deserialize;
 use std::{io::Read, path::Path};
 use tokenizers::{Tokenizer, TruncationParams};
 
-pub const ENCODER_ID: &str = "intfloat/multilingual-e5-small";
-pub const ENCODER_REVISION: &str = "614241f622f53c4eeff9890bdc4f31cfecc418b3";
-pub const DIMENSION: usize = 384;
-pub const MAX_TOKENS: usize = 256;
+pub use crate::learning::{DIMENSION, ENCODER_ID, ENCODER_REVISION, MAX_TOKENS};
 
 #[derive(Deserialize)]
 struct Artifact {
@@ -145,6 +142,7 @@ impl Hybrid {
             status,
             model: self.combination.version.clone(),
             encoder: ENCODER_ID.into(),
+            protocol: Some(crate::learning::SemanticProtocol::pinned()),
             ..Default::default()
         }
     }

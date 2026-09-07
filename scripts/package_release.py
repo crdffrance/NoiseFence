@@ -33,7 +33,11 @@ def main():
     for filename in ['development.toml','production.example.toml']:
         shutil.copy2(ROOT/'config'/filename,output/'config'/filename)
     for directory in ['deploy','docs']:
-        shutil.copytree(ROOT/directory,output/directory)
+        shutil.copytree(ROOT/directory,output/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    # Data-only feedback fitting runtime, without corpora, private models or hub clients.
+    (output/'research').mkdir()
+    for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt']:
+        shutil.copy2(ROOT/'research'/filename,output/'research'/filename)
     for filename in ['README.md','LICENSE','THIRD_PARTY.md','CHANGELOG.md','Cargo.lock']:
         shutil.copy2(ROOT/filename,output/filename)
     shutil.copytree(ROOT/'licenses',output/'licenses')

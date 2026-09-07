@@ -1,0 +1,9 @@
+{
+  "encoder": "intfloat/multilingual-e5-small",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "dimensions": 384,
+  "max_tokens": 256,
+  "text_schema": 3,
+  "prefix": "query: ",
+  "pooling": "attention-mask mean then L2"
+}
