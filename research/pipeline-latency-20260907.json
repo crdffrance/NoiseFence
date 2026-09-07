@@ -1,0 +1,529 @@
+{
+  "schema": "noisefence-pipeline-measurement-1",
+  "date": "2026-09-07",
+  "engine_version": "0.3.0-dev.5",
+  "engine_commit": "41d5dd1962016ddedf670fa293b09682cb44f012",
+  "probe_build": {
+    "commit": "de0e200d95fb9a2e7036721bfeaa28d0b61f9c4e",
+    "engine_source_sha256": "6ccc65fa24181af21c9310584a68fb57ef7290674e759860ae675f6f26e87f61",
+    "probe_source_sha256": "ff33866e27e177dc3d6b035f8b5f8f6855dfb6774c0bb2fe3f2bc2c286f50106",
+    "binary_sha256": "eebd6b86611ecbba8687149d5f7bd1e41ddde216f67249c8e388fd7a0a5c61dc",
+    "platform": "linux-amd64",
+    "profile": "release",
+    "features": [
+      "semantic"
+    ],
+    "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+  },
+  "machine": {
+    "os": "Debian 13",
+    "architecture": "x86_64",
+    "vcpus": 4,
+    "cpu_model": "Intel Core Processor (Haswell, no TSX)",
+    "memory_total_kib": 7944052,
+    "process_memory_limit_bytes": 2147483648,
+    "cpu_quota_percent": 400,
+    "rayon_threads": 4,
+    "candle_threads": 4,
+    "tokio_workers": 4,
+    "concurrency": 1,
+    "nice": 10
+  },
+  "model": {
+    "version": "research-hybrid-e5-20260907",
+    "feature_version": 3,
+    "lexical_sha256": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+    "combination_sha256": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed"
+  },
+  "protocol": {
+    "cases": 4,
+    "measured_per_case_per_profile": 30,
+    "warmup_per_case_per_profile": 3,
+    "interval_ms": 100,
+    "profiles_sequential": true,
+    "model_loaded_once_per_profile": true,
+    "quantile_method": "nearest rank",
+    "all_trials_include_failures": true,
+    "connector_checks": [
+      "SPF/DKIM/DMARC/ARC DNS where applicable",
+      "ClamAV official",
+      "complementary signatures advisory",
+      "configured LLM within score band"
+    ],
+    "dqs_enabled": false,
+    "arc_sealing_enabled": false,
+    "scaleway_llm_model": "mistral-small-3.2-24b-instruct-2506",
+    "shared_additional_budget_ceiling_micro_eur": 50000,
+    "included": "Engine::process including rewrite; warm caches per repeated case",
+    "excluded": [
+      "model startup",
+      "file input/output",
+      "SMTP reception",
+      "queue persistence",
+      "delivery",
+      "inter-call interval"
+    ],
+    "synthetic_only": true,
+    "private_email_used": false,
+    "emails_sent": false,
+    "authentication_context": "Unsigned synthetic mail using the gateway source IP, domain and envelope; not signed provider-originated traffic."
+  },
+  "profiles": [
+    {
+      "id": "no-llm",
+      "llm_score_band": null,
+      "cases": [
+        {
+          "all_trials": {
+            "max_us": 257883,
+            "method": "nearest rank",
+            "p50_us": 226869,
+            "p95_us": 256564,
+            "samples": 30
+          },
+          "case": "business_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 257883,
+            "method": "nearest rank",
+            "p50_us": 226869,
+            "p95_us": 256564,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 836,
+          "message_sha256": "beeea3fa8cb2ba226b49b7a8ac44aad6a204e265be26e26e556ca921d29e8cef",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:disabled": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            91.5472760271853,
+            91.5472760271853
+          ],
+          "scores_at_or_above_95": 0
+        },
+        {
+          "all_trials": {
+            "max_us": 69345,
+            "method": "nearest rank",
+            "p50_us": 60626,
+            "p95_us": 68060,
+            "samples": 30
+          },
+          "case": "brief_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 69345,
+            "method": "nearest rank",
+            "p50_us": 60626,
+            "p95_us": 68060,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 435,
+          "message_sha256": "3bead704e863b05addfa38d038dfbaffbc5d5465be2b9c7bfe7976d2f0324b3f",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:disabled": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            49.42389613707726,
+            49.42389613707726
+          ],
+          "scores_at_or_above_95": 0
+        },
+        {
+          "all_trials": {
+            "max_us": 133720,
+            "method": "nearest rank",
+            "p50_us": 110334,
+            "p95_us": 126931,
+            "samples": 30
+          },
+          "case": "wallet_lure_en",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 133720,
+            "method": "nearest rank",
+            "p50_us": 110334,
+            "p95_us": 126931,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 502,
+          "message_sha256": "589d0d199da477b43ccd50b0b5b52befe7bad1c27991e9301906625dd8710b6a",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:disabled": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            98.59953353939977,
+            98.59953353939977
+          ],
+          "scores_at_or_above_95": 30
+        },
+        {
+          "all_trials": {
+            "max_us": 401597,
+            "method": "nearest rank",
+            "p50_us": 350652,
+            "p95_us": 389314,
+            "samples": 30
+          },
+          "case": "large_text_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 401597,
+            "method": "nearest rank",
+            "p50_us": 350652,
+            "p95_us": 389314,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 1048576,
+          "message_sha256": "64ba3bb925f98a3d0b4a969a48d9a2f7f5c36f9f46619e3367a440b2f749be59",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:disabled": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            80.99707643292821,
+            80.99707643292821
+          ],
+          "scores_at_or_above_95": 0
+        }
+      ],
+      "shared_ledger_micro_eur_delta": 0,
+      "shared_ledger_requests_delta": 0,
+      "observed_cgroup_memory_peak_bytes": 1244966912,
+      "jsonl_sha256": "b1ce002728a213b8cd6105a46effffe78850a3c7a1b5dd9885638eef667c0746"
+    },
+    {
+      "id": "full",
+      "llm_score_band": [
+        20,
+        98
+      ],
+      "cases": [
+        {
+          "all_trials": {
+            "max_us": 2184052,
+            "method": "nearest rank",
+            "p50_us": 1086915,
+            "p95_us": 2104378,
+            "samples": 30
+          },
+          "case": "business_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 2184052,
+            "method": "nearest rank",
+            "p50_us": 1086915,
+            "p95_us": 2104378,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 836,
+          "message_sha256": "beeea3fa8cb2ba226b49b7a8ac44aad6a204e265be26e26e556ca921d29e8cef",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:complete": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            86.78827413634305,
+            91.5472760271853
+          ],
+          "scores_at_or_above_95": 0
+        },
+        {
+          "all_trials": {
+            "max_us": 1050606,
+            "method": "nearest rank",
+            "p50_us": 876891,
+            "p95_us": 1027485,
+            "samples": 30
+          },
+          "case": "brief_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 1050606,
+            "method": "nearest rank",
+            "p50_us": 876891,
+            "p95_us": 1027485,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 435,
+          "message_sha256": "3bead704e863b05addfa38d038dfbaffbc5d5465be2b9c7bfe7976d2f0324b3f",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:complete": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            49.42389613707726,
+            49.42389613707726
+          ],
+          "scores_at_or_above_95": 0
+        },
+        {
+          "all_trials": {
+            "max_us": 125195,
+            "method": "nearest rank",
+            "p50_us": 109467,
+            "p95_us": 118950,
+            "samples": 30
+          },
+          "case": "wallet_lure_en",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 125195,
+            "method": "nearest rank",
+            "p50_us": 109467,
+            "p95_us": 118950,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 502,
+          "message_sha256": "589d0d199da477b43ccd50b0b5b52befe7bad1c27991e9301906625dd8710b6a",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:not_needed": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            98.59953353939977,
+            98.59953353939977
+          ],
+          "scores_at_or_above_95": 30
+        },
+        {
+          "all_trials": {
+            "max_us": 2170083,
+            "method": "nearest rank",
+            "p50_us": 1391876,
+            "p95_us": 1623008,
+            "samples": 30
+          },
+          "case": "large_text_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 2170083,
+            "method": "nearest rank",
+            "p50_us": 1391876,
+            "p95_us": 1623008,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 1048576,
+          "message_sha256": "64ba3bb925f98a3d0b4a969a48d9a2f7f5c36f9f46619e3367a440b2f749be59",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:complete": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            95.02549909114305,
+            95.02549909114305
+          ],
+          "scores_at_or_above_95": 30
+        }
+      ],
+      "shared_ledger_micro_eur_delta": 18852,
+      "shared_ledger_requests_delta": 99,
+      "observed_cgroup_memory_peak_bytes": 1245065216,
+      "jsonl_sha256": "080ce9c5e84730366ff7cf93a1f89424d2fbfcd72b5146e4aa09ccf10b1f44ef"
+    },
+    {
+      "id": "decision-band",
+      "llm_score_band": [
+        80,
+        98
+      ],
+      "cases": [
+        {
+          "all_trials": {
+            "max_us": 1247795,
+            "method": "nearest rank",
+            "p50_us": 1037381,
+            "p95_us": 1206931,
+            "samples": 30
+          },
+          "case": "business_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 1247795,
+            "method": "nearest rank",
+            "p50_us": 1037381,
+            "p95_us": 1206931,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 836,
+          "message_sha256": "beeea3fa8cb2ba226b49b7a8ac44aad6a204e265be26e26e556ca921d29e8cef",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:complete": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            86.78827413634305,
+            91.5472760271853
+          ],
+          "scores_at_or_above_95": 0
+        },
+        {
+          "all_trials": {
+            "max_us": 68309,
+            "method": "nearest rank",
+            "p50_us": 61348,
+            "p95_us": 67054,
+            "samples": 30
+          },
+          "case": "brief_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 68309,
+            "method": "nearest rank",
+            "p50_us": 61348,
+            "p95_us": 67054,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 435,
+          "message_sha256": "3bead704e863b05addfa38d038dfbaffbc5d5465be2b9c7bfe7976d2f0324b3f",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:not_needed": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            49.42389613707726,
+            49.42389613707726
+          ],
+          "scores_at_or_above_95": 0
+        },
+        {
+          "all_trials": {
+            "max_us": 133931,
+            "method": "nearest rank",
+            "p50_us": 114306,
+            "p95_us": 131893,
+            "samples": 30
+          },
+          "case": "wallet_lure_en",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 133931,
+            "method": "nearest rank",
+            "p50_us": 114306,
+            "p95_us": 131893,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 502,
+          "message_sha256": "589d0d199da477b43ccd50b0b5b52befe7bad1c27991e9301906625dd8710b6a",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:not_needed": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            98.59953353939977,
+            98.59953353939977
+          ],
+          "scores_at_or_above_95": 30
+        },
+        {
+          "all_trials": {
+            "max_us": 1648321,
+            "method": "nearest rank",
+            "p50_us": 1387558,
+            "p95_us": 1604890,
+            "samples": 30
+          },
+          "case": "large_text_fr",
+          "complete": 30,
+          "complete_trials_only": {
+            "max_us": 1648321,
+            "method": "nearest rank",
+            "p50_us": 1387558,
+            "p95_us": 1604890,
+            "samples": 30
+          },
+          "errors": 0,
+          "incomplete": 0,
+          "message_bytes": 1048576,
+          "message_sha256": "64ba3bb925f98a3d0b4a969a48d9a2f7f5c36f9f46619e3367a440b2f749be59",
+          "statuses": {
+            "antivirus:clean": 30,
+            "llm:complete": 30,
+            "semantic:complete": 30,
+            "signatures:clean": 30
+          },
+          "score_range": [
+            95.02549909114305,
+            95.02549909114305
+          ],
+          "scores_at_or_above_95": 30
+        }
+      ],
+      "shared_ledger_micro_eur_delta": 16468,
+      "shared_ledger_requests_delta": 66,
+      "observed_cgroup_memory_peak_bytes": 1244958720,
+      "jsonl_sha256": "e7312709532b2ead64b08968d902c2c147902cb438849a110cae6595867ceadf"
+    }
+  ],
+  "optimization": {
+    "only_configuration_delta": "llm.score_low: 20 -> 80; upper bound remains 98",
+    "threshold": 95,
+    "maximum_llm_logit_increase": 1.5,
+    "maximum_final_score_at_80": 94.71647447066638,
+    "exact_minimum_pre_llm_score_for_possible_crossing": 80.91411117439881,
+    "recorded_policy_replay_samples": 120,
+    "recorded_policy_replay_classification_changes": 0,
+    "separate_candidate_run_samples": 120,
+    "separate_candidate_run_classification_changes": 0,
+    "activated_at": "2026-09-07T04:42:38.977731+00:00",
+    "mode": "observe",
+    "score_or_reason_metadata_unchanged": false,
+    "scope": "Current schema 3 score transform, threshold 95 and maximum LLM adjustment +1.5. Re-derive after any scoring/threshold changes."
+  },
+  "quality_validated": false,
+  "global_production_p95_validated": false,
+  "limitations": [
+    "Four repeated synthetic cases are not a traffic distribution or an independent quality set.",
+    "The 1 MiB repeated French paragraph crosses 95 only after the LLM adjustment; this artificial load case requires separate classification review and is not a representative ham label.",
+    "Separate runs are exposed to provider variability and concurrent host activity; changes outside the skipped-call case cannot be attributed to the lower bound.",
+    "No full production recall, precision, false-positive rate or confidence interval is established by these timings.",
+    "Control inputs and raw timing rows are retained privately by the operator; aggregate hashes provide audit references, not a public independently reproducible dataset."
+  ]
+}

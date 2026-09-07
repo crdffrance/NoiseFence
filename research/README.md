@@ -231,3 +231,10 @@ Les vecteurs de l'encodeur restent des caractéristiques sensibles soumises à l
 conservation de 30 jours ; ils ne sont pas envoyés dans la réponse de la console.
 L'export du manifeste et les tests locaux ne constituent pas une approbation de
 la qualité ni une activation en production.
+
+Pour mesurer également DNS, scanners et LLM, utiliser le
+[banc du traitement complet](../docs/performance.md). Le
+[rapport de latence du 7 septembre 2026](pipeline-latency-20260907.json)
+compare trois profils sur quatre messages synthétiques. Il documente aussi
+les appels LLM évités et les limites de ces mesures, sans en déduire la qualité
+sur le trafic réel.
