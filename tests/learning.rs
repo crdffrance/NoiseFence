@@ -46,10 +46,63 @@ fn persisted_protocol_matches_training_and_old_rows_are_not_backfilled() {
     row["semantic"].as_object_mut().unwrap().remove("protocol");
     row.as_object_mut().unwrap().remove("campaign_simhash");
     row.as_object_mut().unwrap().remove("features_complete");
+    row.as_object_mut().unwrap().remove("evidence");
     let old: Scan = serde_json::from_value(row).unwrap();
     assert!(old.semantic.protocol.is_none());
     assert!(old.campaign_simhash.is_none());
     assert!(old.features_complete.is_none());
+    assert!(old.evidence.is_none());
+}
+
+#[tokio::test]
+async fn learning_keeps_live_partial_checks_and_never_promotes_supplied_or_legacy_context() {
+    use noisefence::evidence::{Artifacts, AuthResult, Evidence, Source, State};
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    for (id, source) in [
+        ("legacy", None),
+        ("offline", Some(Source::ContentOnly)),
+        ("supplied", Some(Source::SuppliedEnvelope)),
+        ("live", Some(Source::SmtpSession)),
+    ] {
+        let mut scan = scan();
+        if let Some(source) = source {
+            let mut evidence = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+            evidence.source = source;
+            evidence.authentication.state = State::Unavailable;
+            evidence.authentication.spf = Some(AuthResult::Pass);
+            scan.complete = false;
+            evidence.refresh(&scan);
+            scan.evidence = Some(evidence);
+        }
+        seed(&store, id, scan, &[("alice", true)]).await;
+    }
+    let output = root.path().join("export.jsonl");
+    let report = learning::export(&store, &output, false).await.unwrap();
+    assert_eq!(report.exported, 4);
+    assert_eq!(report.evidence_exported, 1);
+    assert_eq!(report.non_smtp_evidence, 2);
+    assert_eq!(report.missing_evidence, 1);
+    let text = std::fs::read_to_string(&output).unwrap();
+    let rows: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let live = rows
+        .iter()
+        .find(|r| r["id"] == noisefence::message::digest(b"live"))
+        .unwrap();
+    assert_eq!(live["evidence"]["source"], "smtp_session");
+    assert_eq!(live["evidence"]["authentication"]["state"], "unavailable");
+    assert_eq!(live["evidence"]["authentication"]["spf"], "pass");
+    assert_eq!(live["evidence"]["analysis_complete"], false);
+    assert_eq!(rows.iter().filter(|r| !r["evidence"].is_null()).count(), 1);
+    assert!(!text.contains("private-sender@example.org") && !text.contains("Rendez-vous"));
+    // Corrupted internal records must not replace a coherent previous export.
+    store.run(|db| { db.execute("UPDATE messages SET scan=json_set(scan,'$.evidence.schema','unsupported') WHERE id='live'", [])?; Ok(()) }).await.unwrap();
+    assert!(learning::export(&store, &output, false).await.is_err());
+    assert_eq!(std::fs::read_to_string(&output).unwrap(), text);
 }
 
 #[tokio::test]

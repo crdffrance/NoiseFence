@@ -69,6 +69,18 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(counts['duplicates_removed'], 2)
         self.assertEqual(grouped[0]['group'], min(r['fingerprint'] for r in rows[:3]))
 
+    def test_detector_evidence_cannot_leak_into_content_training(self):
+        original = [sample(0), sample(1)]
+        enriched = copy.deepcopy(original)
+        for row in enriched:
+            row['evidence'] = {'legacy_score': 100. if row['spam'] else 0.,
+                               'llm': {'reported_probability': float(row['spam'])}}
+        clean, original_hash = self.read(original)
+        observed, enriched_hash = self.read(enriched)
+        self.assertEqual(clean, observed)
+        self.assertNotEqual(original_hash, enriched_hash)
+        self.assertTrue(all('evidence' not in row for row in observed))
+
     def test_holdouts_do_not_fit_weights_idf_or_select_hyperparameters(self):
         rows, _ = training.group_rows([sample(i) for i in range(200)])
         parts = training.partition(rows)

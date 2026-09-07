@@ -10,10 +10,7 @@ async fn independent_advisory_scan_cannot_hide_an_official_malware_result() {
     let mut daemons = Vec::new();
     for (name, reply) in [
         ("official", b"stream: Eicar-Signature FOUND\0".as_slice()),
-        (
-            "advisory",
-            b"stream: Test.Spam.UNOFFICIAL FOUND\0".as_slice(),
-        ),
+        ("advisory", b"stream: Test.Spam FOUND\0".as_slice()),
     ] {
         let socket = root.path().join(format!("{name}.sock"));
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
@@ -58,6 +55,16 @@ async fn independent_advisory_scan_cannot_hide_an_official_malware_result() {
         .unwrap();
     assert_eq!(scan.antivirus.status, AntivirusStatus::Malware);
     assert_eq!(scan.signatures.status, AntivirusStatus::Suspicious);
+    let evidence = scan.evidence.as_ref().unwrap();
+    assert_eq!(
+        evidence.signatures_state,
+        noisefence::evidence::State::Complete
+    );
+    assert_eq!(
+        evidence.signatures.as_ref().unwrap().status,
+        AntivirusStatus::Malware,
+        "retain the scanner result before the advisory-only policy"
+    );
     assert!(
         scan.reasons
             .iter()

@@ -3,6 +3,7 @@ pub mod api;
 pub mod config;
 pub mod corpus;
 pub mod engine;
+pub mod evidence;
 pub mod features;
 pub mod learning;
 pub mod llm;

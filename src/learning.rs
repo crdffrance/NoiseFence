@@ -59,6 +59,9 @@ pub struct LearningExample {
     pub simhash: String,
     pub features: Vec<(usize, f64)>,
     pub semantic: Option<SemanticExample>,
+    /// Additive to learning-1; old content trainers ignore this field. Fusion
+    /// consumers must require a supported schema and an observed SMTP session.
+    pub evidence: Option<crate::evidence::Evidence>,
 }
 #[derive(Default, Debug, Serialize)]
 pub struct ExportReport {
@@ -71,6 +74,9 @@ pub struct ExportReport {
     pub missing_semantic_protocol: usize,
     pub semantic_exported: usize,
     pub exported_with_incomplete_checks: usize,
+    pub evidence_exported: usize,
+    pub missing_evidence: usize,
+    pub non_smtp_evidence: usize,
 }
 
 fn hex(s: &str, n: usize) -> bool {
@@ -191,6 +197,23 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                         None
                     };
                     let id: String = row.get(0)?;
+                    let evidence = match scan.evidence {
+                        Some(evidence)
+                            if evidence.source == crate::evidence::Source::SmtpSession =>
+                        {
+                            evidence.validate()?;
+                            report.evidence_exported += 1;
+                            Some(evidence)
+                        }
+                        Some(_) => {
+                            report.non_smtp_evidence += 1;
+                            None
+                        }
+                        None => {
+                            report.missing_evidence += 1;
+                            None
+                        }
+                    };
                     let example = LearningExample {
                         schema: "noisefence-learning-1",
                         source: "local_human_feedback",
@@ -203,6 +226,7 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                         simhash,
                         features: scan.features,
                         semantic,
+                        evidence,
                     };
                     serde_json::to_writer(&mut writer, &example)?;
                     writer.write_all(b"\n")?;

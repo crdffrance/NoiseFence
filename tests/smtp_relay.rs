@@ -79,6 +79,18 @@ async fn smtp_pipeline_alias_open_relay_and_durable_acceptance() {
     assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
     let job = store.claim().await.unwrap().unwrap();
     assert_eq!(job.destination, "alice@example.test");
+    let message_id = job.message_id.clone();
+    let source: String = store
+        .run(move |db| {
+            Ok(db.query_row(
+                "SELECT json_extract(scan,'$.evidence.source') FROM messages WHERE id=?1",
+                [message_id],
+                |r| r.get(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(source, "smtp_session");
     assert!(store.raw_path(&job.message_id).is_file());
     assert!(store.claim().await.unwrap().is_none());
     assert_eq!(command(&mut io, "QUIT\r\n").await, 221);

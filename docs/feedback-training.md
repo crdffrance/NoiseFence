@@ -5,6 +5,11 @@ vecteurs de l’encodeur multilingue après suppression des corps livrés. Elle 
 pas les emails bruts. L’export est privé : les caractéristiques apprises ne sont pas
 une anonymisation et ne doivent pas être publiées avec le code source.
 
+Depuis 0.3.0-dev.8, le champ additionnel [evidence](decision-evidence.md) conserve
+les contrôles fiables des nouvelles sessions SMTP. Les contextes locaux, fournis
+manuellement et historiques restent exclus de ce champ. L’entraîneur de contenu
+actuel l’ignore ; il prépare les entrées nécessaires à une future fusion apprise.
+
 ## Exporter
 
 ```sh

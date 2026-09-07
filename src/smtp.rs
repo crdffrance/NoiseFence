@@ -422,7 +422,7 @@ async fn session(
                 let recipients = std::mem::take(&mut recipients);
                 let result = state
                     .engine
-                    .process(&raw, peer.ip(), &helo, &sender, &id)
+                    .process_smtp(&raw, peer.ip(), &helo, &sender, &id)
                     .await;
                 let result = match result {
                     Ok((scan, raw)) => {

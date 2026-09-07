@@ -89,6 +89,9 @@ pub struct Scan {
     pub semantic: SemanticResult,
     #[serde(default)]
     pub smtp_policy: crate::smtp_policy::PolicyResult,
+    /// Absent on historical rows: never infer checks from their missing reasons.
+    #[serde(default)]
+    pub evidence: Option<crate::evidence::Evidence>,
 }
 pub fn legacy_feature_version() -> u32 {
     1
@@ -115,7 +118,10 @@ pub struct Model {
 }
 impl Model {
     pub fn load(path: &Path) -> Result<Self> {
-        let m: Self = serde_json::from_slice(&std::fs::read(path)?)?;
+        Self::from_bytes(&std::fs::read(path)?)
+    }
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let m: Self = serde_json::from_slice(bytes)?;
         ensure!(
             (((m.feature_version == 1 || m.feature_version == crate::features::VERSION)
                 && m.algorithm == Algorithm::Logistic)
@@ -392,41 +398,67 @@ pub fn domains_in_message(raw: &[u8]) -> Vec<String> {
     domains.truncate(12);
     domains
 }
-fn reputation_domains(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<String> {
+struct ReputationTarget {
+    domain: String,
+    roles: Vec<crate::evidence::DomainRole>,
+}
+fn reputation_targets(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<ReputationTarget> {
+    use crate::evidence::DomainRole;
     // Envelope identities take priority over attacker-controlled body links.
-    let mut domains = Vec::new();
-    for domain in [
-        sender.rsplit_once('@').map(|(_, d)| d),
-        Some(helo),
-        from.rsplit_once('@').map(|(_, d)| d),
+    let mut targets: Vec<ReputationTarget> = Vec::new();
+    for (domain, role) in [
+        (
+            sender.rsplit_once('@').map(|(_, d)| d),
+            DomainRole::EnvelopeFrom,
+        ),
+        (Some(helo), DomainRole::Helo),
+        (
+            from.rsplit_once('@').map(|(_, d)| d),
+            DomainRole::HeaderFrom,
+        ),
     ]
     .into_iter()
-    .flatten()
-    .map(str::to_owned)
-    .chain(domains_in_message(raw))
-    {
+    .filter_map(|(domain, role)| domain.map(|d| (d.to_owned(), role)))
+    .chain(
+        domains_in_message(raw)
+            .into_iter()
+            .map(|d| (d, DomainRole::Body)),
+    ) {
         let domain = domain.trim_end_matches('.').to_ascii_lowercase();
         if crate::config::valid_domain(&domain)
             && domain.contains('.')
             && domain.parse::<IpAddr>().is_err()
-            && !domains.contains(&domain)
         {
-            domains.push(domain);
-            if domains.len() == 12 {
-                break;
+            if let Some(target) = targets.iter_mut().find(|t| t.domain == domain) {
+                if !target.roles.contains(&role) {
+                    target.roles.push(role);
+                }
+            } else if targets.len() < 12 {
+                targets.push(ReputationTarget {
+                    domain,
+                    roles: vec![role],
+                });
             }
         }
     }
-    domains
+    targets
+}
+#[cfg(test)]
+fn reputation_domains(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<String> {
+    reputation_targets(raw, from, helo, sender)
+        .into_iter()
+        .map(|t| t.domain)
+        .collect()
 }
 pub struct Engine {
     config: Arc<Config>,
     pub authenticator: MessageAuthenticator,
     model: Option<Model>,
+    evidence_artifacts: crate::evidence::Artifacts,
     arc_key: Option<String>,
     dqs_key: Option<String>,
     smtp_policy: Option<crate::smtp_policy::Policy>,
-    dqs_cache: Mutex<HashMap<String, (Instant, bool)>>,
+    dqs_cache: Mutex<HashMap<String, (Instant, Vec<std::net::Ipv4Addr>)>>,
     llm: Option<crate::llm::Client>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
@@ -439,12 +471,14 @@ impl Engine {
             .filter(|c| c.monthly_budget_micro_eur > 0)
             .map(|c| crate::llm::Client::new(c.clone(), &config.data_dir))
             .transpose()?;
-        let model = config
+        let model_bytes = config
             .filter
             .model
             .as_ref()
-            .map(|p| Model::load(p))
+            .map(std::fs::read)
             .transpose()?;
+        let model = model_bytes.as_deref().map(Model::from_bytes).transpose()?;
+        let model_hash = model_bytes.as_deref().map(message::digest);
         #[cfg(feature = "semantic")]
         let semantic = config
             .filter
@@ -457,9 +491,9 @@ impl Engine {
                         .is_some_and(|m| m.feature_version == crate::features::VERSION),
                     "semantic combination requires lexical feature schema 3"
                 );
-                crate::semantic::Hybrid::load(
+                crate::semantic::Hybrid::load_bound(
                     settings,
-                    config.filter.model.as_ref().unwrap(),
+                    model_hash.as_deref().unwrap(),
                     config.filter.threshold,
                 )
                 .map(Arc::new)
@@ -498,11 +532,18 @@ impl Engine {
             .clone()
             .map(crate::smtp_policy::Policy::new)
             .transpose()?;
+        #[cfg(feature = "semantic")]
+        let semantic_hash = semantic.as_ref().map(|s| s.sha256().to_owned());
+        #[cfg(not(feature = "semantic"))]
+        let semantic_hash = None;
+        let evidence_artifacts =
+            crate::evidence::Artifacts::new(&config, model_hash, semantic_hash, llm.is_some());
         Ok(Self {
             smtp_policy,
             config,
             authenticator: MessageAuthenticator::new_system_conf()?,
             model,
+            evidence_artifacts,
             arc_key,
             dqs_key,
             dqs_cache: Mutex::new(HashMap::new()),
@@ -513,6 +554,7 @@ impl Engine {
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
         let mut scan = self.extract(raw);
+        self.start_evidence(&mut scan, crate::evidence::Source::ContentOnly);
         #[cfg(feature = "semantic")]
         if scan.complete
             && let Some(model) = &self.semantic
@@ -521,7 +563,23 @@ impl Engine {
             Self::check_semantic(&mut scan);
         }
         self.score(&mut scan);
+        Self::refresh_evidence(&mut scan);
         scan
+    }
+    fn start_evidence(&self, scan: &mut Scan, source: crate::evidence::Source) {
+        let mut evidence = crate::evidence::Evidence::new(
+            &self.config,
+            self.evidence_artifacts.clone(),
+            self.llm.is_some(),
+        );
+        evidence.source = source;
+        scan.evidence = Some(evidence);
+    }
+    fn refresh_evidence(scan: &mut Scan) {
+        if let Some(mut evidence) = scan.evidence.take() {
+            evidence.refresh(scan);
+            scan.evidence = Some(evidence);
+        }
     }
     #[cfg(feature = "semantic")]
     fn check_semantic(scan: &mut Scan) {
@@ -559,6 +617,16 @@ impl Engine {
                 m.logit(&scan.features)
             })
             .unwrap_or(-5.0);
+        if self.model.is_some()
+            && let Some(evidence) = &mut scan.evidence
+        {
+            evidence.lexical_logit = Some(content);
+            evidence.lexical_state = if scan.features_complete.unwrap_or(scan.complete) {
+                crate::evidence::State::Complete
+            } else {
+                crate::evidence::State::Limited
+            };
+        }
         if scan.semantic.status == SemanticStatus::Complete {
             content += scan.semantic.contribution.unwrap_or(0.0);
             scan.model = scan.semantic.model.clone();
@@ -580,20 +648,32 @@ impl Engine {
             });
         }
     }
-    async fn listed(&self, query: &str) -> Result<bool> {
+    async fn reputation_lookup(
+        &self,
+        query: &str,
+        dataset: crate::evidence::Dataset,
+    ) -> Result<Vec<std::net::Ipv4Addr>> {
         if let Some((expires, value)) = self.dqs_cache.lock().unwrap().get(query)
             && *expires > Instant::now()
         {
-            return Ok(*value);
+            return Ok(value.clone());
         }
         let result = self.authenticator.ipv4_lookup_raw(query).await;
-        let value = match result {
-            Ok(records) => dqs_answer(&records.entry)?,
+        let (value, expires) = match result {
+            Ok(records) => (
+                crate::evidence::dqs_codes(&records.entry, dataset)?,
+                records.expires,
+            ),
             Err(mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(
                 mail_auth::hickory_resolver::proto::op::ResponseCode::NXDomain,
-            ))) => false,
+            ))) => return Ok(Vec::new()),
             Err(_) => anyhow::bail!("reputation lookup unavailable"),
         };
+        // The underlying resolver owns negative caching and its SOA TTL. The
+        // positive cache never extends a record's authoritative lifetime.
+        if expires <= Instant::now() {
+            return Ok(value);
+        }
         let mut cache = self.dqs_cache.lock().unwrap();
         if cache.len() >= 10_000 {
             cache.retain(|_, (end, _)| *end > Instant::now());
@@ -603,7 +683,10 @@ impl Engine {
         }
         cache.insert(
             query.into(),
-            (Instant::now() + Duration::from_secs(60), value),
+            (
+                expires.min(Instant::now() + Duration::from_secs(60)),
+                value.clone(),
+            ),
         );
         Ok(value)
     }
@@ -615,9 +698,26 @@ impl Engine {
         sender: &str,
         scan: &mut Scan,
     ) -> Result<()> {
+        use crate::evidence::{Dataset, DomainQuery, DomainRole, Query, State};
         let Some(key) = &self.dqs_key else {
             return Ok(());
         };
+        let targets = reputation_targets(raw, &scan.sender, helo, sender);
+        let evidence = &mut scan
+            .evidence
+            .as_mut()
+            .context("missing reputation evidence")?
+            .reputation;
+        evidence.state = State::Unavailable;
+        evidence.ip.state = State::Unavailable;
+        evidence.domains = targets
+            .iter()
+            .map(|t| DomainQuery {
+                roles: t.roles.clone(),
+                result: Query::new(State::NotRun),
+            })
+            .collect();
+        let ip = ip.to_canonical();
         let prefix = match ip {
             IpAddr::V4(ip) => ip
                 .octets()
@@ -633,29 +733,65 @@ impl Engine {
                 .collect::<Vec<_>>()
                 .join("."),
         };
-        if self
-            .listed(&format!("{prefix}.{key}.zen.dq.spamhaus.net."))
-            .await?
-        {
+        let codes = self
+            .reputation_lookup(
+                &format!("{prefix}.{key}.zen.dq.spamhaus.net."),
+                Dataset::Zen,
+            )
+            .await?;
+        let ip_positive = !codes.is_empty();
+        scan.evidence.as_mut().unwrap().reputation.ip = Query {
+            state: State::Complete,
+            codes,
+        };
+        if ip_positive {
             scan.reasons.push(Signal {
                 id: "ip_reputation".into(),
                 detail: "IP signalée par la source de réputation".into(),
                 weight: 4.0,
             });
         }
-        for domain in reputation_domains(raw, &scan.sender, helo, sender) {
-            if self
-                .listed(&format!("{domain}.{key}.dbl.dq.spamhaus.net."))
-                .await?
-            {
+        for (index, target) in targets.iter().enumerate() {
+            scan.evidence.as_mut().unwrap().reputation.domains[index]
+                .result
+                .state = State::Unavailable;
+            let codes = self
+                .reputation_lookup(
+                    &format!("{}.{key}.dbl.dq.spamhaus.net.", target.domain),
+                    Dataset::Dbl,
+                )
+                .await?;
+            let positive = crate::evidence::malicious_domain(&codes);
+            let abused = codes.iter().any(|c| c.octets()[3] >= 100);
+            scan.evidence.as_mut().unwrap().reputation.domains[index].result = Query {
+                state: State::Complete,
+                codes,
+            };
+            if positive {
                 scan.reasons.push(Signal {
                     id: "domain_reputation".into(),
                     detail: "Domaine signalé par la source de réputation".into(),
                     weight: 4.0,
                 });
+                scan.evidence
+                    .as_mut()
+                    .unwrap()
+                    .reputation
+                    .stopped_after_positive = index + 1 < targets.len();
                 break;
+            } else if abused && target.roles.contains(&DomainRole::Body) {
+                // Abused legitimate domains are distinct from malicious domains.
+                // Retain the body signal for calibration without the legacy +4.
+                if !scan.reasons.iter().any(|r| r.id == "abused_domain_body") {
+                    scan.reasons.push(Signal {
+                        id: "abused_domain_body".into(),
+                        detail: "Domaine légitime signalé comme compromis dans un lien ; observation à calibrer".into(),
+                        weight: 0.0,
+                    });
+                }
             }
         }
+        scan.evidence.as_mut().unwrap().reputation.state = State::Complete;
         Ok(())
     }
     pub async fn process(
@@ -666,8 +802,46 @@ impl Engine {
         sender: &str,
         id: &str,
     ) -> Result<(Scan, Vec<u8>)> {
+        self.process_with_source(
+            raw,
+            ip,
+            helo,
+            sender,
+            id,
+            crate::evidence::Source::SuppliedEnvelope,
+        )
+        .await
+    }
+    pub(crate) async fn process_smtp(
+        &self,
+        raw: &[u8],
+        ip: IpAddr,
+        helo: &str,
+        sender: &str,
+        id: &str,
+    ) -> Result<(Scan, Vec<u8>)> {
+        self.process_with_source(
+            raw,
+            ip,
+            helo,
+            sender,
+            id,
+            crate::evidence::Source::SmtpSession,
+        )
+        .await
+    }
+    async fn process_with_source(
+        &self,
+        raw: &[u8],
+        ip: IpAddr,
+        helo: &str,
+        sender: &str,
+        id: &str,
+        source: crate::evidence::Source,
+    ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        self.start_evidence(&mut scan, source);
         let headers = message::fields(raw)?.0;
         #[cfg(feature = "semantic")]
         if scan.complete
@@ -692,6 +866,10 @@ impl Engine {
         );
         scan.antivirus = antivirus;
         scan.signatures = signatures;
+        if scan.signatures.status != crate::antivirus::AntivirusStatus::Disabled {
+            // Keep the scanner result before the advisory-only delivery policy.
+            scan.evidence.as_mut().unwrap().signatures = Some(scan.signatures.clone());
+        }
         if self.config.antivirus.is_some() {
             use crate::antivirus::AntivirusStatus;
             let (detail, weight) = match scan.antivirus.status {
@@ -783,23 +961,79 @@ impl Engine {
             };
             let auth_work = async {
                 let mut results = AuthenticationResults::new(&self.config.hostname);
+                scan.evidence.as_mut().unwrap().authentication.arc_state =
+                    crate::evidence::State::Unavailable;
                 let arc = self.authenticator.verify_arc(&authenticated).await;
+                {
+                    let auth = &mut scan.evidence.as_mut().unwrap().authentication;
+                    auth.arc = Some(arc.result().into());
+                    auth.arc_can_seal = Some(arc.can_be_sealed());
+                    if matches!(arc.result(), DkimResult::TempError(_)) {
+                        anyhow::bail!("ARC verification temporary error");
+                    }
+                    auth.arc_state = crate::evidence::State::Complete;
+                }
                 if self.config.filter.authentication {
-                    let (dkim, spf) = tokio::join!(
-                        self.authenticator.verify_dkim(&authenticated),
-                        self.authenticator
-                            .verify_spf(SpfParameters::verify_mail_from(
-                                ip,
-                                helo,
-                                &self.config.hostname,
-                                sender
-                            ))
-                    );
+                    scan.evidence.as_mut().unwrap().authentication.state =
+                        crate::evidence::State::Unavailable;
+                    let (dkim, spf) = {
+                        let crate::evidence::Authentication {
+                            spf: observed_spf,
+                            spf_state,
+                            dkim: observed_dkim,
+                            dkim_state,
+                            ..
+                        } = &mut scan.evidence.as_mut().unwrap().authentication;
+                        tokio::join!(
+                            async {
+                                *dkim_state = crate::evidence::State::Unavailable;
+                                let result = self.authenticator.verify_dkim(&authenticated).await;
+                                *observed_dkim =
+                                    Some(result.iter().map(|d| d.result().into()).collect());
+                                if !result
+                                    .iter()
+                                    .any(|d| matches!(d.result(), DkimResult::TempError(_)))
+                                {
+                                    *dkim_state = crate::evidence::State::Complete;
+                                }
+                                result
+                            },
+                            async {
+                                *spf_state = crate::evidence::State::Unavailable;
+                                let result = self
+                                    .authenticator
+                                    .verify_spf(SpfParameters::verify_mail_from(
+                                        ip,
+                                        helo,
+                                        &self.config.hostname,
+                                        sender,
+                                    ))
+                                    .await;
+                                *observed_spf = Some(result.result().into());
+                                if result.result() != SpfResult::TempError {
+                                    *spf_state = crate::evidence::State::Complete;
+                                }
+                                result
+                            }
+                        )
+                    };
                     let domain = sender.rsplit_once('@').map(|x| x.1).unwrap_or(helo);
+                    scan.evidence.as_mut().unwrap().authentication.dmarc_state =
+                        crate::evidence::State::Unavailable;
                     let dmarc = self
                         .authenticator
                         .verify_dmarc(DmarcParameters::new(&authenticated, &dkim, domain, &spf))
                         .await;
+                    {
+                        let auth = &mut scan.evidence.as_mut().unwrap().authentication;
+                        auth.dmarc_spf = Some(dmarc.spf_result().into());
+                        auth.dmarc_dkim = Some(dmarc.dkim_result().into());
+                        if !matches!(dmarc.spf_result(), DmarcResult::TempError(_))
+                            && !matches!(dmarc.dkim_result(), DmarcResult::TempError(_))
+                        {
+                            auth.dmarc_state = crate::evidence::State::Complete;
+                        }
+                    }
                     if spf.result() == SpfResult::TempError
                         || dkim
                             .iter()
@@ -809,6 +1043,8 @@ impl Engine {
                     {
                         anyhow::bail!("authentication temporary error");
                     }
+                    scan.evidence.as_mut().unwrap().authentication.state =
+                        crate::evidence::State::Complete;
                     if spf.result() == SpfResult::Fail {
                         scan.reasons.push(Signal {
                             id: "spf_fail".into(),
@@ -850,6 +1086,7 @@ impl Engine {
                 scan.llm.status = crate::llm::LlmStatus::Unavailable;
                 scan.llm.prompt_version = crate::llm::PROMPT_VERSION.into();
                 scan.llm.model = self.config.llm.as_ref().unwrap().model.clone();
+                scan.evidence.as_mut().unwrap().llm.requested_at_score = Some(scan.score);
                 scan.llm = llm.classify(raw, scan.score).await;
                 if let Some(verdict) = &scan.llm.verdict {
                     let weight = match verdict.category {
@@ -923,6 +1160,7 @@ impl Engine {
         match tokio::time::timeout(Duration::from_secs(5), work).await {
             Ok(Ok(bytes)) => {
                 scan.elapsed_ms = started.elapsed().as_millis() as u64;
+                Self::refresh_evidence(&mut scan);
                 Ok((scan, bytes))
             }
             _ => {
@@ -966,6 +1204,7 @@ impl Engine {
         self.score(&mut scan);
         scan.tagged = false;
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
+        Self::refresh_evidence(&mut scan);
         let bytes = message::rewrite(raw, false, &self.headers(ip, id, &scan))?;
         Ok((scan, bytes))
     }
@@ -989,6 +1228,114 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn reputation_categories_and_context_are_preserved_without_penalizing_abused_identities()
+    {
+        use crate::evidence::{Artifacts, DomainRole, Source, State};
+        for (code, body, expected_weight) in [(102, false, 0.0), (104, true, 0.0), (4, false, 4.0)]
+        {
+            let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+            let mut engine = Engine::new(Arc::new(config.clone())).unwrap();
+            // Local cached provider fixtures avoid environment mutation and paid DNS.
+            config.filter.spamhaus_key_env = Some("FIXTURE_KEY_NAME".into());
+            engine.config = Arc::new(config);
+            engine.dqs_key = Some("provider-fixture-key".into());
+            engine.evidence_artifacts = Artifacts::new(&engine.config, None, None, false);
+            for (name, values) in [
+                (
+                    "1.2.0.192.provider-fixture-key.zen.dq.spamhaus.net.",
+                    vec![],
+                ),
+                (
+                    "example.org.provider-fixture-key.dbl.dq.spamhaus.net.",
+                    vec![std::net::Ipv4Addr::new(127, 0, 1, code)],
+                ),
+            ] {
+                engine.dqs_cache.lock().unwrap().insert(
+                    name.into(),
+                    (Instant::now() + Duration::from_secs(60), values),
+                );
+            }
+            let raw = if body {
+                "From: from@example.org\r\nSubject: x\r\n\r\nhttps://example.org/\r\n"
+            } else {
+                "From: from@example.org\r\nSubject: x\r\n\r\nHello\r\n"
+            };
+            let mut scan = engine.extract(raw.as_bytes());
+            engine.start_evidence(&mut scan, Source::SuppliedEnvelope);
+            engine
+                .reputation(
+                    "::ffff:192.0.2.1".parse().unwrap(),
+                    raw.as_bytes(),
+                    "EXAMPLE.ORG.",
+                    "sender@example.org",
+                    &mut scan,
+                )
+                .await
+                .unwrap();
+            let observed = &scan.evidence.as_ref().unwrap().reputation;
+            assert_eq!(observed.state, State::Complete);
+            assert_eq!(observed.ip.state, State::Complete);
+            assert!(observed.ip.codes.is_empty());
+            assert_eq!(observed.domains.len(), 1);
+            assert_eq!(observed.domains[0].roles.contains(&DomainRole::Body), body);
+            assert_eq!(observed.domains[0].roles.len(), if body { 4 } else { 3 });
+            assert_eq!(
+                observed.domains[0].result.codes,
+                [std::net::Ipv4Addr::new(127, 0, 1, code)]
+            );
+            assert_eq!(
+                scan.reasons
+                    .iter()
+                    .filter(|r| r.id == "domain_reputation" || r.id == "abused_domain_body")
+                    .map(|r| r.weight)
+                    .sum::<f64>(),
+                expected_weight
+            );
+            let text = serde_json::to_string(scan.evidence.as_ref().unwrap()).unwrap();
+            assert!(!text.contains("provider-fixture-key") && !text.contains("example.org"));
+        }
+    }
+    #[tokio::test]
+    async fn reputation_short_circuit_keeps_later_queries_unexecuted() {
+        use crate::evidence::{Artifacts, Source, State};
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        let mut engine = Engine::new(Arc::new(config.clone())).unwrap();
+        config.filter.spamhaus_key_env = Some("FIXTURE_KEY_NAME".into());
+        engine.config = Arc::new(config);
+        engine.dqs_key = Some("fixture".into());
+        engine.evidence_artifacts = Artifacts::new(&engine.config, None, None, false);
+        for (name, codes) in [
+            ("1.2.0.192.fixture.zen.dq.spamhaus.net.", vec![]),
+            (
+                "example.org.fixture.dbl.dq.spamhaus.net.",
+                vec!["127.0.1.4".parse().unwrap()],
+            ),
+        ] {
+            engine.dqs_cache.lock().unwrap().insert(
+                name.into(),
+                (Instant::now() + Duration::from_secs(60), codes),
+            );
+        }
+        let raw = b"From: from@example.org\r\nSubject: x\r\n\r\nhttps://other.example/\r\n";
+        let mut scan = engine.extract(raw);
+        engine.start_evidence(&mut scan, Source::SuppliedEnvelope);
+        engine
+            .reputation(
+                "192.0.2.1".parse().unwrap(),
+                raw,
+                "example.org",
+                "sender@example.org",
+                &mut scan,
+            )
+            .await
+            .unwrap();
+        let evidence = &scan.evidence.unwrap().reputation;
+        assert!(evidence.stopped_after_positive);
+        assert_eq!(evidence.domains.len(), 2);
+        assert_eq!(evidence.domains[0].result.state, State::Complete);
+        assert_eq!(evidence.domains[1].result.state, State::NotRun);
+    }
     #[test]
     fn domain_reputation_prioritizes_envelope_and_helo_without_duplicate_weights() {
         let raw = format!(

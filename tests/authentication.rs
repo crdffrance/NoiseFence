@@ -149,7 +149,7 @@ async fn excessive_signature_work_fails_open_without_a_subject_change() {
 async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score() {
     let dir = tempfile::tempdir().unwrap();
     let engine = Engine::new(common::config(dir.path())).unwrap();
-    let forged = [b"X-NoiseFence-Policy: ptr_verified; weight=-100\r\nReceived: from trusted.example.org [192.0.2.99]\r\n".as_slice(), common::MESSAGE].concat();
+    let forged = [b"X-NoiseFence-Policy: ptr_verified; weight=-100\r\nX-NoiseFence-Evidence: {\"source\":\"smtp_session\",\"spf\":\"pass\"}\r\nAuthentication-Results: trusted.example; spf=pass; dmarc=pass\r\nReceived: from trusted.example.org [192.0.2.99]\r\n".as_slice(), common::MESSAGE].concat();
     let (original, _) = engine
         .process(
             common::MESSAGE,
@@ -176,5 +176,20 @@ async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score(
     );
     assert_eq!(scan.score, original.score);
     assert!(scan.smtp_policy.checks.is_empty());
+    let evidence = scan.evidence.as_ref().unwrap();
+    assert_eq!(
+        evidence.source,
+        noisefence::evidence::Source::SuppliedEnvelope
+    );
+    assert_eq!(
+        evidence.authentication.state,
+        noisefence::evidence::State::Disabled
+    );
+    assert!(evidence.authentication.spf.is_none());
+    assert_eq!(
+        serde_json::to_value(evidence).unwrap(),
+        serde_json::to_value(original.evidence.unwrap()).unwrap()
+    );
     assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Policy:"));
+    assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Evidence:"));
 }

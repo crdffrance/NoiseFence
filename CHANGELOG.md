@@ -4,6 +4,23 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.8] - 2026-09-07
+
+- Conserver les résultats typés SPF, DKIM, DMARC, ARC, réputation et autres
+  moteurs, avec états individuels et résultats partiels malgré un délai dépassé.
+  Distinguer réception SMTP, enveloppe fournie et analyse locale ; laisser les
+  données anciennes inconnues.
+- Identifier les octets des modèles chargés et les réglages de détection.
+  Conserver les limites d’attestation des signatures ClamAV et du modèle cloud.
+- Préserver les catégories et rôles DQS, distinguer les domaines légitimes
+  compromis des domaines malveillants, rejeter les erreurs fournisseur comme
+  signaux indisponibles et respecter le TTL positif.
+- Ajouter ces observations à l’API et à l’export privé de corrections, avec les
+  droits et la rétention existants. Les diagnostics fournis manuellement ne
+  deviennent pas des observations SMTP d’apprentissage.
+- Versionner le protocole d’étiquetage et l’expérience d’augmentation du contenu.
+  Aucun nouveau modèle de contenu ou de fusion n’est activé par cette version.
+
 ## [0.3.0-dev.7] - 2026-09-07
 
 - Ajouter un module Rust de cohérence HELO/IP, PTR confirmé et domaine

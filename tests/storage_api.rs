@@ -32,6 +32,15 @@ async fn durable_queue_recovery_acl_feedback_and_retention() {
     .unwrap();
     let id = uuid::Uuid::new_v4().to_string();
     let mut scan = extract(common::MESSAGE, 10000);
+    let mut evidence = noisefence::evidence::Evidence::new(
+        &cfg,
+        noisefence::evidence::Artifacts::new(&cfg, None, None, false),
+        false,
+    );
+    evidence.source = noisefence::evidence::Source::SmtpSession;
+    evidence.authentication.state = noisefence::evidence::State::Complete;
+    evidence.authentication.spf = Some(noisefence::evidence::AuthResult::Pass);
+    scan.evidence = Some(evidence);
     scan.smtp_policy = noisefence::smtp_policy::PolicyResult {
         status: noisefence::smtp_policy::PolicyStatus::Complete,
         version: noisefence::smtp_policy::VERSION.into(),
@@ -79,6 +88,10 @@ async fn durable_queue_recovery_acl_feedback_and_retention() {
         .await
         .unwrap();
     assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].evidence.as_ref().unwrap().authentication.spf,
+        Some(noisefence::evidence::AuthResult::Pass)
+    );
     assert_eq!(
         items[0].smtp_policy.version,
         noisefence::smtp_policy::VERSION

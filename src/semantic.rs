@@ -106,6 +106,7 @@ impl Combination {
 pub struct Hybrid {
     encoder: Encoder,
     combination: Combination,
+    combination_sha256: String,
     slots: std::sync::Arc<tokio::sync::Semaphore>,
     timeout: std::time::Duration,
 }
@@ -113,18 +114,36 @@ impl Hybrid {
     pub fn version(&self) -> &str {
         &self.combination.version
     }
+    pub fn sha256(&self) -> &str {
+        &self.combination_sha256
+    }
     pub fn load(
         config: &crate::config::SemanticFilter,
         lexical: &Path,
+        threshold: f64,
+    ) -> Result<Self> {
+        Self::load_bound(
+            config,
+            &crate::message::digest(&std::fs::read(lexical)?),
+            threshold,
+        )
+    }
+    pub fn load_bound(
+        config: &crate::config::SemanticFilter,
+        lexical_hash: &str,
         threshold: f64,
     ) -> Result<Self> {
         ensure!(
             std::fs::metadata(&config.combination)?.len() <= 64 * 1024,
             "oversized semantic manifest"
         );
-        let combination: Combination =
-            serde_json::from_slice(&std::fs::read(&config.combination)?)?;
-        combination.validate(&crate::message::digest(&std::fs::read(lexical)?), threshold)?;
+        let bytes = std::fs::read(&config.combination)?;
+        ensure!(
+            bytes.len() <= 64 * 1024,
+            "semantic manifest grew while reading"
+        );
+        let combination: Combination = serde_json::from_slice(&bytes)?;
+        combination.validate(lexical_hash, threshold)?;
         ensure!(
             (1..=2).contains(&config.max_parallel) && (50..=5000).contains(&config.timeout_ms),
             "invalid semantic limits"
@@ -133,6 +152,7 @@ impl Hybrid {
         Ok(Self {
             encoder,
             combination,
+            combination_sha256: crate::message::digest(&bytes),
             slots: std::sync::Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
             timeout: std::time::Duration::from_millis(config.timeout_ms),
         })
