@@ -1,5 +1,13 @@
 # NoiseFence : expériences de détection
 
+Le [protocole d’étiquetage et de validation](labeling-protocol.md) définit les
+classes, les usages séparés des données et les preuves requises pour une décision
+commune aux moteurs. Il s’applique aussi aux diagnostics et aux nouveaux corpus.
+
+La [comparaison d’un apport de données](content-augmentation.md) entraîne un
+candidat lexical/sémantique en contrôlant les faux positifs par source de
+développement, sans ouvrir les jeux réservés ni activer de modèle.
+
 Le modèle est appris sur des emails étiquetés ; ajouter une règle pour chaque
 exemple reçu ne remplace pas cet apprentissage. Le cas privé fourni pendant la
 R&D est une régression connue, exclue des jeux d'entraînement et des métriques
