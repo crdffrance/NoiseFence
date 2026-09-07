@@ -4,8 +4,9 @@ Le serveur SMTP écoute sur le port 25 avec STARTTLS et un certificat validé po
 son nom DNS. La console Axum reste sur loopback ; Nginx publie HTTPS sur le port 443
 et redirige HTTP 80. Adapter `deploy/nginx.conf` au nom DNS et aux certificats de
 l'opérateur. Définir `web.public_origin` en HTTPS et `web.secure_cookies = true`.
-Seuls les destinataires explicitement configurés sont acceptés. ClamD utilise des
-sockets Unix privées, sans service TCP public.
+Seuls les domaines configurés sont acceptés, avec une liste de destinataires par
+défaut ou l'option explicite `accept_all_recipients = true` par domaine. ClamD
+utilise des sockets Unix privées, sans service TCP public.
 
 Lorsque Certbot était configuré en mode standalone, migrer sa validation avant
 les renouvellements :

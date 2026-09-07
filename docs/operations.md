@@ -94,7 +94,35 @@ Référence : [guide Certbot](https://eff-certbot.readthedocs.io/en/stable/using
 
 Le port API 8080 reste lié à loopback. Exposer SMTP/25 et HTTPS/443, plus le port requis par la méthode choisie d’obtention des certificats. Les contrôles d’origine et cookies sécurisés restent actifs en production.
 
-Créer les comptes et leurs adresses via la CLI avant de donner accès à la console. La table des destinataires doit rester synchronisée avec les adresses Proton actives : pas de sondage opportuniste `RCPT TO` chez Proton, pas de catch-all implicite. Les alias sont des correspondances explicites vers une adresse canonique locale au domaine. Le rôle administrateur donne accès aux mesures globales, pas aux messages d’autres utilisateurs sans attribution d’adresse.
+Créer les comptes et leurs adresses via la CLI avant de donner accès à la console.
+Par défaut, synchroniser `recipients` avec les adresses Proton actives. Pour
+accepter toutes les adresses d'un domaine sans les déclarer dans NoiseFence :
+
+```toml
+[[domains]]
+name = "example.org"
+next_hops = ["mail.protonmail.ch", "mailsec.protonmail.ch"]
+accept_all_recipients = true
+```
+
+`alice@example.org` est transmis à `alice@example.org`, avec sa partie locale
+inchangée et le domaine normalisé en minuscules. `recipients` peut être omis ;
+les entrées présentes conservent leur orthographe canonique. Les alias explicites
+restent prioritaires et peuvent viser une boîte autorisée dans un autre domaine.
+Les chaînes d'alias et les domaines non configurés restent refusés ; l'option
+n'inclut pas les sous-domaines.
+
+La passerelle ne crée pas de boîte chez Proton et ne sonde pas ses destinataires
+avant acceptation. Prévoir les boîtes/alias nécessaires ou un catch-all côté Proton.
+Un refus définitif de Proton suit le traitement existant des notifications d'échec ;
+un refus temporaire reste en file pendant cinq jours. Vérifier la configuration
+avec `check-config`, puis redémarrer le service. Les MX publics déterminent toujours
+le serveur qui reçoit les emails ; cette option ne modifie pas le DNS.
+
+`user-add --addresses alice@example.org` peut attribuer cette boîte sans entrée
+dans `recipients`. Les droits restent exacts par adresse, y compris pour les copies
+cachées. Le rôle administrateur donne accès aux mesures globales, pas aux messages
+d'autres utilisateurs sans attribution d'adresse.
 
 ## Réputation et DNS
 

@@ -96,6 +96,7 @@ async fn cross_domain_aliases_preserve_wire_content_and_bcc_authorization() {
         name: "pilot.example.test".into(),
         next_hops: vec!["unused-route.example.org".into()],
         recipients: vec![],
+        accept_all_recipients: false,
         aliases: [
             (
                 "probe@pilot.example.test".into(),
@@ -222,6 +223,127 @@ async fn cross_domain_aliases_preserve_wire_content_and_bcc_authorization() {
     task.await.unwrap().unwrap();
 }
 #[tokio::test]
+async fn unlisted_mailboxes_relay_independently_and_keep_exact_console_grants() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(root.path())).clone();
+    config.domains[0].accept_all_recipients = true;
+    config.domains[0].recipients.clear();
+    config.validate().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    store
+        .run(|db| {
+            for user in ["new", "hidden", "other"] {
+                db.execute(
+                    "INSERT INTO users(username,password,admin) VALUES(?1,'test-only',1)",
+                    [user],
+                )?;
+                db.execute(
+                    "INSERT INTO grants(username,address) VALUES(?1,?2)",
+                    rusqlite::params![user, format!("{user}@example.test")],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let (addr, stop, task) = server(Arc::new(config.clone()), store.clone()).await;
+    let mut io = client(addr).await;
+    assert_eq!(command(&mut io, "EHLO sender.example.org\r\n").await, 250);
+    assert_eq!(
+        command(&mut io, "MAIL FROM:<sender@example.org>\r\n").await,
+        250
+    );
+    for external in [
+        "victim@external.test",
+        "new@sub.example.test",
+        "new@example.test.evil",
+    ] {
+        assert_eq!(
+            command(&mut io, &format!("RCPT TO:<{external}>\r\n")).await,
+            550
+        );
+    }
+    for accepted in [
+        "new@EXAMPLE.TEST",
+        "new@example.test",
+        "hidden@example.test",
+    ] {
+        assert_eq!(
+            command(&mut io, &format!("RCPT TO:<{accepted}>\r\n")).await,
+            250
+        );
+    }
+    assert_eq!(command(&mut io, "DATA\r\n").await, 354);
+    let raw = String::from_utf8(common::MESSAGE.to_vec())
+        .unwrap()
+        .replace("To: alice@example.test", "To: new@example.test");
+    io.write_all(raw.as_bytes()).await.unwrap();
+    io.write_all(b".\r\n").await.unwrap();
+    io.flush().await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    assert_eq!(command(&mut io, "QUIT\r\n").await, 221);
+    drop(io);
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+    drop(store);
+
+    // Accepted unlisted destinations survive a restart without consulting a mailbox list.
+    let store = Store::open(root.path()).unwrap();
+    let first = store.claim().await.unwrap().unwrap();
+    let second = store.claim().await.unwrap().unwrap();
+    assert!(store.claim().await.unwrap().is_none());
+    assert_eq!(first.message_id, second.message_id);
+    let queued = std::fs::read(store.raw_path(&first.message_id)).unwrap();
+    for (job, destination) in [
+        (&first, "new@example.test"),
+        (&second, "hidden@example.test"),
+    ] {
+        assert_eq!(job.destination, destination);
+        assert_eq!(job.sender, "sender@example.org");
+        assert_eq!(job.hosts, config.domains[0].next_hops);
+        let (port, sink_task) = sink(250, true, Some(destination)).await;
+        config.relay.port = port;
+        assert!(matches!(
+            relay::deliver(&config, job, &queued).await,
+            Outcome::Delivered
+        ));
+        assert_eq!(sink_task.await.unwrap(), queued);
+        store.finish(job, "delivered", "", 0).await.unwrap();
+    }
+    for user in ["new", "hidden"] {
+        let visible = store
+            .list(user.into(), "".into(), "all".into(), 0, 95.0)
+            .await
+            .unwrap();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].recipients.len(), 1);
+        assert_eq!(
+            visible[0].recipients[0].address,
+            format!("{user}@example.test")
+        );
+        store
+            .feedback(user.into(), first.message_id.clone(), false)
+            .await
+            .unwrap();
+    }
+    assert!(
+        store
+            .list("other".into(), "".into(), "all".into(), 0, 95.0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .feedback("other".into(), first.message_id.clone(), true)
+            .await
+            .is_err()
+    );
+    store.cleanup().await.unwrap();
+    assert!(!store.raw_path(&first.message_id).exists());
+}
+
+#[tokio::test]
 async fn unfinished_data_is_not_accepted() {
     let root = tempfile::tempdir().unwrap();
     let cfg = common::config(root.path());
@@ -307,7 +429,9 @@ fn job() -> Job {
 async fn sink(
     final_code: u16,
     disconnect_after_accept: bool,
+    expected_recipient: Option<&str>,
 ) -> (u16, tokio::task::JoinHandle<Vec<u8>>) {
+    let expected_recipient = expected_recipient.map(str::to_owned);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let task = tokio::spawn(async move {
@@ -329,6 +453,11 @@ async fn sink(
                 .await
                 .unwrap();
             } else if line.starts_with(b"MAIL") || line.starts_with(b"RCPT") {
+                if line.starts_with(b"RCPT")
+                    && let Some(expected) = &expected_recipient
+                {
+                    assert_eq!(line, format!("RCPT TO:<{expected}>\r\n").as_bytes());
+                }
                 smtp::reply(&mut io, "250 OK\r\n").await.unwrap();
             } else if line == b"DATA\r\n" {
                 smtp::reply(&mut io, "354 DATA\r\n").await.unwrap();
@@ -357,7 +486,7 @@ async fn sink(
 async fn relay_classifies_final_replies_and_ignores_quit_failure() {
     let root = tempfile::tempdir().unwrap();
     for code in [250, 451, 550] {
-        let (port, task) = sink(code, true).await;
+        let (port, task) = sink(code, true, None).await;
         let mut cfg = (*common::config(root.path())).clone();
         cfg.relay.port = port;
         let outcome = relay::deliver(&cfg, &job(), common::MESSAGE).await;
@@ -371,7 +500,7 @@ async fn relay_classifies_final_replies_and_ignores_quit_failure() {
 #[tokio::test]
 async fn verified_tls_is_required_for_production_relay() {
     let root = tempfile::tempdir().unwrap();
-    let (port, task) = sink(250, false).await;
+    let (port, task) = sink(250, false, None).await;
     let mut cfg = (*common::config(root.path())).clone();
     cfg.relay.port = port;
     cfg.relay.require_tls = true;

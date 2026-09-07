@@ -4,6 +4,15 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.6] - 2026-09-07
+
+- Accepter toutes les adresses valides d'un domaine avec l'option explicite
+  `accept_all_recipients`, sans liste de boîtes obligatoire. Transmettre chaque
+  adresse à elle-même en conservant la partie locale et les routes configurées.
+- Préserver la priorité des alias explicites et les droits de console par
+  destination ; refuser les domaines externes, les chaînes et boucles d'alias.
+  Tester le relais SMTP de destinataires non déclarés après redémarrage et
+  l'isolation des copies cachées.
 - Banc de mesure du traitement complet avec modèle chargé une fois, chauffe
   séparée, statuts des connecteurs et p50/p95 par cas. Aucun envoi SMTP, aucun
   contenu ou vecteur enregistré ; appels LLM payants uniquement sur demande

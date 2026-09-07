@@ -79,7 +79,11 @@ postmaster = "postmaster@example.org"
 [[domains]]
 name = "example.org"
 next_hops = ["mail.protonmail.ch", "mailsec.protonmail.ch"]
-# List only real active Proton addresses. No recipients or aliases = refuse all.
+# Default: accept only the listed mailboxes and explicit aliases.
+# Set true to relay every valid address in this exact domain to itself at Proton.
+# The destination must exist at Proton, or be covered by its catch-all.
+accept_all_recipients = false
+# Optional when accept_all_recipients = true; preserves explicit canonical spelling.
 recipients = []
 [domains.aliases]
 # "alias@example.org" = "canonical@example.org"

@@ -38,12 +38,13 @@ mais aucun enregistrement MX peut aussi recevoir par le repli MX implicite de
 Vérifier le résultat DNS public réel : un MX existant, notamment un MX nul,
 change ce comportement. Vérifier aussi TCP/25 et STARTTLS depuis l'extérieur.
 
-L'alias doit viser directement une adresse de `recipients`, éventuellement dans
-un autre domaine configuré. La route sortante et les droits de console sont ceux
-de cette destination. Aucun alias implicite, chaîne d'alias ou destinataire
-extérieur à cette liste n'est accepté. Les domaines sont comparés sans tenir
-compte de la casse ; la partie locale reste exacte. `user-add --addresses` attend
-l'orthographe canonique configurée, et non l'adresse de l'alias.
+L'alias doit viser directement une adresse de `recipients` ou une adresse d'un
+domaine avec `accept_all_recipients = true`, éventuellement dans un autre domaine
+configuré. La route sortante et les droits de console sont ceux de cette
+destination. Les chaînes et boucles d'alias restent interdites, même entre domaines
+acceptant toutes les adresses. Les domaines sont comparés sans tenir compte de la
+casse ; la partie locale reste exacte. `user-add --addresses` attend l'adresse
+canonique de destination, et non l'adresse de l'alias.
 
 Après `check-config` et redémarrage, envoyer quelques messages légitimes depuis
 un compte externe contrôlé vers l'alias. Se connecter à la console avec le compte

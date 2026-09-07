@@ -149,6 +149,10 @@ pub struct Domain {
     /// Routes belong to canonical destinations; alias-only domains may omit them.
     #[serde(default)]
     pub next_hops: Vec<String>,
+    /// Accept every valid mailbox in this exact domain, preserving its local part.
+    #[serde(default)]
+    pub accept_all_recipients: bool,
+    #[serde(default)]
     pub recipients: Vec<String>,
     #[serde(default)]
     pub aliases: BTreeMap<String, String>,
@@ -324,7 +328,7 @@ impl Config {
                 "invalid or duplicate domain"
             );
             ensure!(
-                d.recipients.is_empty() || !d.next_hops.is_empty(),
+                (d.recipients.is_empty() && !d.accept_all_recipients) || !d.next_hops.is_empty(),
                 "missing next hops for canonical recipients"
             );
             for h in &d.next_hops {
@@ -401,22 +405,35 @@ impl Config {
         }
         Ok(())
     }
-    fn canonical_destination(&self, address: &str) -> Option<(&str, &Domain)> {
-        let (_, domain) = address.rsplit_once('@')?;
+    fn canonical_destination(&self, address: &str) -> Option<(String, &Domain)> {
+        if !valid_address(address) {
+            return None;
+        }
+        let (local, domain) = address.rsplit_once('@')?;
         let d = self
             .domains
             .iter()
             .find(|d| d.name.eq_ignore_ascii_case(domain))?;
-        d.recipients
+        // An alias never becomes a canonical target through domain-wide acceptance:
+        // explicit aliases keep precedence and chains/cycles remain invalid.
+        if d.aliases.keys().any(|alias| same_mailbox(alias, address)) {
+            return None;
+        }
+        if let Some(configured) = d
+            .recipients
             .iter()
             .find(|configured| same_mailbox(configured, address))
-            .map(|configured| (configured.as_str(), d))
+        {
+            return Some((configured.clone(), d));
+        }
+        d.accept_all_recipients
+            .then(|| (format!("{local}@{}", d.name.to_ascii_lowercase()), d))
     }
     pub fn recipient(&self, address: &str) -> Option<Recipient> {
         if let Some((canonical, owner)) = self.canonical_destination(address) {
             return Some(Recipient {
-                address: canonical.into(),
-                destination: canonical.into(),
+                address: canonical.clone(),
+                destination: canonical,
                 hosts: owner.next_hops.clone(),
             });
         }
@@ -429,12 +446,12 @@ impl Config {
             .aliases
             .iter()
             .find(|(alias, _)| same_mailbox(alias, address))?;
-        // A single explicit hop to a configured mailbox, never another alias.
+        // A single explicit hop to an authorized mailbox, never another alias.
         // Transport and ACLs use that mailbox's canonical spelling and route.
         let (canonical, owner) = self.canonical_destination(target)?;
         Some(Recipient {
             address: alias.clone(),
-            destination: canonical.into(),
+            destination: canonical,
             hosts: owner.next_hops.clone(),
         })
     }
