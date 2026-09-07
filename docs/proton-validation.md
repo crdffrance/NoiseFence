@@ -10,6 +10,59 @@ La passerelle conserve Proton comme destination. Sa mise en production dépend d
 4. Préparer une clé RSA ARC et publier la clé publique sous `SELECTEUR._domainkey.example.org`. Fournir la clé privée, le domaine et le sélecteur dans la configuration. Les clés PKCS#1 et PKCS#8 PEM sont acceptées. La clé reste lisible uniquement par le service.
 5. Vérifier le support actuel du relais avec Proton. [Proton décrit une confiance ARC limitée à certains intermédiaires](https://proton.me/blog/what-is-authenticated-received-chain-arc) ; une chaîne ARC valide ne suffit pas à nous ajouter à cette liste. ARC reste implémenté pour l’interopérabilité Proton ; le protocole historique n’est pas présenté comme une garantie de délivrabilité.
 
+## Adresse pilote sans bascule du domaine principal
+
+Un sous-domaine contrôlé peut recevoir les essais sur la passerelle et les router
+vers une boîte Proton existante. Cela permet d'envoyer depuis un compte normal
+d'un autre fournisseur, avec les signatures et l'IP SMTP de ce fournisseur.
+Conserver les MX du domaine principal et le mode `observe` pendant ces essais.
+
+Exemple à adapter dans la configuration privée :
+
+```toml
+[[domains]]
+name = "example.org"
+next_hops = ["mail.protonmail.ch", "mailsec.protonmail.ch"]
+recipients = ["canonical@example.org"]
+
+[[domains]]
+name = "pilot.example.org"
+recipients = []
+[domains.aliases]
+"test@pilot.example.org" = "canonical@example.org"
+```
+
+Publier un MX du sous-domaine vers la passerelle. Un hôte ayant une adresse A/AAAA
+mais aucun enregistrement MX peut aussi recevoir par le repli MX implicite de
+[SMTP, section 5.1](https://www.rfc-editor.org/rfc/rfc5321.html#section-5.1).
+Vérifier le résultat DNS public réel : un MX existant, notamment un MX nul,
+change ce comportement. Vérifier aussi TCP/25 et STARTTLS depuis l'extérieur.
+
+L'alias doit viser directement une adresse de `recipients`, éventuellement dans
+un autre domaine configuré. La route sortante et les droits de console sont ceux
+de cette destination. Aucun alias implicite, chaîne d'alias ou destinataire
+extérieur à cette liste n'est accepté. Les domaines sont comparés sans tenir
+compte de la casse ; la partie locale reste exacte. `user-add --addresses` attend
+l'orthographe canonique configurée, et non l'adresse de l'alias.
+
+Après `check-config` et redémarrage, envoyer quelques messages légitimes depuis
+un compte externe contrôlé vers l'alias. Se connecter à la console avec le compte
+autorisé pour la boîte canonique : les entrées affichent l'alias reçu, le score,
+les raisons, les contrôles incomplets et l'état de livraison. Les alias reçus en
+copie cachée restent limités au compte autorisé pour leur propre destination.
+Confirmer aussi le dossier d'arrivée dans Proton et conserver les en-têtes des
+exemples autorisés pour comparer SPF, DKIM et DMARC avant et après relais.
+
+La modification porte sur le destinataire d'enveloppe sortant. L'expéditeur
+d'enveloppe et le contenu d'origine sont conservés en observation ; les en-têtes
+internes de la passerelle sont ajoutés comme pour une réception ordinaire. Une
+analyse `.eml` hors ligne, telle que `scan` ou `analyze`, ne crée pas d'entrée de
+livraison dans la console.
+
+Ce pilote ne valide pas à lui seul le préfixe `[SPAM]`, ARC, le routage interne
+Proton ou les chemins de contournement. Quelques essais légitimes ne mesurent
+pas le taux de capture ni les faux positifs sur un corpus représentatif.
+
 ## Comparaison contrôlée
 
 Pour chaque famille de messages, conserver trois exemplaires et leur résultat : livraison directe, livraison relayée sans préfixe, livraison relayée avec préfixe. Vérifier arrivée, délai, dossier, objet et `Authentication-Results` dans Proton. Une acceptation SMTP `250` ne garantit pas une arrivée en boîte principale.

@@ -79,7 +79,16 @@ postmaster = "postmaster@example.org"
 [[domains]]
 name = "example.org"
 next_hops = ["mail.protonmail.ch", "mailsec.protonmail.ch"]
-# List only real active Proton addresses. Empty = refuse every recipient.
+# List only real active Proton addresses. No recipients or aliases = refuse all.
 recipients = []
 [domains.aliases]
 # "alias@example.org" = "canonical@example.org"
+
+# Optional pilot domain, after adding canonical@example.org to recipients above.
+# Its DNS must point to this gateway. Only the named alias is accepted.
+# The destination mailbox supplies its explicit Proton route and console grants.
+# [[domains]]
+# name = "pilot.example.org"
+# recipients = []
+# [domains.aliases]
+# "test@pilot.example.org" = "canonical@example.org"

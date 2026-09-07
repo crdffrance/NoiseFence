@@ -146,6 +146,8 @@ fn max_age() -> i64 {
 #[serde(deny_unknown_fields)]
 pub struct Domain {
     pub name: String,
+    /// Routes belong to canonical destinations; alias-only domains may omit them.
+    #[serde(default)]
     pub next_hops: Vec<String>,
     pub recipients: Vec<String>,
     #[serde(default)]
@@ -315,12 +317,16 @@ impl Config {
         );
         ensure!(!self.domains.is_empty(), "configure at least one domain");
         let mut names = std::collections::HashSet::new();
+        let mut canonical = std::collections::HashSet::new();
         for d in &self.domains {
             ensure!(
                 valid_domain(&d.name) && names.insert(d.name.to_lowercase()),
                 "invalid or duplicate domain"
             );
-            ensure!(!d.next_hops.is_empty(), "missing next hops");
+            ensure!(
+                d.recipients.is_empty() || !d.next_hops.is_empty(),
+                "missing next hops for canonical recipients"
+            );
             for h in &d.next_hops {
                 ensure!(
                     valid_domain(h)
@@ -334,7 +340,15 @@ impl Config {
                     valid_address(r) && r.rsplit_once('@').unwrap().1.eq_ignore_ascii_case(&d.name),
                     "recipient outside domain: {r}"
                 );
+                let (local, domain) = r.rsplit_once('@').unwrap();
+                ensure!(
+                    canonical.insert(format!("{local}@{}", domain.to_ascii_lowercase())),
+                    "duplicate canonical recipient: {r}"
+                );
             }
+        }
+        let mut aliases = std::collections::HashSet::new();
+        for d in &self.domains {
             for (alias, dest) in &d.aliases {
                 ensure!(
                     valid_address(alias)
@@ -343,9 +357,14 @@ impl Config {
                             .unwrap()
                             .1
                             .eq_ignore_ascii_case(&d.name)
-                        && d.recipients.contains(dest)
-                        && !d.recipients.contains(alias),
+                        && self.canonical_destination(dest).is_some(),
                     "invalid alias {alias}"
+                );
+                let (local, domain) = alias.rsplit_once('@').unwrap();
+                let key = format!("{local}@{}", domain.to_ascii_lowercase());
+                ensure!(
+                    !canonical.contains(&key) && aliases.insert(key),
+                    "duplicate or shadowed alias: {alias}"
                 );
             }
         }
@@ -382,23 +401,48 @@ impl Config {
         }
         Ok(())
     }
-    pub fn recipient(&self, address: &str) -> Option<Recipient> {
-        let (local, domain) = address.rsplit_once('@')?;
+    fn canonical_destination(&self, address: &str) -> Option<(&str, &Domain)> {
+        let (_, domain) = address.rsplit_once('@')?;
         let d = self
             .domains
             .iter()
             .find(|d| d.name.eq_ignore_ascii_case(domain))?;
-        let address = format!("{local}@{}", d.name);
-        let dest = if d.recipients.contains(&address) {
-            address.clone()
-        } else {
-            d.aliases.get(&address)?.clone()
-        };
+        d.recipients
+            .iter()
+            .find(|configured| same_mailbox(configured, address))
+            .map(|configured| (configured.as_str(), d))
+    }
+    pub fn recipient(&self, address: &str) -> Option<Recipient> {
+        if let Some((canonical, owner)) = self.canonical_destination(address) {
+            return Some(Recipient {
+                address: canonical.into(),
+                destination: canonical.into(),
+                hosts: owner.next_hops.clone(),
+            });
+        }
+        let (_, domain) = address.rsplit_once('@')?;
+        let incoming = self
+            .domains
+            .iter()
+            .find(|d| d.name.eq_ignore_ascii_case(domain))?;
+        let (alias, target) = incoming
+            .aliases
+            .iter()
+            .find(|(alias, _)| same_mailbox(alias, address))?;
+        // A single explicit hop to a configured mailbox, never another alias.
+        // Transport and ACLs use that mailbox's canonical spelling and route.
+        let (canonical, owner) = self.canonical_destination(target)?;
         Some(Recipient {
-            address,
-            destination: dest,
-            hosts: d.next_hops.clone(),
+            address: alias.clone(),
+            destination: canonical.into(),
+            hosts: owner.next_hops.clone(),
         })
+    }
+}
+fn same_mailbox(left: &str, right: &str) -> bool {
+    match (left.rsplit_once('@'), right.rsplit_once('@')) {
+        (Some((ll, ld)), Some((rl, rd))) => ll == rl && ld.eq_ignore_ascii_case(rd),
+        _ => false,
     }
 }
 pub const PROTON_CASES: &[&str] = &[

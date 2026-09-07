@@ -4,6 +4,18 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.5] - 2026-09-07
+
+- Router les alias explicites entre domaines configurés vers une boîte canonique
+  autorisée, avec la route et les droits de cette boîte. Permettre un domaine
+  réservé aux alias sans route propre ; refuser les chaînes, boucles, collisions
+  et destinations absentes de la liste autorisée.
+- Comparer les domaines sans distinction de casse et conserver exactement la
+  partie locale et l'adresse canonique utilisée pour les autorisations.
+- Documenter les essais depuis un fournisseur externe via une adresse pilote,
+  sans bascule des MX principaux. Vérifier le contenu mis en file, les copies
+  cachées et la suppression du corps après résolution de tous les destinataires.
+
 ## [0.3.0-dev.4] - 2026-09-07
 
 - Distinguer l'extraction locale des vérifications externes : une panne de DNS,
@@ -105,7 +117,10 @@ Limites connues : compatibilité réelle Proton non validée ; rappel du candida
 60,94 %, sous l’objectif de 95 % ; le taux ≤ 0,1 % de faux positifs n’est pas démontré.
 Le modèle candidat ne passe pas le contrôle d’activation. SMTPUTF8 reste désactivé.
 
-[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.3.0-dev.2...HEAD
+[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.3.0-dev.5...HEAD
+[0.3.0-dev.5]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.5
+[0.3.0-dev.4]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.4
+[0.3.0-dev.3]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.3
 [0.3.0-dev.2]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.2
 [0.3.0-dev.1]: https://github.com/crdffrance/NoiseFence/tree/v0.3.0-dev.1
 [0.2.0-dev.2]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.2.0-dev.2

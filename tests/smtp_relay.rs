@@ -86,6 +86,141 @@ async fn smtp_pipeline_alias_open_relay_and_durable_acceptance() {
     stop.send(true).unwrap();
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn cross_domain_aliases_preserve_wire_content_and_bcc_authorization() {
+    use noisefence::{config::Domain, message};
+    let root = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(root.path())).clone();
+    config.domains.push(Domain {
+        name: "pilot.example.test".into(),
+        next_hops: vec!["unused-route.example.org".into()],
+        recipients: vec![],
+        aliases: [
+            (
+                "probe@pilot.example.test".into(),
+                "alice@example.test".into(),
+            ),
+            (
+                "hidden@pilot.example.test".into(),
+                "bob@example.test".into(),
+            ),
+        ]
+        .into(),
+    });
+    config.validate().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    store
+        .run(|db| {
+            for user in ["alice", "bob", "other"] {
+                db.execute(
+                    "INSERT INTO users(username,password,admin) VALUES(?1,'test-only',1)",
+                    [user],
+                )?;
+                db.execute(
+                    "INSERT INTO grants(username,address) VALUES(?1,?2)",
+                    rusqlite::params![user, format!("{user}@example.test")],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let (addr, stop, task) = server(Arc::new(config.clone()), store.clone()).await;
+    let mut io = client(addr).await;
+    assert_eq!(command(&mut io, "EHLO sender.example.org\r\n").await, 250);
+    assert_eq!(
+        command(&mut io, "MAIL FROM:<sender@example.org>\r\n").await,
+        250
+    );
+    assert_eq!(
+        command(&mut io, "RCPT TO:<alice@pilot.example.test>\r\n").await,
+        550
+    );
+    assert_eq!(
+        command(&mut io, "RCPT TO:<victim@external.test>\r\n").await,
+        550
+    );
+    for recipient in [
+        "probe@PILOT.EXAMPLE.TEST",
+        "probe@pilot.example.test",
+        "hidden@pilot.example.test",
+    ] {
+        assert_eq!(
+            command(&mut io, &format!("RCPT TO:<{recipient}>\r\n")).await,
+            250
+        );
+    }
+    assert_eq!(command(&mut io, "DATA\r\n").await, 354);
+    let raw = String::from_utf8(common::MESSAGE.to_vec())
+        .unwrap()
+        .replace("To: alice@example.test", "To: probe@pilot.example.test")
+        .into_bytes();
+    io.write_all(&raw).await.unwrap();
+    io.write_all(b".\r\n").await.unwrap();
+    io.flush().await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    let first = store.claim().await.unwrap().unwrap();
+    let second = store.claim().await.unwrap().unwrap();
+    assert!(
+        store.claim().await.unwrap().is_none(),
+        "case variants duplicated the delivery"
+    );
+    assert_eq!(first.destination, "alice@example.test");
+    assert_eq!(second.destination, "bob@example.test");
+    assert_eq!(first.sender, "sender@example.org");
+    assert_eq!(first.hosts, config.domains[0].next_hops);
+    assert_eq!(second.hosts, first.hosts);
+    let queued = std::fs::read(store.raw_path(&first.message_id)).unwrap();
+    let (original_headers, original_body) = message::fields(&raw).unwrap();
+    let (queued_headers, queued_body) = message::fields(&queued).unwrap();
+    assert_eq!(original_body, queued_body);
+    assert!(
+        original_headers
+            .iter()
+            .all(|field| queued_headers.contains(field))
+    );
+    let alice = store
+        .list("alice".into(), "".into(), "all".into(), 0, 95.0)
+        .await
+        .unwrap();
+    let bob = store
+        .list("bob".into(), "".into(), "all".into(), 0, 95.0)
+        .await
+        .unwrap();
+    assert_eq!(alice[0].recipients.len(), 1);
+    assert_eq!(alice[0].recipients[0].address, "probe@pilot.example.test");
+    assert_eq!(bob[0].recipients.len(), 1);
+    assert_eq!(bob[0].recipients[0].address, "hidden@pilot.example.test");
+    assert!(!serde_json::to_string(&alice).unwrap().contains("hidden@"));
+    assert!(
+        store
+            .list("other".into(), "".into(), "all".into(), 0, 95.0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .feedback("other".into(), first.message_id.clone(), true)
+            .await
+            .is_err()
+    );
+    store
+        .feedback("alice".into(), first.message_id.clone(), false)
+        .await
+        .unwrap();
+    store.finish(&first, "delivered", "", 0).await.unwrap();
+    store.cleanup().await.unwrap();
+    assert!(store.raw_path(&first.message_id).exists());
+    store.finish(&second, "delivered", "", 0).await.unwrap();
+    store.cleanup().await.unwrap();
+    assert!(!store.raw_path(&first.message_id).exists());
+    assert_eq!(command(&mut io, "QUIT\r\n").await, 221);
+    drop(io);
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+}
 #[tokio::test]
 async fn unfinished_data_is_not_accepted() {
     let root = tempfile::tempdir().unwrap();
