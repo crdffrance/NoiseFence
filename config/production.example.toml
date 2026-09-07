@@ -40,6 +40,16 @@ max_analysis_bytes = 2097152
 # max_parallel = 1
 # timeout_ms = 500
 
+# Optional SMTP/DNS coherence checks; no message content or SMTP rejection.
+# Start in observation and measure before applying the experimental weights.
+# See docs/smtp-policy.md. An absent table disables all of these lookups.
+# [smtp_policy]
+# contribute_to_score = false
+# timeout_ms = 800
+# max_parallel = 8
+# cache_entries = 4096
+# cache_ttl_seconds = 300
+
 # Optional local scanner; see docs/antivirus.md before enabling it.
 # [antivirus]
 # socket = "/run/clamav/clamd.ctl"

@@ -4,6 +4,23 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.7] - 2026-09-07
+
+- Ajouter un module Rust de cohérence HELO/IP, PTR confirmé et domaine
+  d'enveloppe, inspiré des techniques de policyd-weight. Respecter IPv6,
+  les enveloppes vides, Null MX et le repli A/AAAA sans MX. Les serveurs
+  sortants ne sont pas obligés de correspondre aux MX entrants.
+- Borner les recherches DNS, les délais, la concurrence et le cache. Une
+  indisponibilité abandonne les contributions partielles et conserve la
+  livraison sans préfixe ; aucun rejet SMTP fondé sur ces signaux.
+- Observer les poids candidats avant activation explicite de leur contribution
+  plafonnée. Afficher les raisons et statuts dans la console, les conserver
+  avec les métadonnées et les mesurer avec le banc du pipeline complet.
+- Étendre DQS aux domaines HELO et MAIL FROM, prioritaires sur les liens du
+  corps, sans dupliquer les contributions ni activer de nouvelle liste.
+- Fournir `smtp-check` pour les essais DNS seuls, sans email ni appel payant.
+  Tester les réponses DNS réelles sur serveur local et les cas limites.
+
 ## [0.3.0-dev.6] - 2026-09-07
 
 - Accepter toutes les adresses valides d'un domaine avec l'option explicite
@@ -131,7 +148,9 @@ Limites connues : compatibilité réelle Proton non validée ; rappel du candida
 60,94 %, sous l’objectif de 95 % ; le taux ≤ 0,1 % de faux positifs n’est pas démontré.
 Le modèle candidat ne passe pas le contrôle d’activation. SMTPUTF8 reste désactivé.
 
-[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.3.0-dev.5...HEAD
+[Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.3.0-dev.7...HEAD
+[0.3.0-dev.7]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.7
+[0.3.0-dev.6]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.6
 [0.3.0-dev.5]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.5
 [0.3.0-dev.4]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.4
 [0.3.0-dev.3]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.3

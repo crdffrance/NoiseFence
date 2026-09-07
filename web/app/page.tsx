@@ -54,6 +54,13 @@ type Mail = {
     prompt_version: string;
     elapsed_ms: number;
   };
+  smtp_policy?: {
+    status: 'disabled' | 'complete' | 'busy' | 'unavailable';
+    elapsed_ms: number;
+    candidate_weight: number;
+    applied_weight: number;
+    scoring_enabled: boolean;
+  };
   semantic?: {
     status: 'disabled' | 'complete' | 'busy' | 'unavailable';
     model: string;
@@ -331,6 +338,15 @@ export default function Home() {
                   <span>/ 100</span>
                 </div>
                 <p className="muted">Indice de suspicion · {selected.model}</p>
+                {selected.smtp_policy && selected.smtp_policy.status !== 'disabled' && (
+                  <p className="muted">Cohérence SMTP et DNS : {{
+                    complete: 'contrôlée',
+                    busy: 'capacité occupée, contrôle incomplet',
+                    unavailable: 'indisponible ou délai dépassé',
+                  }[selected.smtp_policy.status]} · {selected.smtp_policy.elapsed_ms} ms
+                    {selected.smtp_policy.status === 'complete' && !selected.smtp_policy.scoring_enabled && ' · observation sans effet sur le score'}
+                  </p>
+                )}
                 {selected.semantic && selected.semantic.status !== 'disabled' && (
                   <p className="muted">Analyse multilingue locale : {{
                     complete: 'effectuée',

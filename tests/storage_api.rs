@@ -31,12 +31,24 @@ async fn durable_queue_recovery_acl_feedback_and_retention() {
     .await
     .unwrap();
     let id = uuid::Uuid::new_v4().to_string();
+    let mut scan = extract(common::MESSAGE, 10000);
+    scan.smtp_policy = noisefence::smtp_policy::PolicyResult {
+        status: noisefence::smtp_policy::PolicyStatus::Complete,
+        version: noisefence::smtp_policy::VERSION.into(),
+        candidate_weight: 0.5,
+        checks: vec![noisefence::engine::Signal {
+            id: "helo_literal_mismatch".into(),
+            detail: "Identité de connexion différente".into(),
+            weight: 0.5,
+        }],
+        ..Default::default()
+    };
     store
         .enqueue(
             id.clone(),
             "sender@example.org".into(),
             vec![cfg.recipient("alice@example.test").unwrap()],
-            extract(common::MESSAGE, 10000),
+            scan,
             common::MESSAGE.to_vec(),
         )
         .await
@@ -67,6 +79,13 @@ async fn durable_queue_recovery_acl_feedback_and_retention() {
         .await
         .unwrap();
     assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].smtp_policy.version,
+        noisefence::smtp_policy::VERSION
+    );
+    assert_eq!(items[0].smtp_policy.candidate_weight, 0.5);
+    assert_eq!(items[0].smtp_policy.applied_weight, 0.0);
+    assert_eq!(items[0].smtp_policy.checks[0].id, "helo_literal_mismatch");
     store
         .feedback("alice".into(), id.clone(), false)
         .await

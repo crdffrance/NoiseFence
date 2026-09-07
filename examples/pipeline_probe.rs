@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
         "engine_load_us":load_us, "iterations":args.iterations, "warmup":args.warmup,
         "concurrency":1, "tokio_workers":4, "interval_ms":args.interval_ms, "authentication":config.filter.authentication,
         "antivirus":config.antivirus.is_some(), "signatures":config.signatures.is_some(),
-        "semantic":config.filter.semantic.is_some(), "reputation":config.filter.spamhaus_key_env.is_some(),
+        "smtp_policy":config.smtp_policy.is_some(), "semantic":config.filter.semantic.is_some(), "reputation":config.filter.spamhaus_key_env.is_some(),
         "paid_llm":paid, "arc_sealing":config.filter.arc_key.is_some(), "sent":false,
         "scope":"controlled full Engine::process calls; excludes model loading, file reading, SMTP, durable queue, relay and inter-call intervals",
         "not_a_production_quality_or_latency_claim":true})
@@ -171,6 +171,7 @@ async fn main() -> Result<()> {
                     }
                     if !warmup {
                         for (name, value) in [
+                            ("smtp_policy", json!(scan.smtp_policy.status)),
                             ("semantic", json!(scan.semantic.status)),
                             ("antivirus", json!(scan.antivirus.status)),
                             ("signatures", json!(scan.signatures.status)),
@@ -185,6 +186,7 @@ async fn main() -> Result<()> {
                         "feature_version":scan.feature_version, "features_complete":scan.features_complete,
                         "engine_elapsed_ms":scan.elapsed_ms, "semantic_ms":scan.semantic.elapsed_ms,
                         "antivirus_ms":scan.antivirus.elapsed_ms, "signatures_ms":scan.signatures.elapsed_ms,
+                        "smtp_policy_ms":scan.smtp_policy.elapsed_ms, "smtp_policy_status":scan.smtp_policy.status,
                         "llm_ms":scan.llm.elapsed_ms, "semantic_status":scan.semantic.status,
                         "antivirus_status":scan.antivirus.status, "signatures_status":scan.signatures.status,
                         "llm_status":scan.llm.status,

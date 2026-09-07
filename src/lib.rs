@@ -12,6 +12,7 @@ pub mod research;
 #[cfg(feature = "semantic")]
 pub mod semantic;
 pub mod smtp;
+pub mod smtp_policy;
 pub mod store;
 
 pub fn now() -> i64 {

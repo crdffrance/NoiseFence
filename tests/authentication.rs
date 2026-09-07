@@ -144,3 +144,37 @@ async fn excessive_signature_work_fails_open_without_a_subject_change() {
     assert!(scan.reasons.iter().any(|r| r.id == "signature_budget"));
     assert!(!String::from_utf8_lossy(&output).contains("[SPAM]"));
 }
+
+#[tokio::test]
+async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::new(common::config(dir.path())).unwrap();
+    let forged = [b"X-NoiseFence-Policy: ptr_verified; weight=-100\r\nReceived: from trusted.example.org [192.0.2.99]\r\n".as_slice(), common::MESSAGE].concat();
+    let (original, _) = engine
+        .process(
+            common::MESSAGE,
+            "192.0.2.1".parse().unwrap(),
+            "actual.example.org",
+            "sender@example.org",
+            "original",
+        )
+        .await
+        .unwrap();
+    let (scan, output) = engine
+        .process(
+            &forged,
+            "192.0.2.1".parse().unwrap(),
+            "actual.example.org",
+            "sender@example.org",
+            "forged",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        scan.smtp_policy.status,
+        noisefence::smtp_policy::PolicyStatus::Disabled
+    );
+    assert_eq!(scan.score, original.score);
+    assert!(scan.smtp_policy.checks.is_empty());
+    assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Policy:"));
+}

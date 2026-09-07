@@ -36,6 +36,17 @@ enum Command {
     Scan {
         message: PathBuf,
     },
+    /// Inspect SMTP identity via DNS only; no message, delivery, model or paid call.
+    SmtpCheck {
+        #[arg(long)]
+        source_ip: std::net::IpAddr,
+        #[arg(long)]
+        helo: String,
+        #[arg(long, default_value = "")]
+        mail_from: String,
+        #[arg(long, default_value_t = 1)]
+        iterations: usize,
+    },
     /// Run configured analysis once without queueing or delivering the message.
     Analyze {
         message: PathBuf,
@@ -216,6 +227,40 @@ async fn main() -> Result<()> {
         _ => {}
     }
     let config = Arc::new(Config::load(&cli.config)?);
+    if let Command::SmtpCheck {
+        source_ip,
+        helo,
+        mail_from,
+        iterations,
+    } = &cli.command
+    {
+        ensure!(
+            helo.len() <= 255 && helo.is_ascii() && !helo.bytes().any(|b| b.is_ascii_control()),
+            "invalid SMTP greeting input"
+        );
+        ensure!(
+            mail_from.is_empty() || noisefence::config::valid_address(mail_from),
+            "invalid SMTP envelope input"
+        );
+        ensure!((1..=100).contains(iterations), "iterations must be 1..100");
+        let policy = noisefence::smtp_policy::Policy::new(
+            config
+                .smtp_policy
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("configure [smtp_policy] first"))?,
+        )?;
+        for _ in 0..*iterations {
+            println!(
+                "{}",
+                serde_json::to_string(
+                    &policy
+                        .check(*source_ip, helo, mail_from, &config.hostname)
+                        .await
+                )?
+            );
+        }
+        return Ok(());
+    }
     if let Command::Analyze {
         message,
         source_ip,

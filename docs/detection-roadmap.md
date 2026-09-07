@@ -38,6 +38,10 @@ de près de 1 Mo sur le VPS, hors connecteurs. Restent à réaliser : corpus ré
 indépendant, calibration de la combinaison avec les autres moteurs, évaluation
 par langue et mesures complètes sur la cible. La politique reste sans quarantaine.
 
+Les [contrôles SMTP/DNS](smtp-policy.md) ajoutent une couche de cohérence des
+identités de transport. Leur score candidat est observé séparément avant
+calibration ; aucune amélioration de capture n’est encore démontrée.
+
 ## Chaîne de décision
 
 1. **SMTP et authentification.** Destinataires explicites, limites, TLS, SPF,

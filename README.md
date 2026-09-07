@@ -119,3 +119,7 @@ npm audit --audit-level=high
 ```
 
 Les tests SMTP utilisent exclusivement des sockets loopback et des destinataires `.test`. Le fuzzing est fourni dans `fuzz`; une campagne guidée avec instrumentation peut être lancée via `cargo +nightly fuzz run message` et `cargo +nightly fuzz run smtp`. Les tests ne certifient pas la conformité exhaustive à tous les RFC ni la résistance à une charge de production.
+
+Les [contrôles de cohérence SMTP/DNS](docs/smtp-policy.md) ajoutent HELO, PTR
+confirmé et domaine d’enveloppe, avec poids plafonnés et observation initiale.
+La commande `smtp-check` permet de les essayer sans envoyer d’email.

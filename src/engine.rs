@@ -87,6 +87,8 @@ pub struct Scan {
     pub llm: crate::llm::LlmResult,
     #[serde(default)]
     pub semantic: SemanticResult,
+    #[serde(default)]
+    pub smtp_policy: crate::smtp_policy::PolicyResult,
 }
 pub fn legacy_feature_version() -> u32 {
     1
@@ -390,12 +392,40 @@ pub fn domains_in_message(raw: &[u8]) -> Vec<String> {
     domains.truncate(12);
     domains
 }
+fn reputation_domains(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<String> {
+    // Envelope identities take priority over attacker-controlled body links.
+    let mut domains = Vec::new();
+    for domain in [
+        sender.rsplit_once('@').map(|(_, d)| d),
+        Some(helo),
+        from.rsplit_once('@').map(|(_, d)| d),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::to_owned)
+    .chain(domains_in_message(raw))
+    {
+        let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+        if crate::config::valid_domain(&domain)
+            && domain.contains('.')
+            && domain.parse::<IpAddr>().is_err()
+            && !domains.contains(&domain)
+        {
+            domains.push(domain);
+            if domains.len() == 12 {
+                break;
+            }
+        }
+    }
+    domains
+}
 pub struct Engine {
     config: Arc<Config>,
     pub authenticator: MessageAuthenticator,
     model: Option<Model>,
     arc_key: Option<String>,
     dqs_key: Option<String>,
+    smtp_policy: Option<crate::smtp_policy::Policy>,
     dqs_cache: Mutex<HashMap<String, (Instant, bool)>>,
     llm: Option<crate::llm::Client>,
     #[cfg(feature = "semantic")]
@@ -463,7 +493,13 @@ impl Engine {
                 "invalid DQS key"
             );
         }
+        let smtp_policy = config
+            .smtp_policy
+            .clone()
+            .map(crate::smtp_policy::Policy::new)
+            .transpose()?;
         Ok(Self {
+            smtp_policy,
             config,
             authenticator: MessageAuthenticator::new_system_conf()?,
             model,
@@ -571,7 +607,14 @@ impl Engine {
         );
         Ok(value)
     }
-    async fn reputation(&self, ip: IpAddr, raw: &[u8], scan: &mut Scan) -> Result<()> {
+    async fn reputation(
+        &self,
+        ip: IpAddr,
+        raw: &[u8],
+        helo: &str,
+        sender: &str,
+        scan: &mut Scan,
+    ) -> Result<()> {
         let Some(key) = &self.dqs_key else {
             return Ok(());
         };
@@ -600,18 +643,7 @@ impl Engine {
                 weight: 4.0,
             });
         }
-        let mut domains = domains_in_message(raw);
-        if let Some((_, d)) = scan.sender.rsplit_once('@')
-            && crate::config::valid_domain(d)
-        {
-            domains.push(d.into());
-        }
-        domains.sort();
-        domains.dedup();
-        for domain in domains.into_iter().take(12) {
-            if domain.parse::<IpAddr>().is_ok() {
-                continue;
-            }
+        for domain in reputation_domains(raw, &scan.sender, helo, sender) {
             if self
                 .listed(&format!("{domain}.{key}.dbl.dq.spamhaus.net."))
                 .await?
@@ -739,59 +771,76 @@ impl Engine {
         let work = async {
             let authenticated =
                 AuthenticatedMessage::parse(raw).context("authentication parsing failed")?;
-            let mut results = AuthenticationResults::new(&self.config.hostname);
-            let arc = self.authenticator.verify_arc(&authenticated).await;
-            if self.config.filter.authentication {
-                let (dkim, spf) = tokio::join!(
-                    self.authenticator.verify_dkim(&authenticated),
-                    self.authenticator
-                        .verify_spf(SpfParameters::verify_mail_from(
-                            ip,
-                            helo,
-                            &self.config.hostname,
-                            sender
-                        ))
-                );
-                let domain = sender.rsplit_once('@').map(|x| x.1).unwrap_or(helo);
-                let dmarc = self
-                    .authenticator
-                    .verify_dmarc(DmarcParameters::new(&authenticated, &dkim, domain, &spf))
-                    .await;
-                if spf.result() == SpfResult::TempError
-                    || dkim
-                        .iter()
-                        .any(|d| matches!(d.result(), DkimResult::TempError(_)))
-                    || matches!(dmarc.spf_result(), DmarcResult::TempError(_))
-                    || matches!(dmarc.dkim_result(), DmarcResult::TempError(_))
-                {
-                    anyhow::bail!("authentication temporary error");
-                }
-                if spf.result() == SpfResult::Fail {
-                    scan.reasons.push(Signal {
-                        id: "spf_fail".into(),
-                        detail: "SPF ne valide pas cet expéditeur".into(),
-                        weight: 1.0,
-                    });
-                }
-                let pass = *dmarc.dkim_result() == DmarcResult::Pass
-                    || *dmarc.spf_result() == DmarcResult::Pass;
-                if !pass
-                    && (matches!(dmarc.spf_result(), DmarcResult::Fail(_))
-                        || matches!(dmarc.dkim_result(), DmarcResult::Fail(_)))
-                {
-                    scan.reasons.push(Signal {
-                        id: "dmarc_fail".into(),
-                        detail: "Alignement DMARC non validé".into(),
-                        weight: 2.0,
-                    });
-                }
-                results = results
-                    .with_dkim_results(&dkim, &scan.sender)
-                    .with_spf_mailfrom_result(&spf, ip, sender, helo)
-                    .with_dmarc_result(&dmarc)
-                    .with_arc_result(&arc, ip);
+            if self.smtp_policy.is_some() {
+                scan.smtp_policy.status = crate::smtp_policy::PolicyStatus::Unavailable;
+                scan.smtp_policy.version = crate::smtp_policy::VERSION.into();
             }
-            self.reputation(ip, raw, &mut scan).await?;
+            let policy_work = async {
+                match &self.smtp_policy {
+                    Some(policy) => policy.check(ip, helo, sender, &self.config.hostname).await,
+                    None => Default::default(),
+                }
+            };
+            let auth_work = async {
+                let mut results = AuthenticationResults::new(&self.config.hostname);
+                let arc = self.authenticator.verify_arc(&authenticated).await;
+                if self.config.filter.authentication {
+                    let (dkim, spf) = tokio::join!(
+                        self.authenticator.verify_dkim(&authenticated),
+                        self.authenticator
+                            .verify_spf(SpfParameters::verify_mail_from(
+                                ip,
+                                helo,
+                                &self.config.hostname,
+                                sender
+                            ))
+                    );
+                    let domain = sender.rsplit_once('@').map(|x| x.1).unwrap_or(helo);
+                    let dmarc = self
+                        .authenticator
+                        .verify_dmarc(DmarcParameters::new(&authenticated, &dkim, domain, &spf))
+                        .await;
+                    if spf.result() == SpfResult::TempError
+                        || dkim
+                            .iter()
+                            .any(|d| matches!(d.result(), DkimResult::TempError(_)))
+                        || matches!(dmarc.spf_result(), DmarcResult::TempError(_))
+                        || matches!(dmarc.dkim_result(), DmarcResult::TempError(_))
+                    {
+                        anyhow::bail!("authentication temporary error");
+                    }
+                    if spf.result() == SpfResult::Fail {
+                        scan.reasons.push(Signal {
+                            id: "spf_fail".into(),
+                            detail: "SPF ne valide pas cet expéditeur".into(),
+                            weight: 1.0,
+                        });
+                    }
+                    let pass = *dmarc.dkim_result() == DmarcResult::Pass
+                        || *dmarc.spf_result() == DmarcResult::Pass;
+                    if !pass
+                        && (matches!(dmarc.spf_result(), DmarcResult::Fail(_))
+                            || matches!(dmarc.dkim_result(), DmarcResult::Fail(_)))
+                    {
+                        scan.reasons.push(Signal {
+                            id: "dmarc_fail".into(),
+                            detail: "Alignement DMARC non validé".into(),
+                            weight: 2.0,
+                        });
+                    }
+                    results = results
+                        .with_dkim_results(&dkim, &scan.sender)
+                        .with_spf_mailfrom_result(&spf, ip, sender, helo)
+                        .with_dmarc_result(&dmarc)
+                        .with_arc_result(&arc, ip);
+                }
+                Ok::<_, anyhow::Error>((arc, results))
+            };
+            let (auth_result, policy_result) = tokio::join!(auth_work, policy_work);
+            policy_result.apply(&mut scan);
+            scan.smtp_policy = policy_result;
+            let (arc, results) = auth_result?;
+            self.reputation(ip, raw, helo, sender, &mut scan).await?;
             self.score(&mut scan);
             if scan.complete
                 && let Some(llm) = &self.llm
@@ -940,6 +989,36 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn domain_reputation_prioritizes_envelope_and_helo_without_duplicate_weights() {
+        let raw = format!(
+            "From: from@example.org\r\nSubject: links\r\n\r\n{}",
+            (0..20)
+                .map(|n| format!("https://a{n}.example.net "))
+                .collect::<String>()
+        );
+        let domains = reputation_domains(
+            raw.as_bytes(),
+            "from@example.org",
+            "MX.EXAMPLE.ORG.",
+            "bounce@sender.example.org",
+        );
+        assert_eq!(
+            &domains[..3],
+            &["sender.example.org", "mx.example.org", "example.org"]
+        );
+        assert_eq!(domains.len(), 12);
+        assert_eq!(
+            reputation_domains(
+                b"Subject: x\r\n\r\n",
+                "from@example.org",
+                "EXAMPLE.ORG.",
+                "sender@example.org"
+            ),
+            ["example.org"]
+        );
+        assert!(reputation_domains(b"Subject: x\r\n\r\n", "", "[IPv6:2001:db8::1]", "").is_empty());
+    }
     #[cfg(feature = "semantic")]
     #[test]
     fn semantic_score_is_added_once_and_failure_preserves_lexical_fallback() {
