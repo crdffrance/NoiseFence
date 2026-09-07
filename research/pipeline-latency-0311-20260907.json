@@ -1,0 +1,231 @@
+{
+  "schema": "noisefence-pipeline-measurement-2",
+  "at": "2026-09-07T14:11:17+00:00",
+  "application": "0.3.0-dev.11",
+  "profile": "no-llm",
+  "production_engine_and_models_unchanged": true,
+  "scope": "controlled full Engine::process calls; excludes model loading, file reading, SMTP, durable queue, relay and inter-call intervals",
+  "build": {
+    "commit": "f647f893e6c10099e2a5ad3e5f8a131e9cad913f",
+    "engine_source_sha256": "b9e6ca09ebc4824586c2e60022cba0d6563f0e2ca8d3f5a1f5c96a82cc0476da",
+    "probe_source_sha256": "61985fd8d3bde0074b6bcb8a053b3550bcc015c425eb1e419e553c2cbc50cf6d",
+    "binary_sha256": "c2746b6e1c4349b1e4023daa2a121a8407478926429f0e9eefd9a7e4f3d8cab3",
+    "platform": "linux-amd64",
+    "profile": "release",
+    "features": [
+      "semantic"
+    ],
+    "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+  },
+  "full_source_binding": {
+    "run_id": 34128950318,
+    "commit": "f647f893e6c10099e2a5ad3e5f8a131e9cad913f",
+    "legacy_flat_source_sha256": "b9e6ca09ebc4824586c2e60022cba0d6563f0e2ca8d3f5a1f5c96a82cc0476da",
+    "probe_source_sha256": "61985fd8d3bde0074b6bcb8a053b3550bcc015c425eb1e419e553c2cbc50cf6d",
+    "full_source_sha256": "74384ae4a6dc897a71916f5982a40041fb6dc71e74a0c7d37c0a060f73888610",
+    "full_source_inputs": [
+      "Cargo.lock",
+      "Cargo.toml",
+      "research/encoder-runtime.lock.json",
+      "research/fusion-protocol.json",
+      "src/antivirus.rs",
+      "src/api.rs",
+      "src/config.rs",
+      "src/corpus.rs",
+      "src/engine.rs",
+      "src/evidence.rs",
+      "src/features.rs",
+      "src/fusion/io.rs",
+      "src/fusion/population.rs",
+      "src/fusion/runtime.rs",
+      "src/fusion.rs",
+      "src/learning.rs",
+      "src/lib.rs",
+      "src/llm.rs",
+      "src/main.rs",
+      "src/message.rs",
+      "src/population.rs",
+      "src/relay.rs",
+      "src/research.rs",
+      "src/semantic.rs",
+      "src/smtp.rs",
+      "src/smtp_policy/tests.rs",
+      "src/smtp_policy.rs",
+      "src/store.rs"
+    ],
+    "binary_sha256": "c2746b6e1c4349b1e4023daa2a121a8407478926429f0e9eefd9a7e4f3d8cab3",
+    "full_source_hash_schema": 2,
+    "provenance": "Successful exact-commit GitHub Actions build; independently verified recursive release source digest"
+  },
+  "source_hash_note": "build.engine_source_sha256 is the legacy flat workflow hash and omits nested modules; full_source_binding records the independently verified recursive release digest for the same exact commit.",
+  "machine": {
+    "Architecture:": "x86_64",
+    "CPU(s):": "4",
+    "Model name:": "Intel Core Processor (Haswell, no TSX)"
+  },
+  "memory_total": "7944052 kB",
+  "configuration": {
+    "antivirus": true,
+    "arc_sealing": false,
+    "authentication": true,
+    "concurrency": 1,
+    "engine_load_us": 4814494,
+    "interval_ms": 100,
+    "iterations": 30,
+    "not_a_production_quality_or_latency_claim": true,
+    "paid_llm": false,
+    "record": "configuration",
+    "reputation": false,
+    "scope": "controlled full Engine::process calls; excludes model loading, file reading, SMTP, durable queue, relay and inter-call intervals",
+    "semantic": true,
+    "sent": false,
+    "signatures": true,
+    "smtp_policy": true,
+    "tokio_workers": 4,
+    "version": "0.3.0-dev.11",
+    "warmup": 3
+  },
+  "authentication_context": "Unsigned synthetic mail with the gateway IP and its own domain; SPF/DMARC can fail. Does not represent provider-signed traffic or a quality evaluation.",
+  "measured_trials": 120,
+  "warmup_trials": 12,
+  "complete_measured_trials": 120,
+  "incomplete_measured_trials": 0,
+  "error_measured_trials": 0,
+  "all_trials_include_failures": true,
+  "cases": [
+    {
+      "all_trials": {
+        "max_us": 284561,
+        "method": "nearest rank",
+        "p50_us": 240248,
+        "p95_us": 278670,
+        "samples": 30
+      },
+      "case": "business_fr",
+      "complete": 30,
+      "complete_trials_only": {
+        "max_us": 284561,
+        "method": "nearest rank",
+        "p50_us": 240248,
+        "p95_us": 278670,
+        "samples": 30
+      },
+      "errors": 0,
+      "incomplete": 0,
+      "message_bytes": 836,
+      "message_sha256": "beeea3fa8cb2ba226b49b7a8ac44aad6a204e265be26e26e556ca921d29e8cef",
+      "statuses": {
+        "antivirus:clean": 30,
+        "llm:disabled": 30,
+        "semantic:complete": 30,
+        "signatures:clean": 30,
+        "smtp_policy:complete": 30
+      }
+    },
+    {
+      "all_trials": {
+        "max_us": 87363,
+        "method": "nearest rank",
+        "p50_us": 60031,
+        "p95_us": 77437,
+        "samples": 30
+      },
+      "case": "brief_fr",
+      "complete": 30,
+      "complete_trials_only": {
+        "max_us": 87363,
+        "method": "nearest rank",
+        "p50_us": 60031,
+        "p95_us": 77437,
+        "samples": 30
+      },
+      "errors": 0,
+      "incomplete": 0,
+      "message_bytes": 435,
+      "message_sha256": "3bead704e863b05addfa38d038dfbaffbc5d5465be2b9c7bfe7976d2f0324b3f",
+      "statuses": {
+        "antivirus:clean": 30,
+        "llm:disabled": 30,
+        "semantic:complete": 30,
+        "signatures:clean": 30,
+        "smtp_policy:complete": 30
+      }
+    },
+    {
+      "all_trials": {
+        "max_us": 138739,
+        "method": "nearest rank",
+        "p50_us": 114615,
+        "p95_us": 129888,
+        "samples": 30
+      },
+      "case": "wallet_lure_en",
+      "complete": 30,
+      "complete_trials_only": {
+        "max_us": 138739,
+        "method": "nearest rank",
+        "p50_us": 114615,
+        "p95_us": 129888,
+        "samples": 30
+      },
+      "errors": 0,
+      "incomplete": 0,
+      "message_bytes": 502,
+      "message_sha256": "589d0d199da477b43ccd50b0b5b52befe7bad1c27991e9301906625dd8710b6a",
+      "statuses": {
+        "antivirus:clean": 30,
+        "llm:disabled": 30,
+        "semantic:complete": 30,
+        "signatures:clean": 30,
+        "smtp_policy:complete": 30
+      }
+    },
+    {
+      "all_trials": {
+        "max_us": 431739,
+        "method": "nearest rank",
+        "p50_us": 391633,
+        "p95_us": 427757,
+        "samples": 30
+      },
+      "case": "large_text_fr",
+      "complete": 30,
+      "complete_trials_only": {
+        "max_us": 431739,
+        "method": "nearest rank",
+        "p50_us": 391633,
+        "p95_us": 427757,
+        "samples": 30
+      },
+      "errors": 0,
+      "incomplete": 0,
+      "message_bytes": 1048576,
+      "message_sha256": "64ba3bb925f98a3d0b4a969a48d9a2f7f5c36f9f46619e3367a440b2f749be59",
+      "statuses": {
+        "antivirus:clean": 30,
+        "llm:disabled": 30,
+        "semantic:complete": 30,
+        "signatures:clean": 30,
+        "smtp_policy:complete": 30
+      }
+    }
+  ],
+  "cgroup_memory_peak_bytes_observed": 1253998592,
+  "resource_measurement_note": "Cgroup counters observed at 250 ms intervals; last CPU count may precede exit. Full output and systemd stderr retained for audit.",
+  "raw_trials_sha256": "2bbca86b28d4bd8df38c9a6207a539b3ade043634ac9a5188506d200466f5a46",
+  "new_paid_requests": 0,
+  "incremental_micro_eur": 0,
+  "sent_messages": 0,
+  "real_user_messages_used": false,
+  "production_quality_validated": false,
+  "global_production_p95_validated": false,
+  "active_llm_profile_remeasured": false,
+  "limitations": [
+    "Four repeated synthetic messages, not a representative incoming distribution or a throughput benchmark.",
+    "Model loading, file IO, SMTP, queue and delivery are outside trial time. Warmup is separate.",
+    "DNS/authentication use the supplied unsigned test envelope, not varied real signed senders. DQS and ARC are disabled.",
+    "The production LLM configuration is unchanged; the diagnostic profile alone disables it. Its latency is not measured by this run.",
+    "Cgroup memory covers the probe process, not the two independently running scanners.",
+    "No threshold or classifier was adjusted from these measurements."
+  ]
+}

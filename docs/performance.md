@@ -138,3 +138,33 @@ comportement demande une évaluation distincte de la qualité. Ces quatre cas,
 non signés et répétés, ne permettent de publier ni taux de faux positifs ni
 p95 du trafic réel. Les entrées et mesures détaillées restent privées ; le
 rapport public contient leurs empreintes et les résultats agrégés.
+
+## Vérification de la version 0.3.0-dev.11
+
+Le [rapport de cette vérification](../research/pipeline-latency-0311-20260907.json)
+reprend les quatre mêmes cas sur le même serveur, avec le code exact de la
+version 0.3.0-dev.11 et les modèles inchangés. Le profil de mesure désactive
+uniquement le LLM ; la configuration du service reste inchangée en observation.
+Les vérifications DNS, la politique SMTP, le modèle hybride et les deux scanners
+sont exécutés dans le traitement mesuré.
+
+| Cas synthétique | Taille | p95 sans LLM |
+| --- | ---: | ---: |
+| Courriel professionnel français | 836 octets | 279 ms |
+| Message court français | 435 octets | 77 ms |
+| Leurre de portefeuille fictif | 502 octets | 130 ms |
+| Paragraphe français répété | 1 Mio | 428 ms |
+
+Les 120 mesures, après 12 appels de chauffe, sont complètes et sans erreur.
+Les quantiles ont été recalculés à partir des 132 observations conservées.
+Le pic mémoire observé du processus est de 1 253 998 592 octets ; il exclut les
+scanners, qui tournent dans leurs propres services. Aucun email n'est livré et
+aucun nouvel appel payant n'est effectué. La file, les modèles et la configuration
+de production sont préservés.
+
+Le rapport lie le probe au commit de la version et à l'empreinte récursive de ses
+sources. L'ancienne empreinte du workflow, qui omet les sous-modules Rust, reste
+identifiée séparément. Les statuts et les durées sont conservés sans contenu.
+Ce résultat ne mesure pas le profil avec LLM, la concurrence, le p95 du trafic
+réel, la capture ou les faux positifs. Aucun seuil n'a été ajusté à partir de
+ces cas.
