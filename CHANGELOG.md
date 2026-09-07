@@ -4,6 +4,10 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+- Porter le plafond mémoire de FreshClam à 2 Gio : la validation des nouvelles
+  bases dépassait 768 Mio et provoquait des redémarrages répétés par manque de
+  mémoire. Conserver la vérification des bases et les autres limites du service.
+
 ## [0.3.0-dev.8] - 2026-09-07
 
 - Conserver les résultats typés SPF, DKIM, DMARC, ARC, réputation et autres

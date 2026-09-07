@@ -20,7 +20,9 @@ ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/clamav /var/log/clamav
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-MemoryMax=768M
+# FreshClam loads new definitions to validate them before installation.
+# Allow the same memory budget as the official scanner for this temporary peak.
+MemoryMax=2G
 CPUQuota=100%
 TasksMax=32
 

@@ -113,6 +113,23 @@ Interroger `VERSION` sur chaque socket pour relever la version du moteur ; le
 journal du programme de mise à jour fournit les versions des bases complémentaires.
 Un processus actif avec des bases anciennes ne prouve pas une protection à jour.
 
+Le service FreshClam dispose d'un plafond de 2 Gio : il charge les nouvelles bases
+pour les vérifier avant leur installation. Le 7 septembre 2026, l'ancien plafond
+de 768 Mio a provoqué des arrêts `oom-kill` répétés pendant cette vérification.
+Prévoir ce pic en plus des scanners et de NoiseFence, puis surveiller la mémoire
+réellement disponible sur l'hôte. Ne pas désactiver la validation des bases pour
+réduire ce besoin. Pour une installation existante, un drop-in systemd
+`clamav-freshclam.service.d/30-database-memory.conf` peut contenir :
+
+```ini
+[Service]
+MemoryMax=2G
+```
+
+Après installation du drop-in, exécuter `systemctl daemon-reload` puis
+`systemctl restart clamav-freshclam.service`. Vérifier un cycle de mise à jour
+réussi et la version chargée par ClamD ; l'état `active` seul ne suffit pas.
+
 `deploy/health-check.py` et les unités `noisefence-health.service`/`.timer`
 contrôlent toutes les cinq minutes services, sockets, date de la base quotidienne,
 dernier contrôle Sanesecurity, file, disque, certificat et budget LLM. Le rapport
