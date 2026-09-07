@@ -238,3 +238,7 @@ Pour mesurer également DNS, scanners et LLM, utiliser le
 compare trois profils sur quatre messages synthétiques. Il documente aussi
 les appels LLM évités et les limites de ces mesures, sans en déduire la qualité
 sur le trafic réel.
+
+L'[audit de nouveaux corpus et le diagnostic sur textes courts](corpus-audit-20260907.md)
+documentent aussi une limite de généralisation du modèle figé, la forte
+duplication d'un jeu public et le besoin de données récentes représentatives.

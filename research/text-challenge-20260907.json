@@ -1,0 +1,106 @@
+{
+  "date": "2026-09-07T04:57:46.528527+00:00",
+  "source_doi": "10.5281/zenodo.13474746",
+  "license": "CC-BY-4.0",
+  "source_sha256": "ad15f63cb8db2caaee33c442f1ff4488b9444530a4c42ab63bb580016b160bd3",
+  "source_raw_rows": 2000,
+  "exact_unique_texts": 100,
+  "exact_unique_evaluation": {
+    "lexical_logit": {
+      "ham": 77,
+      "spam": 23,
+      "true_positive": 9,
+      "false_positive": 0,
+      "true_negative": 77,
+      "false_negative": 14,
+      "recall": 0.391304347826087,
+      "false_positive_rate": 0.0,
+      "precision": 1.0
+    },
+    "combined_logit": {
+      "ham": 77,
+      "spam": 23,
+      "true_positive": 9,
+      "false_positive": 0,
+      "true_negative": 77,
+      "false_negative": 14,
+      "recall": 0.391304347826087,
+      "false_positive_rate": 0.0,
+      "precision": 1.0
+    }
+  },
+  "near_duplicate_sensitivity": {
+    "components": 78,
+    "selection": "minimum raw SHA-256 per component, frozen before prediction",
+    "metrics": {
+      "lexical_logit": {
+        "ham": 59,
+        "spam": 19,
+        "true_positive": 9,
+        "false_positive": 0,
+        "true_negative": 59,
+        "false_negative": 10,
+        "recall": 0.47368421052631576,
+        "false_positive_rate": 0.0,
+        "precision": 1.0
+      },
+      "combined_logit": {
+        "ham": 59,
+        "spam": 19,
+        "true_positive": 9,
+        "false_positive": 0,
+        "true_negative": 59,
+        "false_negative": 10,
+        "recall": 0.47368421052631576,
+        "false_positive_rate": 0.0,
+        "precision": 1.0
+      }
+    }
+  },
+  "threshold": 95,
+  "model_hashes": {
+    "lexical": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+    "combination": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed"
+  },
+  "complete_native_predictions": 100,
+  "source_and_prepared_hashes_checked": true,
+  "overlap_pairs": 0,
+  "existing_raw_records_compared": 61198,
+  "model_retrained": false,
+  "production_changed": false,
+  "external_content_analysis": false,
+  "emails_sent": false,
+  "public_representative_quality_claim": false,
+  "confidence_intervals": null,
+  "confidence_interval_note": "Dependent curated templates, no representative random sample; population confidence bounds are not justified. Deduplicated counts are descriptive only.",
+  "scope": "Native schema-3 feature extraction and local lexical/E5 score; text-only CSV wrapped as MIME body; no original sender, subject, MIME structure, date or SMTP context; no external checks.",
+  "limitation": "This diagnostic is not a recent full-pipeline quality gate. After examination it remains excluded from fitting and later independent validation.",
+  "protocol_sha256": "efd492952cbf90bbac0f3e23c93dd1643b4b5364939ac73b90a72654c0a1ce77",
+  "predictions_sha256": "c96d7db76e97aebf94bb9493d5acdfe1872c1bf94a056aa78519d9e37de7fd11",
+  "attribution": {
+    "title": "Phishing validation emails dataset",
+    "authors": [
+      "Radoslav Miltchev",
+      "Dimitar Rangelov",
+      "Evgeni Genchev"
+    ],
+    "version": "v1",
+    "publication_date": "2024-08-29",
+    "record": "https://zenodo.org/records/13474746",
+    "license": "https://creativecommons.org/licenses/by/4.0/",
+    "modifications": "Exact-text deduplication, MIME text/plain wrapping, frozen local inference and aggregate diagnostics; original messages not redistributed."
+  },
+  "model_version": "research-hybrid-e5-20260907",
+  "code_commit": "afc0e3d7b4b5e108ad50f12f17ddc7fd04d43122",
+  "source_text_length_chars": {
+    "minimum": 68,
+    "maximum": 103
+  },
+  "raw_phishing_rows": 1000,
+  "raw_safe_rows": 1000,
+  "individual_dates_available": false,
+  "real_or_synthetic_field_available": false,
+  "trained_on_challenge": false,
+  "native_binary_version": "0.3.0-dev.5",
+  "minimum_logit_distance_to_threshold": 0.16468187341502993
+}
