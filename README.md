@@ -97,6 +97,8 @@ Les utilisateurs corrigent leurs propres messages. Les retours contradictoires e
 Voir [les essais Proton](docs/proton-validation.md), [l’installation Linux](docs/operations.md) et [le périmètre de sécurité](docs/security.md).
 
 Les mesures et limites effectivement vérifiées figurent dans [le rapport de validation](docs/validation-results.md).
+Le [banc de mesure du traitement complet](docs/performance.md) permet de comparer
+les durées du modèle et des connecteurs sur des cas contrôlés, sans livraison SMTP.
 
 ```sh
 cargo test --locked

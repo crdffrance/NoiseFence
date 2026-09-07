@@ -1,0 +1,41 @@
+name: pipeline probe build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify the measurement tool
+        run: |
+          docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
+            rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
+            sh -c 'cargo build --release --locked --features semantic --example pipeline_probe && python3 tests/pipeline_probe.py target/release/examples/pipeline_probe'
+      - name: Record the exact engine source and executable
+        run: |
+          mkdir -p var/pipeline-probe
+          cp target/release/examples/pipeline_probe var/pipeline-probe/
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess
+          root = pathlib.Path('.')
+          source = hashlib.sha256()
+          for p in [root/'Cargo.toml', root/'Cargo.lock', *sorted((root/'src').glob('*.rs'))]:
+              source.update(p.name.encode()); source.update(p.read_bytes())
+          executable = root/'var/pipeline-probe/pipeline_probe'
+          elf = executable.read_bytes()[:20]
+          assert elf[:4] == b'\x7fELF' and int.from_bytes(elf[18:20], 'little') == 62
+          metadata = {'commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+              'engine_source_sha256':source.hexdigest(),
+              'probe_source_sha256':hashlib.sha256((root/'examples/pipeline_probe.rs').read_bytes()).hexdigest(),
+              'binary_sha256':hashlib.sha256(executable.read_bytes()).hexdigest(),
+              'platform':'linux-amd64', 'profile':'release', 'features':['semantic'],
+              'image':'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922'}
+          (root/'var/pipeline-probe/build.json').write_text(json.dumps(metadata,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-probe-linux-amd64
+          path: var/pipeline-probe/
+          retention-days: 14

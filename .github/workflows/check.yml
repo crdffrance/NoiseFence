@@ -47,6 +47,12 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets ${{ matrix.profile }} ${{ matrix.features }} -- -D warnings
       - run: cargo test --locked ${{ matrix.profile }} ${{ matrix.features }}
+      - name: Verify full-processing measurement controls
+        run: |
+          cargo build --locked ${{ matrix.profile }} ${{ matrix.features }} --example pipeline_probe
+          profile_dir=debug
+          if [ "${{ matrix.profile }}" = "--release" ]; then profile_dir=release; fi
+          python3 tests/pipeline_probe.py "target/$profile_dir/examples/pipeline_probe"
       - run: cargo build --release --locked ${{ matrix.features }}
       - uses: actions/setup-python@v5
         if: matrix.runner == 'ubuntu-latest' && matrix.features != ''

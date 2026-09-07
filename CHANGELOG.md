@@ -4,6 +4,11 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+- Banc de mesure du traitement complet avec modèle chargé une fois, chauffe
+  séparée, statuts des connecteurs et p50/p95 par cas. Aucun envoi SMTP, aucun
+  contenu ou vecteur enregistré ; appels LLM payants uniquement sur demande
+  explicite et avec le budget configuré. Les échecs restent dans les mesures.
+
 ## [0.3.0-dev.5] - 2026-09-07
 
 - Router les alias explicites entre domaines configurés vers une boîte canonique
