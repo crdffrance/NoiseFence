@@ -5,6 +5,7 @@ pub mod corpus;
 pub mod engine;
 pub mod evidence;
 pub mod features;
+pub mod fusion;
 pub mod learning;
 pub mod llm;
 pub mod message;

@@ -140,6 +140,7 @@ async fn verified_authentication_preserves_alignment_and_partial_results_on_dns_
             .unwrap();
         let evidence = scan.evidence.as_ref().unwrap();
         evidence.validate().unwrap();
+        noisefence::fusion::features(evidence).unwrap();
         assert!(!String::from_utf8_lossy(&raw).contains("forged-observation"));
         let auth = &evidence.authentication;
         assert_eq!(evidence.source, Source::SuppliedEnvelope);

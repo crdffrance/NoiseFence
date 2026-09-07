@@ -36,7 +36,8 @@ def main():
         shutil.copytree(ROOT/directory,output/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     # Data-only feedback fitting runtime, without corpora, private models or hub clients.
     (output/'research').mkdir()
-    for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt']:
+    for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',
+                     'train_fusion.py','fusion-protocol.json','fusion.md','labeling-protocol.md']:
         shutil.copy2(ROOT/'research'/filename,output/'research'/filename)
     for filename in ['README.md','LICENSE','THIRD_PARTY.md','CHANGELOG.md','Cargo.lock']:
         shutil.copy2(ROOT/filename,output/filename)
@@ -44,13 +45,18 @@ def main():
     if (ROOT/'release/third-party-licenses').is_dir():
         shutil.copytree(ROOT/'release/third-party-licenses',output/'third-party-licenses')
     source=hashlib.sha256()
-    for p in [ROOT/'Cargo.toml', ROOT/'Cargo.lock', *sorted((ROOT/'src').glob('*.rs'))]:
-        source.update(p.name.encode()); source.update(p.read_bytes())
+    inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', *sorted((ROOT/'src').rglob('*.rs')),
+              ROOT/'research/fusion-protocol.json', ROOT/'research/encoder-runtime.lock.json']
+    for p in sorted(inputs):
+        source.update(str(p.relative_to(ROOT)).encode() + b'\0')
+        source.update(hashlib.sha256(p.read_bytes()).digest())
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     (output/'build.json').write_text(json.dumps({
         'project':'NoiseFence','platform':args.platform,'version':version,
         'rust':'1.98.0','minimum_glibc':'2.36','commit':commit,
         'source_sha256':source.hexdigest(),
+        'source_digest_schema':'noisefence-build-inputs-2',
+        'source_inputs':[str(p.relative_to(ROOT)) for p in sorted(inputs)],
         'source_url':f'https://github.com/crdffrance/NoiseFence/tree/{commit}',
         'image':'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922',
         'license':'GPL-3.0-only','default_mode':'observe','proton_validated':False,

@@ -1,0 +1,14 @@
+{
+  "synthetic": true,
+  "predictions_checked": 2000,
+  "variants": 5,
+  "application": "0.3.0-dev.9",
+  "protocol_sha256": "8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce",
+  "max_logit_error": 8.881784197001252e-16,
+  "max_probability_error": 2.220446049250313e-16,
+  "decision_disagreements": 0,
+  "production_eligible": false,
+  "mail_sent": false,
+  "schema": "noisefence-fusion-validation-1",
+  "scope": "Software parity on 400 fabricated observations; no antispam quality claim."
+}

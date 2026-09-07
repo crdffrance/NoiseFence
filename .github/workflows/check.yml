@@ -67,6 +67,14 @@ jobs:
           python3 -m pip install -r research/requirements.txt
           cargo build --locked --features semantic --example feedback_probe
           python3 research/verify_feedback.py var/feedback-parity --binary target/release/noisefence
+      - name: Check learned fusion against native observations and predictions
+        if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+        run: |
+          cargo build --locked --features semantic --example fusion_fixture
+          python3 research/verify_fusion.py var/fusion-parity --binary target/release/noisefence
   web:
     runs-on: ubuntu-latest
     defaults:

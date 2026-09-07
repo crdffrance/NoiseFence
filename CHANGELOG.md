@@ -4,6 +4,19 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.9] - 2026-09-07
+
+- Ajouter le contrat natif de fusion de 218 observations typées, l'export privé
+  `fusion-export` et les prédictions hors ligne `fusion-predict`. Vérifier la
+  cohérence des contrôles, les versions des détecteurs et les profils disponibles.
+- Apprendre une régression logistique régularisée, calibrer ses probabilités et
+  sélectionner un seuil commun sur des lots distincts. Détecter les campagnes
+  partagées avec les modèles de contenu ou entre les lots de fusion.
+- Figer cinq ablations avant le test, publier mesures, incertitude et couverture,
+  et comparer les décisions Python/Rust dans la CI. Les modèles produits restent
+  des candidats de recherche ; le score du service et les MX restent inchangés.
+- Inclure les modules Rust imbriqués et les protocoles embarqués dans l'empreinte
+  des sources des archives, avec la liste des entrées et un schéma explicite.
 - Porter le plafond mémoire de FreshClam à 2 Gio : la validation des nouvelles
   bases dépassait 768 Mio et provoquait des redémarrages répétés par manque de
   mémoire. Conserver la vérification des bases et les autres limites du service.

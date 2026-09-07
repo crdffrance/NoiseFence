@@ -107,6 +107,20 @@ enum Command {
         #[arg(long)]
         require_semantic: bool,
     },
+    /// Encode trusted detector observations from a private learning export, offline.
+    FusionExport {
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Evaluate a research fusion model offline; never activates or delivers mail.
+    FusionPredict {
+        input: PathBuf,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
     Benchmark {
         message: PathBuf,
         #[arg(long, default_value_t = 1000)]
@@ -154,6 +168,29 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::FusionExport { input, output } => {
+            println!(
+                "{}",
+                serde_json::to_string(&noisefence::fusion::io::convert(input, output, None)?)?
+            );
+            return Ok(());
+        }
+        Command::FusionPredict {
+            input,
+            model,
+            output,
+        } => {
+            let model = noisefence::fusion::Model::load(model)?;
+            println!(
+                "{}",
+                serde_json::to_string(&noisefence::fusion::io::convert(
+                    input,
+                    output,
+                    Some(&model)
+                )?)?
+            );
+            return Ok(());
+        }
         Command::ModelBenchmark {
             message,
             model,

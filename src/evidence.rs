@@ -178,7 +178,7 @@ pub struct Reputation {
     pub stopped_after_positive: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Artifacts {
     pub application: String,

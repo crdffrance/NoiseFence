@@ -250,3 +250,8 @@ sur le trafic réel.
 L'[audit de nouveaux corpus et le diagnostic sur textes courts](corpus-audit-20260907.md)
 documentent aussi une limite de généralisation du modèle figé, la forte
 duplication d'un jeu public et le besoin de données récentes représentatives.
+
+La [fusion apprise des observations](fusion.md) fournit maintenant un export
+Rust, un entraîneur régularisé, une calibration distincte et cinq ablations
+figées avant le test. Les commandes restent hors ligne ; le service continue
+d'utiliser le score actuel jusqu'à validation d'un candidat.
