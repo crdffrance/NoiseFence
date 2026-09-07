@@ -31,6 +31,10 @@ MAX_VALUES = 10000000
 MAX_BYTES = 512 * 1024 * 1024
 
 
+class InsufficientFeedback(ValueError):
+    """A valid export needs more labels; distinct from corruption or solver failure."""
+
+
 def is_hex(value, length):
     return isinstance(value, str) and len(value) == length and all(c in '0123456789abcdef' for c in value)
 
@@ -173,7 +177,7 @@ def train(rows, hybrid, version):
     splits = partition(rows)
     for name in ('train', 'development', 'calibration', 'test'):
         if set(labels[splits[name]]) != {False, True}:
-            raise ValueError(f'{name} requires both classes after campaign grouping')
+            raise InsufficientFeedback(f'{name} requires both classes after campaign grouping')
     tr, dev, cal, test = (splits[n] for n in ('train', 'development', 'calibration', 'test'))
     matrix = matrix_for(rows)
     transformer = TfidfTransformer().fit(matrix[tr])
@@ -251,7 +255,7 @@ def train(rows, hybrid, version):
     return model, combination, report, predictions
 
 
-def publish(output, model, combination, report, predictions):
+def publish(output, model, combination, report, predictions, aggregate_only=False):
     """Publish a coherent new directory; never overwrite any active artifact."""
     if output.exists() or output.is_symlink():
         raise ValueError('Candidate directory already exists')
@@ -271,7 +275,12 @@ def publish(output, model, combination, report, predictions):
         if combination is not None:
             combination['lexical_model_sha256'] = report['model_sha256']
             report['combination_sha256'] = write('native-combination.json', combination)
-        report['predictions_sha256'] = write('predictions.json', predictions)
+        if aggregate_only:
+            report.pop('predictions_sha256', None)
+            report['per_message_predictions'] = 'not_written'
+        else:
+            report['predictions_sha256'] = write('predictions.json', predictions)
+            report['per_message_predictions'] = 'private_manual_export'
         write('report.json', report)
         # Directory fsync precedes publishing the immutable candidate bundle.
         fd = os.open(root, os.O_RDONLY)
@@ -292,15 +301,21 @@ def main():
     parser.add_argument('input', type=Path)
     parser.add_argument('output', type=Path)
     parser.add_argument('--hybrid', action='store_true', help='Require pinned embeddings; never silently downgrade')
+    parser.add_argument('--aggregate-only', action='store_true', help='Do not write per-message predictions (scheduled training)')
     args = parser.parse_args()
     os.umask(0o077)
     rows, corpus_hash = read_rows(args.input, args.hybrid)
     rows, groups = group_rows(rows)
     version = 'feedback-' + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + corpus_hash[:8]
-    model, combination, report, predictions = train(rows, args.hybrid, version)
+    try:
+        model, combination, report, predictions = train(rows, args.hybrid, version)
+    except InsufficientFeedback as error:
+        print(json.dumps({'status': 'insufficient_feedback', 'eligible': False,
+                          'reason': str(error), 'grouping': groups}))
+        raise SystemExit(3)
     report.update(corpus_sha256=corpus_hash, grouping=groups,
                   observed_range=[min(r['observed_at'] for r in rows), max(r['observed_at'] for r in rows)])
-    publish(args.output, model, combination, report, predictions)
+    publish(args.output, model, combination, report, predictions, args.aggregate_only)
     print(json.dumps({'candidate': str(args.output), 'eligible': False,
                       'grouping': groups, 'test': report['partitions']['test']}))
 

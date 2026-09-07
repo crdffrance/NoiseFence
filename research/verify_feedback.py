@@ -5,9 +5,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -21,6 +23,7 @@ def main():
     p.add_argument('output', type=Path)
     p.add_argument('--binary', type=Path, default=Path('target/debug/noisefence'))
     p.add_argument('--probe', type=Path, default=Path('target/debug/examples/feedback_probe'))
+    p.add_argument('--scheduler-python', type=Path, default=Path(sys.executable), help='Python 3.11+ for the service wrapper')
     a = p.parse_args()
     os.umask(0o077)
     a.output.mkdir(parents=True, exist_ok=False)
@@ -45,7 +48,8 @@ def main():
             word = 1 if spam ^ (i % 5 == 0) else 2
             features = [[word, .8], [3, .6]]
             fingerprint = hashlib.sha256(f'fixture-campaign-{i}'.encode()).hexdigest()
-            scan = {'feature_version': 3, 'score': 50., 'tagged': False, 'complete': True,
+            scan = {'feature_version': 3, 'score': 50., 'tagged': False, 'complete': i % 7 != 0,
+                    'features_complete': True,
                     'model': 'synthetic-parity', 'reasons': [], 'features': features,
                     'subject': 'synthetic', 'sender': 'fixture@example.test',
                     'fingerprint': fingerprint, 'campaign_simhash': fingerprint[:16], 'elapsed_ms': 0,
@@ -63,6 +67,8 @@ def main():
     exported = json.loads(export.stdout)
     if exported['exported'] != count or exported['semantic_exported'] != count:
         raise ValueError('Synthetic export incomplete')
+    if exported['exported_with_incomplete_checks'] != len(range(0, count, 7)):
+        raise ValueError('External failures selected the training corpus')
     candidate = a.output/'candidate'
     subprocess.run([sys.executable, str(Path(__file__).with_name('train_feedback.py')),
                     str(snapshot), str(candidate), '--hybrid'], check=True, capture_output=True)
@@ -87,10 +93,41 @@ def main():
         pending = db.execute("SELECT COUNT(*) FROM deliveries WHERE status!='delivered'").fetchone()[0]
     if pending or list((state/'spool').iterdir()):
         raise ValueError('Parity fixture unexpectedly queued mail')
+    # Exercise the actual service wrapper with the real Rust export and trainer.
+    # Linux uses tmpfs scratch to catch accidental cross-filesystem renames.
+    bundle = a.output/'bundle'
+    (bundle/'research').mkdir(parents=True)
+    shutil.copy2(a.binary.resolve(), bundle/'noisefence')
+    for name in ('train_feedback.py', 'train_linear.py', 'semantic-protocol.json'):
+        shutil.copy2(Path(__file__).with_name(name), bundle/'research'/name)
+    config.write_text(settings.replace('[filter]\n', '[filter]\nmodel = '+json.dumps(str((candidate/'model.json').resolve()))+'\n')
+                      + '\n[filter.semantic]\nencoder_dir = "unused-by-vector-export"\ncombination = '
+                      + json.dumps(str((candidate/'native-combination.json').resolve()))+'\n')
+    scheduled = a.output/'scheduled'
+    with tempfile.TemporaryDirectory(prefix='noisefence-feedback-parity-',
+                                     dir='/dev/shm' if sys.platform == 'linux' else None) as directory:
+        cross_device = os.stat(directory).st_dev != a.output.stat().st_dev
+        subprocess.run([str(a.scheduler_python), str(Path(__file__).resolve().parents[1]/'deploy/train-feedback.py'),
+                        '--binary', str(bundle/'noisefence'), '--config', str(config),
+                        '--python', sys.executable, '--directory', str(scheduled),
+                        '--scratch-directory', directory], check=True, capture_output=True)
+        if list(Path(directory).iterdir()):
+            raise ValueError('Scheduler retained per-message vectors')
+    latest = json.loads((scheduled/'latest-candidate.json').read_text())
+    prepared = Path(latest['candidate'])
+    if latest['activated'] or latest['status'] != 'candidate_prepared' or (prepared/'predictions.json').exists():
+        raise ValueError('Scheduler activation or retention invariant failed')
+    scheduler_native = subprocess.run([str(a.probe.resolve()), str(prepared/'model.json'),
+                                       str(prepared/'native-combination.json'), str(snapshot)],
+                                      check=True, capture_output=True, text=True)
+    if scheduler_native.stdout != native.stdout:
+        raise ValueError('Scheduled aggregate candidate changed native predictions')
     report = {'scope': 'synthetic retained-vector pipeline parity; no quality claim',
               'samples': count, 'exported': exported, 'semantic_weight': manifest['semantic_weight'],
               'maximum_logit_errors': errors, 'all_decisions_match': True, 'sent': False,
               'eligible': json.loads((candidate/'report.json').read_text())['eligible']}
+    report['scheduler'] = {'real_export_and_training': True, 'native_predictions_unchanged': True,
+                           'per_message_files_retained': False, 'cross_device_scratch': cross_device}
     if report['eligible']:
         raise ValueError('Correction-only candidate unexpectedly eligible')
     (a.output/'verification.json').write_text(json.dumps(report, indent=2)+'\n')

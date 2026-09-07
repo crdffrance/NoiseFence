@@ -70,6 +70,7 @@ pub struct ExportReport {
     pub missing_campaign: usize,
     pub missing_semantic_protocol: usize,
     pub semantic_exported: usize,
+    pub exported_with_incomplete_checks: usize,
 }
 
 fn hex(s: &str, n: usize) -> bool {
@@ -130,7 +131,10 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                     }
                     let scan: crate::engine::Scan =
                         serde_json::from_str(&row.get::<_, String>(2)?)?;
-                    if !scan.complete || scan.features.is_empty() {
+                    // External availability must not select the local training data.
+                    // Old incomplete rows remain excluded: their extraction state is unknown.
+                    if !scan.features_complete.unwrap_or(scan.complete) || scan.features.is_empty()
+                    {
                         report.incomplete += 1;
                         continue;
                     }
@@ -203,6 +207,7 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                     serde_json::to_writer(&mut writer, &example)?;
                     writer.write_all(b"\n")?;
                     report.exported += 1;
+                    report.exported_with_incomplete_checks += usize::from(!scan.complete);
                 }
             }
             tx.commit()?;

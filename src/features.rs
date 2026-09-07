@@ -102,6 +102,7 @@ pub fn simhash(text: &str) -> String {
 pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     let mut scan = crate::engine::extract(raw, max_bytes);
     scan.feature_version = VERSION;
+    scan.features_complete = Some(false);
     if !scan.complete {
         scan.features.clear();
         return scan;
@@ -243,6 +244,7 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     let campaign = campaign_text(raw).unwrap_or_default();
     scan.fingerprint = message::digest(campaign.as_bytes());
     scan.campaign_simhash = Some(simhash(&campaign));
+    scan.features_complete = Some(true);
     scan
 }
 

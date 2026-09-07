@@ -20,7 +20,12 @@ utilisateur. Elle n’est pas accessible dans l’API de la console.
 
 Seules les corrections de comptes actifs disposant encore d’un droit sur un
 destinataire d’enveloppe sont retenues. Les désaccords, les notifications automatiques,
-les analyses incomplètes et les métadonnées de plus de 30 jours sont exclus.
+les extractions locales incomplètes et les métadonnées de plus de 30 jours sont exclus.
+Une panne DNS, de scanner ou de LLM ne retire pas une correction dont les
+caractéristiques locales sont complètes et vérifiées. Ce statut est enregistré
+avant les contrôles externes ; une ancienne analyse incomplète sans ce statut
+reste exclue. Le compteur `exported_with_incomplete_checks` rend cette distinction
+visible. Elle ne change pas la livraison sans préfixe en cas d'analyse incomplète.
 Les anciennes lignes sans empreinte de campagne ou protocole vérifiable ne sont
 pas reconstituées par supposition. Les exclusions sont comptées dans le résultat.
 `--require-semantic` exclut les lignes dont l’encodeur n’est pas exactement celui
@@ -68,6 +73,11 @@ Le dossier publié atomiquement contient `model.json`, `report.json`,
 l’empreinte SHA-256 exacte du modèle lexical. Tous ces fichiers restent privés.
 Les prédictions permettent de contrôler la concordance avec Rust sans garder
 les corps. Il n’y a ni pickle exécutable ni accès réseau pendant l’entraînement.
+L'option `--aggregate-only` omet `predictions.json` et conserve les poids et les
+métriques agrégées. Le service périodique utilise toujours cette option. Un jeu
+valide qui manque d'exemples des deux classes retourne le code 3 avec
+`status: insufficient_feedback`, sans candidat ; un export invalide ou une erreur
+du solveur reste un échec distinct.
 
 ## Exécution périodique et limites
 
@@ -78,13 +88,45 @@ timer pour ce dernier. Un autre chemin peut être indiqué par
 `NOISEFENCE_TRAIN_PYTHON` dans `/etc/noisefence/training.env`.
 
 Le service est limité à deux CPU, 4 Go de mémoire et 35 minutes, avec réseau
-désactivé. Un verrou empêche deux entraînements simultanés. Les candidats sont
+désactivé et une priorité OOM moins favorable que le service SMTP. Un verrou
+empêche deux entraînements simultanés. L'export et l'entraînement utilisent la
+même release résolue du binaire, même pendant une mise à jour. Les candidats sont
 écrits dans `/var/lib/noisefence/models/candidates/` ; `latest-candidate.json`
 désigne le dernier entraînement réussi. Un échec préserve le candidat précédent.
-Le snapshot de caractéristiques utilisé par le service est temporaire et supprimé
-après le traitement, y compris en cas d’échec. Les candidats, rapports et exports
-manuels doivent être purgés dans le cadre de la conservation à 30 jours ; le
-timer ne doit pas servir d’archivage permanent des annotations.
+Le snapshot du service se trouve dans le répertoire privé `/run/noisefence-learning`,
+géré par `RuntimeDirectory` de systemd. Il est supprimé après le traitement,
+y compris lors d'une terminaison brutale du service ; un redémarrage du serveur
+efface aussi ce stockage temporaire. Ce comportement est testé sous Linux avec
+sortie normale et SIGKILL. Les candidats agrégés sont préparés sur leur système
+de fichiers puis publiés par renommage atomique. Ils ne contiennent ni liste de
+messages, ni labels individuels, ni vecteurs par message. Un arrêt brutal peut
+laisser un dossier `.candidate-stage-*` de poids partiels, sans snapshot privé ;
+celui-ci ne devient pas le dernier candidat. Les poids appris ne constituent
+pas une garantie d'anonymisation.
+
+`last-training.json` indique `candidate_prepared`, `insufficient_feedback` ou
+`failed`, avec des dates et compteurs agrégés. Un manque de corrections laisse
+le service terminer normalement et préserve le candidat précédent. Une erreur
+réelle échoue ; une terminaison brutale est aussi visible dans l'état systemd
+et peut empêcher l'écriture du dernier statut JSON. Le service crée ses
+répertoires au premier démarrage.
+
+Après installation du runtime et de la release :
+
+```sh
+sudo install -m 0644 /opt/noisefence/current/deploy/noisefence-train.service /etc/systemd/system/
+sudo install -m 0644 /opt/noisefence/current/deploy/noisefence-train.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start noisefence-train.service
+sudo systemctl enable --now noisefence-train.timer
+sudo cat /var/lib/noisefence/models/last-training.json
+systemctl status noisefence-train.service noisefence-train.timer
+```
+
+Un lancement manuel peut choisir un répertoire privé avec `--scratch-directory`.
+Sans systemd, il ne bénéficie pas du nettoyage après SIGKILL. Les exports manuels,
+prédictions individuelles de recherche et sauvegardes doivent être purgés
+séparément selon la conservation à 30 jours ; ils ne sont pas gérés par le timer.
 
 **Un candidat issu des seules corrections porte toujours `eligible: false`.**
 Les erreurs signalées sont un échantillon biaisé, et les mêmes tests peuvent être

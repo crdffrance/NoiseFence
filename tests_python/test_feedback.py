@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 
@@ -102,11 +103,37 @@ class FeedbackTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 training.publish(output, {}, {}, {}, [])
             self.assertEqual(hashlib.sha256((output/'model.json').read_bytes()).hexdigest(), digest)
+            aggregate = Path(directory)/'aggregate'
+            training.publish(aggregate, model, combo, report, predictions, aggregate_only=True)
+            self.assertFalse((aggregate/'predictions.json').exists())
+            aggregate_report = json.loads((aggregate/'report.json').read_text())
+            self.assertNotIn('predictions_sha256', aggregate_report)
+            self.assertEqual(aggregate_report['per_message_predictions'], 'not_written')
+            self.assertEqual((aggregate/'model.json').read_bytes(), (output/'model.json').read_bytes())
+            self.assertFalse(any(row['id'] in p.read_text() for p in aggregate.iterdir() for row in predictions))
 
     def test_insufficient_human_labels_cannot_publish_a_candidate(self):
         rows, _ = training.group_rows([sample(i, True) for i in range(100)])
         with self.assertRaisesRegex(ValueError, 'both classes'):
             training.train(rows, True, 'insufficient')
+
+    def test_cli_distinguishes_missing_labels_from_corrupt_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root/'feedback.jsonl'
+            destination = root/'candidate'
+            command = [sys.executable, str(ROOT/'research/train_feedback.py'),
+                       str(source), str(destination), '--hybrid', '--aggregate-only']
+            source.write_text('')
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['status'], 'insufficient_feedback')
+            self.assertFalse(destination.exists())
+            source.write_text('{"invalid":"export"}\n')
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotEqual(result.returncode, 3)
+            self.assertFalse(destination.exists())
 
 
 if __name__ == '__main__':

@@ -4,6 +4,19 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.4] - 2026-09-07
+
+- Distinguer l'extraction locale des vérifications externes : une panne de DNS,
+  scanner ou LLM n'exclut plus des corrections dont les caractéristiques locales
+  sont complètes. Conserver le repli sans préfixe et exclure les anciens résultats
+  incomplets dont l'extraction ne peut pas être attestée.
+- Placer les snapshots d'apprentissage périodique dans le répertoire temporaire
+  privé de systemd ; vérifier leur suppression après sortie normale et SIGKILL.
+  Publier les poids et métriques agrégées, sans prédictions individuelles.
+- Créer les répertoires du service au démarrage, préserver le candidat précédent
+  lorsqu'il manque des corrections et enregistrer un statut d'entraînement agrégé.
+  Utiliser une même release pour l'export et l'entraînement pendant les mises à jour.
+
 ## [0.3.0-dev.3] - 2026-09-07
 
 - Export privé et atomique des corrections de schéma 3, avec empreinte de campagne,

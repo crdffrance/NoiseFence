@@ -67,6 +67,9 @@ pub struct Scan {
     pub score: f64,
     pub tagged: bool,
     pub complete: bool,
+    /// Local extraction result, before DNS/scanners/LLM can fail. Older rows lack it.
+    #[serde(default)]
+    pub features_complete: Option<bool>,
     pub model: String,
     pub reasons: Vec<Signal>,
     pub features: Vec<(usize, f64)>,

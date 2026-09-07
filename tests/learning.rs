@@ -45,9 +45,97 @@ fn persisted_protocol_matches_training_and_old_rows_are_not_backfilled() {
     let mut row = serde_json::to_value(scan()).unwrap();
     row["semantic"].as_object_mut().unwrap().remove("protocol");
     row.as_object_mut().unwrap().remove("campaign_simhash");
+    row.as_object_mut().unwrap().remove("features_complete");
     let old: Scan = serde_json::from_value(row).unwrap();
     assert!(old.semantic.protocol.is_none());
     assert!(old.campaign_simhash.is_none());
+    assert!(old.features_complete.is_none());
+}
+
+#[tokio::test]
+async fn external_failures_do_not_select_training_data_but_incomplete_vectors_stay_excluded() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let mut external = scan();
+    external.complete = false;
+    assert_eq!(external.features_complete, Some(true));
+    seed(
+        &store,
+        "external-failure",
+        external.clone(),
+        &[("alice", true)],
+    )
+    .await;
+    let mut unknown = external.clone();
+    unknown.features_complete = None;
+    seed(&store, "old-unknown", unknown, &[("alice", false)]).await;
+    let mut invalid = external.clone();
+    invalid.features_complete = Some(false);
+    seed(&store, "incomplete-extraction", invalid, &[("alice", true)]).await;
+    external.semantic.status = SemanticStatus::Busy;
+    seed(&store, "missing-semantic", external, &[("alice", false)]).await;
+    let output = dir.path().join("export");
+    let report = learning::export(&store, &output, true).await.unwrap();
+    assert_eq!(report.exported, 1);
+    assert_eq!(report.exported_with_incomplete_checks, 1);
+    assert_eq!(report.incomplete, 2);
+    assert_eq!(report.missing_semantic_protocol, 1);
+    let row: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(output).unwrap()).unwrap();
+    assert_eq!(row["id"], noisefence::message::digest(b"external-failure"));
+    let truncated = features::extract(common::MESSAGE, 1);
+    assert_eq!(truncated.features_complete, Some(false));
+    assert!(truncated.features.is_empty());
+}
+
+#[tokio::test]
+async fn actual_scanner_outage_preserves_local_learning_without_enabling_tagging() {
+    use noisefence::engine::{Algorithm, Engine, Model};
+    let root = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(root.path())).clone();
+    let model = Model {
+        version: "learning-outage-fixture".into(),
+        algorithm: Algorithm::Logistic,
+        feature_version: features::VERSION,
+        bias: 10.0,
+        weights: vec![0.0; features::DIMENSION],
+        idf: vec![1.0; features::DIMENSION],
+        trained_at: 0,
+        examples: 1,
+    };
+    let path = root.path().join("model.json");
+    std::fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+    config.filter.model = Some(path);
+    config.filter.mode = noisefence::config::Mode::Tag;
+    config.antivirus = Some(noisefence::antivirus::AntivirusConfig {
+        socket: root.path().join("absent.sock"),
+        timeout_ms: 100,
+        max_bytes: 10000,
+        trusted_unofficial_prefixes: vec![],
+    });
+    let engine = Engine::new(std::sync::Arc::new(config)).unwrap();
+    let (scan, raw) = engine
+        .process(
+            common::MESSAGE,
+            "127.0.0.1".parse().unwrap(),
+            "sender.example.test",
+            "sender@example.test",
+            "fixture",
+        )
+        .await
+        .unwrap();
+    assert!(!scan.complete);
+    assert!(!scan.tagged);
+    assert!(scan.score > 95.0);
+    assert_eq!(scan.features_complete, Some(true));
+    assert!(!String::from_utf8_lossy(&raw).contains("[SPAM]"));
+    let store = Store::open(root.path()).unwrap();
+    seed(&store, "actual-outage", scan, &[("alice", true)]).await;
+    let report = learning::export(&store, &root.path().join("feedback"), false)
+        .await
+        .unwrap();
+    assert_eq!(report.exported, 1);
+    assert_eq!(report.exported_with_incomplete_checks, 1);
 }
 
 #[tokio::test]
