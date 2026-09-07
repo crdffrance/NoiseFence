@@ -76,6 +76,10 @@ pub struct Scan {
     pub subject: String,
     pub sender: String,
     pub fingerprint: String,
+    /// Exact original octets, even when content extraction is limited. This is
+    /// distinct from the normalized campaign fingerprint and never a feature.
+    #[serde(default)]
+    pub raw_sha256: Option<String>,
     #[serde(default)]
     pub campaign_simhash: Option<String>,
     pub elapsed_ms: u64,
@@ -92,6 +96,11 @@ pub struct Scan {
     /// Absent on historical rows: never infer checks from their missing reasons.
     #[serde(default)]
     pub evidence: Option<crate::evidence::Evidence>,
+    /// Canonical decision. Historical rows use their original legacy score.
+    #[serde(default)]
+    pub decision: Option<crate::fusion::runtime::Decision>,
+    #[serde(default)]
+    pub fusion: crate::fusion::runtime::Observation,
 }
 pub fn legacy_feature_version() -> u32 {
     1
@@ -202,6 +211,7 @@ fn hash_token(s: &str) -> usize {
 pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     let mut scan = Scan {
         feature_version: 1,
+        raw_sha256: Some(message::digest(raw)),
         complete: true,
         model: "rules-1".into(),
         ..Scan::default()
@@ -455,6 +465,7 @@ pub struct Engine {
     pub authenticator: MessageAuthenticator,
     model: Option<Model>,
     evidence_artifacts: crate::evidence::Artifacts,
+    fusion: Option<crate::fusion::runtime::Runtime>,
     arc_key: Option<String>,
     dqs_key: Option<String>,
     smtp_policy: Option<crate::smtp_policy::Policy>,
@@ -538,7 +549,13 @@ impl Engine {
         let semantic_hash = None;
         let evidence_artifacts =
             crate::evidence::Artifacts::new(&config, model_hash, semantic_hash, llm.is_some());
+        let fusion = config
+            .fusion
+            .as_ref()
+            .map(|s| crate::fusion::runtime::Runtime::load(s, &evidence_artifacts))
+            .transpose()?;
         Ok(Self {
+            fusion,
             smtp_policy,
             config,
             authenticator: MessageAuthenticator::new_system_conf()?,
@@ -563,7 +580,7 @@ impl Engine {
             Self::check_semantic(&mut scan);
         }
         self.score(&mut scan);
-        Self::refresh_evidence(&mut scan);
+        self.decide(&mut scan);
         scan
     }
     fn start_evidence(&self, scan: &mut Scan, source: crate::evidence::Source) {
@@ -579,6 +596,31 @@ impl Engine {
         if let Some(mut evidence) = scan.evidence.take() {
             evidence.refresh(scan);
             scan.evidence = Some(evidence);
+        }
+    }
+    fn decide(&self, scan: &mut Scan) {
+        // The historical score remains available for the LLM selection policy,
+        // evidence export and comparisons. Fusion never feeds itself on a retry.
+        Self::refresh_evidence(scan);
+        scan.decision = Some(crate::fusion::runtime::Decision::legacy(
+            scan,
+            self.config.filter.threshold,
+        ));
+        if let Some(fusion) = &self.fusion {
+            fusion.apply(scan);
+        }
+    }
+    pub(crate) fn check_llm(scan: &mut Scan) {
+        if matches!(
+            scan.llm.status,
+            crate::llm::LlmStatus::Unavailable | crate::llm::LlmStatus::Busy
+        ) {
+            scan.complete = false;
+            scan.reasons.push(Signal {
+                id: "llm_unavailable".into(),
+                detail: "Analyse LLM indisponible ou saturée ; transmission sans préfixe".into(),
+                weight: 0.0,
+            });
         }
     }
     #[cfg(feature = "semantic")]
@@ -1108,19 +1150,16 @@ impl Engine {
                         weight,
                     });
                     self.score(&mut scan);
-                } else if matches!(scan.llm.status, crate::llm::LlmStatus::Unavailable) {
-                    scan.complete = false;
-                    scan.reasons.push(Signal {
-                        id: "llm_unavailable".into(),
-                        detail: "Analyse LLM indisponible ; résultat local conservé sans préfixe"
-                            .into(),
-                        weight: 0.0,
-                    });
                 }
+                Self::check_llm(&mut scan);
             }
+            self.decide(&mut scan);
             let tag = scan.complete
                 && self.config.filter.mode == Mode::Tag
-                && scan.score >= self.config.filter.threshold;
+                && scan
+                    .decision
+                    .as_ref()
+                    .is_some_and(|d| d.outcome == crate::fusion::runtime::Outcome::Unwanted);
             // If the chain cannot be extended, preserve the signed subject and fail open.
             if tag && !arc.can_be_sealed() {
                 anyhow::bail!("ARC chain cannot be extended");
@@ -1151,6 +1190,8 @@ impl Engine {
                         "DKIM-Signature",
                         "X-NoiseFence-Score",
                         "X-NoiseFence-Status",
+                        "X-NoiseFence-Decision",
+                        "X-NoiseFence-Decision-Source",
                     ])
                     .seal(&changed, &results, &arc)?;
                 bytes = [signature.to_header().as_bytes(), &bytes].concat();
@@ -1160,7 +1201,8 @@ impl Engine {
         match tokio::time::timeout(Duration::from_secs(5), work).await {
             Ok(Ok(bytes)) => {
                 scan.elapsed_ms = started.elapsed().as_millis() as u64;
-                Self::refresh_evidence(&mut scan);
+                // decide() already snapshotted detector availability. A fusion
+                // profile failure must not rewrite those observations as failed checks.
                 Ok((scan, bytes))
             }
             _ => {
@@ -1176,21 +1218,40 @@ impl Engine {
         }
     }
     fn headers(&self, ip: IpAddr, id: &str, scan: &Scan) -> String {
+        use crate::fusion::runtime::{DecisionSource, Outcome};
+        let outcome = match scan.decision.as_ref().map(|d| d.outcome) {
+            Some(Outcome::Legitimate) => "legitimate",
+            Some(Outcome::Unwanted) => "unwanted",
+            _ => "undetermined",
+        };
+        let source = match scan.decision.as_ref().map(|d| d.source) {
+            Some(DecisionSource::Fusion) => "fusion",
+            _ => "legacy",
+        };
+        let score = scan
+            .decision
+            .as_ref()
+            .map(|d| d.score)
+            .unwrap_or(Some(scan.score))
+            .map(|s| format!("{s:.1}"))
+            .unwrap_or_else(|| "unavailable".into());
         format!(
-            "Received: from [{}] by {} with ESMTP id {};\r\n\t{}\r\nX-NoiseFence-Id: {}\r\nX-NoiseFence-Score: {:.1}\r\nX-NoiseFence-Status: {}\r\n",
+            "Received: from [{}] by {} with ESMTP id {};\r\n\t{}\r\nX-NoiseFence-Id: {}\r\nX-NoiseFence-Score: {}\r\nX-NoiseFence-Status: {}\r\nX-NoiseFence-Decision: {}\r\nX-NoiseFence-Decision-Source: {}\r\n",
             ip,
             self.config.hostname,
             id,
             mail_parser::DateTime::from_timestamp(crate::now()).to_rfc822(),
             id,
-            scan.score,
+            score,
             if !scan.complete {
                 "incomplete"
             } else if scan.tagged {
                 "spam"
             } else {
                 "observed"
-            }
+            },
+            outcome,
+            source,
         )
     }
     fn finish_unchecked(
@@ -1203,8 +1264,8 @@ impl Engine {
     ) -> Result<(Scan, Vec<u8>)> {
         self.score(&mut scan);
         scan.tagged = false;
+        self.decide(&mut scan);
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
-        Self::refresh_evidence(&mut scan);
         let bytes = message::rewrite(raw, false, &self.headers(ip, id, &scan))?;
         Ok((scan, bytes))
     }

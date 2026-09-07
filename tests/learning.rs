@@ -37,6 +37,152 @@ async fn seed(store: &Store, id: &str, scan: Scan, labels: &[(&str, bool)]) {
     }).await.unwrap();
 }
 
+#[tokio::test]
+async fn full_population_counts_omissions_and_rechecks_all_votes_without_bodies_or_overwrite() {
+    use noisefence::{
+        evidence::{Artifacts, AuthResult, Evidence, Source, State},
+        population,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let mut normal = features::extract(common::MESSAGE, 10000);
+    let mut evidence = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+    evidence.source = Source::SmtpSession;
+    evidence.authentication.arc_state = State::Complete;
+    evidence.authentication.arc = Some(AuthResult::None);
+    evidence.authentication.arc_can_seal = Some(true);
+    evidence.refresh(&normal);
+    normal.evidence = Some(evidence);
+    seed(&store, "live", normal.clone(), &[("alice", false)]).await;
+    let mut limited = features::extract(common::MESSAGE, 10);
+    limited.evidence = normal.evidence.clone();
+    limited.evidence.as_mut().unwrap().analysis_complete = false;
+    seed(&store, "limited", limited, &[("alice", true)]).await;
+    seed(
+        &store,
+        "conflict",
+        normal.clone(),
+        &[("alice", false), ("bob", true)],
+    )
+    .await;
+    seed(&store, "unlabelled", normal.clone(), &[]).await;
+    seed(&store, "revoked", normal.clone(), &[("revoked-user", true)]).await;
+    seed(
+        &store,
+        "disabled",
+        normal.clone(),
+        &[("disabled-user", true)],
+    )
+    .await;
+    seed(&store, "invalid-scan", normal.clone(), &[("alice", true)]).await;
+    seed(&store, "invalid-label", normal.clone(), &[("alice", true)]).await;
+    seed(&store, "old", normal.clone(), &[("alice", true)]).await;
+    seed(&store, "dsn", normal.clone(), &[("alice", true)]).await;
+    let mut supplied = normal.clone();
+    supplied.evidence.as_mut().unwrap().source = Source::SuppliedEnvelope;
+    seed(&store, "supplied", supplied, &[("alice", false)]).await;
+    let mut legacy = normal.clone();
+    legacy.evidence = None;
+    legacy.raw_sha256 = None;
+    seed(&store, "legacy", legacy, &[("alice", false)]).await;
+    normal.evidence.as_mut().unwrap().schema = "unsupported".into();
+    seed(&store, "invalid-evidence", normal, &[("alice", true)]).await;
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='revoked-user'", [])?;
+            db.execute(
+                "UPDATE users SET disabled=1 WHERE username='disabled-user'",
+                [],
+            )?;
+            db.execute(
+                "UPDATE messages SET scan='invalid json' WHERE id='invalid-scan'",
+                [],
+            )?;
+            db.execute(
+                "UPDATE messages SET created=?1 WHERE id='old'",
+                [noisefence::now() - 31 * 86400],
+            )?;
+            db.execute("UPDATE messages SET is_dsn=1 WHERE id='dsn'", [])?;
+            db.execute(
+                "UPDATE feedback SET spam=7 WHERE message_id='invalid-label'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let output = root.path().join("population.jsonl");
+    let report = population::export(
+        &store,
+        &output,
+        noisefence::now() - 3600,
+        noisefence::now() + 1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.considered, 12);
+    assert_eq!(report.automatic_dsn, 1);
+    assert_eq!(report.exported, 11);
+    assert_eq!(report.labelled, 6);
+    assert_eq!(report.unlabelled, 3);
+    assert_eq!(report.conflicting_labels, 1);
+    assert_eq!(report.invalid_labels, 1);
+    assert_eq!(report.ignored_feedback, 2);
+    assert_eq!(report.incomplete, 2);
+    assert_eq!(report.missing_raw_hash, 2);
+    assert_eq!(report.missing_campaign, 2);
+    assert_eq!(report.invalid_scan, 1);
+    assert_eq!(report.missing_evidence, 2);
+    assert_eq!(report.non_smtp_evidence, 1);
+    assert_eq!(report.invalid_evidence, 1);
+    assert_eq!(report.smtp_evidence, 7);
+    let text = std::fs::read_to_string(&output).unwrap();
+    assert_eq!(
+        std::fs::metadata(&output).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    for private in [
+        "private-sender",
+        "example.test",
+        "Rendez-vous",
+        "\"features\"",
+    ] {
+        assert!(!text.contains(private), "leaked {private}");
+    }
+    let rows: Vec<serde_json::Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 13);
+    assert_eq!(rows[0]["sampling"], "unreviewed");
+    let limited = rows
+        .iter()
+        .find(|r| r["id"] == noisefence::message::digest(b"limited"))
+        .unwrap();
+    assert_eq!(limited["complete"], false);
+    assert_eq!(limited["evidence_status"], "smtp");
+    assert!(limited["fingerprint"].is_null() && limited["simhash"].is_null());
+    assert!(limited["raw_sha256"].is_string());
+    assert!(
+        population::export(
+            &store,
+            &output,
+            noisefence::now() - 3600,
+            noisefence::now() + 1
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(&output).unwrap(), text);
+    assert!(!std::fs::read_dir(root.path()).unwrap().any(|p| {
+        p.unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".partial")
+    }));
+}
+
 #[test]
 fn persisted_protocol_matches_training_and_old_rows_are_not_backfilled() {
     let protocol: SemanticProtocol =

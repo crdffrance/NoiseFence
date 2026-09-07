@@ -1,4 +1,6 @@
 mod common;
+#[path = "common/fusion.rs"]
+mod fusion_fixture;
 use noisefence::{
     engine::Engine,
     relay::{self, Outcome},
@@ -43,6 +45,124 @@ async fn client(addr: std::net::SocketAddr) -> Wire {
 async fn command(io: &mut Wire, c: &str) -> u16 {
     smtp::reply(io, c).await.unwrap();
     relay::response(io).await.unwrap().code
+}
+
+#[tokio::test]
+async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observations() {
+    use noisefence::{
+        config::Mode as FilterMode,
+        fusion::runtime::{Mode, Outcome},
+        message,
+    };
+    for mode in [Mode::Observe, Mode::Decision] {
+        let root = tempfile::tempdir().unwrap();
+        let mut cfg = (*common::config(root.path())).clone();
+        // Isolated loopback test of the tagging branch. No Proton report,
+        // external relay or production configuration is produced by this fixture.
+        cfg.filter.mode = FilterMode::Tag;
+        cfg.filter.max_analysis_bytes = 10000;
+        cfg.filter.arc_domain = Some("example.org".into());
+        cfg.filter.arc_selector = Some("test".into());
+        cfg.filter.arc_key = Some(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/public-test-key.txt"),
+        );
+        fusion_fixture::install(&mut cfg, mode);
+        let cfg = Arc::new(cfg);
+        let store = Store::open(root.path()).unwrap();
+        let (addr, stop, task) = server(cfg.clone(), store.clone()).await;
+        let mut io = client(addr).await;
+        assert_eq!(command(&mut io, "EHLO example.org\r\n").await, 250);
+        for limited in [false, true] {
+            assert_eq!(
+                command(&mut io, "MAIL FROM:<sender@example.org>\r\n").await,
+                250
+            );
+            assert_eq!(
+                command(&mut io, "RCPT TO:<alice@example.test>\r\n").await,
+                250
+            );
+            assert_eq!(command(&mut io, "DATA\r\n").await, 354);
+            let mut raw = [
+                b"X-NoiseFence-Score: 100\r\nX-NoiseFence-Decision: unwanted\r\n".as_slice(),
+                common::MESSAGE,
+            ]
+            .concat();
+            if limited {
+                raw.extend_from_slice("long line\r\n".repeat(1100).as_bytes());
+            }
+            io.write_all(&raw).await.unwrap();
+            io.write_all(b".\r\n").await.unwrap();
+            io.flush().await.unwrap();
+            assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+            let job = store.claim().await.unwrap().unwrap();
+            let id = job.message_id.clone();
+            let scan: noisefence::engine::Scan = store
+                .run(move |db| {
+                    let scan: String =
+                        db.query_row("SELECT scan FROM messages WHERE id=?1", [id], |r| r.get(0))?;
+                    Ok(serde_json::from_str(&scan)?)
+                })
+                .await
+                .unwrap();
+            let queued = std::fs::read(store.raw_path(&job.message_id)).unwrap();
+            let rendered = String::from_utf8_lossy(&queued);
+            assert_eq!(scan.raw_sha256, Some(message::digest(&raw)));
+            assert_eq!(
+                message::fields(&raw).unwrap().1,
+                message::fields(&queued).unwrap().1
+            );
+            let (headers, _) = message::fields(&queued).unwrap();
+            for name in [b"X-NoiseFence-Decision:".as_slice(), b"X-NoiseFence-Score:"] {
+                assert_eq!(headers.iter().filter(|h| h.starts_with(name)).count(), 1);
+            }
+            let decision = scan.decision.as_ref().unwrap();
+            assert!(rendered.contains(&format!(
+                    "X-NoiseFence-Decision: {}\r\n",
+                    serde_json::to_value(decision.outcome)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                )));
+            assert_eq!(
+                scan.evidence.as_ref().unwrap().legacy_score,
+                Some(scan.score)
+            );
+            assert_eq!(scan.tagged, mode == Mode::Decision && !limited);
+            assert_eq!(rendered.contains("Subject: [SPAM]"), scan.tagged);
+            assert_eq!(scan.complete, !limited);
+            if limited {
+                assert_eq!(decision.outcome, Outcome::Undetermined);
+                assert!(decision.score.is_none());
+                assert!(!scan.evidence.as_ref().unwrap().analysis_complete);
+            } else if mode == Mode::Decision {
+                assert_eq!(decision.outcome, Outcome::Unwanted);
+                assert!(decision.score.unwrap() < 1.0 && scan.score < 95.0);
+                assert!(scan.evidence.as_ref().unwrap().analysis_complete);
+            } else {
+                assert_eq!(decision.outcome, Outcome::Legitimate);
+            }
+        }
+        if mode == Mode::Decision {
+            let engine = Engine::new(cfg).unwrap();
+            let (scan, bytes) = engine
+                .process(
+                    common::MESSAGE,
+                    "192.0.2.1".parse().unwrap(),
+                    "example.org",
+                    "sender@example.org",
+                    "diagnostic",
+                )
+                .await
+                .unwrap();
+            assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+            assert!(!scan.tagged && !String::from_utf8_lossy(&bytes).contains("[SPAM]"));
+        }
+        assert_eq!(command(&mut io, "QUIT\r\n").await, 221);
+        drop(io);
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
 }
 #[tokio::test]
 async fn smtp_pipeline_alias_open_relay_and_durable_acceptance() {

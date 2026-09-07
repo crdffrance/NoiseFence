@@ -1,0 +1,16 @@
+{
+  "synthetic": true,
+  "predictions_checked": 2000,
+  "variants": 5,
+  "application": "0.3.0-dev.10",
+  "protocol_sha256": "8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce",
+  "max_logit_error": 8.881784197001252e-15,
+  "max_probability_error": 2.3314683517128287e-15,
+  "decision_disagreements": 0,
+  "production_eligible": false,
+  "mail_sent": false,
+  "rust_tests_passed": 90,
+  "native_smtp_decision_tests": true,
+  "population_acl_accounting_tests": true,
+  "production_quality_demonstrated": false
+}

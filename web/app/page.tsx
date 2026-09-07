@@ -35,6 +35,24 @@ type Mail = {
   tagged: boolean;
   complete: boolean;
   model: string;
+  decision?: {
+    source: 'legacy' | 'fusion';
+    outcome: 'legitimate' | 'unwanted' | 'undetermined';
+    score: number | null;
+    model: string;
+  };
+  fusion?: {
+    mode: 'observe' | 'decision';
+    status: 'disabled' | 'not_run' | 'complete' | 'unavailable' | 'unsupported_profile' | 'validation_expired';
+    model: string;
+    prediction: {
+      probability: number;
+      tag_eligible: boolean;
+      profile_supported: boolean;
+      above_threshold: boolean;
+      contributions: { feature: string; contribution: number }[];
+    } | null;
+  };
   reasons: { id: string; detail: string; weight: number }[];
   recipients: { address: string; status: string }[];
   feedback: boolean | null;
@@ -74,7 +92,29 @@ type Stats = {
   pending: number;
   mode: string;
   threshold: number;
+  decision_source?: 'legacy' | 'fusion';
 };
+function displayedScore(mail: Mail) {
+  return mail.decision ? mail.decision.score : mail.complete ? mail.score : null;
+}
+function unwanted(mail: Mail, threshold: number) {
+  return mail.decision ? mail.decision.outcome === 'unwanted' : mail.complete && mail.score >= threshold;
+}
+const fusionFamilies: Record<string, string> = {
+  lexical: 'Contenu textuel', semantic: 'Sens du message',
+  auth: 'Authentification', reputation: 'Réputation',
+  smtp_policy: 'Cohérence SMTP et DNS', antivirus: 'Antivirus',
+  signatures: 'Signatures complémentaires', llm: 'Analyse complémentaire',
+};
+function fusionReason(feature: string) {
+  const family = fusionFamilies[feature.split('.')[0]] ?? 'Observations combinées';
+  if (feature.includes('unavailable')) return `${family} : contrôle indisponible`;
+  if (feature.includes('busy')) return `${family} : capacité occupée`;
+  if (feature.includes('not_run')) return `${family} : contrôle non effectué`;
+  if (feature.includes('disabled')) return `${family} : contrôle désactivé`;
+  if (feature.includes('limited')) return `${family} : analyse limitée`;
+  return family;
+}
 async function api<T = unknown>(path: string, data?: unknown, csrf?: string) {
   const response = await fetch(`/api/v1${path}`, {
     credentials: 'same-origin',
@@ -334,10 +374,40 @@ export default function Home() {
               <section className="panel">
                 <h2>Pourquoi ce classement ?</h2>
                 <div className="score-large">
-                  {selected.score.toFixed(1)}
+                  {displayedScore(selected)?.toFixed(1) ?? '—'}
                   <span>/ 100</span>
                 </div>
-                <p className="muted">Indice de suspicion · {selected.model}</p>
+                <p className="muted">
+                  {selected.decision?.outcome === 'undetermined' ? 'Décision indéterminée' :
+                    selected.decision?.source === 'fusion' ? 'Estimation calibrée' : 'Indice de suspicion'}
+                  {' · '}{selected.decision?.model ?? selected.model}
+                </p>
+                {selected.fusion && selected.fusion.status !== 'disabled' && (
+                  <div className="notice">
+                    <strong>{selected.fusion.mode === 'observe' ? 'Fusion en observation' : 'Décision commune'}</strong>
+                    <p>{{
+                      not_run: 'Contexte insuffisant pour combiner les détecteurs.',
+                      complete: selected.fusion.prediction?.tag_eligible ?
+                        `Estimation : ${((selected.fusion.prediction?.probability ?? 0) * 100).toFixed(1)} / 100.` :
+                        'Contrôles incomplets : estimation inutilisable pour le marquage.',
+                      unavailable: 'Fusion indisponible pour ce message.',
+                      unsupported_profile: 'Cette combinaison de contrôles n’a pas encore été validée.',
+                      validation_expired: 'Validation du modèle expirée : aucun préfixe ajouté.',
+                    }[selected.fusion.status]}</p>
+                    {selected.fusion.mode === 'observe' && <p>Résultat de recherche, sans effet sur le classement.</p>}
+                    <small>{selected.fusion.model}</small>
+                    {selected.fusion.status === 'complete' && selected.fusion.prediction?.tag_eligible && (
+                      <ul className="reasons">
+                        {selected.fusion.prediction.contributions.filter(c => c.contribution !== 0).map((c, i) => (
+                          <li key={`${c.feature}-${i}`}>
+                            <span>{fusionReason(c.feature)}</span>
+                            <small>{c.contribution > 0 ? 'Augmente' : 'Réduit'} l’estimation</small>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {selected.smtp_policy && selected.smtp_policy.status !== 'disabled' && (
                   <p className="muted">Cohérence SMTP et DNS : {{
                     complete: 'contrôlée',
@@ -357,7 +427,7 @@ export default function Home() {
                 {selected.llm && selected.llm.status !== 'disabled' && (
                   <p className="muted">Analyse complémentaire Scaleway : {{
                     not_needed: 'non sollicitée pour ce message',
-                    busy: 'capacité occupée, analyse locale conservée',
+                    busy: 'capacité occupée, analyse incomplète',
                     budget_limited: 'plafond atteint, analyse locale conservée',
                     pricing_expired: 'tarifs à revalider, analyse locale conservée',
                     unavailable: 'indisponible',
@@ -395,15 +465,15 @@ export default function Home() {
                   {selected.reasons.map((r, i) => (
                     <li key={`${r.id}-${i}`}>
                       <span>{r.detail}</span>
-                      <code>
+                      {selected.decision?.source !== 'fusion' && <code>
                         {r.weight > 0 ? '+' : ''}
                         {r.weight.toFixed(1)}
-                      </code>
+                      </code>}
                     </li>
                   ))}
                 </ul>
                 {!selected.reasons.length && (
-                  <p>Aucun signal de suspicion relevé.</p>
+                  <p>{selected.fusion?.status === 'complete' ? 'Aucun autre signal enregistré.' : 'Aucun signal de suspicion relevé.'}</p>
                 )}
               </section>
               <section className="panel">
@@ -547,13 +617,13 @@ export default function Home() {
                             ? 'Incomplet'
                             : m.tagged
                               ? '[SPAM] ajouté'
-                              : m.score >= (stats?.threshold ?? 95)
+                              : unwanted(m, stats?.threshold ?? 95)
                                 ? 'Suspect'
                                 : 'Non marqué'}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className="score">{m.score.toFixed(1)}</span>
+                        <span className="score">{displayedScore(m)?.toFixed(1) ?? '—'}</span>
                       </TableCell>
                       <TableCell className="muted">
                         {new Date(m.created * 1000).toLocaleString('fr-FR', {

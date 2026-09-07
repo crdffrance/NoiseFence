@@ -324,9 +324,19 @@ async fn stats(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     let user = authenticated(&app, &h).await?;
     let username = user.username;
     let threshold = app.config.filter.threshold;
-    let mut result=app.store.run(move|db|{let (received,flagged,pending)=db.query_row("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN json_extract(m.scan,'$.score')>=?3 THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN grants g ON g.address=d.destination WHERE g.username=?1 AND m.created>=?2",params![username,now()-30*86400,threshold],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending}))}).await?;
+    let mut result=app.store.run(move|db|{let (received,flagged,pending)=db.query_row("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN grants g ON g.address=d.destination WHERE g.username=?1 AND m.created>=?2",params![username,now()-30*86400,threshold],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending}))}).await?;
     result["mode"] = serde_json::to_value(app.config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
+    result["decision_source"] = json!(if app
+        .config
+        .fusion
+        .as_ref()
+        .is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision)
+    {
+        "fusion"
+    } else {
+        "legacy"
+    });
     Ok(Json(result))
 }
 #[derive(Deserialize)]

@@ -2,7 +2,7 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. En mode `tag`, les messages suspects reçoivent `[SPAM]` dans l’objet. Le score ne provoque ni rejet ni quarantaine.
 
-**Version de développement 0.3.0-dev.6 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
+**Version de développement 0.3.0-dev.10 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
 Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 
@@ -103,8 +103,9 @@ Les utilisateurs corrigent leurs propres messages. Les retours contradictoires e
 
 Les [observations de chaque contrôle](docs/decision-evidence.md) distinguent les
 résultats, erreurs et contrôles non exécutés, conservent les catégories de
-réputation et identifient les modèles chargés. Elles préparent une décision
-commune apprise ; le score global et les objectifs de qualité restent à valider.
+réputation et identifient les modèles chargés. La [fusion native facultative](research/fusion.md) combine ces observations et
+partage sa décision entre SMTP et console. Son activation demande des preuves
+de qualité et de latence ; les objectifs restent à démontrer.
 
 Voir [les essais Proton](docs/proton-validation.md), [l’installation Linux](docs/operations.md) et [le périmètre de sécurité](docs/security.md).
 

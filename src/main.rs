@@ -107,6 +107,16 @@ enum Command {
         #[arg(long)]
         require_semantic: bool,
     },
+    /// Snapshot all retained accepted messages, including missing/limited analysis.
+    ExportPopulation {
+        output: PathBuf,
+        /// Inclusive Unix time, within the last 30 days.
+        #[arg(long)]
+        since: i64,
+        /// Exclusive Unix time; defaults to now + 1 second.
+        #[arg(long)]
+        until: Option<i64>,
+    },
     /// Encode trusted detector observations from a private learning export, offline.
     FusionExport {
         input: PathBuf,
@@ -524,6 +534,24 @@ async fn main() -> Result<()> {
             println!(
                 "{} labeled examples exported",
                 noisefence::corpus::export_feedback(&store, &output).await?
+            );
+        }
+        Command::ExportPopulation {
+            output,
+            since,
+            until,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &noisefence::population::export(
+                        &store,
+                        &output,
+                        since,
+                        until.unwrap_or_else(|| noisefence::now() + 1)
+                    )
+                    .await?
+                )?
             );
         }
         Command::Serve => {

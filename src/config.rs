@@ -14,6 +14,7 @@ pub struct Config {
     pub smtp: Smtp,
     pub web: Web,
     pub filter: Filter,
+    pub fusion: Option<crate::fusion::runtime::Settings>,
     pub smtp_policy: Option<crate::smtp_policy::PolicyConfig>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
     pub signatures: Option<crate::antivirus::AntivirusConfig>,
@@ -214,6 +215,9 @@ impl Config {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(valid_domain(&self.hostname), "invalid hostname");
+        if let Some(fusion) = &self.fusion {
+            fusion.validate()?;
+        }
         if let Some(policy) = &self.smtp_policy {
             policy.validate()?;
         }

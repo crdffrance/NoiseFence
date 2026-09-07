@@ -502,6 +502,52 @@ fn parse_reply(bytes: &[u8], model: &str) -> Result<(Verdict, u64, u64)> {
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn saturation_makes_the_common_decision_indeterminate_without_spending() {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .ok();
+        let root = tempfile::tempdir().unwrap();
+        let config: LlmConfig = toml::from_str(&format!(
+            r#"
+            project_id = "00000000-0000-0000-0000-000000000001"
+            model = "software-test-only"
+            api_key_env = "UNUSED_TEST_KEY"
+            monthly_budget_micro_eur = 20000000
+            input_micro_eur_per_million = 1
+            output_micro_eur_per_million = 1
+            pricing_checked_at = {}
+        "#,
+            crate::now()
+        ))
+        .unwrap();
+        let client = Client {
+            config,
+            http: reqwest::Client::new(),
+            endpoint: "http://127.0.0.1:1/unused".into(),
+            budget: Budget::open(&root.path().join("budget.sqlite3")).unwrap(),
+            capacity: Semaphore::new(0),
+        };
+        let result = client
+            .classify(b"Subject: fixture\r\n\r\nhello\r\n", 95.0)
+            .await;
+        assert_eq!(result.status, LlmStatus::Busy);
+        assert_eq!(client.budget.current().unwrap()["requests"], 0);
+        let mut scan = crate::engine::Scan {
+            complete: true,
+            score: 99.0,
+            llm: result,
+            ..Default::default()
+        };
+        crate::engine::Engine::check_llm(&mut scan);
+        assert!(!scan.complete);
+        let decision = crate::fusion::runtime::Decision::legacy(&scan, 95.0);
+        assert_eq!(
+            decision.outcome,
+            crate::fusion::runtime::Outcome::Undetermined
+        );
+        assert!(decision.score.is_none());
+    }
+    #[tokio::test]
     async fn https_exchange_validates_verdict_and_accounts_uncertain_requests() {
         use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
         for invalid in [false, true] {

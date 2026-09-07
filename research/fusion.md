@@ -2,8 +2,8 @@
 
 NoiseFence peut entraîner puis évaluer hors ligne une décision commune à partir
 des observations des détecteurs. Cette chaîne produit des modèles de recherche
-JSON exécutables nativement en Rust. Elle ne remplace pas encore le score du
-service et ne déclenche aucune activation. Un candidat nécessite ensuite un test
+JSON exécutables nativement en Rust. Le service peut comparer cette fusion en
+observation, puis utiliser sa décision après validation explicite. Un candidat nécessite un test
 récent représentatif, l'audit de ses données, la mesure du traitement complet et
 la validation de livraison chez Proton.
 
@@ -187,10 +187,124 @@ python3 research/verify_fusion.py var/fusion-parity
 ```
 
 Ce contrôle construit 400 observations synthétiques, apprend les cinq variantes,
-compare 2 000 prédictions Python/Rust et vérifie la règle sans préfixe pour les
-analyses incomplètes. Aucun email ni appel de détecteur n'est produit. La CI
+fait varier toutes les familles de contrôles, compare 2 000 prédictions
+Python/Rust et vérifie la règle sans préfixe pour les analyses limitées, erreurs
+de réputation et saturations LLM. Aucun email ni appel de détecteur n'est produit. La CI
 exécute ce contrôle avec les autres tests ; sa réussite n'est pas une mesure de
 qualité antispam.
+
+## Décision du service et de la console
+
+Sans table `[fusion]`, le comportement historique est conservé, avec une décision
+persistée explicite : `legitimate`, `unwanted` ou `undetermined`. SMTP, liste,
+recherche et statistiques utilisent la même décision, y compris lorsque le seuil
+de configuration change ensuite. Les anciennes lignes restent interprétées avec
+leur indice historique et le seuil configuré ; une analyse incomplète n'est pas
+comptée comme indésirable. L'indice historique `scan.score` reste disponible pour
+la comparaison et la sélection des appels LLM. Les en-têtes internes
+`X-NoiseFence-Decision` et `X-NoiseFence-Decision-Source` reprennent le résultat
+et sa source ; ceux reçus de l’expéditeur sont supprimés et les nouveaux champs
+sont inclus dans le scellement ARC. Une indisponibilité ou saturation
+LLM rend la décision indéterminée ; les sauts volontaires ou budgétaires restent
+des états distincts.
+
+Pour observer un candidat réellement entraîné sur les mêmes détecteurs :
+
+```toml
+[fusion]
+model = "/var/lib/noisefence/models/fusion.json"
+mode = "observe"
+```
+
+Le démarrage vérifie les octets du modèle et l'égalité exacte de ses artefacts
+avec les détecteurs chargés. `check-config` vérifie la structure de configuration ;
+le chargement complet des artefacts est effectué au démarrage du service. Une
+modification de version, de dépendances, de détecteur ou de politique impose une
+nouvelle expérience. La table `[fusion]` est exclue de l'empreinte de la politique
+des détecteurs : elle ne change pas leurs observations ni la sélection LLM et
+évite une dépendance circulaire entre le fichier candidat et ses entrées.
+
+En observation, `scan.fusion` conserve le résultat, les principales contributions
+et les disponibilités sans changer la décision active. `scan.decision` est le
+résultat utilisé pour la livraison. La console distingue cette comparaison de
+recherche du classement actif. Les probabilités n'ont de sens que pour la
+population et les profils de calibration ; les contributions ne sont pas des
+preuves. Un diagnostic `scan` ou `analyze` ne devient jamais une réception SMTP.
+
+`mode = "decision"` nécessite aussi `validation_report`, un dossier JSON de revue
+administrateur, borné à 32 Kio, selon `noisefence-fusion-promotion-1`. Il contient :
+
+- Les SHA-256 des octets du modèle, du manifeste figé, du rapport de test, de
+  couverture de la population et de latence du traitement complet.
+- `reviewed_at`, `observation_start`, `observation_end` en secondes Unix et une
+  référence de revue `review_reference`. Revue de moins de 30 jours, observations
+  de moins de 90 jours ; `sampling = "representative_smtp"`.
+- `tp`, `fp`, `fn_count`, `tn` sur le test récent indépendant, comprenant les cas
+  sans préfixe faute d'analyse exploitable. Au moins 10 000 légitimes et 2 000
+  indésirables ; rappel ≥ 95 % et borne supérieure Wilson à 95 % des faux
+  positifs ≤ 0,1 %. Aucun message laissé hors bilan (`unaccounted_messages = 0`).
+- `pipeline_p95_ms < 500` et `pipeline_samples >= 1000`, mesurés pour des messages
+  ≤ 1 Mio, caches chauds, sur la machine de référence et avec les contrôles actifs.
+
+Les noms exacts et types sont définis dans `src/fusion/runtime.rs` (`Validation`).
+Ces références et nombres sont une **attestation de revue**, pas une preuve
+automatiquement vérifiée par les seuls hashes : auditer et conserver les rapports
+sources, le périmètre, l'indépendance, les exclusions et les mesures. Ne jamais
+copier les nombres fabriqués des tests logiciels pour activer un modèle réel.
+Un rapport de `train_fusion.py` sur les seuls représentants de campagne ou sur les
+seules corrections n'atteste pas à lui seul de la couverture du trafic SMTP.
+
+Au démarrage et pour chaque décision, le service revérifie les conditions et
+l'âge de cette attestation. Un profil non validé, une panne, une analyse incomplète
+ou une attestation expirée produit une décision indéterminée, sans score fusion
+exploitable ni préfixe. Le seuil porte sur le logit brut figé ; ni l'arrondi de la
+console ni `filter.threshold` ne remplacent ce seuil. L'observation des détecteurs
+reste distincte d'une indisponibilité de la fusion.
+
+Le préfixe demande toujours `filter.mode = "tag"` **et** le rapport Proton valide
+déjà exigé par la passerelle. La réception reste en observation tant que cette
+validation de livraison n'est pas établie. Aucun entraînement ni retour utilisateur
+n'active automatiquement une nouvelle version.
+
+## Couverture de toute la population retenue
+
+`export-learning` sélectionne les vecteurs textuels exploitables. Pour auditer son
+périmètre sans dissimuler les limites MIME ou les données absentes :
+
+```sh
+noisefence --config /etc/noisefence/config.toml export-population /chemin/prive/population.jsonl \
+  --since 1788739200 --until 1788825600
+```
+
+Adapter ces bornes Unix à un intervalle **réel des 30 derniers jours**, début
+inclus et fin exclue. Le fichier `noisefence-population-1` contient un en-tête,
+une ligne par message entrant retenu et un bilan final, dans une seule transaction
+SQLite. Les notifications produites par le service sont comptées séparément.
+Ce périmètre couvre les messages acceptés et encore retenus, pas les refus SMTP
+ni des métadonnées déjà supprimées. Il n'est jamais déclaré représentatif par
+défaut (`sampling = "unreviewed"`).
+
+Chaque ligne garde les timestamps fiables, l'identité hachée, l'empreinte des
+octets originaux quand disponible, les empreintes de campagne quand calculables,
+la décision et les observations SMTP typées. L'empreinte brute ne remplace pas
+une empreinte de campagne absente. Aucun expéditeur, destinataire, objet, corps,
+pièce jointe ou vecteur textuel n'est exporté. Les anciens champs absents restent
+inconnus ; aucun en-tête fourni par l'expéditeur ne reconstruit des contrôles.
+
+Les votes sont revérifiés avec les comptes actifs et leurs droits dans le même
+instantané. Retours révoqués, désaccords, absence d'annotation, données corrompues,
+contexte fourni manuellement et contrôles incomplets sont comptés et restent
+visibles. Une erreur de parsing conservée en base ne fait pas disparaître la ligne.
+Plusieurs destinataires ne multiplient pas le nombre de messages. Les compteurs
+de labels sont exclusifs ; les compteurs de disponibilité peuvent se recouvrir.
+
+Ce bilan prépare l'annotation et la réconciliation avec le test : il ne calcule
+pas de taux de capture à partir de labels absents. Une population encore inconnue
+ou contradictoire empêche de revendiquer une couverture complète. L'export est
+réservé à la CLI administrateur, borné à 50 000 messages/512 Mio, atomique, `0600`,
+sans écrasement même en concurrence. Choisir un intervalle plus court au besoin ;
+aucune troncature silencieuse. Les fichiers restent privés et soumis à la
+conservation de 30 jours, même après suppression des corps de la file.
 
 Références : [calibration des probabilités](https://scikit-learn.org/stable/modules/calibration.html),
 [choix du seuil sur un lot distinct](https://scikit-learn.org/stable/modules/classification_threshold.html).

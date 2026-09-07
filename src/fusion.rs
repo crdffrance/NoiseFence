@@ -13,6 +13,7 @@ use std::{collections::BTreeMap, io::Read, path::Path, sync::OnceLock};
 pub const SCHEMA: &str = "noisefence-fusion-model-1";
 pub const FEATURE_SCHEMA: &str = "noisefence-fusion-features-1";
 pub mod io;
+pub mod runtime;
 pub const PROTOCOL: &[u8] = include_bytes!("../research/fusion-protocol.json");
 const STATES: [State; 7] = [
     State::Disabled,
@@ -132,7 +133,7 @@ pub fn tag_eligible(e: &Evidence) -> bool {
                 .is_some_and(|a| a.status == AntivirusStatus::Malware)))
 }
 
-fn valid_hash(value: &str) -> bool {
+pub(crate) fn valid_hash(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
@@ -688,13 +689,15 @@ pub struct Model {
     /// a fitted probability or a hypothetical tag as activation permission.
     pub purpose: String,
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Contribution {
     pub feature: String,
     pub value: f64,
     pub contribution: f64,
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Prediction {
     pub version: String,
     pub logit: f64,
@@ -707,6 +710,9 @@ pub struct Prediction {
 }
 impl Model {
     pub fn load(path: &Path) -> Result<Self> {
+        Ok(Self::load_bound(path)?.0)
+    }
+    pub fn load_bound(path: &Path) -> Result<(Self, String)> {
         let mut bytes = Vec::new();
         std::fs::File::open(path)?
             .take(128 * 1024 + 1)
@@ -714,7 +720,7 @@ impl Model {
         ensure!(bytes.len() <= 128 * 1024, "oversized fusion model");
         let result: Self = serde_json::from_slice(&bytes)?;
         result.validate()?;
-        Ok(result)
+        Ok((result, crate::message::digest(&bytes)))
     }
     pub fn validate(&self) -> Result<()> {
         validate_artifacts(&self.artifacts)?;

@@ -8,6 +8,147 @@ use noisefence::{api, engine::extract, store::Store};
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants() {
+    use noisefence::fusion::runtime::{Decision, DecisionSource, Outcome};
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    api::create_user(
+        &store,
+        "alice".into(),
+        "a long password 123".into(),
+        vec!["alice@example.test".into()],
+        false,
+    )
+    .await
+    .unwrap();
+    let cases = [
+        ("old-high", 99.0, true, None),
+        ("old-incomplete", 99.0, false, None),
+        (
+            "fusion-unwanted",
+            1.0,
+            true,
+            Some((Outcome::Unwanted, Some(0.1))),
+        ),
+        (
+            "fusion-legitimate",
+            99.0,
+            true,
+            Some((Outcome::Legitimate, Some(99.0))),
+        ),
+        (
+            "fusion-undetermined",
+            99.0,
+            false,
+            Some((Outcome::Undetermined, None)),
+        ),
+        (
+            "hidden-recipient",
+            99.0,
+            true,
+            Some((Outcome::Unwanted, Some(99.0))),
+        ),
+    ];
+    for (subject, score, complete, decision) in cases {
+        let mut scan = extract(common::MESSAGE, 10000);
+        scan.subject = subject.into();
+        scan.score = score;
+        scan.complete = complete;
+        scan.decision = decision.map(|(outcome, score)| Decision {
+            source: DecisionSource::Fusion,
+            outcome,
+            score,
+            model: "SOFTWARE-TEST-ONLY".into(),
+        });
+        store
+            .enqueue(
+                uuid::Uuid::new_v4().to_string(),
+                "sender@example.org".into(),
+                vec![
+                    cfg.recipient(if subject == "hidden-recipient" {
+                        "bob@example.test"
+                    } else {
+                        "alice@example.test"
+                    })
+                    .unwrap(),
+                ],
+                scan,
+                common::MESSAGE.to_vec(),
+            )
+            .await
+            .unwrap();
+    }
+    let app = api::router(cfg.clone(), store).unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, &cfg.web.public_origin)
+                .body(Body::from(
+                    r#"{"username":"alice","password":"a long password 123"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    for (path, count) in [
+        ("/api/v1/messages", 5),
+        ("/api/v1/messages?filter=spam", 2),
+        ("/api/v1/messages?filter=incomplete", 2),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(!String::from_utf8_lossy(&body).contains("bob@example.test"));
+        let rows: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(rows.len(), count);
+        for row in &rows {
+            assert!(row["decision"].is_object());
+            if path.ends_with("=spam") {
+                assert_eq!(row["decision"]["outcome"], "unwanted");
+            }
+            if path.ends_with("=incomplete") {
+                assert_eq!(row["decision"]["outcome"], "undetermined");
+            }
+        }
+    }
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/stats")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let stats: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(stats["received"], 5);
+    assert_eq!(stats["flagged"], 2);
+    assert_eq!(stats["pending"], 5);
+}
+
+#[tokio::test]
 async fn durable_queue_recovery_acl_feedback_and_retention() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = common::config(dir.path());

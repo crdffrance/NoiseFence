@@ -53,6 +53,8 @@ pub struct VisibleMail {
     pub semantic: VisibleSemantic,
     pub smtp_policy: crate::smtp_policy::PolicyResult,
     pub evidence: Option<crate::evidence::Evidence>,
+    pub decision: crate::fusion::runtime::Decision,
+    pub fusion: crate::fusion::runtime::Observation,
 }
 #[derive(Serialize)]
 pub struct VisibleSemantic {
@@ -311,14 +313,15 @@ impl Store {
         threshold: f64,
     ) -> Result<Vec<VisibleMail>> {
         self.run(move|db| {
-            let mut q=db.prepare("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1) FROM messages m WHERE m.created>=?5 AND EXISTS(SELECT 1 FROM deliveries d JOIN grants g ON g.address=d.destination WHERE d.message_id=m.id AND g.username=?1) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0) AND (?3='all' OR (?3='spam' AND json_extract(m.scan,'$.score')>=?6) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0)) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4")?;
+            let mut q=db.prepare("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1) FROM messages m WHERE m.created>=?5 AND EXISTS(SELECT 1 FROM deliveries d JOIN grants g ON g.address=d.destination WHERE d.message_id=m.id AND g.username=?1) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0)) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4")?;
             let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?)))?;
             let mut out=Vec::new();
             for row in rows {
                 let (id,created,sender,scan,feedback)=row?;let s:Scan=serde_json::from_str(&scan)?;
+                let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status FROM deliveries d JOIN grants g ON g.address=d.destination WHERE d.message_id=?1 AND g.username=?2")?;
                 let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{address:r.get(0)?,status:r.get(1)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,evidence:s.evidence});
+                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,evidence:s.evidence,decision,fusion:s.fusion});
             }Ok(out)
         }).await
     }

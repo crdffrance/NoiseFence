@@ -4,6 +4,23 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.10] - 2026-09-07
+
+- Unifier la décision persistée entre le SMTP, la console, les recherches et les
+  statistiques. Distinguer indésirable, légitime et indéterminé ; conserver le
+  score historique pour les comparaisons.
+- Intégrer la fusion native facultative en observation, puis en décision avec
+  modèle lié aux détecteurs et dossier de validation récent. Refuser le marquage
+  pour profils inconnus, contrôles incomplets et validation expirée. Le contrôle
+  de compatibilité Proton reste indépendant et obligatoire.
+- Exporter la population retenue sur un intervalle, y compris les messages
+  incomplets, non annotés, contradictoires ou dépourvus d'observations SMTP.
+  Conserver une empreinte des octets originaux même lorsque MIME est limité,
+  distincte de l'empreinte de campagne. Aucun corps n'est exporté.
+- Corriger la saturation LLM : elle rend aussi la décision historique
+  indéterminée, sans préfixe ni dépense. Ajouter des tests SMTP, d'accès et de
+  cohérence des exports. Aucun nouveau modèle de recherche n'est activé.
+
 ## [0.3.0-dev.9] - 2026-09-07
 
 - Ajouter le contrat natif de fusion de 218 observations typées, l'export privé

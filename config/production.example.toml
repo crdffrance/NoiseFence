@@ -40,6 +40,15 @@ max_analysis_bytes = 2097152
 # max_parallel = 1
 # timeout_ms = 500
 
+# Optional learned fusion; absent by default. See research/fusion.md.
+# The model must match the exact loaded detector artifacts. Observe first.
+# [fusion]
+# model = "/var/lib/noisefence/models/fusion.json"
+# mode = "observe"
+# Decision mode also requires audited quality and full-pipeline latency evidence.
+# It does not bypass the independent Proton compatibility gate.
+# validation_report = "/etc/noisefence/fusion-validation.json"
+
 # Optional SMTP/DNS coherence checks; no message content or SMTP rejection.
 # Start in observation and measure before applying the experimental weights.
 # See docs/smtp-policy.md. An absent table disables all of these lookups.
