@@ -4,6 +4,14 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.17] - 2026-09-08
+
+- Borner et annuler le faux serveur HTTP des tests de réputation : une échéance
+  expirée avant connexion ne laisse plus les contrôles Linux attendre indéfiniment.
+- Séparer les délais des tests de quota, de réponse excessive et d’expiration
+  pour vérifier chaque erreur même sur un runner chargé. Aucun changement du
+  comportement de filtrage par rapport à la version 0.3.0-dev.16.
+
 ## [0.3.0-dev.16] - 2026-09-08
 
 - Ajouter les protections consultatives contre l’usurpation, les liens trompeurs

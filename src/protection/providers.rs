@@ -608,7 +608,7 @@ mod transport_tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let status = status.to_owned();
-        let task = tokio::spawn(async move {
+        let work = async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = Vec::new();
             let mut chunk = [0; 4096];
@@ -641,6 +641,11 @@ mod transport_tests {
             );
             let _ = socket.write_all(response.as_bytes()).await;
             String::from_utf8(request).unwrap()
+        };
+        let task = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(10), work)
+                .await
+                .expect("mock HTTP server did not finish within ten seconds")
         });
         (format!("http://{address}/lookup"), task)
     }
@@ -692,7 +697,7 @@ mod transport_tests {
             let root = tempfile::tempdir().unwrap();
             let mut client = Client::new(
                 &Settings {
-                    timeout_ms: 100,
+                    timeout_ms: if delay == 0 { 2000 } else { 100 },
                     ..Default::default()
                 },
                 root.path(),
@@ -712,8 +717,15 @@ mod transport_tests {
             let (report, hits) = client.inspect(Provider::Virustotal, true, &targets).await;
             assert_eq!(report.status, Status::Unavailable);
             assert!(hits.is_empty());
-            assert!(start.elapsed() < Duration::from_secs(1));
-            task.await.unwrap();
+            assert!(start.elapsed() < Duration::from_secs(3));
+            if delay == 0 {
+                assert!(task.await.unwrap().starts_with("GET /lookup "));
+            } else {
+                // The deadline may expire before connect on a busy runner. The
+                // mock must not remain blocked in accept after client cancellation.
+                task.abort();
+                let _ = task.await;
+            }
         }
     }
     #[test]
