@@ -168,3 +168,76 @@ identifiée séparément. Les statuts et les durées sont conservés sans conten
 Ce résultat ne mesure pas le profil avec LLM, la concurrence, le p95 du trafic
 réel, la capture ou les faux positifs. Aucun seuil n'a été ajusté à partir de
 ces cas.
+
+## Concurrence SMTP et relais (0.3.0-dev.13)
+
+Le démon utilise déjà le runtime Tokio multithread : une tâche par connexion
+SMTP et plusieurs livraisons concurrentes. Les calculs sémantiques et SQLite
+s'exécutent dans le pool bloquant ; l'encodeur utilise également des threads CPU.
+Les opérations réseau des scanners se chevauchent avec l'inférence. Le parsing
+MIME et l'extraction lexicale restent synchrones et bornés dans les tâches de
+traitement ; leur coût fait partie des mesures.
+
+Trois limites distinctes pilotent le serveur : `smtp.max_connections` (128 par
+défaut), `smtp.max_processing` (4 par défaut, entre 1 et 64), et `relay.workers`
+(8 par défaut). `max_processing` couvre le téléchargement DATA, l'analyse et
+la persistance, et ne peut pas dépasser le nombre de connexions. Chaque DATA
+occupe un slot ; les autres expéditeurs reçoivent 451 avant le corps et doivent
+réessayer. Les uploads lents occupent donc aussi un slot. Augmenter cette limite
+consomme plus de mémoire et peut saturer les scanners. Le tampon disque DATA
+ajoute 64 Kio par traitement actif ; la taille limite du message n'est pas une
+estimation de la mémoire totale du moteur.
+
+Avec un worker sémantique et un worker OCR, commencer par `max_processing = 1`
+comme dans l'exemple de production. Monter ensuite selon les mesures ; les
+connexions et livraisons restent concurrentes. L'attente du moteur sémantique
+partage son délai avec l'inférence, et une tâche CPU qui dépasse son délai
+conserve son slot jusqu'à sa fin. Le worker OCR reste séquentiel et un LLM
+configuré peut encore ajouter de la latence : multiplier les connexions ne
+multiplie pas la capacité de ces composants. Les résultats incomplets doivent
+être suivis séparément. Les variables `TOKIO_WORKER_THREADS`, `RAYON_NUM_THREADS`
+et `CANDLE_NUM_THREADS` peuvent borner les pools ; éviter de les dimensionner
+chacun comme si les autres ne consommaient aucun cœur.
+
+### Banc SMTP reproductible
+
+`scripts/smtp_load.py` démarre le binaire choisi, une **nouvelle file privée** et
+un récepteur SMTP local. Aucun destinataire distant n'est configurable. Le banc
+n'importe jamais la configuration du service et désactive DNS, DQS et LLM. Il
+refuse un répertoire existant. Les paramètres bornent messages, taille,
+concurrence et durée ; sous Linux, ajouter des limites systemd CPU/mémoire.
+
+```sh
+python3 scripts/smtp_load.py --binary ./noisefence \
+  --output-dir /var/tmp/nf-load-small-unique --messages 200 --concurrency 8 \
+  --processing 4
+python3 scripts/smtp_load.py --binary ./noisefence \
+  --output-dir /var/tmp/nf-load-large-unique --messages 40 --concurrency 4 \
+  --message-bytes 1048576 --processing 4
+```
+
+Ajouter `--lexical-model`, `--semantic-encoder`, `--semantic-combination` et les
+options `--antivirus-socket`, `--signatures-socket`, `--vision-socket` pour mesurer
+les composants locaux réels. Un worker vision configuré reçoit ici du texte sans
+image : cela vérifie son chemin MIME mais **ne mesure pas le débit OCR**. Omettre
+`--processing` pour comparer la version 0.3.0-dev.12, qui imposait quatre slots.
+Le même binaire et le même matériel doivent être utilisés pour comparer les
+réglages. Les messages sont synthétiques et répétitifs ; ils ne constituent pas
+un jeu d'évaluation de la qualité.
+
+Le résumé contient les versions et empreintes, tous les statuts des scanners,
+les analyses complètes/incomplètes, le débit accepté et livré, ainsi que les
+latences d'acceptation (reprises comprises). Il vérifie chaque identifiant,
+l'absence de doublon et la conservation exacte des corps, puis l'état durable
+`delivered` et l'intégrité SQLite. `correctness_passed` concerne la livraison ;
+examiner aussi `complete` et `incomplete`. Le programme échoue si la livraison
+n'est pas vérifiée, mais conserve un rapport d'échec. Le pic mémoire échantillonné
+à 100 ms et le temps CPU portent sur le démon, sans les services scanners. Le
+récepteur Python, le journal et le moniteur font partie de l'environnement de
+mesure ; le pic réel peut être supérieur à l'échantillon observé.
+
+Ces essais utilisent SMTP en clair sur loopback, incluent le démarrage à froid
+des premiers messages et excluent le temps de chargement du modèle du débit.
+Ils complètent les tests STARTTLS, reprise après interruption et accès existants.
+Ils ne mesurent ni le débit de Proton, ni celui de TLS, ni un trafic Internet
+réel. Toute projection en messages/jour exige un profil représentatif durable.

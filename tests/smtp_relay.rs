@@ -642,3 +642,88 @@ async fn verified_tls_is_required_for_production_relay() {
     ));
     task.await.unwrap();
 }
+
+#[tokio::test]
+async fn relay_refills_finished_workers_without_waiting_for_retry_tick() {
+    let root = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.relay.port = listener.local_addr().unwrap().port();
+    cfg.relay.workers = 1;
+    let cfg = Arc::new(cfg);
+    let store = Store::open(root.path()).unwrap();
+    let engine = Arc::new(Engine::new(cfg.clone()).unwrap());
+    for index in 0..8 {
+        store
+            .enqueue(
+                format!("burst-{index}"),
+                "sender@example.org".into(),
+                vec![cfg.recipient("alice@example.test").unwrap()],
+                noisefence::engine::extract(common::MESSAGE, 10000),
+                common::MESSAGE.to_vec(),
+            )
+            .await
+            .unwrap();
+    }
+    let sink = tokio::spawn(async move {
+        for _ in 0..8 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut io: Wire = BufReader::new(Box::new(stream));
+            smtp::reply(&mut io, "220 sink.test\r\n").await.unwrap();
+            loop {
+                let line = smtp::line(&mut io, 1024, 5).await.unwrap().unwrap();
+                if line == b"DATA\r\n" {
+                    smtp::reply(&mut io, "354 Send\r\n").await.unwrap();
+                    while smtp::line(&mut io, 1001, 5).await.unwrap().unwrap() != b".\r\n" {}
+                    smtp::reply(&mut io, "250 Delivered\r\n").await.unwrap();
+                    break;
+                }
+                smtp::reply(&mut io, "250 OK\r\n").await.unwrap();
+            }
+        }
+    });
+    let (stop, rx) = watch::channel(false);
+    let worker = tokio::spawn(relay::worker(cfg, store.clone(), engine, rx));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let delivered = store
+                .run(|db| {
+                    Ok(db.query_row(
+                        "SELECT COUNT(*) FROM deliveries WHERE status='delivered'",
+                        [],
+                        |row| row.get::<_, usize>(0),
+                    )?)
+                })
+                .await
+                .unwrap();
+            if delivered == 8 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    stop.send(true).unwrap();
+    if result.is_err() {
+        sink.abort();
+    }
+    worker.await.unwrap().unwrap();
+    result.expect("eight quick deliveries with one worker must not take seven retry ticks");
+    sink.await.unwrap();
+}
+
+#[test]
+fn smtp_processing_capacity_is_bounded_and_backwards_compatible() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    assert_eq!(cfg.smtp.max_processing, 4);
+    for invalid in [0, 65, 129] {
+        cfg.smtp.max_processing = invalid;
+        assert!(cfg.validate().is_err());
+    }
+    cfg.smtp.max_processing = 2;
+    cfg.smtp.max_connections = 1;
+    assert!(cfg.validate().is_err());
+    cfg.smtp.max_connections = 128;
+    cfg.validate().unwrap();
+}

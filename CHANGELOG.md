@@ -4,6 +4,21 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.13] - 2026-09-08
+
+- Alimenter les workers de relais dès qu’une livraison se termine ou qu’un
+  message est persisté, sans attendre le prochain tick de reprise.
+- Regrouper les écritures DATA par blocs de 64 Kio, conserver les contrôles SMTP
+  et la confirmation après synchronisation durable du corps et de SQLite.
+- Configurer la concurrence DATA/analyse avec `smtp.max_processing` (1–64),
+  indépendamment des connexions et du relais ; répondre temporairement avant
+  DATA lorsque cette capacité est occupée.
+- Attendre brièvement le moteur sémantique dans son budget total, préchauffer
+  ses kernels au démarrage et analyser en parallèle avec les scanners locaux.
+- Fournir un banc SMTP synthétique isolé : débit, latences, reprises, intégrité,
+  corps inchangés, analyses complètes et mémoire. Vérifier petits et gros mails
+  dans la CI. Les chiffres SMTP seul ne mesurent pas le filtrage complet.
+
 ## [0.3.0-dev.12] - 2026-09-08
 
 - Lire localement le texte français/anglais, les QR codes et codes-barres des

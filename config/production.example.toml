@@ -9,6 +9,9 @@ tls_key = "/etc/noisefence/tls/current/key.pem"
 max_message_bytes = 26214400
 max_connections = 128
 max_connections_per_ip = 8
+# DATA + analysis + durable enqueue. Start at 1 with one semantic/OCR worker;
+# raise only after measuring complete analyses, memory and retryable responses.
+max_processing = 1
 max_recipients = 100
 command_timeout_seconds = 300
 minimum_free_bytes = 1073741824

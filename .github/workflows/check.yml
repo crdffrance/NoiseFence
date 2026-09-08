@@ -60,6 +60,10 @@ jobs:
           if [ "${{ matrix.profile }}" = "--release" ]; then profile_dir=release; fi
           python3 tests/pipeline_probe.py "target/$profile_dir/examples/pipeline_probe"
       - run: cargo build --release --locked ${{ matrix.features }}
+      - name: Verify concurrent SMTP, durable delivery and unchanged bodies
+        run: |
+          python3 scripts/smtp_load.py --binary target/release/noisefence --output-dir var/smtp-load-small --messages 32 --concurrency 8 --processing 4
+          python3 scripts/smtp_load.py --binary target/release/noisefence --output-dir var/smtp-load-large --messages 8 --concurrency 2 --message-bytes 1048576 --processing 2
       - uses: actions/setup-python@v5
         if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
         with:

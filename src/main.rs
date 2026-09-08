@@ -608,12 +608,12 @@ async fn main() -> Result<()> {
             let listener = tokio::net::TcpListener::bind(config.smtp.listen).await?;
             let web = tokio::net::TcpListener::bind(config.web.listen).await?;
             let (stop, rx) = tokio::sync::watch::channel(false);
-            tracing::info!(smtp=%listener.local_addr()?,web=%web.local_addr()?,mode=?config.filter.mode,"gateway started");
+            tracing::info!(smtp=%listener.local_addr()?,web=%web.local_addr()?,mode=?config.filter.mode,processing=config.smtp.max_processing,relay_workers=config.relay.workers,"gateway started");
             let state = noisefence::smtp::State {
                 config: config.clone(),
                 store: store.clone(),
                 engine: engine.clone(),
-                processing: Arc::new(tokio::sync::Semaphore::new(4)),
+                processing: Arc::new(tokio::sync::Semaphore::new(config.smtp.max_processing)),
             };
             let mut smtp = tokio::spawn(noisefence::smtp::serve(listener, state, rx.clone()));
             let mut relay = tokio::spawn(noisefence::relay::worker(

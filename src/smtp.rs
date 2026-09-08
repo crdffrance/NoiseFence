@@ -367,7 +367,7 @@ async fn session(
                 let id = uuid::Uuid::new_v4().to_string();
                 let path = state.store.root.join("incoming").join(&id);
                 let _cleanup = Incoming(path.clone());
-                let mut file = match tokio::fs::OpenOptions::new()
+                let file = match tokio::fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)
                     .mode(0o600)
@@ -380,6 +380,8 @@ async fn session(
                         continue;
                     }
                 };
+                // Batch small SMTP lines without changing the durable enqueue/250 boundary.
+                let mut file = tokio::io::BufWriter::with_capacity(64 * 1024, file);
                 reply(&mut io, "354 End data with <CRLF>.<CRLF>\r\n").await?;
                 let mut total = 0usize;
                 let started = std::time::Instant::now();

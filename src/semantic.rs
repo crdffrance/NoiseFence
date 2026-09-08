@@ -149,6 +149,12 @@ impl Hybrid {
             "invalid semantic limits"
         );
         let encoder = Encoder::load(&config.encoder_dir)?;
+        // Initialize CPU kernels before accepting SMTP traffic. This synthetic
+        // warmup has no DNS, scanner, queue or model-training side effects.
+        encoder.embed(
+            "NoiseFence startup",
+            &"Bonjour reunion demain. ".repeat(128),
+        )?;
         Ok(Self {
             encoder,
             combination,
@@ -221,15 +227,19 @@ async fn bounded<T: Send + 'static>(
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> std::result::Result<T, crate::engine::SemanticStatus> {
     use crate::engine::SemanticStatus;
-    let permit = slots
-        .try_acquire_owned()
+    // Brief bursts wait fairly for a CPU slot within the existing total budget.
+    // Waiting and inference share one deadline; saturation cannot extend it.
+    let deadline = tokio::time::Instant::now() + timeout;
+    let permit = tokio::time::timeout_at(deadline, slots.acquire_owned())
+        .await
+        .map_err(|_| SemanticStatus::Busy)?
         .map_err(|_| SemanticStatus::Busy)?;
     let task = tokio::task::spawn_blocking(move || {
         // Cancellation of the async waiter must not release the CPU slot early.
         let _permit = permit;
         work()
     });
-    match tokio::time::timeout(timeout, task).await {
+    match tokio::time::timeout_at(deadline, task).await {
         Ok(Ok(Ok(result))) => Ok(result),
         _ => Err(SemanticStatus::Unavailable),
     }
@@ -295,6 +305,22 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
+    async fn short_burst_waits_for_capacity_without_skipping_inference() {
+        let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = slots.clone().acquire_owned().await.unwrap();
+        let waiting_slots = slots.clone();
+        let waiting =
+            tokio::spawn(
+                async move { bounded(waiting_slots, Duration::from_secs(1), || Ok(42)).await },
+            );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!waiting.is_finished());
+        drop(permit);
+        assert_eq!(waiting.await.unwrap(), Ok(42));
+        assert_eq!(slots.available_permits(), 1);
+    }
+
+    #[tokio::test]
     async fn timed_out_inference_keeps_its_cpu_permit_until_work_finishes() {
         let slots = Arc::new(tokio::sync::Semaphore::new(1));
         let worker_slots = slots.clone();
@@ -312,7 +338,7 @@ mod tests {
         assert_eq!(task.await.unwrap(), Err(SemanticStatus::Unavailable));
         assert_eq!(slots.available_permits(), 0);
         assert_eq!(
-            bounded(slots.clone(), Duration::from_secs(1), || Ok(0)).await,
+            bounded(slots.clone(), Duration::from_millis(30), || Ok(0)).await,
             Err(SemanticStatus::Busy)
         );
         release_tx.send(()).unwrap();

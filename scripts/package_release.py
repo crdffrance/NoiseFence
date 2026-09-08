@@ -34,6 +34,8 @@ def main():
         shutil.copy2(ROOT/'config'/filename,output/'config'/filename)
     for directory in ['deploy','docs']:
         shutil.copytree(ROOT/directory,output/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
+    (output/'scripts').mkdir()
+    shutil.copy2(ROOT/'scripts/smtp_load.py',output/'scripts/smtp_load.py')
     # Data-only feedback fitting runtime, without corpora, private models or hub clients.
     (output/'research').mkdir()
     for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',

@@ -35,6 +35,9 @@ pub struct Smtp {
     pub max_connections: usize,
     #[serde(default = "default_per_ip")]
     pub max_connections_per_ip: usize,
+    /// Concurrent DATA uploads, analyses and durable commits; excess senders retry.
+    #[serde(default = "default_processing")]
+    pub max_processing: usize,
     #[serde(default = "default_timeout")]
     pub command_timeout_seconds: u64,
     #[serde(default = "default_rcpts")]
@@ -50,6 +53,9 @@ fn default_connections() -> usize {
 }
 fn default_per_ip() -> usize {
     8
+}
+fn default_processing() -> usize {
+    4
 }
 fn default_timeout() -> u64 {
     300
@@ -257,6 +263,11 @@ impl Config {
                 && self.smtp.max_connections <= 4096
                 && self.smtp.max_connections_per_ip > 0,
             "invalid connection limits"
+        );
+        ensure!(
+            (1..=64).contains(&self.smtp.max_processing)
+                && self.smtp.max_processing <= self.smtp.max_connections,
+            "max_processing must be 1..64 and no greater than max_connections"
         );
         ensure!(
             self.smtp.max_message_bytes >= 1024 && self.smtp.max_message_bytes <= 100 * 1024 * 1024,

@@ -17,6 +17,7 @@ use std::{
 pub struct Store {
     pub root: PathBuf,
     db: Arc<Mutex<Connection>>,
+    delivery_ready: Arc<tokio::sync::Notify>,
 }
 #[derive(Clone, Debug)]
 pub struct Job {
@@ -109,7 +110,11 @@ impl Store {
         Ok(Self {
             root: root.into(),
             db: Arc::new(Mutex::new(db)),
+            delivery_ready: Arc::new(tokio::sync::Notify::new()),
         })
+    }
+    pub(crate) async fn wait_for_delivery(&self) {
+        self.delivery_ready.notified().await;
     }
     pub fn daemon_lock(&self) -> Result<File> {
         let f = OpenOptions::new()
@@ -215,6 +220,9 @@ impl Store {
         }).await;
         if result.is_err() {
             let _ = fs::remove_file(cleanup);
+        } else {
+            // Notify only after both the spool and the SQLite transaction are durable.
+            self.delivery_ready.notify_one();
         }
         result
     }

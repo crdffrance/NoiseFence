@@ -903,14 +903,16 @@ impl Engine {
         let mut scan = self.extract(raw);
         self.start_evidence(&mut scan, source);
         let headers = message::fields(raw)?.0;
-        #[cfg(feature = "semantic")]
-        if scan.complete
-            && let Some(model) = &self.semantic
-        {
-            scan.semantic = model.analyze(raw.to_vec()).await;
-            Self::check_semantic(&mut scan);
-        }
-        let (antivirus, signatures, vision) = tokio::join!(
+        let (semantic, antivirus, signatures, vision) = tokio::join!(
+            async {
+                #[cfg(feature = "semantic")]
+                if scan.complete
+                    && let Some(model) = &self.semantic
+                {
+                    return model.analyze(raw.to_vec()).await;
+                }
+                SemanticResult::default()
+            },
             async {
                 match &self.config.antivirus {
                     Some(config) => crate::antivirus::scan(config, raw).await,
@@ -930,6 +932,9 @@ impl Engine {
                 }
             }
         );
+        scan.semantic = semantic;
+        #[cfg(feature = "semantic")]
+        Self::check_semantic(&mut scan);
         let mut visual_domains = Vec::new();
         if let Some(mut inspection) = vision {
             visual_domains = inspection.domains();

@@ -363,11 +363,22 @@ pub async fn worker(
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let mut housekeeping = 0;
     loop {
+        if *shutdown.borrow() {
+            break;
+        }
+        // Refill on completion or enqueue, not just on the retry poll. The poll
+        // still discovers due retries and changes made by another Store instance.
+        while jobs.len() < config.relay.workers {
+            let Some(job) = store.claim().await? else {
+                break;
+            };
+            jobs.spawn(run_job(config.clone(), store.clone(), job));
+        }
         tokio::select! {
             _=shutdown.changed()=>break,
+            _=store.wait_for_delivery()=>{},
             Some(result)=jobs.join_next(),if !jobs.is_empty()=>{match result{Ok(Ok(()))=>{},_=>{tracing::error!("delivery worker failed; stopping to recover durable claims on restart");anyhow::bail!("delivery worker failure");}}},
             _=tick.tick()=>{
-                while jobs.len()<config.relay.workers {let Some(job)=store.claim().await? else{break;};jobs.spawn(run_job(config.clone(),store.clone(),job));}
                 housekeeping+=1;if housekeeping%30==0 {notifications(&config,&store,&engine).await?;store.cleanup().await?;}
             }
         }
