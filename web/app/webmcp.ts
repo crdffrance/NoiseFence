@@ -1,3 +1,4 @@
+import type { FeedbackCategory } from './mailing';
 type Context = {
   registerTool(
     tool: {
@@ -11,7 +12,7 @@ type Context = {
   ): unknown;
 };
 export function registerFeedbackTool(
-  correct: (id: string, spam: boolean) => Promise<void>,
+  correct: (id: string, category: FeedbackCategory) => Promise<void>,
 ) {
   const context = (document as Document & { modelContext?: Context })
     .modelContext;
@@ -23,14 +24,22 @@ export function registerFeedbackTool(
         {
           name: 'correct_message_classification',
           description:
-            'Record the signed-in user’s spam or legitimate feedback. This affects future learning; it does not modify the delivered Proton message.',
+            'Record the signed-in user’s spam, publicity or legitimate feedback. This affects future learning; it does not modify the delivered Proton message.',
           inputSchema: {
             type: 'object',
             properties: {
               messageId: { type: 'string' },
-              spam: { type: 'boolean' },
+              spam: {
+                type: 'boolean',
+                description: 'Legacy binary feedback; use category for PUB.',
+              },
+              category: {
+                type: 'string',
+                enum: ['spam', 'publicity', 'legitimate'],
+              },
             },
-            required: ['messageId', 'spam'],
+            required: ['messageId'],
+            oneOf: [{ required: ['spam'] }, { required: ['category'] }],
             additionalProperties: false,
           },
           annotations: { readOnlyHint: false, untrustedContentHint: false },
@@ -42,14 +51,26 @@ export function registerFeedbackTool(
               Object.keys(input).length !== 2 ||
               typeof input.messageId !== 'string' ||
               !/^[0-9a-f-]{36}$/i.test(input.messageId) ||
-              typeof input.spam !== 'boolean'
+              !(
+                typeof input.spam === 'boolean' ||
+                ['spam', 'publicity', 'legitimate'].includes(
+                  input.category as string,
+                )
+              )
             )
-              throw new Error('Invalid messageId or spam flag');
-            await correct(input.messageId, input.spam);
+              throw new Error('Invalid messageId or category');
+            const category: FeedbackCategory =
+              typeof input.spam === 'boolean'
+                ? input.spam
+                  ? 'spam'
+                  : 'legitimate'
+                : (input.category as FeedbackCategory);
+            await correct(input.messageId, category);
             return {
               recorded: true,
               messageId: input.messageId,
-              spam: input.spam,
+              spam: category === 'spam',
+              category,
             };
           },
         },

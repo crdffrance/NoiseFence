@@ -453,3 +453,56 @@ async fn incompatible_protocols_are_counted_and_invalid_vectors_do_not_replace_p
             .ends_with(".partial")
     }));
 }
+
+#[tokio::test]
+async fn explicit_pub_labels_preserve_binary_training_and_separate_subtype_conflicts() {
+    use noisefence::mailing::FeedbackCategory;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    for (id, users) in [
+        ("pub", vec![("alice", false)]),
+        ("old", vec![("alice", false)]),
+        ("disagree", vec![("alice", false), ("bob", false)]),
+        ("mixed", vec![("alice", false), ("bob", false)]),
+    ] {
+        seed(&store, id, scan(), &users).await;
+    }
+    store
+        .feedback_category("alice".into(), "pub".into(), FeedbackCategory::Publicity)
+        .await
+        .unwrap();
+    store
+        .feedback_category(
+            "alice".into(),
+            "disagree".into(),
+            FeedbackCategory::Publicity,
+        )
+        .await
+        .unwrap();
+    store
+        .feedback_category(
+            "bob".into(),
+            "disagree".into(),
+            FeedbackCategory::Legitimate,
+        )
+        .await
+        .unwrap();
+    store
+        .feedback_category("alice".into(), "mixed".into(), FeedbackCategory::Publicity)
+        .await
+        .unwrap();
+    let path = dir.path().join("labels.jsonl");
+    let report = learning::export(&store, &path, false).await.unwrap();
+    assert_eq!(report.exported, 4);
+    assert_eq!(report.conflicting, 0);
+    assert_eq!(report.conflicting_categories, 1);
+    for line in std::fs::read_to_string(path).unwrap().lines() {
+        let row: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(row["spam"], false);
+        if row["id"] == noisefence::message::digest(b"pub") {
+            assert_eq!(row["category"], "publicity");
+        } else {
+            assert!(row["category"].is_null(), "{row}");
+        }
+    }
+}

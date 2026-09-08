@@ -1,4 +1,9 @@
 'use client';
+import {
+  MailingDetails,
+  type MailingReport,
+  type FeedbackCategory,
+} from './mailing';
 import { ProtectionDetails, type ProtectionReport } from './protection';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -24,6 +29,10 @@ import { AdminConsole, navigation, type Section } from './admin';
 import { registerFeedbackTool } from './webmcp';
 type Mail = {
   protection?: ProtectionReport;
+  mailing?: MailingReport;
+  category: FeedbackCategory | 'undetermined';
+  pub_tagged: boolean;
+  feedback_category: FeedbackCategory | null;
   id: string;
   created: number;
   sender: string;
@@ -121,6 +130,7 @@ type Mail = {
 type Stats = {
   received: number;
   flagged: number;
+  publicity: number;
   pending: number;
   mode: string;
   threshold: number;
@@ -235,11 +245,17 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [refresh]);
   const recordFeedback = useCallback(
-    async (id: string, spam: boolean) => {
+    async (id: string, category: FeedbackCategory) => {
       if (!user) throw new Error('Connexion requise.');
-      await api(`/messages/${id}/feedback`, { spam }, user.csrf);
+      await api(`/messages/${id}/feedback`, { category }, user.csrf);
       setSelected((previous) =>
-        previous?.id === id ? { ...previous, feedback: spam } : previous,
+        previous?.id === id
+          ? {
+              ...previous,
+              feedback: category === 'spam',
+              feedback_category: category,
+            }
+          : previous,
       );
       setNotice(
         'Correction enregistrée. Le message déjà livré dans Proton reste inchangé.',
@@ -252,11 +268,11 @@ export default function Home() {
     () => (user ? registerFeedbackTool(recordFeedback) : undefined),
     [user, recordFeedback],
   );
-  async function feedback(spam: boolean) {
+  async function feedback(category: FeedbackCategory) {
     if (!selected || !user) return;
     setBusy(true);
     try {
-      await recordFeedback(selected.id, spam);
+      await recordFeedback(selected.id, category);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -667,6 +683,13 @@ export default function Home() {
                       </p>
                     )}
                   </section>
+                  {selected.mailing && (
+                    <MailingDetails
+                      report={selected.mailing}
+                      category={selected.category}
+                      tagged={selected.pub_tagged}
+                    />
+                  )}
                   {selected.protection && (
                     <ProtectionDetails report={selected.protection} />
                   )}
@@ -680,9 +703,11 @@ export default function Home() {
                       <Button
                         disabled={busy}
                         variant={
-                          selected.feedback === false ? 'default' : 'outline'
+                          selected.feedback_category === 'legitimate'
+                            ? 'default'
+                            : 'outline'
                         }
-                        onClick={() => feedback(false)}
+                        onClick={() => feedback('legitimate')}
                       >
                         <Check size={17} /> Légitime
                       </Button>
@@ -691,11 +716,26 @@ export default function Home() {
                         variant={
                           selected.feedback === true ? 'default' : 'outline'
                         }
-                        onClick={() => feedback(true)}
+                        onClick={() => feedback('spam')}
                       >
                         <Flag size={17} /> Spam
                       </Button>
+                      <Button
+                        disabled={busy}
+                        variant={
+                          selected.feedback_category === 'publicity'
+                            ? 'default'
+                            : 'outline'
+                        }
+                        onClick={() => feedback('publicity')}
+                      >
+                        PUB
+                      </Button>
                     </div>
+                    <p className="muted small">
+                      PUB désigne une publicité ou une newsletter légitime. Une
+                      publicité frauduleuse doit être signalée comme spam.
+                    </p>
                     <h2 className="subheading">Livraison</h2>
                     {selected.recipients.map((r) => (
                       <p className="recipient" key={r.address}>
@@ -778,6 +818,12 @@ export default function Home() {
                     </strong>
                   </section>
                   <section>
+                    <span>Publicités et newsletters</span>
+                    <strong>
+                      {stats?.publicity?.toLocaleString('fr-FR') ?? '—'}
+                    </strong>
+                  </section>
+                  <section>
                     <span>Livraisons en attente</span>
                     <strong>
                       {stats?.pending.toLocaleString('fr-FR') ?? '—'}
@@ -793,6 +839,7 @@ export default function Home() {
                       {[
                         ['all', 'Tous'],
                         ['spam', 'Spam détecté'],
+                        ['publicity', 'PUB'],
                         ['legitimate', 'Légitime'],
                         ['pending', 'En attente'],
                         ['incomplete', 'Analyse incomplète'],
@@ -829,7 +876,7 @@ export default function Home() {
                         <TableHead>Message</TableHead>
                         <TableHead>Destinataires</TableHead>
                         <TableHead>Classement</TableHead>
-                        <TableHead>Score</TableHead>
+                        <TableHead>Score spam</TableHead>
                         <TableHead>Reçu le</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -857,15 +904,21 @@ export default function Home() {
                           </TableCell>
                           <TableCell>
                             <span
-                              className={`status ${m.tagged ? 'spam' : ''}`}
+                              className={`status ${unwanted(m, stats?.threshold ?? 95) ? 'spam' : m.category === 'publicity' ? 'publicity' : ''}`}
                             >
                               {!m.complete
                                 ? 'Incomplet'
                                 : m.tagged
                                   ? '[SPAM] ajouté'
                                   : unwanted(m, stats?.threshold ?? 95)
-                                    ? 'Suspect'
-                                    : 'Non marqué'}
+                                    ? 'Spam détecté'
+                                    : m.pub_tagged
+                                      ? '[PUB] ajouté'
+                                      : m.category === 'publicity'
+                                        ? 'PUB détecté'
+                                        : m.category === 'undetermined'
+                                          ? 'Indéterminé'
+                                          : 'Légitime'}
                             </span>
                           </TableCell>
                           <TableCell>

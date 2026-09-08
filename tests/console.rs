@@ -679,3 +679,176 @@ async fn protection_credentials_stay_private_and_policy_changes_preserve_the_sco
             .crdf
     );
 }
+
+#[tokio::test]
+async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl() {
+    use noisefence::{
+        fusion::runtime::{Decision, DecisionSource, Outcome},
+        mailing::{self, Policy},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let bob = account(&store, "bob", false, vec!["bob@example.test"]).await;
+    let raw=b"From: a@example.org\r\nSubject: Weekly newsletter\r\nList-ID: News <news.example.org>\r\n\r\nHello.\r\n";
+    let mut public_id = String::new();
+    let mut hidden_id = String::new();
+    for (name, outcome, complete, pub_candidate, addresses) in [
+        (
+            "publicity",
+            Outcome::Legitimate,
+            true,
+            true,
+            vec!["alice@example.test", "bob@example.test"],
+        ),
+        (
+            "spam",
+            Outcome::Unwanted,
+            true,
+            true,
+            vec!["alice@example.test"],
+        ),
+        (
+            "legitimate",
+            Outcome::Legitimate,
+            true,
+            false,
+            vec!["alice@example.test"],
+        ),
+        (
+            "incomplete",
+            Outcome::Undetermined,
+            false,
+            true,
+            vec!["alice@example.test"],
+        ),
+        (
+            "hidden",
+            Outcome::Legitimate,
+            true,
+            true,
+            vec!["bob@example.test"],
+        ),
+    ] {
+        let id = uuid::Uuid::new_v4().to_string();
+        if name == "publicity" {
+            public_id = id.clone();
+        }
+        if name == "hidden" {
+            hidden_id = id.clone();
+        }
+        let mut scan = extract(raw, 10000);
+        scan.subject = name.into();
+        scan.complete = complete;
+        scan.score = 99.;
+        scan.decision = Some(Decision {
+            source: DecisionSource::Fusion,
+            outcome,
+            score: complete.then_some(99.),
+            model: "TEST ONLY".into(),
+        });
+        if pub_candidate {
+            scan.mailing = Some(mailing::inspect(raw, &Policy::default(), 10000));
+        }
+        store
+            .enqueue(
+                id,
+                "a@example.org".into(),
+                addresses
+                    .into_iter()
+                    .map(|a| cfg.recipient(a).unwrap())
+                    .collect(),
+                scan,
+                raw.to_vec(),
+            )
+            .await
+            .unwrap();
+    }
+    let app = api::router(cfg, store.clone()).unwrap();
+    for (filter, category) in [
+        ("publicity", "publicity"),
+        ("spam", "spam"),
+        ("legitimate", "legitimate"),
+        ("incomplete", "undetermined"),
+    ] {
+        let (code, body) = request(&app, &alice, &format!("/messages?filter={filter}"), None).await;
+        assert_eq!(code, StatusCode::OK, "{body}");
+        let rows = body.as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{body}");
+        assert_eq!(rows[0]["category"], category);
+        assert!(!body.to_string().contains("bob@example.test"));
+    }
+    let (_, stats) = request(&app, &alice, "/stats", None).await;
+    assert_eq!(stats["received"], 4);
+    assert_eq!(stats["publicity"], 1);
+    assert_eq!(stats["flagged"], 1);
+    let path = format!("/messages/{public_id}/feedback");
+    assert_eq!(
+        request(&app, &alice, &path, Some(json!({"category":"publicity"})))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let (_, rows) = request(&app, &alice, "/messages?filter=publicity", None).await;
+    assert_eq!(rows[0]["feedback_category"], "publicity");
+    assert_eq!(rows[0]["feedback"], false);
+    let (_, rows) = request(&app, &bob, "/messages?filter=publicity", None).await;
+    assert!(
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["feedback_category"].is_null())
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &format!("/messages/{hidden_id}/feedback"),
+            Some(json!({"category":"publicity"}))
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    for data in [json!({}), json!({"category":"publicity","spam":true})] {
+        assert_eq!(
+            request(&app, &alice, &path, Some(data)).await.0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        request(&app, &alice, &path, Some(json!({"category":"invalid"})))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    // A legacy client updating the same false vote must invalidate the explicit subtype.
+    assert_eq!(
+        request(&app, &alice, &path, Some(json!({"spam":false})))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let (_, rows) = request(&app, &alice, "/messages?filter=publicity", None).await;
+    assert!(rows[0]["feedback_category"].is_null());
+    assert_eq!(
+        request(&app, &alice, &path, Some(json!({"category":"legitimate"})))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let (_, rows) = request(&app, &alice, "/messages?filter=publicity", None).await;
+    assert_eq!(rows[0]["feedback_category"], "legitimate");
+    assert_eq!(rows[0]["category"], "publicity");
+    store
+        .run(move |db| {
+            db.execute("DELETE FROM messages WHERE id=?1", [public_id])?;
+            let count: i64 =
+                db.query_row("SELECT count(*) FROM feedback_categories", [], |r| r.get(0))?;
+            assert_eq!(count, 0);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

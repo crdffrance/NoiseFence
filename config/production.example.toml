@@ -135,3 +135,12 @@ crdf_per_minute = 2
 crdf_per_day = 200
 virustotal_per_minute = 4
 virustotal_per_day = 500
+
+# PUB is independent of the spam score; observe never changes delivered subjects.
+# After installation, enable this module in the saved console settings if needed.
+[mailing]
+# proton_report = "/etc/noisefence/proton-validation-pub.json"
+
+[mailing.policy]
+include_newsletters = true
+tag_subject = true

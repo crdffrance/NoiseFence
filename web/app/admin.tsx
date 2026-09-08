@@ -1,4 +1,5 @@
 'use client';
+import { MailingSettings, type MailingPolicy } from './mailing';
 import { ProtectionSettings, type ProtectionPolicy } from './protection';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
@@ -57,6 +58,7 @@ type Settings = {
   gateways: Gateway[];
   filters: Filters;
   protection: ProtectionPolicy | null;
+  mailing: MailingPolicy | null;
 };
 type Configuration = {
   revision: number;
@@ -64,6 +66,8 @@ type Configuration = {
   available: Filters;
   threshold_locked: boolean;
   tag_ready: boolean;
+  pub_tag_ready: boolean;
+  mailing_available: boolean;
   hostname: string;
   version: string;
   max_connections: number;
@@ -799,6 +803,13 @@ export function AdminConsole({
       )}
       {section === 'filters' && (
         <>
+          <MailingSettings
+            policy={draft.mailing}
+            available={config.mailing_available}
+            tagReady={config.pub_tag_ready}
+            mode={draft.filters.mode}
+            onChange={(mailing) => setDraft({ ...draft, mailing })}
+          />
           <ProtectionSettings
             key={epoch}
             policy={draft.protection}
@@ -810,7 +821,8 @@ export function AdminConsole({
               <h2>Comportement du filtre</h2>
               <p className="muted small">
                 Les messages sont transmis. En mode marquage, les messages
-                classés indésirables reçoivent le préfixe [SPAM].
+                classés indésirables reçoivent [SPAM] ; les publicités reçoivent
+                [PUB] si cette option est activée.
               </p>
             </div>
             <div className="form-grid">
@@ -825,7 +837,7 @@ export function AdminConsole({
                   <option value="observe">
                     Observation — analyser et transmettre
                   </option>
-                  <option value="tag">Marquage — ajouter [SPAM]</option>
+                  <option value="tag">Marquage — préfixer les objets</option>
                 </select>
               </label>
               <label className="field" htmlFor="filter-threshold">
@@ -1413,6 +1425,24 @@ export function AdminConsole({
                           .
                         </p>
                       </>
+                    )}
+                  </li>
+                )}
+                {JSON.stringify(draft.mailing) !==
+                  JSON.stringify(config.settings.mailing) && (
+                  <li>
+                    <strong>
+                      Catégorie PUB : {draft.mailing ? 'activée' : 'désactivée'}
+                    </strong>
+                    {draft.mailing && (
+                      <p>
+                        Newsletters :{' '}
+                        {draft.mailing.include_newsletters
+                          ? 'incluses'
+                          : 'exclues'}{' '}
+                        · Préfixe [PUB] en mode marquage :{' '}
+                        {draft.mailing.tag_subject ? 'activé' : 'désactivé'}.
+                      </p>
                     )}
                   </li>
                 )}

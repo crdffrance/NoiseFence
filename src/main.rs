@@ -15,6 +15,19 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 }
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ProbeCategory {
+    Spam,
+    Publicity,
+}
+impl ProbeCategory {
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Spam => "[SPAM]",
+            Self::Publicity => "[PUB]",
+        }
+    }
+}
 #[derive(Subcommand)]
 enum Command {
     Serve,
@@ -164,10 +177,14 @@ enum Command {
     },
     ProtonReportTemplate {
         output: PathBuf,
+        #[arg(long, value_enum, default_value_t = ProbeCategory::Spam)]
+        category: ProbeCategory,
     },
     /// Prepare signed test variants on disk; never sends mail or enables live tagging.
     ProtonPrepare {
         message: PathBuf,
+        #[arg(long, value_enum, default_value_t = ProbeCategory::Spam)]
+        category: ProbeCategory,
         #[arg(long)]
         source_ip: std::net::IpAddr,
         #[arg(long)]
@@ -427,12 +444,12 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
-    if let Command::ProtonReportTemplate { output } = cli.command {
+    if let Command::ProtonReportTemplate { output, category } = cli.command {
         let report = CompatibilityReport {
             hostname: config.hostname.clone(),
             domains: config.domains.iter().map(|d| d.name.clone()).collect(),
             tested_at: 0,
-            prefix: "[SPAM]".into(),
+            prefix: category.prefix().into(),
             cases: PROTON_CASES
                 .iter()
                 .map(|name| {
@@ -452,6 +469,7 @@ async fn main() -> Result<()> {
     }
     if let Command::ProtonPrepare {
         message,
+        category,
         source_ip,
         helo,
         mail_from,
@@ -471,6 +489,9 @@ async fn main() -> Result<()> {
         noisefence::message::validate(&raw)?;
         let mut probe = (*config).clone();
         probe.filter.mode = noisefence::config::Mode::Observe;
+        if matches!(category, ProbeCategory::Publicity) {
+            probe.mailing = Some(Default::default());
+        }
         let original_engine = Engine::new(Arc::new(probe.clone()))?;
         let (original_scan, untagged) = original_engine
             .process(
@@ -482,7 +503,9 @@ async fn main() -> Result<()> {
             )
             .await?;
         probe.filter.mode = noisefence::config::Mode::Tag;
-        probe.filter.threshold = 0.0;
+        if matches!(category, ProbeCategory::Spam) {
+            probe.filter.threshold = 0.0;
+        }
         let tag_engine = Engine::new(Arc::new(probe))?;
         let (tagged_scan, tagged) = tag_engine
             .process(
@@ -497,12 +520,17 @@ async fn main() -> Result<()> {
         std::fs::write(
             output.join("analysis.json"),
             serde_json::to_vec_pretty(
-                &serde_json::json!({"source_ip":source_ip,"helo":helo,"mail_from":mail_from,"untagged":original_scan,"tagged":tagged_scan}),
+                &serde_json::json!({"source_ip":source_ip,"helo":helo,"mail_from":mail_from,"prefix":category.prefix(),"untagged":original_scan,"tagged":tagged_scan}),
             )?,
         )?;
         ensure!(
-            original_scan.complete && tagged_scan.complete && tagged_scan.tagged,
-            "probe checks incomplete; see analysis.json; no tagged variant produced"
+            original_scan.complete
+                && tagged_scan.complete
+                && match category {
+                    ProbeCategory::Spam => tagged_scan.tagged,
+                    ProbeCategory::Publicity => tagged_scan.pub_tagged,
+                },
+            "probe checks incomplete or requested category not detected; see analysis.json; no tagged variant produced"
         );
         std::fs::write(output.join("direct.eml"), raw)?;
         std::fs::write(output.join("relay-untagged.eml"), untagged)?;

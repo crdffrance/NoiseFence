@@ -33,7 +33,7 @@ def port():
         return s.getsockname()[1]
 
 
-def fixture(index, size, html=False):
+def fixture(index, size, html=False, mailing=False):
     header = (f'From: Synthetic <sender@example.test>\r\nTo: alice@example.test\r\n'
               f'Subject: Reunion de travail {index}\r\n'
               f'Message-ID: <load-{index}@example.test>\r\nX-Load-ID: {index}\r\n'
@@ -41,10 +41,15 @@ def fixture(index, size, html=False):
               'MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n').encode()
     if html:
         header=header.replace(b'Content-Type: text/plain',b'Content-Type: text/html')
+    if mailing:
+        header=header.replace(f'Subject: Reunion de travail {index}\r\n'.encode(),
+                              f'Subject: Weekly newsletter {index}\r\nList-ID: News <news.example.test>\r\n'.encode())
     # Include dot transparency, many small writes, and a deterministic body.
     line = b'Bonjour, le rendez-vous de travail est confirme pour demain.\r\n'
     if html:
         line=b'<p>Reunion de travail <a href="https://example.com/calendar">https://example.com</a></p>\r\n'
+    if mailing:
+        line=b'Weekly digest. News from the team. Unsubscribe.\r\n'
     body = b'.Ligne commencant par un point.\r\n'
     remaining = max(0, size-len(header)-len(body)-2)
     body += line*(remaining//len(line)) + b'x'*(remaining % len(line)) + b'\r\n'
@@ -91,7 +96,7 @@ async def run(args):
               'components': {'semantic': bool(args.semantic_encoder),
                              'semantic_parallel': args.semantic_parallel, 'semantic_timeout_ms': args.semantic_timeout_ms,
                              'antivirus': bool(args.antivirus_socket), 'signatures': bool(args.signatures_socket),
-                             'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False)},
+                             'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False), 'mailing':getattr(args,'mailing',False)},
               'cpu_environment': {k: os.environ.get(k) for k in ('RAYON_NUM_THREADS', 'CANDLE_NUM_THREADS', 'TOKENIZERS_PARALLELISM', 'TOKIO_WORKER_THREADS')}}
     for name in ('lexical_model', 'semantic_combination'):
         value = getattr(args, name)
@@ -176,6 +181,8 @@ async def run(args):
                '[[domains]]\nname="example.test"\nnext_hops=["127.0.0.1"]\nrecipients=["alice@example.test"]\n')
     if getattr(args,'protection',False):
         config += '[protection]\n'
+    if getattr(args,'mailing',False):
+        config += '[mailing]\n'
     cfg = root/'config.toml'
     cfg.write_text(config)
     report['config_sha256'] = digest(config.encode())
@@ -201,7 +208,7 @@ async def run(args):
             await asyncio.sleep(.1)
 
     async def sender(index):
-        raw, body_hash = fixture(index, args.message_bytes, getattr(args,"html",False))
+        raw, body_hash = fixture(index, args.message_bytes, getattr(args,"html",False), getattr(args,"mailing",False))
         # SMTP dot-stuffing only; the receiver must preserve all original body bytes.
         wire = raw.replace(b'\r\n.', b'\r\n..') + b'.\r\n'
         began = time.monotonic()
@@ -286,6 +293,15 @@ async def run(args):
         changed_bodies = sum(accepted.get(i, {}).get('body_sha256') != body for i, body, _ in received)
         statuses = {component: dict(Counter(scan.get(component, {}).get('status', 'absent') for _, scan in scans))
                     for component in ('semantic', 'antivirus', 'signatures', 'vision', 'llm')}
+        if getattr(args,'mailing',False):
+            reports=[scan.get('mailing') or {} for _,scan in scans]
+            report['mailing']={'verdicts':dict(Counter(r.get('verdict','absent') for r in reports)),
+                              'status':dict(Counter(r.get('status','absent') for r in reports)),
+                              'analysis_ms':quantiles([r.get('elapsed_us',0)/1000 for r in reports])}
+            assert all(r.get('version')=='mailing-1' for r in reports)
+            if args.message_bytes <= 16000:
+                assert all(r.get('verdict')=='newsletter' and r.get('status')=='complete' for r in reports)
+            assert not any(scan.get('pub_tagged') or scan['tagged'] for _,scan in scans)
         complete = sum(scan['complete'] for _, scan in scans)
         checks = (len(accepted) == args.messages == len(scans) == len(received) and not missing and not extra
                   and not duplicates and not changed_bodies and not errors and integrity == 'ok'
@@ -342,6 +358,7 @@ def main():
     for name in ('lexical-model', 'semantic-encoder', 'semantic-combination', 'antivirus-socket', 'signatures-socket', 'vision-socket'):
         parser.add_argument('--'+name, type=Path)
     parser.add_argument('--protection',action='store_true',help='Enable local advisory protection; no provider calls')
+    parser.add_argument('--mailing',action='store_true',help='Use synthetic newsletters and enable local PUB categorization')
     parser.add_argument('--html',action='store_true',help='Use synthetic HTML links for parser load')
     parser.add_argument('--semantic-parallel', type=int, default=1)
     parser.add_argument('--semantic-timeout-ms', type=int, default=500)

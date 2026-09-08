@@ -193,3 +193,108 @@ async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score(
     assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Policy:"));
     assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Evidence:"));
 }
+
+#[tokio::test]
+async fn pub_tag_is_arc_sealed_and_spam_priority_is_preserved() {
+    let raw=b"From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Weekly newsletter\r\nList-ID: News <news.example.org>\r\nDate: Wed, 09 Sep 2026 12:00:00 +0000\r\nMessage-ID: <news@example.org>\r\n\r\nWeekly digest. News from the team.\r\n";
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    // Exercise the wire implementation only; config gate tests separately require live evidence.
+    cfg.filter.mode = Mode::Tag;
+    cfg.mailing = Some(noisefence::mailing::Settings::default());
+    cfg.filter.arc_domain = Some("example.org".into());
+    cfg.filter.arc_selector = Some("test".into());
+    cfg.filter.arc_key = Some(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/public-test-key.txt"),
+    );
+    let dns = TestDns(Mutex::new(HashMap::from([(
+        "test._domainkey.example.org.".into(),
+        Txt::DomainKey(Arc::new(
+            DomainKey::parse(include_bytes!("fixtures/public-test-key.dns")).unwrap(),
+        )),
+    )])));
+    let authenticator = MessageAuthenticator::new_system_conf().unwrap();
+    for spam in [false, true] {
+        cfg.filter.threshold = if spam { 0. } else { 95. };
+        let engine = Engine::new(Arc::new(cfg.clone())).unwrap();
+        let (scan, marked) = engine
+            .process(
+                raw,
+                "192.0.2.1".parse().unwrap(),
+                "mail.example.org",
+                "sender@example.org",
+                "pub-test",
+            )
+            .await
+            .unwrap();
+        assert!(scan.complete);
+        assert_eq!(scan.tagged, spam);
+        assert_eq!(scan.pub_tagged, !spam);
+        let parsed = AuthenticatedMessage::parse(&marked).unwrap();
+        assert_eq!(
+            *authenticator
+                .verify_arc(Parameters::new(&parsed).with_txt_cache(&dns))
+                .await
+                .result(),
+            DkimResult::Pass
+        );
+        assert_eq!(
+            message::fields(raw).unwrap().1,
+            message::fields(&marked).unwrap().1
+        );
+        let subject = mail_parser::MessageParser::default()
+            .parse(&marked)
+            .unwrap()
+            .subject()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            subject,
+            if spam {
+                "[SPAM] Weekly newsletter"
+            } else {
+                "[PUB] Weekly newsletter"
+            }
+        );
+        let tampered = String::from_utf8(marked)
+            .unwrap()
+            .replace("X-NoiseFence-Category:", "X-NoiseFence-Forged-Category:");
+        let parsed = AuthenticatedMessage::parse(tampered.as_bytes()).unwrap();
+        assert_ne!(
+            *authenticator
+                .verify_arc(Parameters::new(&parsed).with_txt_cache(&dns))
+                .await
+                .result(),
+            DkimResult::Pass
+        );
+    }
+    cfg.filter.threshold = 95.;
+    cfg.mailing.as_mut().unwrap().policy.tag_subject = false;
+    let engine = Engine::new(Arc::new(cfg.clone())).unwrap();
+    let (scan, _) = engine
+        .process(
+            raw,
+            "192.0.2.1".parse().unwrap(),
+            "mail.example.org",
+            "sender@example.org",
+            "disabled",
+        )
+        .await
+        .unwrap();
+    assert!(!scan.pub_tagged);
+    cfg.mailing.as_mut().unwrap().policy.tag_subject = true;
+    let engine = Engine::new(Arc::new(cfg)).unwrap();
+    let malformed = ["DKIM-Signature: invalid\r\n".repeat(17).as_bytes(), raw].concat();
+    let (scan, wire) = engine
+        .process(
+            &malformed,
+            "192.0.2.1".parse().unwrap(),
+            "mail.example.org",
+            "sender@example.org",
+            "limited",
+        )
+        .await
+        .unwrap();
+    assert!(!scan.complete && !scan.pub_tagged && !scan.tagged);
+    assert!(!String::from_utf8_lossy(&wire).contains("Subject: [PUB]"));
+}

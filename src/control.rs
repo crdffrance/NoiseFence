@@ -54,6 +54,8 @@ pub struct Settings {
     pub filters: Filters,
     #[serde(default)]
     pub protection: Option<crate::protection::Policy>,
+    #[serde(default)]
+    pub mailing: Option<crate::mailing::Policy>,
 }
 impl Settings {
     pub fn from_config(config: &Config) -> Self {
@@ -96,6 +98,7 @@ impl Settings {
             gateways,
             domains,
             protection: config.protection.as_ref().map(|c| c.policy.clone()),
+            mailing: config.mailing.as_ref().map(|c| c.policy.clone()),
             filters: Filters {
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
@@ -262,6 +265,13 @@ impl Settings {
             }
             (Some(_), None) => anyhow::bail!("La protection doit être installée sur le serveur."),
             (None, _) => cfg.protection = None,
+        }
+        match (&self.mailing, &mut cfg.mailing) {
+            (Some(policy), Some(settings)) => settings.policy = policy.clone(),
+            (Some(_), None) => {
+                anyhow::bail!("La catégorisation PUB doit être installée sur le serveur.")
+            }
+            (None, _) => cfg.mailing = None,
         }
         cfg.validate()?;
         Ok(cfg)

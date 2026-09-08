@@ -4,6 +4,18 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.18] - 2026-09-09
+
+- Distinguer les publicités et newsletters légitimes dans une catégorie PUB,
+  sans modifier le score antispam ; conserver la priorité au spam et exclure
+  les messages transactionnels, de service et les conversations identifiables.
+- Ajouter les réglages PUB, le filtre et le compteur d’historique, les raisons
+  et les corrections explicites PUB/Spam/Légitime avec les mêmes contrôles d’accès.
+- Préparer le préfixe [PUB] avec corps inchangé, déduplication des préfixes et
+  scellement ARC ; exiger une validation Proton propre à [PUB] avant marquage.
+- Exporter les labels PUB sans polluer l’apprentissage binaire ; conserver
+  l’ambiguïté des anciens votes et des corrections de sous-types contradictoires.
+
 ## [0.3.0-dev.17] - 2026-09-08
 
 - Borner et annuler le faux serveur HTTP des tests de réputation : une échéance

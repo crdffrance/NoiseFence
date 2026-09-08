@@ -69,9 +69,13 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
     let mut tag = s.settings.clone();
     tag.filters.mode = crate::config::Mode::Tag;
     let tag_ready = tag.effective(&control.base).is_ok();
+    let mut pub_tag = tag.clone();
+    pub_tag.mailing = Some(crate::mailing::Policy::default());
+    let pub_tag_ready = pub_tag.effective(&control.base).is_ok();
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
         "available":Settings::from_config(&control.base).filters,
         "threshold_locked":control.base.filter.semantic.is_some(),"tag_ready":tag_ready,
+        "mailing_available":control.base.mailing.is_some(),"pub_tag_ready":pub_tag_ready,
         "hostname":control.base.hostname,"version":env!("CARGO_PKG_VERSION"),
         "tls_required":true,"max_connections":control.base.smtp.max_connections,
         "processing":control.base.smtp.max_processing,"relay_workers":control.base.relay.workers,

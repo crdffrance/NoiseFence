@@ -66,6 +66,9 @@ pub struct Scan {
     pub feature_version: u32,
     pub score: f64,
     pub tagged: bool,
+    /// Actual [PUB] wire marking; the legacy `tagged` flag continues to mean [SPAM].
+    #[serde(default)]
+    pub pub_tagged: bool,
     pub complete: bool,
     /// Local extraction result, before DNS/scanners/LLM can fail. Older rows lack it.
     #[serde(default)]
@@ -97,6 +100,8 @@ pub struct Scan {
     pub vision: crate::vision::Summary,
     #[serde(default)]
     pub protection: Option<crate::protection::Report>,
+    #[serde(default)]
+    pub mailing: Option<crate::mailing::Report>,
     /// Absent on historical rows: never infer checks from their missing reasons.
     #[serde(default)]
     pub evidence: Option<crate::evidence::Evidence>,
@@ -642,6 +647,13 @@ impl Engine {
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
         let mut scan = self.extract(raw);
+        if let Some(settings) = &self.config.mailing {
+            scan.mailing = Some(crate::mailing::inspect(
+                raw,
+                &settings.policy,
+                self.config.filter.max_analysis_bytes,
+            ));
+        }
         self.start_evidence(&mut scan, crate::evidence::Source::ContentOnly);
         #[cfg(feature = "semantic")]
         if scan.complete
@@ -969,6 +981,13 @@ impl Engine {
     ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        if let Some(settings) = &self.config.mailing {
+            scan.mailing = Some(crate::mailing::inspect(
+                raw,
+                &settings.policy,
+                self.config.filter.max_analysis_bytes,
+            ));
+        }
         self.start_evidence(&mut scan, context.0);
         let headers = message::fields(raw)?.0;
         let (semantic, antivirus, signatures, vision) = tokio::join!(
@@ -1297,14 +1316,31 @@ impl Engine {
                     .decision
                     .as_ref()
                     .is_some_and(|d| d.outcome == crate::fusion::runtime::Outcome::Unwanted);
+            let pub_tag = scan.complete
+                && self.config.filter.mode == Mode::Tag
+                && self
+                    .config
+                    .mailing
+                    .as_ref()
+                    .is_some_and(|c| c.policy.tag_subject)
+                && crate::mailing::category(&scan, self.config.filter.threshold)
+                    == crate::mailing::Category::Publicity;
             // If the chain cannot be extended, preserve the signed subject and fail open.
-            if tag && !arc.can_be_sealed() {
+            if (tag || pub_tag) && !arc.can_be_sealed() {
                 anyhow::bail!("ARC chain cannot be extended");
             }
             scan.tagged = tag;
-            let mut bytes = message::rewrite(
+            scan.pub_tagged = pub_tag;
+            let subject_tag = if tag {
+                Some(message::SubjectTag::Spam)
+            } else if pub_tag {
+                Some(message::SubjectTag::Publicity)
+            } else {
+                None
+            };
+            let mut bytes = message::rewrite_with_tag(
                 raw,
-                tag,
+                subject_tag,
                 &format!("{}{}", self.headers(ip, id, &scan), results.to_header()),
             )?;
             if let Some(key) = &self.arc_key
@@ -1329,6 +1365,7 @@ impl Engine {
                         "X-NoiseFence-Status",
                         "X-NoiseFence-Decision",
                         "X-NoiseFence-Decision-Source",
+                        "X-NoiseFence-Category",
                     ])
                     .seal(&changed, &results, &arc)?;
                 bytes = [signature.to_header().as_bytes(), &bytes].concat();
@@ -1345,6 +1382,7 @@ impl Engine {
             _ => {
                 scan.complete = false;
                 scan.tagged = false;
+                scan.pub_tagged = false;
                 scan.reasons.push(Signal {
                     id: "checks_unavailable".into(),
                     detail: "Vérifications incomplètes ou délai dépassé".into(),
@@ -1373,7 +1411,7 @@ impl Engine {
             .map(|s| format!("{s:.1}"))
             .unwrap_or_else(|| "unavailable".into());
         format!(
-            "Received: from [{}] by {} with ESMTP id {};\r\n\t{}\r\nX-NoiseFence-Id: {}\r\nX-NoiseFence-Score: {}\r\nX-NoiseFence-Status: {}\r\nX-NoiseFence-Decision: {}\r\nX-NoiseFence-Decision-Source: {}\r\n",
+            "Received: from [{}] by {} with ESMTP id {};\r\n\t{}\r\nX-NoiseFence-Id: {}\r\nX-NoiseFence-Score: {}\r\nX-NoiseFence-Status: {}\r\nX-NoiseFence-Decision: {}\r\nX-NoiseFence-Decision-Source: {}\r\nX-NoiseFence-Category: {}\r\n",
             ip,
             self.config.hostname,
             id,
@@ -1384,11 +1422,14 @@ impl Engine {
                 "incomplete"
             } else if scan.tagged {
                 "spam"
+            } else if scan.pub_tagged {
+                "pub"
             } else {
                 "observed"
             },
             outcome,
             source,
+            crate::mailing::category(scan, self.config.filter.threshold).as_str(),
         )
     }
     fn finish_unchecked(
@@ -1401,6 +1442,7 @@ impl Engine {
     ) -> Result<(Scan, Vec<u8>)> {
         self.score(&mut scan);
         scan.tagged = false;
+        scan.pub_tagged = false;
         self.decide(&mut scan);
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
         let bytes = message::rewrite(raw, false, &self.headers(ip, id, &scan))?;

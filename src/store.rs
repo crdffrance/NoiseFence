@@ -44,11 +44,14 @@ pub struct VisibleMail {
     pub subject: String,
     pub score: f64,
     pub tagged: bool,
+    pub pub_tagged: bool,
+    pub category: crate::mailing::Category,
     pub complete: bool,
     pub model: String,
     pub reasons: Vec<crate::engine::Signal>,
     pub recipients: Vec<VisibleRecipient>,
     pub feedback: Option<bool>,
+    pub feedback_category: Option<crate::mailing::FeedbackCategory>,
     pub antivirus: crate::antivirus::AntivirusResult,
     pub signatures: crate::antivirus::AntivirusResult,
     pub llm: crate::llm::LlmResult,
@@ -56,6 +59,7 @@ pub struct VisibleMail {
     pub smtp_policy: crate::smtp_policy::PolicyResult,
     pub vision: crate::vision::Summary,
     pub protection: Option<crate::protection::Report>,
+    pub mailing: Option<crate::mailing::Report>,
     pub evidence: Option<crate::evidence::Evidence>,
     pub decision: crate::fusion::runtime::Decision,
     pub fusion: crate::fusion::runtime::Observation,
@@ -372,24 +376,53 @@ impl Store {
         domain: String,
     ) -> Result<Vec<VisibleMail>> {
         self.read(move|db| {
-            let mut q=db.prepare("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1) FROM messages m WHERE m.created>=?5 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1 AND (?7='' OR lower(substr(d.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(d.destination,-length(?7)-1))='@'||lower(?7))) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0 OR EXISTS(SELECT 1 FROM deliveries sd JOIN console_access sg ON sg.delivery_id=sd.id WHERE sd.message_id=m.id AND sg.username=?1 AND instr(lower(sd.address),lower(?2))>0)) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0) OR (?3='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending') AND (?7='' OR lower(substr(pd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(pd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='legitimate' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6))) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4")?;
-            let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?)))?;
+            let sql=format!("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1),(SELECT category FROM feedback_categories c WHERE c.message_id=m.id AND c.username=?1) FROM messages m WHERE m.created>=?5 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1 AND (?7='' OR lower(substr(d.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(d.destination,-length(?7)-1))='@'||lower(?7))) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0 OR EXISTS(SELECT 1 FROM deliveries sd JOIN console_access sg ON sg.delivery_id=sd.id WHERE sd.message_id=m.id AND sg.username=?1 AND instr(lower(sd.address),lower(?2))>0)) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0) OR (?3='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending') AND (?7='' OR lower(substr(pd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(pd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='legitimate' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND NOT {publicity}) OR (?3='publicity' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND {publicity})) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4", publicity=crate::mailing::PUBLICITY_SQL);
+            let mut q=db.prepare(&sql)?;
+            let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?,r.get::<_,Option<String>>(5)?)))?;
             let mut out=Vec::new();
             for row in rows {
-                let (id,created,sender,scan,feedback)=row?;let s:Scan=serde_json::from_str(&scan)?;
+                let (id,created,sender,scan,feedback,feedback_category)=row?;
+                let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
+                let category=crate::mailing::category(&s,threshold);
                 let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2")?;
                 let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{address:r.get(0)?,status:r.get(1)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,protection:s.protection,evidence:s.evidence,decision,fusion:s.fusion});
+                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,fusion:s.fusion});
             }Ok(out)
         }).await
     }
     pub async fn feedback(&self, user: String, id: String, spam: bool) -> Result<()> {
+        self.record_feedback(user, id, spam, None).await
+    }
+    pub async fn feedback_category(
+        &self,
+        user: String,
+        id: String,
+        category: crate::mailing::FeedbackCategory,
+    ) -> Result<()> {
+        self.record_feedback(
+            user,
+            id,
+            category == crate::mailing::FeedbackCategory::Spam,
+            Some(category),
+        )
+        .await
+    }
+    async fn record_feedback(
+        &self,
+        user: String,
+        id: String,
+        spam: bool,
+        category: Option<crate::mailing::FeedbackCategory>,
+    ) -> Result<()> {
         self.run(move|db| {
             let tx=db.transaction()?;
             let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id JOIN messages m ON m.id=d.message_id WHERE d.message_id=?1 AND g.username=?2 AND m.created>=?3)",params![id,user,now()-30*86400],|r|r.get(0))?;
             ensure!(allowed,"message not found");
             tx.execute("INSERT INTO feedback(username,message_id,spam,created) VALUES(?1,?2,?3,?4) ON CONFLICT(username,message_id) DO UPDATE SET spam=excluded.spam,created=excluded.created",params![user,id,spam,now()])?;
+            if let Some(category) = category {
+                tx.execute("INSERT INTO feedback_categories(username,message_id,category) VALUES(?1,?2,?3)",params![user,id,category.as_str()])?;
+            }
             tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'feedback',?3)",params![now(),user,id])?;
             tx.commit()?;Ok(())
         }).await

@@ -86,7 +86,23 @@ pub fn validate(raw: &[u8]) -> Result<()> {
     ensure!(raw.ends_with(b"\r\n"), "message must end with CRLF");
     Ok(())
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubjectTag {
+    Spam,
+    Publicity,
+}
+impl SubjectTag {
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Self::Spam => "[SPAM]",
+            Self::Publicity => "[PUB]",
+        }
+    }
+}
 pub fn rewrite(raw: &[u8], tag: bool, extra: &str) -> Result<Vec<u8>> {
+    rewrite_with_tag(raw, tag.then_some(SubjectTag::Spam), extra)
+}
+pub fn rewrite_with_tag(raw: &[u8], tag: Option<SubjectTag>, extra: &str) -> Result<Vec<u8>> {
     let (headers, body) = fields(raw)?;
     let decoded = mail_parser::MessageParser::default().parse_headers(raw);
     let subject = decoded.as_ref().and_then(|m| m.subject()).unwrap_or("");
@@ -104,18 +120,59 @@ pub fn rewrite(raw: &[u8], tag: bool, extra: &str) -> Result<Vec<u8>> {
         }
         if n == "subject" {
             has_subject = true;
-            if tag && !subject.trim_start().starts_with("[SPAM]") {
+            if let Some(tag) = tag {
+                let prefix = tag.prefix();
+                let mut remaining = subject.trim_start();
+                let mut previous = Vec::new();
+                while let Some(found) =
+                    [SubjectTag::Spam, SubjectTag::Publicity]
+                        .into_iter()
+                        .find(|t| {
+                            remaining
+                                .get(..t.prefix().len())
+                                .is_some_and(|s| s.eq_ignore_ascii_case(t.prefix()))
+                        })
+                {
+                    previous.push(found);
+                    remaining = remaining[found.prefix().len()..].trim_start();
+                }
+                if previous == [tag] {
+                    out.extend_from_slice(header);
+                    continue;
+                }
+                if !previous.is_empty() {
+                    // Replacement is based only on our decision, never on an upstream tag.
+                    // Encoded words can contain the old prefix, so normalize this case.
+                    ensure!(
+                        remaining.len() <= MAX_HEADER_BYTES / 2,
+                        "oversized subject normalization"
+                    );
+                    out.extend_from_slice(format!("Subject: {prefix}").as_bytes());
+                    while !remaining.is_empty() {
+                        let mut end = remaining.len().min(42);
+                        while !remaining.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        out.extend_from_slice(
+                            format!("\r\n\t{}", encoded_subject(&remaining[..end])).as_bytes(),
+                        );
+                        remaining = &remaining[end..];
+                    }
+                    out.extend_from_slice(b"\r\n");
+                    continue;
+                }
                 if header
                     .split(|b| *b == b'\n')
                     .next()
                     .unwrap_or_default()
                     .len()
-                    + 7
+                    + prefix.len()
+                    + 1
                     > 999
                 {
-                    out.extend_from_slice(b"Subject: [SPAM]\r\n\t");
+                    out.extend_from_slice(format!("Subject: {prefix}\r\n\t").as_bytes());
                 } else {
-                    out.extend_from_slice(b"Subject: [SPAM] ");
+                    out.extend_from_slice(format!("Subject: {prefix} ").as_bytes());
                 }
                 let colon = header.iter().position(|b| *b == b':').unwrap();
                 let value = &header[colon + 1..];
@@ -130,8 +187,10 @@ pub fn rewrite(raw: &[u8], tag: bool, extra: &str) -> Result<Vec<u8>> {
         }
         out.extend_from_slice(header);
     }
-    if tag && !has_subject {
-        out.extend_from_slice(b"Subject: [SPAM]\r\n");
+    if let Some(tag) = tag
+        && !has_subject
+    {
+        out.extend_from_slice(format!("Subject: {}\r\n", tag.prefix()).as_bytes());
     }
     out.extend_from_slice(b"\r\n");
     out.extend_from_slice(body);

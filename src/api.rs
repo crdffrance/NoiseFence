@@ -291,7 +291,15 @@ async fn messages(
     if q.q.len() > 600
         || q.offset > 10_000_000
         || (!q.domain.is_empty() && !crate::config::valid_domain(&q.domain))
-        || !["all", "spam", "incomplete", "pending", "legitimate"].contains(&q.filter.as_str())
+        || ![
+            "all",
+            "spam",
+            "publicity",
+            "incomplete",
+            "pending",
+            "legitimate",
+        ]
+        .contains(&q.filter.as_str())
     {
         return Err(Error(StatusCode::BAD_REQUEST, "Recherche invalide.".into()));
     }
@@ -311,7 +319,8 @@ async fn messages(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Feedback {
-    spam: bool,
+    spam: Option<bool>,
+    category: Option<crate::mailing::FeedbackCategory>,
 }
 async fn feedback(
     State(app): State<App>,
@@ -325,10 +334,25 @@ async fn feedback(
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
     }
-    app.store
-        .feedback(user.username, id, body.spam)
-        .await
-        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
+    if let Some(category) = body.category {
+        if body
+            .spam
+            .is_some_and(|spam| spam != (category == crate::mailing::FeedbackCategory::Spam))
+        {
+            return Err(Error(
+                StatusCode::BAD_REQUEST,
+                "Correction contradictoire.".into(),
+            ));
+        }
+        app.store
+            .feedback_category(user.username, id, category)
+            .await
+    } else if let Some(spam) = body.spam {
+        app.store.feedback(user.username, id, spam).await
+    } else {
+        return Err(Error(StatusCode::BAD_REQUEST, "Catégorie requise.".into()));
+    }
+    .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
 async fn stats(
@@ -344,7 +368,7 @@ async fn stats(
     let config = app.effective();
     let threshold = config.filter.threshold;
     let domain = q.domain;
-    let mut result=app.store.read(move|db|{let (received,flagged,pending)=db.query_row("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND m.created>=?2 AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending}))}).await?;
+    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND m.created>=?2 AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity}))}).await?;
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
     result["decision_source"] = json!(if config

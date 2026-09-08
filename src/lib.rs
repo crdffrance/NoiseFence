@@ -8,6 +8,7 @@ pub mod features;
 pub mod fusion;
 pub mod learning;
 pub mod llm;
+pub mod mailing;
 pub mod message;
 pub mod population;
 pub mod protection;

@@ -55,6 +55,8 @@ pub struct LearningExample {
     pub labelled_at: i64,
     pub feature_version: u32,
     pub spam: bool,
+    /// Explicit subtype only. Historical non-spam votes do not imply non-publicity.
+    pub category: Option<crate::mailing::FeedbackCategory>,
     pub fingerprint: String,
     pub simhash: String,
     pub features: Vec<(usize, f64)>,
@@ -63,6 +65,7 @@ pub struct LearningExample {
     /// consumers must require a supported schema and an observed SMTP session.
     pub evidence: Option<crate::evidence::Evidence>,
     pub protection: Option<crate::protection::Report>,
+    pub mailing: Option<crate::mailing::Report>,
 }
 #[derive(Default, Debug, Serialize)]
 pub struct ExportReport {
@@ -78,6 +81,7 @@ pub struct ExportReport {
     pub evidence_exported: usize,
     pub missing_evidence: usize,
     pub non_smtp_evidence: usize,
+    pub conflicting_categories: usize,
 }
 
 fn hex(s: &str, n: usize) -> bool {
@@ -115,9 +119,10 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
             let tx = db.transaction()?;
             {
                 let mut query = tx.prepare(
-                    "SELECT m.id,m.created,m.scan,MIN(f.spam),MAX(f.spam),MAX(f.created)
+                    "SELECT m.id,m.created,m.scan,MIN(f.spam),MAX(f.spam),MAX(f.created),MIN(c.category),MAX(c.category),COUNT(c.category),COUNT(*)
                 FROM messages m JOIN feedback f ON f.message_id=m.id
                 JOIN users u ON u.username=f.username AND u.disabled=0
+                LEFT JOIN feedback_categories c ON c.message_id=f.message_id AND c.username=f.username
                 WHERE m.is_dsn=0 AND m.created>=?1 AND EXISTS (
                     SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id
                     WHERE d.message_id=m.id AND g.username=f.username)
@@ -136,6 +141,18 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                         report.conflicting += 1;
                         continue;
                     }
+                    let first: Option<String> = row.get(6)?;
+                    let last: Option<String> = row.get(7)?;
+                    let explicit: i64 = row.get(8)?;
+                    let votes: i64 = row.get(9)?;
+                    let category = if min == 1 {
+                        Some(crate::mailing::FeedbackCategory::Spam)
+                    } else if first != last {
+                        report.conflicting_categories += 1;
+                        None
+                    } else if explicit == votes {
+                        first.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?
+                    } else { None };
                     let scan: crate::engine::Scan =
                         serde_json::from_str(&row.get::<_, String>(2)?)?;
                     // External availability must not select the local training data.
@@ -223,12 +240,14 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                         labelled_at: row.get(5)?,
                         feature_version: scan.feature_version,
                         spam: min == 1,
+                        category,
                         fingerprint: scan.fingerprint,
                         simhash,
                         features: scan.features,
                         semantic,
                         evidence,
                         protection: scan.protection,
+                        mailing: scan.mailing,
                     };
                     serde_json::to_writer(&mut writer, &example)?;
                     writer.write_all(b"\n")?;

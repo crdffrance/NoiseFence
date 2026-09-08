@@ -21,6 +21,7 @@ pub struct Config {
     pub llm: Option<crate::llm::LlmConfig>,
     pub vision: Option<crate::vision::Settings>,
     pub protection: Option<crate::protection::Settings>,
+    pub mailing: Option<crate::mailing::Settings>,
     pub relay: Relay,
     pub domains: Vec<Domain>,
 }
@@ -441,6 +442,16 @@ impl Config {
                 .context("tag mode requires a Proton compatibility report")?;
             let report: CompatibilityReport = serde_json::from_slice(&std::fs::read(report)?)?;
             report.validate(self)?;
+            if let Some(mailing) = &self.mailing
+                && mailing.policy.tag_subject
+            {
+                let path = mailing
+                    .proton_report
+                    .as_ref()
+                    .context("[PUB] tagging requires its own Proton compatibility report")?;
+                let report: CompatibilityReport = serde_json::from_slice(&std::fs::read(path)?)?;
+                report.validate_prefix(self, "[PUB]")?;
+            }
         }
         Ok(())
     }
@@ -527,8 +538,11 @@ pub struct CompatibilityCase {
 }
 impl CompatibilityReport {
     pub fn validate(&self, config: &Config) -> Result<()> {
+        self.validate_prefix(config, "[SPAM]")
+    }
+    pub fn validate_prefix(&self, config: &Config, prefix: &str) -> Result<()> {
         ensure!(
-            self.hostname == config.hostname && self.prefix == "[SPAM]",
+            self.hostname == config.hostname && self.prefix == prefix,
             "report does not match deployment"
         );
         ensure!(

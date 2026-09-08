@@ -194,7 +194,7 @@ h2 {
 }
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
   margin-bottom: 2rem;
 }
@@ -477,6 +477,7 @@ th {
     display: none;
   }
   .stats {
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.5rem;
   }
   .stats section {
@@ -1058,4 +1059,16 @@ textarea {
   .panel {
     padding: 20px;
   }
+}
+
+.status.publicity {
+  background: #edf5ff;
+  border-color: #b9d5f5;
+  color: #245885;
+}
+.mailing-settings {
+  margin-bottom: 1.5rem;
+}
+.mailing-settings .toggle-row small {
+  display: block;
 }

@@ -89,3 +89,51 @@ fn quoted_reverse_paths_and_postmaster_do_not_introduce_command_injection() {
         assert!(parse_path(value, "FROM:", true).is_err());
     }
 }
+
+#[test]
+fn pub_tag_needs_its_own_proton_evidence_and_can_be_disabled_independently() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.mode = Mode::Tag;
+    cfg.filter.authentication = true;
+    cfg.filter.arc_key = Some(root.path().join("key.pem"));
+    cfg.filter.arc_domain = Some("example.test".into());
+    cfg.filter.arc_selector = Some("test".into());
+    let spam = root.path().join("spam.json");
+    let publicity = root.path().join("pub.json");
+    let mut report = CompatibilityReport {
+        hostname: cfg.hostname.clone(),
+        domains: vec!["example.test".into()],
+        tested_at: noisefence::now(),
+        prefix: "[SPAM]".into(),
+        cases: PROTON_CASES
+            .iter()
+            .map(|s| {
+                (
+                    s.to_string(),
+                    CompatibilityCase {
+                        passed: true,
+                        evidence: "SYNTHETIC SOFTWARE TEST ONLY; NOT LIVE PROTON EVIDENCE".into(),
+                    },
+                )
+            })
+            .collect(),
+        bypass_limit_accepted: true,
+    };
+    std::fs::write(&spam, serde_json::to_vec(&report).unwrap()).unwrap();
+    cfg.filter.proton_report = Some(spam.clone());
+    assert!(cfg.validate().is_ok());
+    cfg.mailing = Some(noisefence::mailing::Settings::default());
+    assert!(cfg.validate().is_err());
+    cfg.mailing.as_mut().unwrap().proton_report = Some(spam);
+    assert!(cfg.validate().is_err());
+    report.prefix = "[PUB]".into();
+    std::fs::write(&publicity, serde_json::to_vec(&report).unwrap()).unwrap();
+    cfg.mailing.as_mut().unwrap().proton_report = Some(publicity.clone());
+    assert!(cfg.validate().is_ok());
+    report.tested_at = 0;
+    std::fs::write(&publicity, serde_json::to_vec(&report).unwrap()).unwrap();
+    assert!(cfg.validate().is_err());
+    cfg.mailing.as_mut().unwrap().policy.tag_subject = false;
+    assert!(cfg.validate().is_ok());
+}
