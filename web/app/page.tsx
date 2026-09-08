@@ -474,7 +474,9 @@ export default function Home() {
                     </div>
                     <p className="muted">
                       {selected.decision?.outcome === 'undetermined'
-                        ? 'Décision indéterminée'
+                        ? selected.complete
+                          ? 'À vérifier · confirmation insuffisante'
+                          : 'Décision indéterminée'
                         : selected.decision?.source === 'fusion'
                           ? 'Estimation calibrée'
                           : 'Indice de suspicion'}
@@ -842,6 +844,7 @@ export default function Home() {
                         ['publicity', 'PUB'],
                         ['legitimate', 'Légitime'],
                         ['pending', 'En attente'],
+                        ['review', 'À vérifier'],
                         ['incomplete', 'Analyse incomplète'],
                       ].map(([value, label]) => (
                         <Button
@@ -917,7 +920,9 @@ export default function Home() {
                                       : m.category === 'publicity'
                                         ? 'PUB détecté'
                                         : m.category === 'undetermined'
-                                          ? 'Indéterminé'
+                                          ? m.complete
+                                            ? 'À vérifier'
+                                            : 'Indéterminé'
                                           : 'Légitime'}
                             </span>
                           </TableCell>

@@ -42,6 +42,7 @@ type Domain = {
 type Filters = {
   mode: 'observe' | 'tag';
   threshold: number;
+  require_corroboration: boolean;
   authentication: boolean;
   antivirus: boolean;
   signatures: boolean;
@@ -114,7 +115,7 @@ type Metrics = {
   };
 };
 const modules: {
-  key: keyof Omit<Filters, 'mode' | 'threshold'>;
+  key: keyof Omit<Filters, 'mode' | 'threshold' | 'require_corroboration'>;
   title: string;
   description: string;
 }[] = [
@@ -861,6 +862,12 @@ export function AdminConsole({
                 </small>
               </label>
             </div>
+            <Toggle
+              label="Exiger une confirmation avant le classement Spam"
+              description="Un score élevé sans confirmation suffisante reste À vérifier. Réduit les classements fondés uniquement sur le modèle, mais peut laisser des spams à examiner. La fusion validée conserve sa propre politique."
+              checked={Boolean(draft.filters.require_corroboration)}
+              onChange={(v) => filterAt('require_corroboration', v)}
+            />
             {!config.tag_ready && (
               <p className="notice">
                 Le marquage nécessite la validation de la livraison Proton et la
@@ -1457,6 +1464,8 @@ export function AdminConsole({
                         {
                           mode: 'Mode de fonctionnement',
                           threshold: 'Seuil de classement',
+                          require_corroboration:
+                            'Confirmation avant classement Spam',
                           smtp_policy_scoring: 'Contribution SMTP',
                           vision_scoring: 'Contribution OCR',
                         } as Record<string, string>

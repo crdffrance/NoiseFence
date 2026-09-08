@@ -94,6 +94,8 @@ pub struct Filter {
     pub mode: Mode,
     #[serde(default = "threshold")]
     pub threshold: f64,
+    #[serde(default)]
+    pub require_corroboration: bool,
     pub model: Option<PathBuf>,
     pub semantic: Option<SemanticFilter>,
     #[serde(default = "yes")]

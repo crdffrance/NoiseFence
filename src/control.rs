@@ -35,6 +35,8 @@ pub struct ManagedDomain {
 pub struct Filters {
     pub mode: Mode,
     pub threshold: f64,
+    #[serde(default)]
+    pub require_corroboration: bool,
     pub authentication: bool,
     pub antivirus: bool,
     pub signatures: bool,
@@ -102,6 +104,7 @@ impl Settings {
             filters: Filters {
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
+                require_corroboration: config.filter.require_corroboration,
                 authentication: config.filter.authentication,
                 antivirus: config.antivirus.is_some(),
                 signatures: config.signatures.is_some(),
@@ -230,6 +233,7 @@ impl Settings {
         }
         cfg.filter.mode = f.mode;
         cfg.filter.threshold = f.threshold;
+        cfg.filter.require_corroboration = f.require_corroboration;
         cfg.filter.authentication = f.authentication;
         if !f.antivirus {
             cfg.antivirus = None;

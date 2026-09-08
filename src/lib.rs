@@ -1,6 +1,7 @@
 pub mod antivirus;
 pub mod api;
 pub mod config;
+pub mod confirmation;
 pub mod corpus;
 pub mod engine;
 pub mod evidence;

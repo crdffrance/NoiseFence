@@ -120,6 +120,10 @@ enum Command {
     ExportFeedback {
         output: PathBuf,
     },
+    /// Aggregate human feedback and replay confirmation, read-only and without external calls.
+    AuditConfirmation {
+        database: PathBuf,
+    },
     /// Export private schema-3 learning vectors; never queues or delivers mail.
     ExportLearning {
         output: PathBuf,
@@ -209,6 +213,13 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::AuditConfirmation { database } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::confirmation::audit(database)?)?
+            );
+            return Ok(());
+        }
         Command::FusionPopulationPredict {
             input,
             model,

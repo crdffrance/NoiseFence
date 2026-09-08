@@ -25,6 +25,8 @@ secure_cookies = true
 [filter]
 mode = "observe"
 threshold = 95.0
+# Score alone does not decide Spam; see docs/confirmation.md for recall tradeoffs.
+require_corroboration = true
 authentication = true
 max_analysis_bytes = 2097152
 # spamhaus_key_env = "SPAMHAUS_DQS_KEY"

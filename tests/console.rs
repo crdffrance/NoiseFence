@@ -74,6 +74,110 @@ async fn message(store: &Store, cfg: &noisefence::config::Config, addresses: &[&
         .unwrap();
     id
 }
+
+#[tokio::test]
+async fn confirmation_audit_is_aggregate_read_only_and_rechecks_human_grants() {
+    use noisefence::{confirmation, fusion::runtime::Decision, llm};
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    account(&store, "alice", false, vec!["alice@example.test"]).await;
+    account(&store, "reviewer", true, vec![]).await;
+    let mut ids = Vec::new();
+    for (index, spam) in [false, false, false, false, true, true, true]
+        .into_iter()
+        .enumerate()
+    {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut scan = extract(common::MESSAGE, 10000);
+        scan.score = if index == 0 { 90. } else { 99. };
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        if spam {
+            scan.llm.status = llm::LlmStatus::Complete;
+            scan.llm.verdict = Some(llm::Verdict {
+                category: llm::Category::Phishing,
+                confidence: 0.95,
+                spam_probability: 0.95,
+                explanation: "Fixture".into(),
+            });
+        }
+        store
+            .enqueue(
+                id.clone(),
+                "PRIVATE SENDER".into(),
+                vec![cfg.recipient("alice@example.test").unwrap()],
+                scan,
+                common::MESSAGE.to_vec(),
+            )
+            .await
+            .unwrap();
+        store
+            .feedback("alice".into(), id.clone(), spam)
+            .await
+            .unwrap();
+        ids.push(id);
+    }
+    let snapshot = || {
+        let db = rusqlite::Connection::open_with_flags(
+            dir.path().join("state.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let mut q = db.prepare("SELECT scan FROM messages ORDER BY id").unwrap();
+        q.query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let before = snapshot();
+    let report = confirmation::audit(&dir.path().join("state.sqlite3")).unwrap();
+    assert_eq!(report.evaluated, 7);
+    assert_eq!(report.before.false_positives, 3);
+    assert_eq!(report.with_confirmation.false_positives, 0);
+    assert_eq!(report.with_confirmation.legitimate_to_review, 3);
+    assert_eq!(report.with_confirmation.spam_detected, 3);
+    assert_eq!(report.with_confirmation.spam_to_review, 0);
+    assert_eq!(report.with_confirmation.legitimate, 1);
+    let text = serde_json::to_string(&report).unwrap();
+    assert!(!text.contains("PRIVATE") && !text.contains("alice") && !text.contains(&ids[0]));
+    assert_eq!(before, snapshot());
+    store
+        .feedback("reviewer".into(), ids[0].clone(), true)
+        .await
+        .unwrap();
+    let report = confirmation::audit(&dir.path().join("state.sqlite3")).unwrap();
+    assert_eq!(report.conflicting, 1);
+    assert_eq!(report.evaluated, 6);
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='reviewer'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        confirmation::audit(&dir.path().join("state.sqlite3"))
+            .unwrap()
+            .evaluated,
+        7
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        confirmation::audit(&dir.path().join("state.sqlite3"))
+            .unwrap()
+            .considered,
+        0
+    );
+    let missing = dir.path().join("nonexistent.sqlite3");
+    assert!(confirmation::audit(&missing).is_err());
+    assert!(!missing.exists());
+}
 #[tokio::test]
 async fn domain_acl_covers_aliases_bcc_search_feedback_stats_and_disabled_accounts() {
     let dir = tempfile::tempdir().unwrap();
@@ -182,6 +286,8 @@ async fn durable_configuration_validation_conflicts_recovery_and_routes() {
     );
     let id = message(&store, &cfg, &["alice@example.test"]).await;
     let mut desired = original.settings.clone();
+    assert!(!desired.filters.require_corroboration);
+    desired.filters.require_corroboration = true;
     desired.gateways[0].port = 2527;
     desired.domains.push(ManagedDomain {
         name: "new.test".into(),
@@ -724,6 +830,13 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
             vec!["alice@example.test"],
         ),
         (
+            "review",
+            Outcome::Undetermined,
+            true,
+            true,
+            vec!["alice@example.test"],
+        ),
+        (
             "hidden",
             Outcome::Legitimate,
             true,
@@ -771,6 +884,7 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
         ("spam", "spam"),
         ("legitimate", "legitimate"),
         ("incomplete", "undetermined"),
+        ("review", "undetermined"),
     ] {
         let (code, body) = request(&app, &alice, &format!("/messages?filter={filter}"), None).await;
         assert_eq!(code, StatusCode::OK, "{body}");
@@ -780,7 +894,7 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
         assert!(!body.to_string().contains("bob@example.test"));
     }
     let (_, stats) = request(&app, &alice, "/stats", None).await;
-    assert_eq!(stats["received"], 4);
+    assert_eq!(stats["received"], 5);
     assert_eq!(stats["publicity"], 1);
     assert_eq!(stats["flagged"], 1);
     let path = format!("/messages/{public_id}/feedback");

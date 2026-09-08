@@ -687,6 +687,8 @@ impl Engine {
     fn decide(&self, scan: &mut Scan) {
         // The historical score remains available for the LLM selection policy,
         // evidence export and comparisons. Fusion never feeds itself on a retry.
+        scan.reasons
+            .retain(|r| r.id != crate::confirmation::REVIEW_REASON);
         Self::refresh_evidence(scan);
         scan.decision = Some(crate::fusion::runtime::Decision::legacy(
             scan,
@@ -695,6 +697,7 @@ impl Engine {
         if let Some(fusion) = &self.fusion {
             fusion.apply(scan);
         }
+        crate::confirmation::apply(scan, self.config.filter.require_corroboration);
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
         if matches!(

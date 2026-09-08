@@ -216,6 +216,7 @@ impl Artifacts {
             "rules":"legacy-rules-with-contextual-dqs-1", "semantic_compiled":cfg!(feature="semantic"),
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
             "authentication":config.filter.authentication,
+            "confirmation": (crate::confirmation::VERSION, config.filter.require_corroboration),
             "reputation_enabled":config.filter.spamhaus_key_env.is_some(), "reputation":REPUTATION_VERSION,
             "antivirus":av(&config.antivirus),"signatures":av(&config.signatures),
             "vision":config.vision.as_ref().map(|c| serde_json::json!({

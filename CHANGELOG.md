@@ -4,6 +4,18 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.20] - 2026-09-09
+
+- Ajouter une option de confirmation du score historique : conserver en
+  « À vérifier » les suspicions sans contrôle supplémentaire suffisamment fort,
+  avec score et caractéristiques intacts, sans préfixe ni reclassement en légitime.
+- Administrer cette option et rechercher les analyses complètes à vérifier,
+  en conservant les autorisations par destinataire et la distinction des pannes.
+- Préciser les consignes LLM contre les faux positifs fondés sur la brièveté,
+  un fournisseur gratuit, un transfert ou une notification de service.
+- Tester la conservation des décisions corroborées, l’absence de confiance
+  dans les en-têtes fournis, les erreurs des fournisseurs et les droits de console.
+
 ## [0.3.0-dev.19] - 2026-09-09
 
 - Verrouiller la dépendance transitive de compilation `sharp` sur 0.35.4 pour
