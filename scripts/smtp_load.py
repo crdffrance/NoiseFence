@@ -33,14 +33,18 @@ def port():
         return s.getsockname()[1]
 
 
-def fixture(index, size):
+def fixture(index, size, html=False):
     header = (f'From: Synthetic <sender@example.test>\r\nTo: alice@example.test\r\n'
               f'Subject: Reunion de travail {index}\r\n'
               f'Message-ID: <load-{index}@example.test>\r\nX-Load-ID: {index}\r\n'
               'Date: Tue, 08 Sep 2026 08:00:00 +0000\r\n'
               'MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n').encode()
+    if html:
+        header=header.replace(b'Content-Type: text/plain',b'Content-Type: text/html')
     # Include dot transparency, many small writes, and a deterministic body.
     line = b'Bonjour, le rendez-vous de travail est confirme pour demain.\r\n'
+    if html:
+        line=b'<p>Reunion de travail <a href="https://example.com/calendar">https://example.com</a></p>\r\n'
     body = b'.Ligne commencant par un point.\r\n'
     remaining = max(0, size-len(header)-len(body)-2)
     body += line*(remaining//len(line)) + b'x'*(remaining % len(line)) + b'\r\n'
@@ -87,7 +91,7 @@ async def run(args):
               'components': {'semantic': bool(args.semantic_encoder),
                              'semantic_parallel': args.semantic_parallel, 'semantic_timeout_ms': args.semantic_timeout_ms,
                              'antivirus': bool(args.antivirus_socket), 'signatures': bool(args.signatures_socket),
-                             'vision': bool(args.vision_socket)},
+                             'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False)},
               'cpu_environment': {k: os.environ.get(k) for k in ('RAYON_NUM_THREADS', 'CANDLE_NUM_THREADS', 'TOKENIZERS_PARALLELISM', 'TOKIO_WORKER_THREADS')}}
     for name in ('lexical_model', 'semantic_combination'):
         value = getattr(args, name)
@@ -170,6 +174,8 @@ async def run(args):
     config += (f'[relay]\nworkers={args.relay_workers}\nrequire_tls=false\nallow_loopback_plaintext=true\n'
                f'port={sink_port}\npostmaster="alice@example.test"\n'
                '[[domains]]\nname="example.test"\nnext_hops=["127.0.0.1"]\nrecipients=["alice@example.test"]\n')
+    if getattr(args,'protection',False):
+        config += '[protection]\n'
     cfg = root/'config.toml'
     cfg.write_text(config)
     report['config_sha256'] = digest(config.encode())
@@ -195,7 +201,7 @@ async def run(args):
             await asyncio.sleep(.1)
 
     async def sender(index):
-        raw, body_hash = fixture(index, args.message_bytes)
+        raw, body_hash = fixture(index, args.message_bytes, getattr(args,"html",False))
         # SMTP dot-stuffing only; the receiver must preserve all original body bytes.
         wire = raw.replace(b'\r\n.', b'\r\n..') + b'.\r\n'
         began = time.monotonic()
@@ -335,6 +341,8 @@ def main():
     parser.add_argument('--relay-workers', type=int, default=8)
     for name in ('lexical-model', 'semantic-encoder', 'semantic-combination', 'antivirus-socket', 'signatures-socket', 'vision-socket'):
         parser.add_argument('--'+name, type=Path)
+    parser.add_argument('--protection',action='store_true',help='Enable local advisory protection; no provider calls')
+    parser.add_argument('--html',action='store_true',help='Use synthetic HTML links for parser load')
     parser.add_argument('--semantic-parallel', type=int, default=1)
     parser.add_argument('--semantic-timeout-ms', type=int, default=500)
     args = parser.parse_args()

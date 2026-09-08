@@ -126,3 +126,12 @@ recipients = []
 # recipients = []
 # [domains.aliases]
 # "test@pilot.example.org" = "canonical@example.org"
+
+# Optional additional detectors, observation only. Provider keys stay on the server.
+[protection]
+timeout_ms = 1200
+max_parallel = 2
+crdf_per_minute = 2
+crdf_per_day = 200
+virustotal_per_minute = 4
+virustotal_per_day = 500

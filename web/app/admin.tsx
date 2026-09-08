@@ -1,4 +1,5 @@
 'use client';
+import { ProtectionSettings, type ProtectionPolicy } from './protection';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Activity,
@@ -51,7 +52,12 @@ type Filters = {
   vision_scoring: boolean;
   reputation: boolean;
 };
-type Settings = { domains: Domain[]; gateways: Gateway[]; filters: Filters };
+type Settings = {
+  domains: Domain[];
+  gateways: Gateway[];
+  filters: Filters;
+  protection: ProtectionPolicy | null;
+};
 type Configuration = {
   revision: number;
   settings: Settings;
@@ -163,6 +169,21 @@ const lines = (s: string) =>
 function normalize(s: Settings): Settings {
   return {
     ...s,
+    protection: s.protection
+      ? {
+          ...s.protection,
+          protected_names: s.protection.protected_names.map((x) => ({
+            name: x.name.trim(),
+            domain: x.domain.trim().toLowerCase(),
+          })),
+          reply_exceptions: s.protection.reply_exceptions
+            .map((x) => x.trim().toLowerCase())
+            .filter(Boolean),
+          link_exceptions: s.protection.link_exceptions
+            .map((x) => x.trim().toLowerCase())
+            .filter(Boolean),
+        }
+      : null,
     gateways: s.gateways.map((g) => ({
       ...g,
       name: g.name.trim(),
@@ -778,6 +799,12 @@ export function AdminConsole({
       )}
       {section === 'filters' && (
         <>
+          <ProtectionSettings
+            key={epoch}
+            policy={draft.protection}
+            user={user}
+            onChange={(protection) => setDraft({ ...draft, protection })}
+          />
           <div className="panel filter-policy">
             <div>
               <h2>Comportement du filtre</h2>
@@ -1343,6 +1370,52 @@ export function AdminConsole({
                     Retrait de la passerelle <strong>{g.name}</strong>.
                   </li>
                 ))}
+                {JSON.stringify(draft.protection) !==
+                  JSON.stringify(config.settings.protection) && (
+                  <li>
+                    <strong>
+                      Protections complémentaires :{' '}
+                      {draft.protection ? 'observation activée' : 'désactivées'}
+                    </strong>
+                    {draft.protection && (
+                      <>
+                        <p>
+                          Usurpation :{' '}
+                          {draft.protection.identity ? 'activée' : 'désactivée'}{' '}
+                          · Liens :{' '}
+                          {draft.protection.links ? 'activés' : 'désactivés'} ·
+                          Campagnes :{' '}
+                          {draft.protection.campaigns
+                            ? 'activées'
+                            : 'désactivées'}{' '}
+                          · CRDF :{' '}
+                          {draft.protection.crdf ? 'activé' : 'désactivé'} ·
+                          VirusTotal :{' '}
+                          {draft.protection.virustotal ? 'activé' : 'désactivé'}
+                          .
+                        </p>
+                        <p>
+                          Noms protégés :{' '}
+                          {draft.protection.protected_names
+                            .map((x) => `${x.name} (${x.domain})`)
+                            .join(', ') || 'aucun'}
+                          .
+                        </p>
+                        <p>
+                          Exceptions de réponse :{' '}
+                          {draft.protection.reply_exceptions
+                            .filter(Boolean)
+                            .join(', ') || 'aucune'}
+                          . Exceptions de suivi :{' '}
+                          {draft.protection.link_exceptions
+                            .filter(Boolean)
+                            .join(', ') || 'aucune'}
+                          .
+                        </p>
+                      </>
+                    )}
+                  </li>
+                )}
                 {Object.entries(draft.filters)
                   .filter(
                     ([k, v]) =>

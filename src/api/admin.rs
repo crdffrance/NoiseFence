@@ -11,6 +11,8 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/audit", get(audit))
         .route("/admin/queue", get(queue))
         .route("/admin/queue/retry", post(retry))
+        .route("/admin/protection", get(protection_status))
+        .route("/admin/protection/keys/{provider}", post(protection_key))
 }
 async fn administrator(app: &App, h: &HeaderMap, write: bool) -> ApiResult<User> {
     let user = authenticated(app, h).await?;
@@ -312,4 +314,55 @@ async fn retry(
         .await
         .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
     Ok(Json(json!({"ok":true})))
+}
+
+async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    administrator(&app, &h, false).await?;
+    let control = controller(&app)?;
+    let settings = control.base.protection.clone();
+    let root = app.store.root.clone();
+    let keys=tokio::task::spawn_blocking(move||json!({"crdf":crate::protection::key_present(&root,crate::protection::Provider::Crdf),"virustotal":crate::protection::key_present(&root,crate::protection::Provider::Virustotal)})).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"État des connecteurs indisponible.".into()))?;
+    Ok(Json(
+        json!({"available":settings.is_some(),"keys":keys,"observation_only":true,
+        "quotas":settings.map(|s|json!({"crdf":{"minute":s.crdf_per_minute,"day":s.crdf_per_day},"virustotal":{"minute":s.virustotal_per_minute,"day":s.virustotal_per_day}}))}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProtectionKey {
+    key: String,
+}
+async fn protection_key(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(provider): Path<String>,
+    Json(body): Json<ProtectionKey>,
+) -> ApiResult<Json<Value>> {
+    let user = administrator(&app, &h, true).await?;
+    let control = controller(&app)?;
+    if control.base.protection.is_none() {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Protection non installée sur le serveur.".into(),
+        ));
+    }
+    let provider = crate::protection::Provider::parse(&provider)
+        .map_err(|_| Error(StatusCode::BAD_REQUEST, "Fournisseur inconnu.".into()))?;
+    if !(16..=256).contains(&body.key.len()) || !body.key.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Clé attendue : 16 à 256 caractères sans espace.".into(),
+        ));
+    }
+    let root = app.store.root.clone();
+    let hash = message::digest(token(&h).unwrap().as_bytes());
+    app.store.run(move|db|{
+        let tx=db.transaction()?;
+        let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![user.username,hash,now()],|r|r.get(0))?;
+        anyhow::ensure!(allowed,"Administrative session expired");
+        crate::protection::save_key(&root,provider,&body.key)?;
+        tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),user.username,provider.name()])?;
+        tx.commit()?;Ok(())
+    }).await?;
+    Ok(Json(json!({"saved":true})))
 }

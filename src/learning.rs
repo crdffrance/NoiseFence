@@ -62,6 +62,7 @@ pub struct LearningExample {
     /// Additive to learning-1; old content trainers ignore this field. Fusion
     /// consumers must require a supported schema and an observed SMTP session.
     pub evidence: Option<crate::evidence::Evidence>,
+    pub protection: Option<crate::protection::Report>,
 }
 #[derive(Default, Debug, Serialize)]
 pub struct ExportReport {
@@ -227,6 +228,7 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                         features: scan.features,
                         semantic,
                         evidence,
+                        protection: scan.protection,
                     };
                     serde_json::to_writer(&mut writer, &example)?;
                     writer.write_all(b"\n")?;

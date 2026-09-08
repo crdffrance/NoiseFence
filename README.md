@@ -139,3 +139,10 @@ Les tests SMTP utilisent exclusivement des sockets loopback et des destinataires
 Les [contrôles de cohérence SMTP/DNS](docs/smtp-policy.md) ajoutent HELO, PTR
 confirmé et domaine d’enveloppe, avec poids plafonnés et observation initiale.
 La commande `smtp-check` permet de les essayer sans envoyer d’email.
+
+### Protections complémentaires
+
+La console peut gérer les noms protégés, exceptions de liens/réponses et clés
+CRDF/VirusTotal. Les nouveaux contrôles de phishing et de campagnes sont
+consultatifs, regroupés sans changer le score calibré. Consulter
+[la configuration, les limites et l’import de flux](docs/protection.md).

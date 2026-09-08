@@ -55,6 +55,7 @@ pub struct VisibleMail {
     pub semantic: VisibleSemantic,
     pub smtp_policy: crate::smtp_policy::PolicyResult,
     pub vision: crate::vision::Summary,
+    pub protection: Option<crate::protection::Report>,
     pub evidence: Option<crate::evidence::Evidence>,
     pub decision: crate::fusion::runtime::Decision,
     pub fusion: crate::fusion::runtime::Observation,
@@ -379,7 +380,7 @@ impl Store {
                 let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2")?;
                 let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{address:r.get(0)?,status:r.get(1)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,evidence:s.evidence,decision,fusion:s.fusion});
+                out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,protection:s.protection,evidence:s.evidence,decision,fusion:s.fusion});
             }Ok(out)
         }).await
     }

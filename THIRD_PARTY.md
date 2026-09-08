@@ -32,3 +32,10 @@ dépôts Debian/Ubuntu ; aucun binaire ni fichier de modèle OCR tiers n'est inc
 dans les archives NoiseFence. Leurs notices et licences sont fournies par les
 paquets sous `/usr/share/doc`. `vision-worker.py --capabilities` relève les versions
 effectives et les empreintes des données OCR pour tracer le backend utilisé.
+
+La protection des liens utilise scraper (ISC) et html5ever (MIT/Apache-2.0),
+ainsi que psl (MIT/Apache-2.0) et sa Public Suffix List embarquée. IDNA conserve
+sa licence MIT/Apache-2.0. Les notices présentes dans les crates sont collectées
+avec celles des autres dépendances. Les API CRDF et VirusTotal et les flux de
+phishing sont facultatifs, soumis aux licences des fournisseurs ; aucun jeu
+de données, secret ou droit de redistribution n’est inclus dans NoiseFence.

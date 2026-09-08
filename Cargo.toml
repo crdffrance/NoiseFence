@@ -1,6 +1,6 @@
 [package]
 name = "noisefence"
-version = "0.3.0-dev.15"
+version = "0.3.0-dev.16"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
@@ -20,6 +20,9 @@ axum = "0.8"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
+idna = "1"
+psl = "2.1"
+scraper = { version = "0.27", default-features = false }
 libc = "0.2"
 mail-auth = { version = "0.12.1", default-features = false, features = ["ring", "dns-hickory", "arc"] }
 mail-parser = "0.11"

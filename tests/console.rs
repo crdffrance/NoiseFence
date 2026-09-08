@@ -579,3 +579,103 @@ async fn configuration_reuses_loaded_lexical_artifact_until_explicit_restart() {
         initial.model
     );
 }
+
+#[tokio::test]
+async fn protection_credentials_stay_private_and_policy_changes_preserve_the_score() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.protection = Some(Default::default());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "reader", false, vec![]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    assert_eq!(
+        request(&app, &reader, "/admin/protection", None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let key = "synthetic-provider-key-123456789";
+    assert_eq!(
+        request(
+            &app,
+            &reader,
+            "/admin/protection/keys/crdf",
+            Some(json!({"key":key}))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/protection/keys/other",
+            Some(json!({"key":key}))
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/protection/keys/crdf",
+            Some(json!({"key":"bad\r\nheader"}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/protection/keys/crdf",
+            Some(json!({"key":key}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (status, body) = request(&app, &admin, "/admin/protection", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["keys"]["crdf"], true);
+    assert!(!body.to_string().contains(key));
+    for path in ["/admin/config", "/admin/audit", "/admin/revisions"] {
+        let (_, body) = request(&app, &admin, path, None).await;
+        assert!(!body.to_string().contains(key));
+    }
+    let req = Request::builder()
+        .uri("/api/v1/admin/protection/keys/crdf")
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("origin", "http://127.0.0.1:3000")
+        .header("cookie", format!("noisefence_session={admin}"))
+        .body(Body::from(json!({"key":key}).to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let old = control.snapshot().engine.offline(common::MESSAGE);
+    let mut settings = control.snapshot().settings.clone();
+    settings.protection.as_mut().unwrap().crdf = true;
+    control.apply(0, settings, "admin".into()).await.unwrap();
+    let new = control.snapshot().engine.offline(common::MESSAGE);
+    assert_eq!(old.score, new.score);
+    assert_eq!(old.features, new.features);
+    assert!(new.protection.unwrap().observation_only);
+    let resumed = Controller::load(cfg, store).await.unwrap();
+    assert!(
+        resumed
+            .snapshot()
+            .settings
+            .protection
+            .as_ref()
+            .unwrap()
+            .crdf
+    );
+}

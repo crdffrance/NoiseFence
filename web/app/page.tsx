@@ -1,4 +1,5 @@
 'use client';
+import { ProtectionDetails, type ProtectionReport } from './protection';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck,
@@ -22,6 +23,7 @@ import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
 import { registerFeedbackTool } from './webmcp';
 type Mail = {
+  protection?: ProtectionReport;
   id: string;
   created: number;
   sender: string;
@@ -665,6 +667,9 @@ export default function Home() {
                       </p>
                     )}
                   </section>
+                  {selected.protection && (
+                    <ProtectionDetails report={selected.protection} />
+                  )}
                   <section className="panel">
                     <h2>Votre avis compte</h2>
                     <p className="muted">

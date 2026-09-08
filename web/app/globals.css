@@ -132,3 +132,30 @@ body {
     @apply font-sans;
   }
 }
+
+.protection-settings > h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+.protection-settings > .form-grid {
+  margin: 1rem 0;
+}
+.protection-settings > button {
+  margin: 0.4rem 0 1rem;
+}
+.protection-settings .protection-identity {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+.protection-settings .module-card .field {
+  margin: 1rem 0;
+}
+@media (max-width: 760px) {
+  .protection-settings .protection-identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .protection-settings .protection-identity > button {
+    justify-self: start;
+  }
+}

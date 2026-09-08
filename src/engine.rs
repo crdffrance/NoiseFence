@@ -95,6 +95,8 @@ pub struct Scan {
     pub smtp_policy: crate::smtp_policy::PolicyResult,
     #[serde(default)]
     pub vision: crate::vision::Summary,
+    #[serde(default)]
+    pub protection: Option<crate::protection::Report>,
     /// Absent on historical rows: never infer checks from their missing reasons.
     #[serde(default)]
     pub evidence: Option<crate::evidence::Evidence>,
@@ -482,6 +484,7 @@ pub struct Engine {
     dqs_cache: Mutex<HashMap<String, (Instant, Vec<std::net::Ipv4Addr>)>>,
     llm: Option<Arc<crate::llm::Client>>,
     vision: Option<Arc<crate::vision::Client>>,
+    protection: Option<Arc<crate::protection::Runtime>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
@@ -589,6 +592,18 @@ impl Engine {
             .clone()
             .map(crate::smtp_policy::Policy::new)
             .transpose()?;
+        let protection = config
+            .protection
+            .as_ref()
+            .map(
+                |settings| match template.and_then(|t| t.protection.clone()) {
+                    Some(runtime) => Ok(runtime),
+                    None => {
+                        crate::protection::Runtime::new(settings, &config.data_dir).map(Arc::new)
+                    }
+                },
+            )
+            .transpose()?;
         let vision = config
             .vision
             .clone()
@@ -620,6 +635,7 @@ impl Engine {
             dqs_cache: Mutex::new(HashMap::new()),
             llm,
             vision,
+            protection,
             #[cfg(feature = "semantic")]
             semantic,
         })
@@ -633,6 +649,9 @@ impl Engine {
         {
             scan.semantic = model.offline(raw);
             Self::check_semantic(&mut scan);
+        }
+        if let Some(runtime) = &self.protection {
+            scan.protection = Some(runtime.local(raw, "", &self.config).0);
         }
         self.score(&mut scan);
         self.decide(&mut scan);
@@ -906,7 +925,7 @@ impl Engine {
             helo,
             sender,
             id,
-            crate::evidence::Source::SuppliedEnvelope,
+            (crate::evidence::Source::SuppliedEnvelope, &[]),
         )
         .await
     }
@@ -917,14 +936,25 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
+        recipients: &[crate::config::Recipient],
     ) -> Result<(Scan, Vec<u8>)> {
+        let scopes: Vec<_> = recipients
+            .iter()
+            .filter_map(|r| {
+                r.destination
+                    .rsplit_once('@')
+                    .map(|(_, d)| d.to_ascii_lowercase())
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
         self.process_with_source(
             raw,
             ip,
             helo,
             sender,
             id,
-            crate::evidence::Source::SmtpSession,
+            (crate::evidence::Source::SmtpSession, &scopes),
         )
         .await
     }
@@ -935,11 +965,11 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        source: crate::evidence::Source,
+        context: (crate::evidence::Source, &[String]),
     ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
-        self.start_evidence(&mut scan, source);
+        self.start_evidence(&mut scan, context.0);
         let headers = message::fields(raw)?.0;
         let (semantic, antivirus, signatures, vision) = tokio::join!(
             async {
@@ -974,8 +1004,10 @@ impl Engine {
         #[cfg(feature = "semantic")]
         Self::check_semantic(&mut scan);
         let mut visual_domains = Vec::new();
+        let mut visual_text = String::new();
         if let Some(mut inspection) = vision {
             visual_domains = inspection.domains();
+            visual_text = inspection.text();
             if let Some(model) = &self.model
                 && inspection.summary.status == crate::vision::Status::Complete
                 && inspection.summary.text_chars > 0
@@ -998,6 +1030,13 @@ impl Engine {
                     .is_some_and(|c| c.contribute_to_score),
             );
         }
+        let targets = if let Some(runtime) = &self.protection {
+            let (report, targets) = runtime.local(raw, &visual_text, &self.config);
+            scan.protection = Some(report);
+            targets
+        } else {
+            Default::default()
+        };
         scan.antivirus = antivirus;
         scan.signatures = signatures;
         if scan.signatures.status != crate::antivirus::AntivirusStatus::Disabled {
@@ -1212,6 +1251,11 @@ impl Engine {
             let (arc, results) = auth_result?;
             self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
                 .await?;
+            if let (Some(runtime), Some(settings)) = (&self.protection, &self.config.protection) {
+                runtime
+                    .observe(&mut scan, targets, &settings.policy, context.1)
+                    .await;
+            }
             self.score(&mut scan);
             if scan.complete
                 && let Some(llm) = &self.llm

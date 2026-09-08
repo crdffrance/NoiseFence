@@ -8,6 +8,7 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
+toml = "0.9"
 libfuzzer-sys = "0.4"
 noisefence = { path = ".." }
 tokio = { version = "1", features = ["rt", "io-util", "time"] }
@@ -28,3 +29,10 @@ bench = false
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "protection"
+path = "fuzz_targets/protection.rs"
+test = false
+doc = false
+bench = false

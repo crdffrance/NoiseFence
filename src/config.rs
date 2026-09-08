@@ -20,6 +20,7 @@ pub struct Config {
     pub signatures: Option<crate::antivirus::AntivirusConfig>,
     pub llm: Option<crate::llm::LlmConfig>,
     pub vision: Option<crate::vision::Settings>,
+    pub protection: Option<crate::protection::Settings>,
     pub relay: Relay,
     pub domains: Vec<Domain>,
 }
@@ -230,6 +231,9 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(protection) = &self.protection {
+            protection.validate()?;
+        }
         ensure!(valid_domain(&self.hostname), "invalid hostname");
         if let Some(vision) = &self.vision {
             vision.validate()?;

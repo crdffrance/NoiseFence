@@ -1,0 +1,21 @@
+[Unit]
+Description=Update licensed NoiseFence phishing URL feed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=noisefence
+Group=noisefence
+EnvironmentFile=/etc/noisefence/url-feed.env
+ExecStart=/usr/bin/python3 /opt/noisefence/current/deploy/update-url-feed.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/noisefence/protection
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=192M
+CPUQuota=25%
+TimeoutStartSec=30

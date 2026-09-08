@@ -52,6 +52,8 @@ pub struct Settings {
     pub gateways: Vec<Gateway>,
     pub domains: Vec<ManagedDomain>,
     pub filters: Filters,
+    #[serde(default)]
+    pub protection: Option<crate::protection::Policy>,
 }
 impl Settings {
     pub fn from_config(config: &Config) -> Self {
@@ -93,6 +95,7 @@ impl Settings {
         Self {
             gateways,
             domains,
+            protection: config.protection.as_ref().map(|c| c.policy.clone()),
             filters: Filters {
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
@@ -251,6 +254,14 @@ impl Settings {
         }
         if let Some(v) = &mut cfg.vision {
             v.contribute_to_score = f.vision_scoring;
+        }
+        match (&self.protection, &mut cfg.protection) {
+            (Some(policy), Some(settings)) => {
+                policy.validate()?;
+                settings.policy = policy.clone();
+            }
+            (Some(_), None) => anyhow::bail!("La protection doit être installée sur le serveur."),
+            (None, _) => cfg.protection = None,
         }
         cfg.validate()?;
         Ok(cfg)

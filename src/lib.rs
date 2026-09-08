@@ -10,6 +10,7 @@ pub mod learning;
 pub mod llm;
 pub mod message;
 pub mod population;
+pub mod protection;
 pub mod relay;
 pub mod research;
 #[cfg(feature = "semantic")]

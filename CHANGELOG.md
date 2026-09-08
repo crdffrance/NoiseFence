@@ -4,6 +4,20 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.16] - 2026-09-08
+
+- Ajouter les protections consultatives contre l’usurpation, les liens trompeurs
+  et les campagnes répétées confirmées dans le domaine destinataire.
+- Regrouper les indices HTML, texte et OCR/QR ; utiliser une base locale d’URLs
+  exactes, avec import atomique, expiration et unités systemd facultatives.
+- Consulter les rapports CRDF Threat Center et VirusTotal avec cache, délais,
+  quotas persistants et états d’erreur distincts. Ne soumettre aucun message,
+  pièce jointe ou lien complet aux fournisseurs.
+- Administrer les noms protégés, exceptions et clés API dans la console, sans
+  exposer les secrets dans les réponses, les révisions ou les journaux.
+- Conserver le score calibré et les décisions de livraison ; exporter les
+  observations pour une validation indépendante avant contribution au classement.
+
 ## [0.3.0-dev.15] - 2026-09-08
 
 - Conserver le modèle lexical chargé et son empreinte avec le moteur multilingue
