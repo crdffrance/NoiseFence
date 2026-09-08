@@ -46,7 +46,8 @@ def main():
         shutil.copytree(ROOT/'release/third-party-licenses',output/'third-party-licenses')
     source=hashlib.sha256()
     inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', *sorted((ROOT/'src').rglob('*.rs')),
-              ROOT/'research/fusion-protocol.json', ROOT/'research/encoder-runtime.lock.json']
+              ROOT/'research/fusion-protocol.json', ROOT/'research/encoder-runtime.lock.json',
+              ROOT/'deploy/vision-worker.py']
     for p in sorted(inputs):
         source.update(str(p.relative_to(ROOT)).encode() + b'\0')
         source.update(hashlib.sha256(p.read_bytes()).digest())

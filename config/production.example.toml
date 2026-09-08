@@ -31,6 +31,14 @@ max_analysis_bytes = 2097152
 # arc_selector = "gateway2026"
 # proton_report = "/etc/noisefence/proton-validation.json"
 
+# Optional isolated local OCR/QR service; install deploy/install-vision.sh first.
+# See docs/vision.md. Incomplete checks prevent subject tagging.
+# [vision]
+# socket = "/run/noisefence-vision/worker.sock"
+# timeout_ms = 3000
+# max_parallel = 1
+# contribute_to_score = false
+
 # Optional local semantic combination; requires a binary built with --features semantic.
 # Use the matching calibrated filter.model and an independently validated combination.
 # See research/README.md for native trials and resource controls.

@@ -25,3 +25,10 @@ Les bases de signatures ont leurs propres conditions d'utilisation et ne sont pa
 redistribuées dans les archives NoiseFence. Le manifeste épingle les sources du
 programme, pas une copie perpétuelle des bases. L'accès Scaleway relève du compte
 et des conditions du fournisseur ; aucun modèle LLM ni secret n'est distribué.
+
+Le worker OCR facultatif utilise les paquets système Tesseract et ses données
+françaises/anglaises, ZBar, Pillow et Poppler. Ils s'installent séparément via les
+dépôts Debian/Ubuntu ; aucun binaire ni fichier de modèle OCR tiers n'est inclus
+dans les archives NoiseFence. Leurs notices et licences sont fournies par les
+paquets sous `/usr/share/doc`. `vision-worker.py --capabilities` relève les versions
+effectives et les empreintes des données OCR pour tracer le backend utilisé.

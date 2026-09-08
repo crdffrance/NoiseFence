@@ -36,6 +36,10 @@ enum Command {
     Scan {
         message: PathBuf,
     },
+    /// Read image/PDF text and barcodes locally; no delivery, database, DNS or LLM.
+    VisionInspect {
+        message: PathBuf,
+    },
     /// Inspect SMTP identity via DNS only; no message, delivery, model or paid call.
     SmtpCheck {
         #[arg(long)]
@@ -295,6 +299,28 @@ async fn main() -> Result<()> {
         _ => {}
     }
     let config = Arc::new(Config::load(&cli.config)?);
+    if let Command::VisionInspect { message } = &cli.command {
+        use std::io::Read;
+        let mut raw = Vec::new();
+        std::fs::File::open(message)?
+            .take(config.smtp.max_message_bytes as u64 + 1)
+            .read_to_end(&mut raw)?;
+        ensure!(
+            raw.len() <= config.smtp.max_message_bytes,
+            "message exceeds configured size limit"
+        );
+        let client = noisefence::vision::Client::new(
+            config
+                .vision
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("configure [vision] first"))?,
+        )?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&client.inspect(&raw).await)?
+        );
+        return Ok(());
+    }
     if let Command::SmtpCheck {
         source_ip,
         helo,

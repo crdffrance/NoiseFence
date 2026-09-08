@@ -218,6 +218,12 @@ impl Artifacts {
             "authentication":config.filter.authentication,
             "reputation_enabled":config.filter.spamhaus_key_env.is_some(), "reputation":REPUTATION_VERSION,
             "antivirus":av(&config.antivirus),"signatures":av(&config.signatures),
+            "vision":config.vision.as_ref().map(|c| serde_json::json!({
+                "protocol":crate::vision::PROTOCOL,"worker":crate::vision::worker_sha256(),
+                "backend":c.backend_sha256,"timeout_ms":c.timeout_ms,"max_parallel":c.max_parallel,
+                "max_parts":c.max_parts,"max_part_bytes":c.max_part_bytes,"max_total_bytes":c.max_total_bytes,
+                "max_pixels":c.max_pixels,"max_pages":c.max_pages,"max_text_chars":c.max_text_chars,
+                "max_codes":c.max_codes,"contribute":c.contribute_to_score})),
             "semantic":config.filter.semantic.as_ref().map(|c| (c.max_parallel,c.timeout_ms)),
             "smtp_policy":config.smtp_policy.as_ref().map(|c| serde_json::json!({
                 "version":smtp_policy::VERSION,"contribute":c.contribute_to_score,
@@ -281,6 +287,9 @@ pub struct Evidence {
     pub signatures: Option<antivirus::AntivirusResult>,
     pub smtp_policy_state: State,
     pub smtp_policy: Option<smtp_policy::PolicyResult>,
+    /// Absent on historical rows and when the local vision check did not run.
+    #[serde(default)]
+    pub vision: Option<crate::vision::Summary>,
     pub llm: LlmObservation,
 }
 
@@ -322,6 +331,7 @@ impl Evidence {
             signatures: Default::default(),
             smtp_policy_state: State::configured(config.smtp_policy.is_some()),
             smtp_policy: Default::default(),
+            vision: None,
             llm: LlmObservation {
                 state: State::configured(llm_enabled),
                 outcome: (!llm_enabled).then_some(llm::LlmStatus::Disabled),
@@ -345,6 +355,9 @@ impl Evidence {
 
     pub fn refresh(&mut self, scan: &engine::Scan) {
         self.analysis_complete = scan.complete;
+        if scan.vision.status != crate::vision::Status::Disabled {
+            self.vision = Some(scan.vision.clone());
+        }
         self.legacy_score = Some(scan.score);
         use antivirus::AntivirusStatus as Av;
         let av_state = |status: &Av, original| match status {
@@ -397,6 +410,9 @@ impl Evidence {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if let Some(vision) = &self.vision {
+            vision.validate()?;
+        }
         let hash = |value: &str| {
             value.len() == 64
                 && value

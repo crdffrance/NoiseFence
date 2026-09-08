@@ -1,0 +1,14 @@
+[Unit]
+Description=NoiseFence local OCR and barcode socket
+
+[Socket]
+ListenStream=/run/noisefence-vision/worker.sock
+SocketUser=noisefence-vision
+SocketGroup=noisefence
+SocketMode=0660
+DirectoryMode=0755
+Backlog=8
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

@@ -93,6 +93,8 @@ pub struct Scan {
     pub semantic: SemanticResult,
     #[serde(default)]
     pub smtp_policy: crate::smtp_policy::PolicyResult,
+    #[serde(default)]
+    pub vision: crate::vision::Summary,
     /// Absent on historical rows: never infer checks from their missing reasons.
     #[serde(default)]
     pub evidence: Option<crate::evidence::Evidence>,
@@ -412,7 +414,13 @@ struct ReputationTarget {
     domain: String,
     roles: Vec<crate::evidence::DomainRole>,
 }
-fn reputation_targets(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<ReputationTarget> {
+fn reputation_targets(
+    raw: &[u8],
+    from: &str,
+    helo: &str,
+    sender: &str,
+    visual_domains: &[String],
+) -> Vec<ReputationTarget> {
     use crate::evidence::DomainRole;
     // Envelope identities take priority over attacker-controlled body links.
     let mut targets: Vec<ReputationTarget> = Vec::new();
@@ -430,8 +438,10 @@ fn reputation_targets(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<R
     .into_iter()
     .filter_map(|(domain, role)| domain.map(|d| (d.to_owned(), role)))
     .chain(
-        domains_in_message(raw)
-            .into_iter()
+        visual_domains
+            .iter()
+            .cloned()
+            .chain(domains_in_message(raw))
             .map(|d| (d, DomainRole::Body)),
     ) {
         let domain = domain.trim_end_matches('.').to_ascii_lowercase();
@@ -455,7 +465,7 @@ fn reputation_targets(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<R
 }
 #[cfg(test)]
 fn reputation_domains(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<String> {
-    reputation_targets(raw, from, helo, sender)
+    reputation_targets(raw, from, helo, sender, &[])
         .into_iter()
         .map(|t| t.domain)
         .collect()
@@ -471,6 +481,7 @@ pub struct Engine {
     smtp_policy: Option<crate::smtp_policy::Policy>,
     dqs_cache: Mutex<HashMap<String, (Instant, Vec<std::net::Ipv4Addr>)>>,
     llm: Option<crate::llm::Client>,
+    vision: Option<crate::vision::Client>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
@@ -543,6 +554,11 @@ impl Engine {
             .clone()
             .map(crate::smtp_policy::Policy::new)
             .transpose()?;
+        let vision = config
+            .vision
+            .clone()
+            .map(crate::vision::Client::new)
+            .transpose()?;
         #[cfg(feature = "semantic")]
         let semantic_hash = semantic.as_ref().map(|s| s.sha256().to_owned());
         #[cfg(not(feature = "semantic"))]
@@ -565,6 +581,7 @@ impl Engine {
             dqs_key,
             dqs_cache: Mutex::new(HashMap::new()),
             llm,
+            vision,
             #[cfg(feature = "semantic")]
             semantic,
         })
@@ -739,12 +756,13 @@ impl Engine {
         helo: &str,
         sender: &str,
         scan: &mut Scan,
+        visual_domains: &[String],
     ) -> Result<()> {
         use crate::evidence::{Dataset, DomainQuery, DomainRole, Query, State};
         let Some(key) = &self.dqs_key else {
             return Ok(());
         };
-        let targets = reputation_targets(raw, &scan.sender, helo, sender);
+        let targets = reputation_targets(raw, &scan.sender, helo, sender, visual_domains);
         let evidence = &mut scan
             .evidence
             .as_mut()
@@ -892,7 +910,7 @@ impl Engine {
             scan.semantic = model.analyze(raw.to_vec()).await;
             Self::check_semantic(&mut scan);
         }
-        let (antivirus, signatures) = tokio::join!(
+        let (antivirus, signatures, vision) = tokio::join!(
             async {
                 match &self.config.antivirus {
                     Some(config) => crate::antivirus::scan(config, raw).await,
@@ -904,8 +922,39 @@ impl Engine {
                     Some(config) => crate::antivirus::scan(config, raw).await,
                     None => Default::default(),
                 }
+            },
+            async {
+                match &self.vision {
+                    Some(client) => Some(client.inspect(raw).await),
+                    None => None,
+                }
             }
         );
+        let mut visual_domains = Vec::new();
+        if let Some(mut inspection) = vision {
+            visual_domains = inspection.domains();
+            if let Some(model) = &self.model
+                && inspection.summary.status == crate::vision::Status::Complete
+                && inspection.summary.text_chars > 0
+            {
+                // Independent observation: keep the trained mail feature schema intact.
+                use base64::Engine as _;
+                let text: String = inspection.text().chars().take(32_000).collect();
+                let encoded = base64::engine::general_purpose::STANDARD.encode(text);
+                let local = format!(
+                    "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{encoded}\r\n"
+                );
+                inspection.summary.lexical_logit =
+                    Some(model.logit(&self.extract(local.as_bytes()).features));
+            }
+            inspection.apply(
+                &mut scan,
+                self.config
+                    .vision
+                    .as_ref()
+                    .is_some_and(|c| c.contribute_to_score),
+            );
+        }
         scan.antivirus = antivirus;
         scan.signatures = signatures;
         if scan.signatures.status != crate::antivirus::AntivirusStatus::Disabled {
@@ -1118,7 +1167,8 @@ impl Engine {
             policy_result.apply(&mut scan);
             scan.smtp_policy = policy_result;
             let (arc, results) = auth_result?;
-            self.reputation(ip, raw, helo, sender, &mut scan).await?;
+            self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
+                .await?;
             self.score(&mut scan);
             if scan.complete
                 && let Some(llm) = &self.llm
@@ -1288,6 +1338,28 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn visual_links_keep_a_reputation_slot_after_envelope_identities() {
+        let raw = format!(
+            "Subject: visual links\r\n\r\n{}",
+            (0..12)
+                .map(|i| format!("https://footer{i}.example.org/ "))
+                .collect::<String>()
+        );
+        let visual = vec!["qr.example.invalid".into()];
+        let targets = super::reputation_targets(
+            raw.as_bytes(),
+            "from@example.org",
+            "mx.example.org",
+            "sender@example.org",
+            &visual,
+        );
+        assert_eq!(targets.len(), 12);
+        assert_eq!(targets[0].domain, "example.org");
+        assert_eq!(targets[1].domain, "mx.example.org");
+        assert_eq!(targets[2].domain, "qr.example.invalid");
+        assert_eq!(targets[2].roles, [crate::evidence::DomainRole::Body]);
+    }
     use super::*;
     #[tokio::test]
     async fn reputation_categories_and_context_are_preserved_without_penalizing_abused_identities()
@@ -1331,6 +1403,7 @@ mod tests {
                     "EXAMPLE.ORG.",
                     "sender@example.org",
                     &mut scan,
+                    &[],
                 )
                 .await
                 .unwrap();
@@ -1388,6 +1461,7 @@ mod tests {
                 "example.org",
                 "sender@example.org",
                 &mut scan,
+                &[],
             )
             .await
             .unwrap();

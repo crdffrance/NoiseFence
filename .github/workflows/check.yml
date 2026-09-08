@@ -23,6 +23,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests_python -v
       - run: sudo python3 tests/systemd_learning.py
+      - name: Exercise isolated local OCR, QR and scanned PDF decoding
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng zbar-tools python3-pil poppler-utils qrencode fonts-dejavu-core
+          /usr/bin/python3 tests/vision_worker.py
+          sudo /usr/bin/python3 tests/systemd_vision.py
   rust:
     strategy:
       matrix:

@@ -44,12 +44,25 @@ mv -Tf "$base/current.next" "$base/current"
 ln -sfn current/noisefence "$base/noisefence"
 ln -sfn current/web "$base/web"
 install -m 0644 deploy/noisefence.service /etc/systemd/system/noisefence.service
+vision_installed=false
+if [ -f /etc/systemd/system/noisefence-vision.service ]; then
+    vision_installed=true
+    install -m 0644 deploy/noisefence-vision.service /etc/systemd/system/
+    install -m 0644 deploy/noisefence-vision.socket /etc/systemd/system/
+fi
 systemctl daemon-reload
 systemctl enable noisefence.service
-if ! systemctl restart noisefence.service; then
+if ! (if "$vision_installed"; then systemctl restart noisefence-vision.service || exit 1; fi
+      systemctl restart noisefence.service); then
     if [ -n "$previous" ]; then
         ln -sfn "$previous" "$base/current.next"
         mv -Tf "$base/current.next" "$base/current"
+        if "$vision_installed" && [ -f "$base/current/deploy/noisefence-vision.service" ]; then
+            install -m 0644 "$base/current/deploy/noisefence-vision.service" /etc/systemd/system/
+            install -m 0644 "$base/current/deploy/noisefence-vision.socket" /etc/systemd/system/
+            systemctl daemon-reload
+            systemctl restart noisefence-vision.service || true
+        fi
         systemctl restart noisefence.service || true
     fi
     echo 'Startup failed; inspect journalctl -u noisefence.' >&2

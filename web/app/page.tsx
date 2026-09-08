@@ -85,6 +85,16 @@ type Mail = {
     encoder: string;
     elapsed_ms: number;
   };
+  vision?: {
+    status: 'disabled' | 'complete' | 'limited' | 'unavailable' | 'busy';
+    parts: number;
+    pages: number;
+    text_chars: number;
+    qr_codes: number;
+    other_codes: number;
+    link_domains: number;
+    elapsed_ms: number;
+  };
 };
 type Stats = {
   received: number;
@@ -423,6 +433,18 @@ export default function Home() {
                     busy: 'capacité occupée, analyse incomplète',
                     unavailable: 'indisponible ou délai dépassé',
                   }[selected.semantic.status]} · {selected.semantic.elapsed_ms} ms</p>
+                )}
+                {selected.vision && selected.vision.status !== 'disabled' && (
+                  <div className="notice">
+                    <strong>Lecture des images et PDF : {{
+                      complete: selected.vision.parts ? 'effectuée' : 'aucun contenu visuel local',
+                      limited: 'partielle, limites atteintes ou document illisible',
+                      busy: 'capacité occupée, analyse incomplète',
+                      unavailable: 'indisponible ou délai dépassé',
+                    }[selected.vision.status]}</strong>
+                    {selected.vision.pages > 0 && <p>{selected.vision.pages} page(s) · {selected.vision.text_chars} caractères · {selected.vision.qr_codes} QR code(s) · {selected.vision.other_codes} autre(s) code(s) · {selected.vision.link_domains} domaine(s) dans les liens</p>}
+                    <small>Traitement local · {selected.vision.elapsed_ms} ms · Les liens décodés ne sont pas ouverts.</small>
+                  </div>
                 )}
                 {selected.llm && selected.llm.status !== 'disabled' && (
                   <p className="muted">Analyse complémentaire Scaleway : {{

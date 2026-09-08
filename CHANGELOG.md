@@ -4,6 +4,18 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.12] - 2026-09-08
+
+- Lire localement le texte français/anglais, les QR codes et codes-barres des
+  images jointes, intégrées et des PDF avec Tesseract, ZBar et Poppler isolés.
+- Borner temps, mémoire, pixels, pages, octets et sorties ; rendre l'analyse
+  incomplète en cas de panne ou de limite, sans bloquer la livraison.
+- Afficher les résultats dans la console, intégrer les domaines décodés à la
+  réputation configurée et conserver des observations sans texte ni codes bruts.
+- Ajouter `vision-inspect` pour lire explicitement un `.eml` local sans DNS,
+  LLM, stockage ou livraison. Les nouvelles règles restent consultatives par
+  défaut ; aucune performance de capture ou de faux positifs n'est présumée.
+
 ## [0.3.0-dev.11] - 2026-09-07
 
 - Évaluer hors ligne chaque ligne d'un export de population avec
