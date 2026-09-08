@@ -4,6 +4,14 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.19] - 2026-09-09
+
+- Verrouiller la dépendance transitive de compilation `sharp` sur 0.35.4 pour
+  corriger [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
+  Conserver les contrôles d’audit ; ne pas rétrograder les outils Cloudflare.
+- Publier la catégorie PUB de dev.18 avec cette correction. Le tag dev.18 reste
+  conservé ; sa publication a été interrompue après l’échec de l’audit frontend.
+
 ## [0.3.0-dev.18] - 2026-09-09
 
 - Distinguer les publicités et newsletters légitimes dans une catégorie PUB,
