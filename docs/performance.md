@@ -241,3 +241,58 @@ des premiers messages et excluent le temps de chargement du modèle du débit.
 Ils complètent les tests STARTTLS, reprise après interruption et accès existants.
 Ils ne mesurent ni le débit de Proton, ni celui de TLS, ni un trafic Internet
 réel. Toute projection en messages/jour exige un profil représentatif durable.
+
+### Résultats sur le VPS du 8 septembre 2026
+
+Le [rapport complet](../research/smtp-capacity-20260908.json) conserve tous les
+profils, y compris ceux qui sautent des contrôles. Les essais comparent les
+archives officielles 0.3.0-dev.12 et 0.3.0-dev.13 sur le VPS Debian 13 à 4 vCPU et
+7 757 Mio de RAM. Le démon isolé et son client sont plafonnés ensemble à trois
+cœurs et 3 Gio ; les scanners locaux utilisent leurs services habituels. Les
+configurations du service et ses messages ne sont pas utilisés par le banc.
+
+| Profil synthétique | Messages / clients | Ancien débit livré | Nouveau débit livré | Analyse complète, nouvelle version |
+| --- | ---: | ---: | ---: | ---: |
+| Texte 1 Kio, moteur léger, 4 traitements | 200 / 8 | 7,99/s | 151,36/s | 200/200, sans modèle ni scanners |
+| Texte 1 Mio, moteur léger, 4 traitements | 40 / 4 | 6,39/s | 12,99/s | 40/40, sans modèle ni scanners |
+| Rafale 1 Kio, moteur léger, 16 traitements | 1 000 / 128 | Non mesuré | 149,52/s | 1 000/1 000, sans modèle ni scanners |
+| Modèle + antivirus, 1 traitement, 4 threads CPU | 100 / 8 | Non mesuré à ce réglage | 2,91/s | 100/100 |
+| Modèle + antivirus, 2 traitements, 2 threads CPU | 100 / 8 | Non mesuré à ce réglage | 4,85/s | 100/100, sans image |
+| Modèle + antivirus + image/QR, 1 traitement | 20 / 8 | Non mesuré | 1,35/s | 20/20 |
+| Modèle + antivirus + image/QR, 2 traitements | 20 / 8 | Non mesuré | 6,08/s | **4/20 : OCR occupé pour les 16 autres** |
+
+La livraison des 200 petits messages passe de 25,02 à 1,32 seconde. Pour les
+40 gros messages, le p95 d'acceptation passe de 785 à 315 ms et le temps CPU
+échantillonné du démon de 10,64 à 1,26 seconde. Ces comparaisons incluent le
+récepteur Python et les écritures durables ; elles ne mesurent pas le relais TLS
+vers Proton. Les 2 120 messages de l'ensemble des essais ont été retrouvés dans
+le récepteur et en état durable `delivered`, sans doublon ni changement de corps.
+
+Le profil retenu pour le serveur est `max_processing = 1`, un worker sémantique,
+quatre threads de calcul et huit workers de relais. Sur le texte, l'analyse p95
+est de **339 ms**, avec un pic RSS observé de 1 154 224 128 octets pour le démon.
+Avec l'image synthétique de 1 300 × 650 pixels (mail d'environ 27 Kio), le p95
+est de **672 ms** : les 20 textes et QR codes sont décodés. Ce dernier cas dépasse
+l'objectif initial de 500 ms. Le profil à deux traitements est plus rapide pour
+le texte, mais sa saturation OCR ne permet pas de le retenir pour les mails mixtes.
+
+L'ancienne admission de quatre traitements produit seulement 2 analyses complètes
+sur 100 lors de la rafale avec un worker sémantique. L'attente bornée de la
+nouvelle version, seule, n'est pas suffisante : à quatre traitements, 3/100 sont
+complets. Le réglage de l'admission est donc nécessaire avec ces modèles et ce
+matériel. Il implique des réponses temporaires avant DATA : sur le lot de texte
+retenu, 163 réponses 451 et un p95 d'acceptation de 30,71 secondes, reprises
+comprises. Sur le lot OCR retenu, 79 réponses 451 et un p95 d'acceptation de
+13,68 secondes. Les clients réels peuvent attendre beaucoup plus longtemps avant
+leur prochaine tentative. Le p95 **d'analyse** ne doit pas être présenté comme
+une latence d'arrivée sous rafale.
+
+Pour reproduire le cas OCR depuis le dépôt, avec Pillow, `qrencode` et les fontes
+DejaVu installés, utiliser `scripts/smtp_load_vision.py` avec les mêmes options
+que le banc texte et `--vision-socket`. Ce complément emploie l'image publique de
+`tests/vision_worker.py`, sans contenu privé ; il vérifie également la lecture du
+texte et du QR pour chaque réponse OCR complète. L'archive v0.3.0-dev.13 contient
+le banc texte ; le complément et ce rapport sont disponibles dans le dépôt.
+Les réglages du modèle, des antivirus, de l'OCR et du LLM du service restent
+actifs ; DNS et LLM ont été exclus uniquement des essais isolés. Une capacité de
+production soutenue, avec le trafic réel, TLS et Proton, reste à mesurer.
