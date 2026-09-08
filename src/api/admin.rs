@@ -36,18 +36,27 @@ async fn domains(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>>
     let user = authenticated(&app, &h).await?;
     // Only expose configured domains within the viewer's grants. Message queries independently
     // recheck the database ACL, including disabled accounts, for each visible recipient.
-    let config = app.effective();
-    let names: Vec<_> = config
-        .domains
-        .iter()
-        .filter(|d| {
+    let configured: Vec<String> = app
+        .control
+        .as_ref()
+        .map(|c| {
+            c.snapshot()
+                .settings
+                .domains
+                .iter()
+                .map(|d| d.name.clone())
+                .collect()
+        })
+        .unwrap_or_else(|| app.config.domains.iter().map(|d| d.name.clone()).collect());
+    let names: Vec<_> = configured
+        .into_iter()
+        .filter(|name| {
             user.admin
                 || user.addresses.iter().any(|a| {
                     a.rsplit_once('@')
-                        .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(&d.name))
+                        .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(name))
                 })
         })
-        .map(|d| d.name.clone())
         .collect();
     Ok(Json(json!(names)))
 }

@@ -504,14 +504,29 @@ impl Engine {
                 None => crate::llm::Client::new(c.clone(), &config.data_dir).map(Arc::new),
             })
             .transpose()?;
-        let model_bytes = config
-            .filter
-            .model
-            .as_ref()
-            .map(std::fs::read)
-            .transpose()?;
-        let model = model_bytes.as_deref().map(Model::from_bytes).transpose()?;
-        let model_hash = model_bytes.as_deref().map(message::digest);
+        let (model, model_hash) = if let Some(template) = template {
+            ensure!(
+                config.filter.model == template.config.filter.model,
+                "Changing model paths requires a restart"
+            );
+            // Keep the exact lexical bytes paired with the resident semantic encoder.
+            // A file replacement on disk must not silently bypass their calibration binding.
+            (
+                template.model.clone(),
+                template.evidence_artifacts.lexical_model_sha256.clone(),
+            )
+        } else {
+            let bytes = config
+                .filter
+                .model
+                .as_ref()
+                .map(std::fs::read)
+                .transpose()?;
+            (
+                bytes.as_deref().map(Model::from_bytes).transpose()?,
+                bytes.as_deref().map(message::digest),
+            )
+        };
         #[cfg(feature = "semantic")]
         let semantic = config
             .filter

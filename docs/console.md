@@ -84,7 +84,9 @@ en mémoire. La déconnexion du navigateur n’interrompt pas cette application.
 Chaque transaction SMTP garde sa configuration du MAIL jusqu’à DATA. Les nouveaux
 messages utilisent la nouvelle politique ; ceux déjà acceptés gardent leur route
 persistée. Les limites globales d’analyse et les moteurs lourds sont partagés entre
-révisions. Une nouvelle route ne redirige pas des messages déjà en file.
+révisions. Le modèle lexical chargé et son empreinte sont également conservés
+avec le modèle multilingue : remplacer un fichier sur disque demande un
+redémarrage, qui revalide leur calibration. Une nouvelle route ne redirige pas des messages déjà en file.
 
 Pour revenir à une ancienne configuration, la charger depuis l’état du serveur,
 l’examiner puis l’appliquer. La restauration est une nouvelle révision et passe

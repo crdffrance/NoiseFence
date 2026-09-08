@@ -4,6 +4,14 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.15] - 2026-09-08
+
+- Conserver le modèle lexical chargé et son empreinte avec le moteur multilingue
+  résident pendant les changements de configuration. Un fichier remplacé sur
+  disque n’est activé qu’au redémarrage, après validation de leurs liens.
+- Maintenir les domaines désactivés dans le sélecteur de l’historique, sous réserve
+  des accès du compte, pour consulter les messages déjà reçus.
+
 ## [0.3.0-dev.14] - 2026-09-08
 
 - Administrer les domaines, leurs alias, la réception de toutes les adresses et

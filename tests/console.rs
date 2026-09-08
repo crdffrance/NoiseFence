@@ -523,3 +523,59 @@ async fn concurrent_configuration_changes_never_overwrite_and_cli_matches_saved_
     );
     assert!(cli.recipient("new@example.test").is_some());
 }
+
+#[tokio::test]
+async fn configuration_reuses_loaded_lexical_artifact_until_explicit_restart() {
+    use noisefence::{
+        engine::{Algorithm, Model},
+        features,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    let path = dir.path().join("model.json");
+    let mut model = Model {
+        version: "ORIGINAL-TEST-ONLY".into(),
+        algorithm: Algorithm::Logistic,
+        feature_version: features::VERSION,
+        bias: -4.0,
+        weights: vec![0.0; features::DIMENSION],
+        idf: vec![1.0; features::DIMENSION],
+        trained_at: noisefence::now(),
+        examples: 10,
+    };
+    std::fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+    cfg.filter.model = Some(path.clone());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let token = account(&store, "admin", true, vec![]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let initial = control.snapshot().engine.offline(common::MESSAGE);
+    model.version = "REPLACEMENT-TEST-ONLY".into();
+    model.bias = 4.0;
+    std::fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+    let mut settings = control.snapshot().settings.clone();
+    settings.domains.push(ManagedDomain {
+        name: "disabled.test".into(),
+        gateway: Some(settings.gateways[0].id.clone()),
+        enabled: false,
+        accept_all_recipients: true,
+        recipients: vec![],
+        aliases: Default::default(),
+    });
+    control.apply(0, settings, "admin".into()).await.unwrap();
+    let after = control.snapshot().engine.offline(common::MESSAGE);
+    assert_eq!(after.model, initial.model);
+    assert_eq!(after.score, initial.score);
+    assert_eq!(
+        after.evidence.unwrap().artifacts.lexical_model_sha256,
+        initial.evidence.unwrap().artifacts.lexical_model_sha256
+    );
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control)).unwrap();
+    let (_, domains) = request(&app, &token, "/domains", None).await;
+    assert_eq!(domains, json!(["example.test", "disabled.test"]));
+    let restarted = Controller::load(cfg, store).await.unwrap();
+    assert_ne!(
+        restarted.snapshot().engine.offline(common::MESSAGE).model,
+        initial.model
+    );
+}
