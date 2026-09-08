@@ -19,6 +19,8 @@ struct Cli {
 enum Command {
     Serve,
     CheckConfig,
+    /// Restore the bootstrap policy; requires the daemon to be stopped.
+    ConsoleReset,
     Init,
     UserAdd {
         username: String,
@@ -298,7 +300,28 @@ async fn main() -> Result<()> {
         }
         _ => {}
     }
-    let config = Arc::new(Config::load(&cli.config)?);
+    let bootstrap = Arc::new(Config::load(&cli.config)?);
+    let config = if matches!(cli.command, Command::Serve | Command::ConsoleReset) {
+        bootstrap
+    } else {
+        noisefence::control::effective_from_disk(bootstrap)?
+    };
+    if matches!(cli.command, Command::ConsoleReset) {
+        let store = Store::open(&config.data_dir)?;
+        let _lock = store.daemon_lock()?;
+        let settings = serde_json::to_string(&noisefence::control::Settings::from_config(&config))?;
+        let revision = store.run(move |db| {
+            let tx = db.transaction()?;
+            tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,'local-administrator',?2)", rusqlite::params![noisefence::now(),settings])?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','configuration',?2)",rusqlite::params![noisefence::now(),id.to_string()])?;
+            tx.commit()?; Ok(id)
+        }).await?;
+        println!(
+            "Bootstrap settings restored as revision {revision}. Start the daemon to apply them."
+        );
+        return Ok(());
+    }
     if let Command::VisionInspect { message } = &cli.command {
         use std::io::Read;
         let mut raw = Vec::new();
@@ -499,10 +522,13 @@ async fn main() -> Result<()> {
         } => {
             for address in &addresses {
                 ensure!(
-                    config
-                        .recipient(address)
-                        .is_some_and(|r| r.destination == *address),
-                    "grant must name a configured canonical destination: {address}"
+                    (address
+                        .strip_prefix("*@")
+                        .is_some_and(|domain| config.domains.iter().any(|d| d.name == domain)))
+                        || config
+                            .recipient(address)
+                            .is_some_and(|r| r.destination == *address),
+                    "grant must name a configured canonical destination or *@domain: {address}"
                 );
             }
             let password = rpassword::prompt_password("Console password (12+ characters): ")?;
@@ -522,7 +548,11 @@ async fn main() -> Result<()> {
                             == 1,
                         "unknown user"
                     );
-                    tx.execute("DELETE FROM sessions WHERE username=?1", [username])?;
+                    let admins:i64=tx.query_row("SELECT COUNT(*) FROM users WHERE admin=1 AND disabled=0",[],|r|r.get(0))?;
+                    ensure!(admins>0,"the last active administrator cannot be disabled");
+                    tx.execute("DELETE FROM sessions WHERE username=?1", [&username])?;
+                    tx.execute("INSERT INTO console_user_versions(username,version) VALUES(?1,1) ON CONFLICT(username) DO UPDATE SET version=version+1",[&username])?;
+                    tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','account',?2)",rusqlite::params![noisefence::now(),username])?;
                     tx.commit()?;
                     Ok(())
                 })
@@ -542,7 +572,9 @@ async fn main() -> Result<()> {
                         )? == 1,
                         "unknown user"
                     );
-                    tx.execute("DELETE FROM sessions WHERE username=?1", [username])?;
+                    tx.execute("DELETE FROM sessions WHERE username=?1", [&username])?;
+                    tx.execute("INSERT INTO console_user_versions(username,version) VALUES(?1,1) ON CONFLICT(username) DO UPDATE SET version=version+1",[&username])?;
+                    tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','account',?2)",rusqlite::params![noisefence::now(),username])?;
                     tx.commit()?;
                     Ok(())
                 })
@@ -604,7 +636,9 @@ async fn main() -> Result<()> {
         Command::Serve => {
             let _lock = store.daemon_lock()?;
             store.recover().await?;
-            let engine = Arc::new(Engine::new(config.clone())?);
+            let control =
+                noisefence::control::Controller::load(config.clone(), store.clone()).await?;
+            let engine = control.snapshot().engine.clone();
             let listener = tokio::net::TcpListener::bind(config.smtp.listen).await?;
             let web = tokio::net::TcpListener::bind(config.web.listen).await?;
             let (stop, rx) = tokio::sync::watch::channel(false);
@@ -615,14 +649,26 @@ async fn main() -> Result<()> {
                 engine: engine.clone(),
                 processing: Arc::new(tokio::sync::Semaphore::new(config.smtp.max_processing)),
             };
-            let mut smtp = tokio::spawn(noisefence::smtp::serve(listener, state, rx.clone()));
-            let mut relay = tokio::spawn(noisefence::relay::worker(
+            let mut smtp = tokio::spawn(noisefence::smtp::serve_controlled(
+                listener,
+                state,
+                Some(control.clone()),
+                rx.clone(),
+            ));
+            let mut relay = tokio::spawn(noisefence::relay::worker_controlled(
                 config.clone(),
                 store.clone(),
                 engine,
+                Some(control.clone()),
                 rx.clone(),
             ));
-            let mut api = tokio::spawn(noisefence::api::serve(web, config, store, rx));
+            let mut api = tokio::spawn(noisefence::api::serve_controlled(
+                web,
+                config,
+                store,
+                Some(control),
+                rx,
+            ));
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             tokio::select! {

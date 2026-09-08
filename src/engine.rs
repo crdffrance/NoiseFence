@@ -480,18 +480,29 @@ pub struct Engine {
     dqs_key: Option<String>,
     smtp_policy: Option<crate::smtp_policy::Policy>,
     dqs_cache: Mutex<HashMap<String, (Instant, Vec<std::net::Ipv4Addr>)>>,
-    llm: Option<crate::llm::Client>,
-    vision: Option<crate::vision::Client>,
+    llm: Option<Arc<crate::llm::Client>>,
+    vision: Option<Arc<crate::vision::Client>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
 impl Engine {
     pub fn new(config: Arc<Config>) -> Result<Self> {
+        Self::build(config, None)
+    }
+    /// Reuse loaded models and capacity gates across atomic console revisions.
+    /// The controller only changes supported flags and routing, never model paths.
+    pub(crate) fn reconfigure(&self, config: Arc<Config>) -> Result<Self> {
+        Self::build(config, Some(self))
+    }
+    fn build(config: Arc<Config>, template: Option<&Self>) -> Result<Self> {
         let llm = config
             .llm
             .as_ref()
             .filter(|c| c.monthly_budget_micro_eur > 0)
-            .map(|c| crate::llm::Client::new(c.clone(), &config.data_dir))
+            .map(|c| match template.and_then(|t| t.llm.clone()) {
+                Some(client) => Ok(client),
+                None => crate::llm::Client::new(c.clone(), &config.data_dir).map(Arc::new),
+            })
             .transpose()?;
         let model_bytes = config
             .filter
@@ -513,6 +524,15 @@ impl Engine {
                         .is_some_and(|m| m.feature_version == crate::features::VERSION),
                     "semantic combination requires lexical feature schema 3"
                 );
+                if let Some(template) = template {
+                    ensure!(
+                        config.filter.threshold == template.config.filter.threshold,
+                        "Le seuil du modèle multilingue est lié à sa calibration."
+                    );
+                    if let Some(model) = &template.semantic {
+                        return Ok(model.clone());
+                    }
+                }
                 crate::semantic::Hybrid::load_bound(
                     settings,
                     model_hash.as_deref().unwrap(),
@@ -557,7 +577,10 @@ impl Engine {
         let vision = config
             .vision
             .clone()
-            .map(crate::vision::Client::new)
+            .map(|settings| match template.and_then(|t| t.vision.clone()) {
+                Some(client) => Ok(client),
+                None => crate::vision::Client::new(settings).map(Arc::new),
+            })
             .transpose()?;
         #[cfg(feature = "semantic")]
         let semantic_hash = semantic.as_ref().map(|s| s.sha256().to_owned());

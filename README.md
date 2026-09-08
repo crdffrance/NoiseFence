@@ -2,7 +2,7 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. En mode `tag`, les messages suspects reçoivent `[SPAM]` dans l’objet. Le score ne provoque ni rejet ni quarantaine.
 
-**Version de développement 0.3.0-dev.13 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
+**Version de développement 0.3.0-dev.14 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
 Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 
@@ -12,6 +12,11 @@ La [lecture OCR, QR codes et codes-barres](docs/vision.md) traite aussi les imag
 jointes ou intégrées et les PDF scannés, en français et en anglais, dans un worker
 local isolé. Les résultats sont visibles dans la console ; `vision-inspect` permet
 de lire les textes et les codes exacts d'un fichier `.eml` local.
+
+La [console d’administration](docs/console.md) permet de gérer les domaines,
+passerelles, filtres, comptes et livraisons. Les administrateurs voient tous les
+messages de l’organisation ; les utilisateurs voient uniquement leurs accès.
+Les réglages sont validés, versionnés et appliqués sans redémarrage.
 
 ## Démarrage local
 
@@ -32,12 +37,12 @@ Le mot de passe est saisi de manière interactive, sans argument de ligne de com
 
 Pour développer la console, lancer `npm run dev` dans `web` puis ouvrir l’URL locale affichée. Le proxy de développement transmet `/api` vers Rust. Pour consulter directement la version compilée sur le port 18080, utiliser une copie de la configuration avec `web.public_origin = "http://127.0.0.1:18080"`. L’origine doit correspondre exactement à l’URL du navigateur.
 
-Le compte `alice` ne voit que les messages livrés à `alice@example.test`, y compris ceux reçus via l’alias `billing@example.test`. Créer un compte distinct pour Bob si nécessaire. Aucun compte ni mot de passe par défaut n’est intégré.
+Le compte `alice` ne voit que les messages livrés à `alice@example.test`, y compris ceux reçus via l’alias `billing@example.test`. Créer un compte distinct pour Bob si nécessaire. Aucun compte ni mot de passe par défaut n’est intégré. Pour administrer tous les domaines, créer un compte avec `user-add administrateur --admin`.
 
 Pour accepter `*@example.org` sans déclarer chaque boîte dans la passerelle,
 activer `accept_all_recipients = true` dans ce domaine : chaque adresse est relayée
 vers elle-même chez Proton. Les alias explicites restent prioritaires et les
-droits de console restent attribués par adresse. Voir la
+droits de console peuvent être attribués par adresse ou par domaine. Voir la
 [configuration de réception par domaine](docs/operations.md)
 dans le guide d'exploitation.
 

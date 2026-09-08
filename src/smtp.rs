@@ -115,6 +115,14 @@ impl Drop for PeerGuard {
 pub async fn serve(
     listener: TcpListener,
     state: State,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    serve_controlled(listener, state, None, shutdown).await
+}
+pub async fn serve_controlled(
+    listener: TcpListener,
+    state: State,
+    control: Option<Arc<crate::control::Controller>>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let tls = tls_acceptor(&state.config)?;
@@ -130,8 +138,8 @@ pub async fn serve(
                 let permit=slots.clone().try_acquire_owned();
                 let allowed={let mut counts=peers.lock().unwrap();let n=counts.get(&peer.ip()).copied().unwrap_or(0);if n>=state.config.smtp.max_connections_per_ip || permit.is_err(){false}else{counts.insert(peer.ip(),n+1);true}};
                 if !allowed {let _=tokio::time::timeout(Duration::from_secs(1),socket.write_all(b"421 4.3.2 Server busy\r\n")).await;continue;}
-                let state=state.clone();let tls=tls.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
-                tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls).await{tracing::debug!(error=%error,"SMTP session ended");}});
+                let state=state.clone();let tls=tls.clone();let control=control.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
+                tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls,control).await{tracing::debug!(error=%error,"SMTP session ended");}});
             }
         }
     }
@@ -186,10 +194,11 @@ pub fn parse_path<'a>(arg: &'a str, prefix: &str, allow_empty: bool) -> Result<(
 async fn session(
     socket: TcpStream,
     peer: SocketAddr,
-    state: State,
+    mut state: State,
     tls: Option<TlsAcceptor>,
+    control: Option<Arc<crate::control::Controller>>,
 ) -> Result<()> {
-    let cfg = &state.config;
+    let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
     reply(&mut io, &format!("220 {} ESMTP\r\n", cfg.hostname)).await?;
     let mut helo = String::new();
@@ -199,6 +208,7 @@ async fn session(
     let mut recipients: Vec<Recipient> = Vec::new();
     let mut errors = 0;
     for _ in 0..1000 {
+        let cfg = state.config.clone();
         let bytes = match line(&mut io, 512, cfg.smtp.command_timeout_seconds).await {
             Ok(Some(b)) => b,
             Ok(None) => break,
@@ -215,6 +225,17 @@ async fn session(
             }
         };
         let (verb, arg) = command.split_once(' ').unwrap_or((command, ""));
+        // Read the current revision when MAIL arrives, even on a connection that
+        // was idle while an administrator applied new settings.
+        if from.is_none()
+            && verb.eq_ignore_ascii_case("MAIL")
+            && let Some(control) = &control
+        {
+            let snapshot = control.snapshot();
+            state.config = snapshot.config.clone();
+            state.engine = snapshot.engine.clone();
+        }
+        let cfg = state.config.clone();
         match verb.to_ascii_uppercase().as_str() {
             "EHLO" | "HELO" => {
                 if arg.is_empty() || arg.len() > 255 || arg.bytes().any(|b| b <= 32 || b == 127) {

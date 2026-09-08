@@ -47,7 +47,7 @@ def main():
     if (ROOT/'release/third-party-licenses').is_dir():
         shutil.copytree(ROOT/'release/third-party-licenses',output/'third-party-licenses')
     source=hashlib.sha256()
-    inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', *sorted((ROOT/'src').rglob('*.rs')),
+    inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', ROOT/'src/control-schema.sql', *sorted((ROOT/'src').rglob('*.rs')),
               ROOT/'research/fusion-protocol.json', ROOT/'research/encoder-runtime.lock.json',
               ROOT/'deploy/vision-worker.py']
     for p in sorted(inputs):

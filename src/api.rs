@@ -1,3 +1,4 @@
+mod admin;
 use crate::{
     config::Config,
     message, now,
@@ -30,12 +31,13 @@ use tower_http::services::ServeDir;
 pub struct App {
     pub config: Arc<Config>,
     pub store: Store,
+    control: Option<Arc<crate::control::Controller>>,
     limiter: Arc<Mutex<HashMap<String, (i64, u32)>>>,
     hashing: Arc<tokio::sync::Semaphore>,
     dummy_hash: Arc<String>,
 }
 #[derive(Debug)]
-pub struct Error(StatusCode, &'static str);
+pub struct Error(StatusCode, String);
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         (self.0, Json(json!({"error":self.1}))).into_response()
@@ -46,7 +48,7 @@ impl From<anyhow::Error> for Error {
         tracing::error!(error=%e,"API operation failed");
         Self(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Service temporairement indisponible.",
+            "Service temporairement indisponible.".into(),
         )
     }
 }
@@ -87,7 +89,7 @@ fn origin(app: &App, h: &HeaderMap) -> ApiResult<()> {
     if h.get(header::ORIGIN).and_then(|v| v.to_str().ok()) != Some(&app.config.web.public_origin) {
         return Err(Error(
             StatusCode::FORBIDDEN,
-            "Origine de la demande refusée.",
+            "Origine de la demande refusée.".into(),
         ));
     }
     Ok(())
@@ -106,7 +108,7 @@ fn csrf(user: &User, h: &HeaderMap) -> ApiResult<()> {
     {
         return Err(Error(
             StatusCode::FORBIDDEN,
-            "Session de formulaire expirée.",
+            "Session de formulaire expirée.".into(),
         ));
     }
     Ok(())
@@ -124,14 +126,14 @@ fn cookie(app: &App, value: &str, age: u32) -> String {
 async fn authenticated(app: &App, h: &HeaderMap) -> ApiResult<User> {
     let hash = token(h)
         .map(|t| message::digest(t.as_bytes()))
-        .ok_or(Error(StatusCode::UNAUTHORIZED, "Connexion requise."))?;
+        .ok_or(Error(StatusCode::UNAUTHORIZED, "Connexion requise.".into()))?;
     app.store.run(move|db|{
         let user=db.query_row("SELECT u.username,u.admin,s.csrf FROM sessions s JOIN users u ON u.username=s.username WHERE s.token_hash=?1 AND s.expires>?2 AND u.disabled=0",params![hash,now()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,String>(2)?))).optional()?;
         let Some((username,admin,csrf))=user else{return Ok(None);};
         let mut q=db.prepare("SELECT address FROM grants WHERE username=?1 ORDER BY address")?;
         let addresses=q.query_map([&username],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
         Ok(Some(User{username,admin,csrf,addresses}))
-    }).await?.ok_or(Error(StatusCode::UNAUTHORIZED,"Connexion requise."))
+    }).await?.ok_or(Error(StatusCode::UNAUTHORIZED,"Connexion requise.".into()))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -148,7 +150,7 @@ async fn login(
     if body.username.len() > 100 || body.password.len() > 128 {
         return Err(Error(
             StatusCode::UNAUTHORIZED,
-            "Identifiant ou mot de passe incorrect.",
+            "Identifiant ou mot de passe incorrect.".into(),
         ));
     }
     {
@@ -159,7 +161,7 @@ async fn login(
         if global.1 > 100 {
             return Err(Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Trop de tentatives. Réessayez plus tard.",
+                "Trop de tentatives. Réessayez plus tard.".into(),
             ));
         }
         let attempts = limiter
@@ -169,7 +171,7 @@ async fn login(
         if attempts.1 > 10 {
             return Err(Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Trop de tentatives. Réessayez plus tard.",
+                "Trop de tentatives. Réessayez plus tard.".into(),
             ));
         }
     }
@@ -190,7 +192,7 @@ async fn login(
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans quelques instants.",
+            "Réessayez dans quelques instants.".into(),
         )
     })?;
     let valid = tokio::task::spawn_blocking(move || {
@@ -198,11 +200,16 @@ async fn login(
         verify(&body.password, &hash)
     })
     .await
-    .map_err(|_| Error(StatusCode::INTERNAL_SERVER_ERROR, "Connexion indisponible."))?;
+    .map_err(|_| {
+        Error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Connexion indisponible.".into(),
+        )
+    })?;
     if !valid || saved.is_none() {
         return Err(Error(
             StatusCode::UNAUTHORIZED,
-            "Identifiant ou mot de passe incorrect.",
+            "Identifiant ou mot de passe incorrect.".into(),
         ));
     }
     let session = random_token();
@@ -269,6 +276,8 @@ struct Search {
     filter: String,
     #[serde(default)]
     offset: u32,
+    #[serde(default)]
+    domain: String,
 }
 fn all() -> String {
     "all".into()
@@ -281,18 +290,20 @@ async fn messages(
     let user = authenticated(&app, &h).await?;
     if q.q.len() > 600
         || q.offset > 10_000_000
-        || !["all", "spam", "incomplete"].contains(&q.filter.as_str())
+        || (!q.domain.is_empty() && !crate::config::valid_domain(&q.domain))
+        || !["all", "spam", "incomplete", "pending", "legitimate"].contains(&q.filter.as_str())
     {
-        return Err(Error(StatusCode::BAD_REQUEST, "Recherche invalide."));
+        return Err(Error(StatusCode::BAD_REQUEST, "Recherche invalide.".into()));
     }
     Ok(Json(
         app.store
-            .list(
+            .list_scoped(
                 user.username,
                 q.q,
                 q.filter,
                 q.offset,
-                app.config.filter.threshold,
+                app.effective().filter.threshold,
+                q.domain,
             )
             .await?,
     ))
@@ -312,23 +323,31 @@ async fn feedback(
     let user = authenticated(&app, &h).await?;
     csrf(&user, &h)?;
     if uuid::Uuid::parse_str(&id).is_err() {
-        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable."));
+        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
     }
     app.store
         .feedback(user.username, id, body.spam)
         .await
-        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable."))?;
+        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
-async fn stats(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+async fn stats(
+    State(app): State<App>,
+    h: HeaderMap,
+    Query(q): Query<Search>,
+) -> ApiResult<Json<Value>> {
     let user = authenticated(&app, &h).await?;
     let username = user.username;
-    let threshold = app.config.filter.threshold;
-    let mut result=app.store.run(move|db|{let (received,flagged,pending)=db.query_row("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN grants g ON g.address=d.destination WHERE g.username=?1 AND m.created>=?2",params![username,now()-30*86400,threshold],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending}))}).await?;
-    result["mode"] = serde_json::to_value(app.config.filter.mode).unwrap();
+    if !q.domain.is_empty() && !crate::config::valid_domain(&q.domain) {
+        return Err(Error(StatusCode::BAD_REQUEST, "Domaine invalide.".into()));
+    }
+    let config = app.effective();
+    let threshold = config.filter.threshold;
+    let domain = q.domain;
+    let mut result=app.store.read(move|db|{let (received,flagged,pending)=db.query_row("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND m.created>=?2 AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending}))}).await?;
+    result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
-    result["decision_source"] = json!(if app
-        .config
+    result["decision_source"] = json!(if config
         .fusion
         .as_ref()
         .is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision)
@@ -356,7 +375,7 @@ async fn password(
     if body.current_password.len() > 128 || !(12..=128).contains(&body.new_password.len()) {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Le nouveau mot de passe doit contenir 12 à 128 octets.",
+            "Le nouveau mot de passe doit contenir 12 à 128 octets.".into(),
         ));
     }
     let name = user.username.clone();
@@ -373,7 +392,7 @@ async fn password(
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans quelques instants.",
+            "Réessayez dans quelques instants.".into(),
         )
     })?;
     let hash = tokio::task::spawn_blocking(move || {
@@ -382,8 +401,18 @@ async fn password(
         hash_password(&body.new_password)
     })
     .await
-    .map_err(|_| Error(StatusCode::INTERNAL_SERVER_ERROR, "Service indisponible."))?
-    .map_err(|_| Error(StatusCode::BAD_REQUEST, "Mot de passe actuel incorrect."))?;
+    .map_err(|_| {
+        Error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Service indisponible.".into(),
+        )
+    })?
+    .map_err(|_| {
+        Error(
+            StatusCode::BAD_REQUEST,
+            "Mot de passe actuel incorrect.".into(),
+        )
+    })?;
     app.store
         .run(move |db| {
             let tx = db.transaction()?;
@@ -404,11 +433,14 @@ async fn health() -> Json<Value> {
 async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     let user = authenticated(&app, &h).await?;
     if !user.admin {
-        return Err(Error(StatusCode::FORBIDDEN, "Accès administrateur requis."));
+        return Err(Error(
+            StatusCode::FORBIDDEN,
+            "Accès administrateur requis.".into(),
+        ));
     }
-    let mut result=app.store.run(|db|{let (queued,failed,oldest)=db.query_row("SELECT SUM(status IN ('pending','sending')),SUM(status='failed'),MIN(CASE WHEN status IN ('pending','sending') THEN m.created END) FROM deliveries d JOIN messages m ON m.id=d.message_id",[],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?)))?;let (count,incomplete,p95)=db.query_row("SELECT COUNT(*),COALESCE(SUM(json_extract(scan,'$.complete')=0),0),COALESCE(MAX(json_extract(scan,'$.elapsed_ms')),0) FROM messages WHERE created>?1",[now()-3600],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"queued_deliveries":queued,"unnotified_failures":failed,"oldest_pending_age_seconds":oldest.map(|t|now()-t),"received_last_hour":count,"incomplete_last_hour":incomplete,"max_analysis_ms_last_hour":p95}))}).await?;
+    let mut result=app.store.read(|db|{let (queued,failed,oldest)=db.query_row("SELECT SUM(status IN ('pending','sending')),SUM(status='failed'),MIN(CASE WHEN status IN ('pending','sending') THEN m.created END) FROM deliveries d JOIN messages m ON m.id=d.message_id",[],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?)))?;let (count,incomplete,p95)=db.query_row("SELECT COUNT(*),COALESCE(SUM(json_extract(scan,'$.complete')=0),0),COALESCE(MAX(json_extract(scan,'$.elapsed_ms')),0) FROM messages WHERE created>?1",[now()-3600],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"queued_deliveries":queued,"unnotified_failures":failed,"oldest_pending_age_seconds":oldest.map(|t|now()-t),"received_last_hour":count,"incomplete_last_hour":incomplete,"max_analysis_ms_last_hour":p95}))}).await?;
     result["disk_available_bytes"] = json!(crate::store::available_bytes(&app.store.root)?);
-    if let Some(config) = &app.config.llm {
+    if let Some(config) = &app.effective().llm {
         let path = app.store.root.join("llm-budget.sqlite3");
         let mut usage = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
             if path.exists() {
@@ -436,10 +468,26 @@ async fn security_headers(req: Request, next: Next) -> Response {
     h.insert("content-security-policy","default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'".parse().unwrap());
     response
 }
+impl App {
+    fn effective(&self) -> Arc<Config> {
+        self.control
+            .as_ref()
+            .map(|c| c.snapshot().config.clone())
+            .unwrap_or_else(|| self.config.clone())
+    }
+}
 pub fn router(config: Arc<Config>, store: Store) -> Result<Router> {
+    router_controlled(config, store, None)
+}
+pub fn router_controlled(
+    config: Arc<Config>,
+    store: Store,
+    control: Option<Arc<crate::control::Controller>>,
+) -> Result<Router> {
     let app = App {
         config: config.clone(),
         store,
+        control,
         limiter: Arc::new(Mutex::new(HashMap::new())),
         hashing: Arc::new(tokio::sync::Semaphore::new(4)),
         dummy_hash: Arc::new(hash_password(&random_token())?),
@@ -452,14 +500,15 @@ pub fn router(config: Arc<Config>, store: Store) -> Result<Router> {
         .route("/messages/{id}/feedback", post(feedback))
         .route("/stats", get(stats))
         .route("/password", post(password))
-        .route("/metrics", get(metrics));
+        .route("/metrics", get(metrics))
+        .merge(admin::routes());
     Ok(Router::new()
         .nest("/api/v1", api)
         .route("/healthz", get(health))
         .fallback_service(
             ServeDir::new(&config.web.static_dir).append_index_html_on_directories(true),
         )
-        .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(DefaultBodyLimit::max(128 * 1024))
         .layer(middleware::from_fn(security_headers))
         .with_state(app))
 }
@@ -501,9 +550,18 @@ pub async fn serve(
     listener: tokio::net::TcpListener,
     config: Arc<Config>,
     store: Store,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    serve_controlled(listener, config, store, None, shutdown).await
+}
+pub async fn serve_controlled(
+    listener: tokio::net::TcpListener,
+    config: Arc<Config>,
+    store: Store,
+    control: Option<Arc<crate::control::Controller>>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
-    axum::serve(listener, router(config, store)?)
+    axum::serve(listener, router_controlled(config, store, control)?)
         .with_graceful_shutdown(async move {
             let _ = shutdown.changed().await;
             tokio::time::sleep(Duration::from_millis(10)).await;

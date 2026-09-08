@@ -92,10 +92,12 @@ fn safe_ip(ip: IpAddr) -> bool {
             ),
     }
 }
-async fn deliver_host(cfg: &Config, job: &Job, raw: &[u8], host: &str) -> Result<Outcome> {
+async fn deliver_host(cfg: &Config, job: &Job, raw: &[u8], route: &str) -> Result<Outcome> {
+    let (host, port) = crate::config::endpoint(route, cfg.relay.port)
+        .ok_or_else(|| anyhow::anyhow!("invalid upstream endpoint"))?;
     let addresses = tokio::time::timeout(
         Duration::from_secs(10),
-        tokio::net::lookup_host((host, cfg.relay.port)),
+        tokio::net::lookup_host((host, port)),
     )
     .await??;
     let mut socket = None;
@@ -357,6 +359,15 @@ pub async fn worker(
     config: Arc<Config>,
     store: Store,
     engine: Arc<Engine>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    worker_controlled(config, store, engine, None, shutdown).await
+}
+pub async fn worker_controlled(
+    mut config: Arc<Config>,
+    store: Store,
+    mut engine: Arc<Engine>,
+    control: Option<Arc<crate::control::Controller>>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let mut jobs = JoinSet::new();
@@ -365,6 +376,11 @@ pub async fn worker(
     loop {
         if *shutdown.borrow() {
             break;
+        }
+        if let Some(control) = &control {
+            let snapshot = control.snapshot();
+            config = snapshot.config.clone();
+            engine = snapshot.engine.clone();
         }
         // Refill on completion or enqueue, not just on the retry poll. The poll
         // still discovers due retries and changes made by another Store instance.

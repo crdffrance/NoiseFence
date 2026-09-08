@@ -18,6 +18,7 @@ pub struct Store {
     pub root: PathBuf,
     db: Arc<Mutex<Connection>>,
     delivery_ready: Arc<tokio::sync::Notify>,
+    console_reads: Arc<tokio::sync::Semaphore>,
 }
 #[derive(Clone, Debug)]
 pub struct Job {
@@ -107,10 +108,12 @@ impl Store {
               CREATE INDEX messages_created ON messages(created); PRAGMA user_version=1;")?;
             tx.commit()?;
         }
+        db.execute_batch(include_str!("control-schema.sql"))?;
         Ok(Self {
             root: root.into(),
             db: Arc::new(Mutex::new(db)),
             delivery_ready: Arc::new(tokio::sync::Notify::new()),
+            console_reads: Arc::new(tokio::sync::Semaphore::new(4)),
         })
     }
     pub(crate) async fn wait_for_delivery(&self) {
@@ -141,6 +144,40 @@ impl Store {
             f(&mut *db
                 .lock()
                 .map_err(|_| anyhow::anyhow!("database lock poisoned"))?)
+        })
+        .await?
+    }
+    /// Bounded read-only WAL snapshots keep console searches off the durable writer mutex.
+    pub async fn read<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let permit = self
+            .console_reads
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| anyhow::anyhow!("console read capacity occupied"))?;
+        let path = self.root.join("state.sqlite3");
+        // The timeout owner survives HTTP cancellation until SQLite is interrupted.
+        tokio::spawn(async move {
+            let (send, receive) = tokio::sync::oneshot::channel();
+            let mut task = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                let mut db =
+                    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                db.busy_timeout(std::time::Duration::from_millis(250))?;
+                let _ = send.send(db.get_interrupt_handle());
+                db.execute_batch("BEGIN")?;
+                f(&mut db)
+            });
+            let interrupt = receive.await?;
+            tokio::select! {
+                result = &mut task => result?,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+                    interrupt.interrupt(); task.await?
+                }
+            }
         })
         .await?
     }
@@ -321,14 +358,26 @@ impl Store {
         offset: u32,
         threshold: f64,
     ) -> Result<Vec<VisibleMail>> {
-        self.run(move|db| {
-            let mut q=db.prepare("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1) FROM messages m WHERE m.created>=?5 AND EXISTS(SELECT 1 FROM deliveries d JOIN grants g ON g.address=d.destination WHERE d.message_id=m.id AND g.username=?1) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0)) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4")?;
-            let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?)))?;
+        self.list_scoped(username, query, filter, offset, threshold, String::new())
+            .await
+    }
+    pub async fn list_scoped(
+        &self,
+        username: String,
+        query: String,
+        filter: String,
+        offset: u32,
+        threshold: f64,
+        domain: String,
+    ) -> Result<Vec<VisibleMail>> {
+        self.read(move|db| {
+            let mut q=db.prepare("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1) FROM messages m WHERE m.created>=?5 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1 AND (?7='' OR lower(substr(d.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(d.destination,-length(?7)-1))='@'||lower(?7))) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0 OR EXISTS(SELECT 1 FROM deliveries sd JOIN console_access sg ON sg.delivery_id=sd.id WHERE sd.message_id=m.id AND sg.username=?1 AND instr(lower(sd.address),lower(?2))>0)) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0) OR (?3='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending') AND (?7='' OR lower(substr(pd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(pd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='legitimate' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6))) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4")?;
+            let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?)))?;
             let mut out=Vec::new();
             for row in rows {
                 let (id,created,sender,scan,feedback)=row?;let s:Scan=serde_json::from_str(&scan)?;
                 let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
-                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status FROM deliveries d JOIN grants g ON g.address=d.destination WHERE d.message_id=?1 AND g.username=?2")?;
+                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2")?;
                 let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{address:r.get(0)?,status:r.get(1)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 out.push(VisibleMail{id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,evidence:s.evidence,decision,fusion:s.fusion});
             }Ok(out)
@@ -337,7 +386,7 @@ impl Store {
     pub async fn feedback(&self, user: String, id: String, spam: bool) -> Result<()> {
         self.run(move|db| {
             let tx=db.transaction()?;
-            let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM deliveries d JOIN grants g ON g.address=d.destination JOIN messages m ON m.id=d.message_id WHERE d.message_id=?1 AND g.username=?2 AND m.created>=?3)",params![id,user,now()-30*86400],|r|r.get(0))?;
+            let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id JOIN messages m ON m.id=d.message_id WHERE d.message_id=?1 AND g.username=?2 AND m.created>=?3)",params![id,user,now()-30*86400],|r|r.get(0))?;
             ensure!(allowed,"message not found");
             tx.execute("INSERT INTO feedback(username,message_id,spam,created) VALUES(?1,?2,?3,?4) ON CONFLICT(username,message_id) DO UPDATE SET spam=excluded.spam,created=excluded.created",params![user,id,spam,now()])?;
             tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'feedback',?3)",params![now(),user,id])?;

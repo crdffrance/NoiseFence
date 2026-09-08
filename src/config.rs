@@ -173,6 +173,15 @@ pub struct Recipient {
     pub hosts: Vec<String>,
 }
 
+/// An explicit route may carry a port; bare names keep the legacy relay port.
+/// IPv6 literals and credentials are intentionally not accepted here.
+pub fn endpoint(value: &str, default_port: u16) -> Option<(&str, u16)> {
+    let (host, port) = match value.split_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().ok()?),
+        None => (value, default_port),
+    };
+    (valid_domain(host) && port > 0).then_some((host, port))
+}
 pub fn valid_domain(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 253
@@ -356,9 +365,12 @@ impl Config {
             );
             for h in &d.next_hops {
                 ensure!(
-                    valid_domain(h)
-                        && !h.eq_ignore_ascii_case(&self.hostname)
-                        && !h.eq_ignore_ascii_case(&d.name),
+                    endpoint(h, self.relay.port).is_some_and(|(host, _)| !host
+                        .eq_ignore_ascii_case(&self.hostname)
+                        && !self
+                            .domains
+                            .iter()
+                            .any(|domain| host.eq_ignore_ascii_case(&domain.name))),
                     "unsafe or looping next hop"
                 );
             }

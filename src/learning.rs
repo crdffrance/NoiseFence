@@ -118,7 +118,7 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                 FROM messages m JOIN feedback f ON f.message_id=m.id
                 JOIN users u ON u.username=f.username AND u.disabled=0
                 WHERE m.is_dsn=0 AND m.created>=?1 AND EXISTS (
-                    SELECT 1 FROM deliveries d JOIN grants g ON g.address=d.destination
+                    SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id
                     WHERE d.message_id=m.id AND g.username=f.username)
                 GROUP BY m.id ORDER BY m.id",
                 )?;

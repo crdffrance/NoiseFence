@@ -167,7 +167,7 @@ async fn durable_queue_recovery_acl_feedback_and_retention() {
         "bob".into(),
         "a long password 456".into(),
         vec!["bob@example.test".into()],
-        true,
+        false,
     )
     .await
     .unwrap();

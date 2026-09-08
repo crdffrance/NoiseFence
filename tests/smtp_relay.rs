@@ -247,7 +247,7 @@ async fn cross_domain_aliases_preserve_wire_content_and_bcc_authorization() {
         .run(|db| {
             for user in ["alice", "bob", "other"] {
                 db.execute(
-                    "INSERT INTO users(username,password,admin) VALUES(?1,'test-only',1)",
+                    "INSERT INTO users(username,password,admin) VALUES(?1,'test-only',0)",
                     [user],
                 )?;
                 db.execute(
@@ -366,7 +366,7 @@ async fn unlisted_mailboxes_relay_independently_and_keep_exact_console_grants() 
         .run(|db| {
             for user in ["new", "hidden", "other"] {
                 db.execute(
-                    "INSERT INTO users(username,password,admin) VALUES(?1,'test-only',1)",
+                    "INSERT INTO users(username,password,admin) VALUES(?1,'test-only',0)",
                     [user],
                 )?;
                 db.execute(

@@ -80,7 +80,7 @@ pub async fn export(store: &Store, output: &Path, since: i64, until: i64) -> Res
             // the same SQLite snapshot. Never multiply rows by Bcc recipients.
             let mut query = tx.prepare("WITH votes AS (
                 SELECT f.message_id,f.spam,f.created,
-                  u.disabled=0 AND EXISTS(SELECT 1 FROM deliveries d JOIN grants g ON g.address=d.destination
+                  u.disabled=0 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id
                     WHERE d.message_id=f.message_id AND g.username=f.username) AS allowed
                 FROM feedback f JOIN users u ON u.username=f.username
             ) SELECT m.id,m.created,m.scan,m.is_dsn,

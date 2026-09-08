@@ -3,7 +3,7 @@ import './globals.css';
 import './console.css';
 
 export const metadata: Metadata = {
-  title: 'NoiseFence — Historique et décisions',
+  title: 'NoiseFence — Console de messagerie',
   description:
     'Console privée NoiseFence : décisions du filtre et corrections.',
   robots: { index: false, follow: false },

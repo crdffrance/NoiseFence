@@ -4,6 +4,26 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.14] - 2026-09-08
+
+- Administrer les domaines, leurs alias, la réception de toutes les adresses et
+  les passerelles de livraison depuis la console française, avec TLS vérifié.
+- Appliquer une configuration validée et versionnée sans redémarrage, à la
+  prochaine transaction SMTP ; préserver les routes des messages déjà en file.
+  Réutiliser les moteurs lourds et leurs limites de concurrence ; isoler et borner
+  les recherches SQLite pour préserver les écritures de la file.
+- Configurer les détecteurs installés, leur contribution au score et le mode
+  observation/marquage. Conserver les exigences de calibration et de validation
+  Proton/ARC. Les secrets et ressources restent dans la configuration serveur.
+- Donner aux administrateurs une visibilité globale et aux utilisateurs des
+  droits par adresse ou domaine (`*@domaine`). Réutiliser les mêmes autorisations
+  pour l’historique, les statistiques, les corrections et les exports d’apprentissage.
+- Créer, modifier et désactiver les comptes, réinitialiser leurs mots de passe,
+  révoquer leurs sessions et protéger le dernier administrateur.
+- Afficher la file, les métriques et le journal ; relancer les livraisons temporaires,
+  charger une ancienne révision pour examen et restaurer la configuration initiale.
+  Ajouter `console-reset` pour la récupération locale, service arrêté.
+
 ## [0.3.0-dev.13] - 2026-09-08
 
 - Alimenter les workers de relais dès qu’une livraison se termine ou qu’un
