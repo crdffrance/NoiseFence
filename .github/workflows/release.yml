@@ -5,6 +5,8 @@ on:
 permissions:
   contents: read
 jobs:
+  validate:
+    uses: ./.github/workflows/check.yml
   build:
     strategy:
       fail-fast: false
@@ -55,7 +57,7 @@ jobs:
             release/noisefence-*.tar.gz
             release/noisefence-*.tar.gz.sha256
   publish:
-    needs: build
+    needs: [validate, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -65,11 +67,19 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      - name: Publish experimental release
+      - name: Prepare version-specific release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/release_notes.py --tag "$RELEASE_TAG" --output release/NOTES.md
+      - name: Publish prerelease or prepare final release draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          case "$RELEASE_TAG" in
+            *-*) release_status=--prerelease ;;
+            *) release_status=--draft ;;
+          esac
           gh release create "$RELEASE_TAG" release/*.tar.gz release/*.sha256 \
-            --verify-tag --prerelease --title "NoiseFence $RELEASE_TAG" \
-            --notes-file CHANGELOG.md
+            --verify-tag "$release_status" --title "NoiseFence $RELEASE_TAG" \
+            --notes-file release/NOTES.md

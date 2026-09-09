@@ -8,6 +8,7 @@ import time
 
 import numpy as np
 import torch
+import transformers
 from transformers import AutoModel, AutoTokenizer
 from fetch_encoder import verified
 from train_linear import digest
@@ -52,7 +53,8 @@ def main():
                 'prefix': 'query: ', 'max_tokens': a.max_tokens,
                 'pooling': 'attention-mask mean then L2', 'device': a.device,
                 'weights_frozen': True, 'test_evaluated': False,
-                'batch_size': a.batch_size, 'torch': torch.__version__}
+                'batch_size': a.batch_size, 'torch': torch.__version__,
+                'transformers': transformers.__version__}
     (a.output / 'protocol.json').write_text(json.dumps(protocol, indent=2) + '\n')
     (a.output / 'ids.json').write_text(json.dumps(ids) + '\n')
     output = np.lib.format.open_memmap(a.output / 'embeddings.npy', mode='w+',

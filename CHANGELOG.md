@@ -1,6 +1,55 @@
 # Changelog
 
-Les versions suivent Semantic Versioning. Les versions 0.x restent expérimentales.
+Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
+incompatible demande une version mineure et une migration documentée.
+
+## [Unreleased]
+
+## [0.4.0] - 2026-09-09
+
+Release finale du cycle 0.4, regroupant les versions de développement jusqu’à
+0.4.0-dev.4. Elle conserve les comportements de filtrage de ce dernier candidat.
+
+### Fonctionnalités
+
+- Passerelle SMTP Rust concurrente, STARTTLS, file durable et suivi des livraisons
+  par destinataire. Domaines, alias et réception de toutes les adresses d’un domaine.
+- Analyse locale, authentification email, détection de publicités/newsletters,
+  confirmations croisées et connecteurs facultatifs : OCR/QR/PDF, ClamAV,
+  Spamhaus DQS, CRDF et VirusTotal. Modèles appris chargés séparément.
+- Actions configurables par catégorie : transmettre, tagger ou mettre en
+  quarantaine. Libération, suppression et expiration par destinataire.
+- Console française adaptée aux mobiles : messages, raisons, corrections,
+  quarantaine, compte personnel, domaines, passerelles, filtres et comptes.
+  Autorisations vérifiées côté serveur ; réglages versionnés et brouillons conservés.
+
+### Distribution et installation
+
+- Mise à jour des outils de recherche vers PyTorch 2.13.0 et Transformers 5.10.1
+  pour leurs correctifs de sécurité ; versions consignées dans les nouveaux exports.
+  Les modèles déployés et les résultats historiques ne sont pas modifiés.
+- Archives Linux x86-64 et ARM64 : binaire avec moteur sémantique disponible,
+  frontend statique, services systemd, exemples, documentation et licences.
+  Debian 12+ ou Linux avec glibc 2.36+, Python 3.11+ et systemd.
+- Sommes SHA-256 et métadonnées de construction liant chaque archive au commit.
+  La publication est conditionnée aux tests Rust, frontend, Python, SMTP et workers Linux.
+- [Guide de première installation](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/docs/getting-started.md),
+  [contributions](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/CONTRIBUTING.md)
+  et [signalement privé de sécurité](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/SECURITY.md).
+  Licence GPL-3.0-only. Aucune clé, configuration de production, corpus privé ou modèle entraîné inclus.
+
+### Mise à niveau et limites
+
+- Depuis 0.4.0-dev.4 : aucune nouvelle migration ni modification de politique.
+  Depuis 0.3 : sauvegarder configuration et données à l’arrêt avant la migration
+  vers le schéma de stockage 2. Les anciens binaires sont incompatibles avec ce schéma ;
+  suivre la [procédure de restauration](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/docs/actions.md#migration-de-stockage).
+- Observation par défaut. Le marquage nécessite les validations Proton/ARC
+  correspondantes ; une release ne modifie ni les MX ni le mode de filtrage.
+- Capture ≥ 95 %, faux positifs ≤ 0,1 % et analyse p95 < 500 ms sont des objectifs
+  à démontrer sur des données récentes représentatives. Cette publication n’est
+  ni une certification de conformité SMTP, ni une garantie de livraison chez Proton.
+  SMTPUTF8 reste désactivé ; les analyses incomplètes sont signalées.
 
 ## 0.4.0-dev.4 — Réglages adaptés aux petits écrans
 
@@ -17,8 +66,6 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 - Écran Mon compte : périmètre autorisé et changement du mot de passe avec confirmation.
 - Administration des filtres en cinq rubriques préservant le brouillon ; recherche des comptes par nom, accès et rôle.
 - Tests de présentation pour décisions canoniques, antivirus, livraisons multiples et recherche des comptes. Moteur, API, stockage et politique de production inchangés.
-
-## [Unreleased]
 
 ## [0.4.0-dev.2] - 2026-09-09
 

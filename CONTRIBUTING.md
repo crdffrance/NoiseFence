@@ -14,8 +14,12 @@ python3 scripts/version.py --check
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+cargo clippy --locked --all-targets --features semantic -- -D warnings
+cargo test --locked --features semantic
+python3 -m unittest discover -s tests_python -v
 cd web
 npm ci
+npm test
 npx tsc --noEmit
 npm run lint
 npm run build
@@ -25,3 +29,7 @@ Les tests utilisent des adresses réservées et des sockets loopback. La clé so
 `tests/fixtures/public-test-key.txt` est publique et dédiée aux tests. Le corpus Apache
 se télécharge séparément ; les données d’entraînement et les exports ne font pas partie
 du dépôt. Voir [le versionnement](docs/releasing.md) pour les livraisons.
+
+La CI installe `research/requirements.txt` pour les tests d’entraînement Python
+et exécute sur Linux les contrôles systemd, OCR et les essais SMTP concurrents.
+Les contributions documentaires n’ont pas besoin d’ajouter des tests artificiels.

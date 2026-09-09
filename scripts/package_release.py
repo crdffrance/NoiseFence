@@ -41,7 +41,15 @@ def main():
     for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',
                      'train_fusion.py','evaluate_population.py','fusion-protocol.json','fusion.md','labeling-protocol.md']:
         shutil.copy2(ROOT/'research'/filename,output/'research'/filename)
-    for filename in ['README.md','LICENSE','THIRD_PARTY.md','CHANGELOG.md','Cargo.lock']:
+    # Public research documentation linked from README; use only tracked files.
+    research_docs = subprocess.check_output(
+        ['git', 'ls-files', '-z', 'research/*.md', 'research/*.json'], cwd=ROOT
+    ).decode().split('\0')
+    for filename in filter(None, research_docs):
+        destination = output/filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT/filename, destination)
+    for filename in ['README.md','LICENSE','THIRD_PARTY.md','CHANGELOG.md','SECURITY.md','CONTRIBUTING.md','Cargo.lock']:
         shutil.copy2(ROOT/filename,output/filename)
     shutil.copytree(ROOT/'licenses',output/'licenses')
     if (ROOT/'release/third-party-licenses').is_dir():

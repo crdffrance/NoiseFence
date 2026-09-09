@@ -122,6 +122,13 @@ Utiliser une configuration de recherche privée pour les modèles candidats.
 
 ## Comparer un encodeur multilingue local
 
+Utiliser Python 3.11 ou 3.12 dans un environnement séparé. Depuis la release 0.4.0,
+les dépendances de cette expérience utilisent PyTorch 2.13.0 et Transformers 5.10.1
+pour intégrer leurs correctifs de sécurité. Les rapports historiques conservent
+leurs résultats et versions d’origine : tout changement d’environnement nécessite
+de recalculer les embeddings et de refaire la validation avant activation d’un modèle.
+Ces paquets Python ne sont pas utilisés par le serveur SMTP Rust ni inclus dans les binaires.
+
 L'expérience optionnelle utilise [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small),
 publié sous licence MIT. La révision et les empreintes des fichiers sont épinglées
 dans `encoder.lock.json`. Seuls poids Safetensors, tokenizer et configuration sont
@@ -133,6 +140,7 @@ c'est une dépendance optionnelle étudiée, distincte du moteur Rust natif.
 
 ```sh
 python3 -m venv var/research-venv
+var/research-venv/bin/python -m pip install --upgrade pip
 var/research-venv/bin/python -m pip install -r research/semantic-requirements.txt
 python3 research/fetch_encoder.py models/encoders/multilingual-e5-small
 python3 research/prepare_semantic.py corpus/research/features-v3.grouped.jsonl \

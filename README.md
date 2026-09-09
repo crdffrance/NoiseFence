@@ -1,12 +1,26 @@
 # NoiseFence
 
+[![Release](https://img.shields.io/github/v/release/crdffrance/NoiseFence)](https://github.com/crdffrance/NoiseFence/releases/latest)
+[![Checks](https://github.com/crdffrance/NoiseFence/actions/workflows/check.yml/badge.svg)](https://github.com/crdffrance/NoiseFence/actions/workflows/check.yml)
+[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. Les [actions configurables](docs/actions.md) permettent de transmettre sans préfixe, tagger ou placer en quarantaine les spams, publicités et malwares confirmés. Aucun rejet SMTP n’est fondé sur le score.
 
-**Version de développement 0.4.0-dev.4 — expérimentale, en observation par défaut.** Les versions publiées sont disponibles dans les [releases](https://github.com/crdffrance/NoiseFence/releases). La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
+**Version 0.4.0 — release finale du cycle 0.4, en observation par défaut.**
+Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.4.0), puis suivre le [guide de première installation](docs/getting-started.md).
+Le projet reste en 0.x : les formats peuvent évoluer avec une migration documentée.
+La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
-Cette branche ajoute les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
+NoiseFence comprend les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
 
 Logiciel open source sous [GPL-3.0-only](LICENSE), développé par CRDF Labs et les contributeurs NoiseFence. Dépôt : [crdffrance/NoiseFence](https://github.com/crdffrance/NoiseFence).
+
+**English:** NoiseFence is a self-hosted Rust SMTP gateway with a durable queue,
+local spam analysis, configurable Spam/PUB/malware actions and a French web console.
+It starts in observation mode. Detection targets and Proton forwarding compatibility
+require independent validation; no trained model, credentials or private email data
+are bundled. See [installation](docs/getting-started.md), [contributing](CONTRIBUTING.md)
+and [security reporting](SECURITY.md).
 
 La [lecture OCR, QR codes et codes-barres](docs/vision.md) traite aussi les images
 jointes ou intégrées et les PDF scannés, en français et en anglais, dans un worker

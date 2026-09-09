@@ -4,8 +4,9 @@
 
 Compiler sur la cible Linux avec `cargo build --release --locked`. La compilation effectuée sur macOS ne produit pas un binaire Linux. La CI vérifie le code Rust et la console sur Linux ; consulter [GitHub Actions](https://github.com/crdffrance/NoiseFence/actions) pour le résultat correspondant au commit déployé.
 
-Les archives locales `release/noisefence-0.1.0-linux-amd64.tar.gz` et
-`release/noisefence-0.1.0-linux-arm64.tar.gz` sont construites dans des conteneurs Linux
+Les archives des [releases GitHub](https://github.com/crdffrance/NoiseFence/releases)
+`noisefence-VERSION-linux-amd64.tar.gz` et
+`noisefence-VERSION-linux-arm64.tar.gz` sont construites dans des conteneurs Linux
 Bookworm avec Rust 1.98. Choisir l’architecture correspondant à `uname -m`
 (`x86_64` → amd64, `aarch64` → arm64). Elles nécessitent glibc 2.36 ou plus récente,
 par exemple Debian 12 ou Ubuntu 24.04. Elles ne conviennent pas à Alpine/musl.
@@ -16,8 +17,12 @@ aux emplacements ci-dessous. `build.json` enregistre l’image et l’empreinte 
 Pour une installation versionnée, exécuter `sudo sh deploy/install.sh /chemin/vers/la/release /chemin/vers/config.local.toml`.
 L’installateur conserve les versions dans `/opt/noisefence/releases/VERSION`, remplace
 le lien `current` et préserve une configuration existante. Il refuse d’écraser une
-autre construction de la même version. Pour revenir en arrière, restaurer le lien
-`current` vers la version précédente puis redémarrer `noisefence.service`.
+autre construction de la même version. Avant toute mise à niveau, conserver une
+sauvegarde cohérente des données et de la configuration. Un retour en arrière
+exige un schéma compatible ; suivre la [procédure de migration et restauration](actions.md#migration-de-stockage).
+
+Le [guide de première installation](getting-started.md) détaille le téléchargement,
+la préparation de la configuration, la création de l’administrateur et les contrôles.
 
 Une première installation peut écouter seulement sur loopback, avec SMTP sur 2525 et
 l’API sur 18080, en observation et sans destinataire activé. Dans ce cas, consulter la
@@ -121,8 +126,9 @@ le serveur qui reçoit les emails ; cette option ne modifie pas le DNS.
 
 `user-add --addresses alice@example.org` peut attribuer cette boîte sans entrée
 dans `recipients`. Les droits restent exacts par adresse, y compris pour les copies
-cachées. Le rôle administrateur donne accès aux mesures globales, pas aux messages
-d'autres utilisateurs sans attribution d'adresse.
+cachées. Le rôle administrateur donne accès aux messages de tous les domaines de
+l’organisation et aux mesures globales. Les utilisateurs ordinaires restent limités
+aux adresses et domaines qui leur sont attribués.
 
 ## Réputation et DNS
 
