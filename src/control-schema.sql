@@ -41,3 +41,13 @@ CREATE TABLE IF NOT EXISTS delivery_policy(
  released_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS quarantine_expiry ON delivery_policy(held_until);
+
+-- Bounded, recipient-scoped SMTP transcripts. Additive to schema v2: older
+-- binaries can deliver and clean up normally; no queue state semantics change.
+CREATE TABLE IF NOT EXISTS delivery_attempts(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+ attempt INTEGER NOT NULL,
+ trace TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS delivery_attempt_history ON delivery_attempts(delivery_id,id DESC);

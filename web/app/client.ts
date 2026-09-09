@@ -9,8 +9,10 @@ export async function api<T = unknown>(
   path: string,
   data?: unknown,
   csrf?: string,
+  options: { signal?: AbortSignal; cache?: RequestCache } = {},
 ) {
   const response = await fetch(`/api/v1${path}`, {
+    ...options,
     credentials: 'same-origin',
     method: data === undefined ? 'GET' : 'POST',
     headers: {

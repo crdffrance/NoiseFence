@@ -143,6 +143,35 @@ Le résolveur système est utilisé par Hickory. Le cache DQS est borné à 10 0
 - `GET /api/v1/metrics`, avec session administrateur, expose file, âge du plus ancien message, échecs, analyses incomplètes et espace libre.
 - `noisefence queue` permet l’inspection opérateur ; `retry UUID` avance seulement la prochaine tentative des destinataires encore en attente.
 
+Depuis 0.4.1, le relais journalise les étapes DNS, connexion, bannière, EHLO,
+STARTTLS et TLS vérifié, MAIL, RCPT, DATA et réponse finale. Les événements
+structurés portent les identifiants de message/livraison, la tentative et le
+serveur distant, y compris lorsqu’il accepte le message. Les textes de réponse
+sont bornés et neutralisés pour l’affichage. Les arguments des commandes
+d’enveloppe et les octets transmis pendant DATA ne sont pas enregistrés.
+Les événements d’analyse ajoutent la version du modèle, les réglages de décision
+et les identifiants/poids des signaux ; un événement distinct confirme la
+persistance durable du message avant l’émission du `250` entrant.
+
+`GET /api/v1/messages/UUID/diagnostics`, avec une session autorisée, fournit
+les explications et les 50 dernières tentatives de serveur par destinataire.
+La réponse initiale est limitée à 100 transcripts pour l’ensemble du message ;
+`?delivery_id=IDENTIFIANT` charge l’historique d’un seul destinataire autorisé.
+La console signale les historiques partiels et permet leur chargement à la demande.
+Chaque transcript conserve au plus 32 événements et 2 048 octets par champ texte.
+Il est enregistré dans `delivery_attempts` dans la même transaction que le
+résultat de livraison. Ces traces suivent la conservation des métadonnées du
+message et leur suppression en cascade ; les messages encore en file restent
+consultables. La rétention du journal systemd reste gérée par journald, séparément.
+Un arrêt pendant une tentative peut laisser ses étapes uniquement dans journald ;
+la console n’invente pas un résultat final. Les doublons SMTP possibles après
+une réponse finale perdue restent soumis aux règles usuelles de nouvelle tentative.
+
+Cette table est une migration additive compatible avec le schéma de stockage 2.
+Un retour à 0.4.0 reste possible ; l’ancien binaire n’ajoutera pas ces traces.
+Les diagnostics n’exposent jamais les vecteurs d’apprentissage ou les autres
+destinataires d’un message hors des droits du compte.
+
 Définir des alertes sur espace libre inférieur à la réserve, âge de file supérieur à 30 minutes, erreurs Proton récurrentes, échecs non notifiés, taux d’analyses incomplètes et absence d’événements. Le fichier systemd redémarre le service après erreur, avec limitation des redémarrages.
 
 Les délais de nouvelle tentative sont environ 30 minutes, 1 heure, 2 heures, puis 4 heures avec une petite variation. Après cinq jours, générer un avis d’échec. Le client SMTP peut attendre jusqu’aux délais protocolaires pendant une livraison ; un arrêt propre accorde 30 secondes aux sessions actives avant interruption et reprise au redémarrage.

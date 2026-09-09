@@ -4,12 +4,24 @@ import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
 import { classification, deliverySummary } from './presentation';
 import {
+  deliveryStatus,
+  type MessageDiagnostics,
+} from './diagnostics-formatters';
+import { RuleDetails } from './rule-details';
+import {
   MailingDetails,
   type MailingReport,
   type FeedbackCategory,
 } from './mailing';
 import { ProtectionDetails, type ProtectionReport } from './protection';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   ShieldCheck,
   Search,
@@ -39,6 +51,7 @@ import {
 import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
 import { registerFeedbackTool } from './webmcp';
+const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
   action?: {
     requested: DeliveryAction;
@@ -214,6 +227,11 @@ export default function Home() {
     [selected, setSelected] = useState<Mail | null>(null),
     [stats, setStats] = useState<Stats | null>(null),
     [notice, setNotice] = useState('');
+  const [diagnosticsRevision, setDiagnosticsRevision] = useState(0);
+  const [historicalThreshold, setHistoricalThreshold] = useState<{
+    messageId: string;
+    threshold: number | undefined;
+  } | null>(null);
   const activeUser = useRef<User | null>(null);
   const latestRequest = useRef(0);
   const changeSession = useCallback((next: User | null) => {
@@ -223,6 +241,7 @@ export default function Home() {
     setMails([]);
     setStats(null);
     setSelected(null);
+    setHistoricalThreshold(null);
     setNotice('');
     setPassword('');
     setConfirmation(null);
@@ -239,6 +258,30 @@ export default function Home() {
     setDomains([]);
     setConfigDirty(false);
   }, []);
+  const diagnosticsLoaded = useCallback(
+    (data: MessageDiagnostics) => {
+      if (!user || user !== activeUser.current) return;
+      setHistoricalThreshold({
+        messageId: data.message_id,
+        threshold: data.analysis.policy?.threshold,
+      });
+      setSelected((previous) =>
+        previous?.id === data.message_id
+          ? {
+              ...previous,
+              recipients: data.recipients.map((recipient) => ({
+                ...previous.recipients.find(
+                  (existing) => existing.address === recipient.address,
+                ),
+                address: recipient.address,
+                status: recipient.status,
+              })),
+            }
+          : previous,
+      );
+    },
+    [user],
+  );
   useEffect(() => {
     const expired = () => changeSession(null);
     window.addEventListener('session-expired', expired);
@@ -361,6 +404,7 @@ export default function Home() {
           : previous,
       );
       setConfirmation(null);
+      setDiagnosticsRevision((value) => value + 1);
       setNotice(
         action === 'release'
           ? 'Message libéré : livraison en attente pour ce destinataire.'
@@ -643,9 +687,16 @@ export default function Home() {
                   <p className="eyebrow">DÉCISION DU FILTRE</p>
                   <div className="detail-badges">
                     <span
-                      className={`status ${classification(selected, stats?.threshold ?? 95).tone}`}
+                      className={`status ${classification(selected, historicalThreshold?.messageId === selected.id ? historicalThreshold.threshold : undefined).tone}`}
                     >
-                      {classification(selected, stats?.threshold ?? 95).label}
+                      {
+                        classification(
+                          selected,
+                          historicalThreshold?.messageId === selected.id
+                            ? historicalThreshold.threshold
+                            : undefined,
+                        ).label
+                      }
                     </span>
                     <span
                       className={`status ${deliverySummary(selected.recipients).tone}`}
@@ -886,29 +937,27 @@ export default function Home() {
                           </p>
                         )}
                     </details>
-                    <h3 className="subheading">Principaux indices</h3>
-                    <ul className="reasons">
-                      {selected.reasons.map((r, i) => (
-                        <li key={`${r.id}-${i}`}>
-                          <span>{r.detail}</span>
-                          {selected.decision?.source !== 'fusion' && (
-                            <code>
-                              {r.id === 'malware_priority'
-                                ? 'Prioritaire'
-                                : `${r.weight > 0 ? '+' : ''}${r.weight.toFixed(1)}`}
-                            </code>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                    {!selected.reasons.length && (
-                      <p>
-                        {selected.fusion?.status === 'complete'
-                          ? 'Aucun autre signal enregistré.'
-                          : 'Aucun signal de suspicion relevé.'}
-                      </p>
-                    )}
+                    <RuleDetails
+                      reasons={selected.reasons}
+                      source={selected.decision?.source}
+                    />
                   </section>
+                  <Suspense
+                    fallback={
+                      <section className="panel message-diagnostics">
+                        <output>Chargement des diagnostics du message…</output>
+                      </section>
+                    }
+                  >
+                    <Diagnostics
+                      key={selected.id}
+                      messageId={selected.id}
+                      reasons={selected.reasons}
+                      source={selected.decision?.source}
+                      revision={diagnosticsRevision}
+                      onLoaded={diagnosticsLoaded}
+                    />
+                  </Suspense>
                   {selected.mailing && (
                     <MailingDetails
                       report={selected.mailing}
@@ -977,20 +1026,7 @@ export default function Home() {
                       <div className="quarantine-recipient" key={r.address}>
                         <p className="recipient">
                           {r.address}
-                          <span>
-                            {(
-                              {
-                                pending: 'En attente',
-                                sending: 'En cours',
-                                delivered: 'Livré',
-                                failed: 'Échec',
-                                notified: 'Échec signalé',
-                                quarantined: 'En quarantaine',
-                                discarded: 'Supprimé manuellement',
-                                expired: 'Quarantaine expirée',
-                              } as Record<string, string>
-                            )[r.status] || r.status}
-                          </span>
+                          <span>{deliveryStatus(r.status)}</span>
                         </p>
                         {r.status === 'quarantined' && (
                           <>
@@ -1031,6 +1067,10 @@ export default function Home() {
                         )}
                       </div>
                     ))}
+                    <p className="small muted">
+                      L’acceptation par le serveur destinataire ne garantit pas
+                      l’arrivée dans la boîte de réception.
+                    </p>
                     <p className="small muted">
                       Le corps et les pièces jointes restent sur la passerelle
                       tant qu’une livraison est en attente ou en quarantaine.

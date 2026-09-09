@@ -8,13 +8,18 @@ type DecisionInput = {
 };
 
 // Keep the canonical decision distinct from the delivery action and feedback.
-export function classification(mail: DecisionInput, threshold: number) {
+export function classification(mail: DecisionInput, threshold?: number) {
   if (mail.decision?.source === 'antivirus')
     return { label: 'Malware', tone: 'spam' };
   if (!mail.complete) return { label: 'Analyse incomplète', tone: 'review' };
   if (
+    !mail.decision &&
+    (threshold === undefined || !Number.isFinite(threshold))
+  )
+    return { label: 'Classement historique non enregistré', tone: 'review' };
+  if (
     mail.decision?.outcome === 'unwanted' ||
-    (!mail.decision && mail.score >= threshold)
+    (!mail.decision && threshold !== undefined && mail.score >= threshold)
   )
     return { label: 'Spam', tone: 'spam' };
   if (
@@ -36,7 +41,7 @@ export function deliverySummary(recipients: { status: string }[]) {
   if (statuses.has('pending') || statuses.has('sending'))
     return { label: 'En cours', tone: 'review' };
   if (statuses.size === 1 && statuses.has('delivered'))
-    return { label: 'Livré', tone: 'good' };
+    return { label: 'Accepté par le serveur', tone: 'good' };
   if (statuses.size === 1 && statuses.has('expired'))
     return { label: 'Expiré', tone: '' };
   if (statuses.size === 1 && statuses.has('discarded'))

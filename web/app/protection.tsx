@@ -364,6 +364,8 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
       <p className="notice">
         Observations uniquement · {report.version} · {report.elapsed_ms} ms. Les
         détections corrélées sont regroupées et ne changent pas le score actuel.
+        Plusieurs services signalant le même indicateur ne constituent pas des
+        votes indépendants.
       </p>
       <div className="form-grid">
         <p>
@@ -389,18 +391,50 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
           ['VirusTotal', report.virustotal],
         ] as const
       ).map(([name, r]) => (
-        <p key={name}>
-          <strong>{name}</strong> : {statuses[r.status]} · {r.checked}{' '}
-          indicateur(s) consulté(s), {r.malicious} signalé(s), {r.suspicious}{' '}
-          suspect(s), {r.unknown} inconnu(s) · {r.cache_hits} en cache ·{' '}
-          {r.elapsed_ms} ms
-        </p>
+        <div key={name}>
+          <p>
+            <strong>{name}</strong> :{' '}
+            {statuses[r.status] ?? 'état non enregistré'} · {r.checked}{' '}
+            indicateur(s) consulté(s), {r.malicious} signalé(s), {r.suspicious}{' '}
+            suspect(s), {r.unknown} inconnu(s) · {r.cache_hits} en cache ·{' '}
+            {r.elapsed_ms} ms
+          </p>
+          {r.cache_hits > 0 && (
+            <p className="muted small">
+              {r.cache_hits} résultat(s) réutilisé(s) du cache, sans nouvelle
+              consultation du fournisseur.
+            </p>
+          )}
+          {r.status === 'quota' && (
+            <p className="muted small">
+              Quota atteint ou pause imposée par le fournisseur : certaines
+              consultations n’ont pas abouti. Cela ne signifie pas que le
+              message est sûr.
+            </p>
+          )}
+          {[
+            'unavailable',
+            'busy',
+            'limited',
+            'stale',
+            'not_run',
+            'not_configured',
+            'unknown',
+          ].includes(r.status) && (
+            <p className="muted small">
+              Couverture incomplète ou résultat inexploitable pour ce contrôle ;
+              aucune absence de menace ne peut en être déduite.
+            </p>
+          )}
+        </div>
       ))}
       {report.findings.length ? (
         <ul className="reasons">
           {report.findings.map((f, i) => (
             <li key={i}>
               <span>
+                <code>{f.id}</code>
+                <br />
                 {f.detail}
                 <small className="muted">
                   {' '}

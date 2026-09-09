@@ -443,13 +443,14 @@ async fn session(
                 }
                 let sender = from.take().unwrap();
                 let recipients = std::mem::take(&mut recipients);
+                let recipient_count = recipients.len();
                 let result = state
                     .engine
                     .process_smtp(&raw, peer.ip(), &helo, &sender, &id, &recipients)
                     .await;
                 let result = match result {
                     Ok((scan, raw)) => {
-                        tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,"message analyzed");
+                        tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
                         state
                             .store
                             .enqueue(id.clone(), sender, recipients, scan, raw)
@@ -459,7 +460,10 @@ async fn session(
                 };
                 drop(permit);
                 match result {
-                    Ok(()) => reply(&mut io, &format!("250 2.0.0 Queued as {id}\r\n")).await?,
+                    Ok(()) => {
+                        tracing::info!(id=%id,peer=%peer,encrypted,recipient_count,"message durably accepted");
+                        reply(&mut io, &format!("250 2.0.0 Queued as {id}\r\n")).await?
+                    }
                     Err(error) => {
                         tracing::error!(%error,"message not accepted");
                         reply(&mut io, "451 4.3.0 Unable to persist message; retry\r\n").await?;

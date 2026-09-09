@@ -319,6 +319,26 @@ async fn messages(
     ))
 }
 #[derive(Deserialize)]
+struct DiagnosticQuery {
+    delivery_id: Option<i64>,
+}
+async fn diagnostics(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<DiagnosticQuery>,
+) -> ApiResult<Json<crate::diagnostics::MessageDiagnostics>> {
+    let user = authenticated(&app, &h).await?;
+    if id.len() > 128 {
+        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
+    }
+    app.store
+        .diagnostics_for(user.username, id, query.delivery_id)
+        .await?
+        .map(Json)
+        .ok_or_else(|| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))
+}
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct QuarantineRequest {
     recipient: String,
@@ -560,6 +580,7 @@ pub fn router_controlled(
         .route("/logout", post(logout))
         .route("/me", get(me))
         .route("/messages", get(messages))
+        .route("/messages/{id}/diagnostics", get(diagnostics))
         .route("/messages/{id}/feedback", post(feedback))
         .route("/messages/{id}/quarantine", post(quarantine))
         .route("/stats", get(stats))

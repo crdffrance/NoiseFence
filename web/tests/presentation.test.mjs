@@ -52,6 +52,30 @@ test('malware keeps priority over PUB and incomplete analysis', () => {
     'Analyse incomplète',
   );
 });
+test('message details cannot classify historical mail with an invented threshold', () => {
+  assert.equal(
+    classification(mail).label,
+    'Classement historique non enregistré',
+  );
+  assert.equal(
+    classification(mail, Number.NaN).label,
+    'Classement historique non enregistré',
+  );
+  assert.equal(
+    classification({
+      ...mail,
+      decision: { source: 'legacy', outcome: 'unwanted', score: 99 },
+    }).label,
+    'Spam',
+  );
+  assert.equal(
+    classification({
+      ...mail,
+      decision: { source: 'fusion', outcome: 'legitimate', score: 2 },
+    }).label,
+    'PUB',
+  );
+});
 test('mixed deliveries never look fully delivered while a copy is held or failed', () => {
   assert.equal(
     deliverySummary([{ status: 'delivered' }, { status: 'quarantined' }]).label,
@@ -70,6 +94,10 @@ test('mixed deliveries never look fully delivered while a copy is held or failed
     'États multiples',
   );
   assert.equal(deliverySummary([]).label, 'Non renseignée');
+  assert.equal(
+    deliverySummary([{ status: 'delivered' }]).label,
+    'Accepté par le serveur',
+  );
 });
 test('account search combines access scope and role without dropping disabled accounts', () => {
   const account = {

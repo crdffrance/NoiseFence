@@ -59,6 +59,9 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    /// Exact decision settings at analysis time; absent on historical messages.
+    #[serde(default)]
+    pub analysis_policy: Option<crate::diagnostics::AnalysisPolicy>,
     #[serde(default)]
     pub action: Option<crate::actions::Applied>,
     #[serde(default = "legacy_feature_version")]
@@ -684,6 +687,7 @@ impl Engine {
         }
     }
     fn decide(&self, scan: &mut Scan) {
+        scan.analysis_policy = Some(crate::diagnostics::AnalysisPolicy::capture(&self.config));
         // The historical score remains available for the LLM selection policy,
         // evidence export and comparisons. Fusion never feeds itself on a retry.
         scan.reasons.retain(|r| {

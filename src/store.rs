@@ -312,14 +312,43 @@ impl Store {
         }).await
     }
     pub async fn finish(&self, job: &Job, status: &str, error: &str, next: i64) -> Result<()> {
+        self.finish_with_attempts(job, status, error, next, &[])
+            .await
+    }
+    /// Commit the delivery result and its bounded transcript together. A lost
+    /// final SMTP response can still cause a retry, as in ordinary SMTP.
+    pub async fn finish_with_attempts(
+        &self,
+        job: &Job,
+        status: &str,
+        error: &str,
+        next: i64,
+        attempts: &[crate::delivery_log::Attempt],
+    ) -> Result<()> {
         let id = job.delivery_id;
+        let attempt = job.attempts;
         let status = status.to_string();
-        let error = crate::message::safe_value(error);
+        let error = crate::delivery_log::sanitize_text(error);
+        let mut attempts = attempts.iter().rev().take(50).cloned().collect::<Vec<_>>();
+        attempts.reverse();
+        let traces = attempts
+            .iter_mut()
+            .map(|trace| {
+                trace.sanitize();
+                serde_json::to_string(trace)
+            })
+            .collect::<serde_json::Result<Vec<_>>>()?;
         self.run(move |db| {
-            db.execute(
+            let tx = db.transaction()?;
+            tx.execute(
                 "UPDATE deliveries SET status=?2,error=?3,next_attempt=?4 WHERE id=?1",
                 params![id, status, error, next],
             )?;
+            for trace in traces {
+                tx.execute("INSERT INTO delivery_attempts(delivery_id,attempt,trace) VALUES(?1,?2,?3)",params![id,attempt,trace])?;
+            }
+            tx.execute("DELETE FROM delivery_attempts WHERE delivery_id=?1 AND id NOT IN (SELECT id FROM delivery_attempts WHERE delivery_id=?1 ORDER BY id DESC LIMIT 50)",[id])?;
+            tx.commit()?;
             Ok(())
         })
         .await

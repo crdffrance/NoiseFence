@@ -1,0 +1,205 @@
+.message-diagnostics,
+.rule-diagnostics {
+  --diagnostic-bg: #fff;
+  --diagnostic-soft: #f3f6fb;
+  --diagnostic-text: #1e293b;
+  --diagnostic-muted: #53657d;
+  --diagnostic-border: #d8e1ee;
+  --diagnostic-accent: #315da2;
+  color: var(--diagnostic-text);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.dark .message-diagnostics,
+.dark .rule-diagnostics {
+  --diagnostic-bg: #172338;
+  --diagnostic-soft: #202f46;
+  --diagnostic-text: #edf3fc;
+  --diagnostic-muted: #b8c8df;
+  --diagnostic-border: #405572;
+  --diagnostic-accent: #a5c9ff;
+}
+.message-diagnostics {
+  grid-column: 1 / -1;
+  background: var(--diagnostic-bg);
+  border-color: var(--diagnostic-border);
+  min-width: 0;
+}
+.rule-diagnostics {
+  background: var(--diagnostic-bg);
+}
+.diagnostic-heading,
+.smtp-event-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.diagnostic-heading button {
+  white-space: normal;
+  height: auto;
+  min-height: 2.5rem;
+}
+.diagnostic-history-controls button {
+  white-space: normal;
+  max-width: 100%;
+  min-height: 2.5rem;
+  height: auto;
+}
+.diagnostic-heading h2,
+.diagnostic-section h3 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+.message-diagnostics p,
+.rule-diagnostics p {
+  margin-block: 0.65rem;
+}
+.diagnostic-muted {
+  color: var(--diagnostic-muted);
+}
+.diagnostic-loading-status {
+  display: block;
+  margin-block: 0.65rem;
+}
+.diagnostic-queue-id code {
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.diagnostic-section {
+  border-top: 1px solid var(--diagnostic-border);
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+}
+.diagnostic-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.diagnostic-facts > div {
+  min-width: 0;
+}
+.diagnostic-facts dt {
+  color: var(--diagnostic-muted);
+  margin-bottom: 0.25rem;
+}
+.diagnostic-facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.diagnostic-auth ul {
+  list-style: none;
+  padding: 0;
+}
+.diagnostic-callout {
+  background: var(--diagnostic-soft);
+  border-inline-start: 3px solid var(--diagnostic-accent);
+  padding: 0.75rem 1rem;
+  border-radius: 0.3rem;
+  margin-block: 1rem;
+}
+.diagnostic-recipient {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--diagnostic-border);
+}
+.diagnostic-recipient h4 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+.diagnostic-delivery-state {
+  font-weight: 600;
+}
+.diagnostic-disclosure {
+  border: 1px solid var(--diagnostic-border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-block: 0.75rem;
+}
+.diagnostic-disclosure > summary {
+  color: var(--diagnostic-accent);
+  min-height: 1.5rem;
+  font-weight: 600;
+}
+.smtp-attempt > summary > span:last-child {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 400;
+}
+.smtp-timeline {
+  margin: 1rem 0 0;
+  padding-inline-start: 1.5rem;
+}
+.smtp-timeline > li {
+  padding: 0.25rem 0 1rem 0.75rem;
+  border-inline-start: 2px solid var(--diagnostic-border);
+}
+.smtp-timeline > li + li {
+  padding-top: 1rem;
+}
+.smtp-timeline > li::marker {
+  color: var(--diagnostic-accent);
+  font-variant-numeric: tabular-nums;
+}
+.smtp-reply-code {
+  font-variant-numeric: tabular-nums;
+}
+.smtp-response {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.875rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+.diagnostic-rules {
+  list-style: none;
+  padding: 0;
+  margin-top: 1rem;
+}
+.diagnostic-rules > li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.75rem;
+  padding-block: 1rem;
+  border-top: 1px solid var(--diagnostic-border);
+}
+.diagnostic-rules > li > div {
+  flex: 1 1 13rem;
+  min-width: 0;
+}
+.diagnostic-rule-id {
+  color: var(--diagnostic-accent);
+  font-size: 0.875rem;
+  white-space: normal;
+}
+.diagnostic-weight {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.diagnostic-weight small {
+  display: block;
+  color: var(--diagnostic-muted);
+  font-size: 0.875rem;
+}
+@media (max-width: 600px) {
+  .message-diagnostics {
+    padding: 1rem;
+  }
+  .diagnostic-heading button {
+    width: 100%;
+  }
+  .diagnostic-disclosure {
+    padding: 0.75rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-diagnostics .spin {
+    animation: none;
+  }
+}

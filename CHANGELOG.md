@@ -5,6 +5,21 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-09
+
+- Historique SMTP sortant par destinataire : serveurs essayés, IP, TLS vérifié,
+  réponses positives et négatives, codes étendus, durée et prochaine tentative.
+  Les erreurs réseau et de protocole conservent leur contexte ; une déconnexion
+  après le `250` final ne provoque pas de nouvelle livraison.
+- Diagnostics dans la console : règles déclenchées, effets consultatifs ou
+  numériques, contributions du modèle, authentification, durée et réglages
+  réellement appliqués à l’analyse. Aucun seuil historique n’est inventé.
+- Traces bornées enregistrées avec le résultat de livraison et accessibles
+  uniquement aux destinataires autorisés. Migration additive du schéma 2,
+  suppression avec les métadonnées, aucun corps ni argument SMTP sortant journalisé.
+- Journaux structurés enrichis pour relier analyse, acceptation durable et relais.
+  Les modèles, seuils et comportements de filtrage existants sont conservés.
+
 ## [0.4.0] - 2026-09-09
 
 Release finale du cycle 0.4, regroupant les versions de développement jusqu’à

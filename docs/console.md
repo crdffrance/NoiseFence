@@ -31,6 +31,21 @@ ou adresse autorisée et un filtre par rôle ou désactivation.
 
 ## Parcours
 
+Depuis 0.4.1, ouvrir un message donne aussi accès aux **Diagnostics** : durée
+d’analyse, seuil et mode enregistrés à la réception, contributions du modèle et
+des règles, résultats SPF/DKIM/DMARC/ARC et historique SMTP par destinataire.
+Les poids expriment des contributions au calcul, pas des points sur 100 ni des
+probabilités indépendantes. Un poids nul peut accompagner une observation ou une
+décision prioritaire de l’antivirus. Les contrôles incomplets restent identifiables.
+
+L’historique SMTP expose les serveurs essayés, l’IP contactée, les informations TLS,
+les codes et textes des réponses, la durée et la prochaine tentative. Le `250`
+final signifie que le serveur distant a accepté le message ; il ne prouve pas
+son placement en boîte de réception. Le bouton d’actualisation recharge ces traces.
+Les messages antérieurs à cette version ne disposent pas de transcript historique
+ni de réglages rétroactivement reconstruits. Les destinataires cachés hors des
+droits du compte restent exclus de ces diagnostics.
+
 - **Messages** : historique de 30 jours, recherche par objet, expéditeur ou
   destinataire visible ; périmètre par domaine ; filtres spam, légitime, analyse
   incomplète, PUB, quarantaine et livraison en attente. Ouvrir un message pour ses raisons,
