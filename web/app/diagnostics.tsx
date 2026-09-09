@@ -261,10 +261,17 @@ function RecipientDetails({
   recipient,
   messageId,
   refreshing,
+  refreshSignal,
+  onRecipientLoaded,
 }: {
   recipient: DiagnosticRecipient;
   messageId: string;
   refreshing: boolean;
+  refreshSignal: AbortSignal;
+  onRecipientLoaded: (
+    messageId: string,
+    recipient: DiagnosticRecipient,
+  ) => void;
 }) {
   const headingId = useId();
   const historyRequest = useRef<AbortController | null>(null);
@@ -275,9 +282,12 @@ function RecipientDetails({
   }>({ data: null, loading: false, error: '' });
   useEffect(() => () => historyRequest.current?.abort(), []);
   async function loadHistory() {
+    if (refreshing || refreshSignal.aborted) return;
     historyRequest.current?.abort();
     const controller = new AbortController();
     historyRequest.current = controller;
+    const abort = () => controller.abort();
+    refreshSignal.addEventListener('abort', abort, { once: true });
     setHistory((previous) => ({ ...previous, loading: true, error: '' }));
     try {
       const data = await api<MessageDiagnostics>(
@@ -286,12 +296,19 @@ function RecipientDetails({
         undefined,
         { signal: controller.signal, cache: 'no-store' },
       );
-      if (controller.signal.aborted) return;
+      const updated = recipientHistory(
+        data,
+        messageId,
+        recipient.delivery_id,
+        controller.signal,
+      );
+      if (!updated) return;
       setHistory({
-        data: recipientHistory(data, messageId, recipient.delivery_id),
+        data: updated,
         loading: false,
         error: '',
       });
+      onRecipientLoaded(messageId, updated);
     } catch (error: unknown) {
       if (controller.signal.aborted) return;
       setHistory((previous) => ({
@@ -302,6 +319,8 @@ function RecipientDetails({
             ? error.message
             : 'Le chargement de l’historique a échoué.',
       }));
+    } finally {
+      refreshSignal.removeEventListener('abort', abort);
     }
   }
   const displayedHistory = history.data ?? recipient;
@@ -313,23 +332,23 @@ function RecipientDetails({
     <section className="diagnostic-recipient" aria-labelledby={headingId}>
       <h4 id={headingId}>{recipient.address}</h4>
       <p className="diagnostic-delivery-state">
-        {deliveryStatus(recipient.status)}
+        {deliveryStatus(displayedHistory.status)}
       </p>
       <dl className="diagnostic-facts">
         <div>
           <dt>Destination de transmission</dt>
-          <dd>{recipient.destination || 'Non enregistrée'}</dd>
+          <dd>{displayedHistory.destination || 'Non enregistrée'}</dd>
         </div>
         <div>
           <dt>Tentatives effectuées</dt>
-          <dd>{recipient.attempts}</dd>
+          <dd>{displayedHistory.attempts}</dd>
         </div>
       </dl>
-      <p>{nextRetry(recipient.status, recipient.next_attempt)}</p>
-      {recipient.last_error && (
+      <p>{nextRetry(displayedHistory.status, displayedHistory.next_attempt)}</p>
+      {displayedHistory.last_error && (
         <div className="diagnostic-callout">
           <strong>Dernière erreur enregistrée</strong>
-          <p className="smtp-response">{recipient.last_error}</p>
+          <p className="smtp-response">{displayedHistory.last_error}</p>
         </div>
       )}
       <p className="diagnostic-muted">
@@ -397,15 +416,25 @@ export default function Diagnostics({
   source,
   revision,
   onLoaded,
+  onRecipientLoaded,
 }: {
   messageId: string;
   reasons: DiagnosticReason[];
   source?: string;
   revision: number;
   onLoaded: (diagnostics: MessageDiagnostics) => void;
+  onRecipientLoaded: (
+    messageId: string,
+    recipient: DiagnosticRecipient,
+  ) => void;
 }) {
   const titleId = useId();
-  const [request, setRequest] = useState(0);
+  // Abort scoped work immediately when global refresh starts, before React's
+  // keyed recipient cleanup. Recipient unmounts also cancel their own requests.
+  const [{ request, scope: refreshScope }, setRefresh] = useState(() => ({
+    request: 0,
+    scope: new AbortController(),
+  }));
   const [state, setState] = useState<{
     messageId: string;
     data: MessageDiagnostics | null;
@@ -478,7 +507,13 @@ export default function Diagnostics({
         <Button
           variant="outline"
           disabled={loading}
-          onClick={() => setRequest((value) => value + 1)}
+          onClick={() => {
+            refreshScope.abort();
+            setRefresh((previous) => ({
+              request: previous.request + 1,
+              scope: new AbortController(),
+            }));
+          }}
         >
           <RefreshCw
             size={16}
@@ -550,6 +585,8 @@ export default function Diagnostics({
                     recipient={recipient}
                     messageId={messageId}
                     refreshing={loading}
+                    refreshSignal={refreshScope.signal}
+                    onRecipientLoaded={onRecipientLoaded}
                   />
                 ))
               ) : (

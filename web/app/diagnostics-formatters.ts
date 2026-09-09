@@ -52,10 +52,7 @@ export type DiagnosticRecipient = {
   logs_truncated: boolean;
   logs: SmtpLog[];
 };
-export type RecipientHistory = Pick<
-  DiagnosticRecipient,
-  'logs' | 'logs_available' | 'logs_truncated'
->;
+export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
@@ -80,7 +77,9 @@ export function recipientHistory(
   data: MessageDiagnostics,
   messageId: string,
   deliveryId: number,
-): RecipientHistory {
+  signal?: AbortSignal,
+): RecipientHistory | null {
+  if (signal?.aborted) return null;
   const recipient = data.recipients[0];
   if (
     data.message_id !== messageId ||
@@ -91,11 +90,18 @@ export function recipientHistory(
       'L’historique reçu ne correspond pas au destinataire sélectionné.',
     );
   // A targeted response must never replace the message's other recipients or analysis.
-  return {
-    logs: recipient.logs,
-    logs_available: recipient.logs_available,
-    logs_truncated: recipient.logs_truncated,
-  };
+  return recipient;
+}
+
+export function mergeDiagnosticRecipient<T extends { delivery_id?: number }>(
+  recipients: T[],
+  updated: DiagnosticRecipient,
+): T[] {
+  return recipients.map((recipient) =>
+    recipient.delivery_id === updated.delivery_id
+      ? { ...recipient, ...updated }
+      : recipient,
+  );
 }
 
 const decimal = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 });

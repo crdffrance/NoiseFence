@@ -8,6 +8,7 @@ import {
   duration,
   evidenceState,
   nextRetry,
+  mergeDiagnosticRecipient,
   policySummary,
   recipientHistory,
   smtpOutcome,
@@ -17,6 +18,7 @@ import {
   transcriptNotice,
   weightEffect,
 } from '../app/diagnostics-formatters.ts';
+import { deliverySummary } from '../app/presentation.ts';
 
 test('SMTP acceptance is not represented as an inbox delivery guarantee', () => {
   assert.equal(
@@ -125,7 +127,7 @@ test('global log budget omissions are distinct from missing historical transcrip
   );
 });
 
-test('a scoped history response exposes only logs and does not replace message or recipient state', () => {
+test('scoped delivery completion updates state and badges while preserving other recipients and quarantine metadata', () => {
   const logs = [{ id: 22, attempt: 2 }];
   const response = {
     message_id: 'message-a',
@@ -135,19 +137,99 @@ test('a scoped history response exposes only logs and does not replace message o
         delivery_id: 123,
         address: 'alice@example.test',
         status: 'delivered',
+        destination: 'alice@upstream.test',
+        attempts: 2,
+        next_attempt: 0,
+        last_error: null,
         logs,
         logs_available: 80,
         logs_truncated: true,
       },
     ],
   };
-  assert.deepEqual(recipientHistory(response, 'message-a', 123), {
-    logs,
-    logs_available: 80,
-    logs_truncated: true,
-  });
-  assert.equal(response.recipients[0].status, 'delivered');
+  const previous = [
+    {
+      delivery_id: 123,
+      address: 'alice@example.test',
+      status: 'pending',
+      attempts: 1,
+      next_attempt: 1800000000,
+      last_error: '451 retry later',
+      held_until: 100,
+      released_at: 90,
+    },
+    {
+      delivery_id: 456,
+      address: 'bob@example.test',
+      status: 'delivered',
+      held_until: 200,
+      released_at: 190,
+    },
+  ];
+  const updated = recipientHistory(response, 'message-a', 123);
+  assert.equal(updated, response.recipients[0]);
+  const merged = mergeDiagnosticRecipient(previous, updated);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].status, 'delivered');
+  assert.equal(merged[0].attempts, 2);
+  assert.equal(merged[0].next_attempt, 0);
+  assert.equal(merged[0].last_error, null);
+  assert.equal(merged[0].held_until, 100);
+  assert.equal(merged[0].released_at, 90);
+  assert.equal(merged[1], previous[1]);
+  assert.equal(previous[0].status, 'pending');
+  assert.equal(deliverySummary(merged).label, 'Accepté par le serveur');
+  assert.match(
+    nextRetry(updated.status, updated.next_attempt),
+    /Aucune nouvelle tentative/,
+  );
   assert.equal(response.analysis.elapsed_ms, 10);
+});
+
+test('scoped merges match delivery id and compose without losing another recipient update', () => {
+  const previous = [
+    { delivery_id: 1, address: 'same@example.test', status: 'pending' },
+    {
+      delivery_id: 2,
+      address: 'same@example.test',
+      status: 'pending',
+      held_until: 20,
+    },
+  ];
+  const first = mergeDiagnosticRecipient(previous, {
+    delivery_id: 1,
+    status: 'delivered',
+  });
+  const second = mergeDiagnosticRecipient(first, {
+    delivery_id: 2,
+    status: 'failed',
+  });
+  assert.equal(second[0].status, 'delivered');
+  assert.equal(second[1].status, 'failed');
+  assert.equal(second[1].held_until, 20);
+  assert.deepEqual(
+    mergeDiagnosticRecipient(second, { delivery_id: 3, status: 'delivered' }),
+    second,
+  );
+});
+
+test('a scoped response arriving after global refresh cancellation cannot replace newer state', async () => {
+  const controller = new AbortController();
+  const newer = [{ delivery_id: 123, status: 'delivered' }];
+  let resolve;
+  const pending = new Promise((done) => {
+    resolve = done;
+  });
+  const applying = pending.then((data) => {
+    const updated = recipientHistory(data, 'message-a', 123, controller.signal);
+    return updated ? mergeDiagnosticRecipient(newer, updated) : newer;
+  });
+  controller.abort();
+  resolve({
+    message_id: 'message-a',
+    recipients: [{ delivery_id: 123, status: 'pending' }],
+  });
+  assert.equal(await applying, newer);
 });
 
 test('scoped history rejects a stale message, another recipient, missing access or a full-list response', () => {

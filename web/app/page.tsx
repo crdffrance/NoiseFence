@@ -5,6 +5,8 @@ import { MyAccount } from './account';
 import { classification, deliverySummary } from './presentation';
 import {
   deliveryStatus,
+  mergeDiagnosticRecipient,
+  type DiagnosticRecipient,
   type MessageDiagnostics,
 } from './diagnostics-formatters';
 import { RuleDetails } from './rule-details';
@@ -98,6 +100,7 @@ type Mail = {
   };
   reasons: { id: string; detail: string; weight: number }[];
   recipients: {
+    delivery_id?: number;
     address: string;
     status: string;
     held_until?: number | null;
@@ -274,8 +277,26 @@ export default function Home() {
                   (existing) => existing.address === recipient.address,
                 ),
                 address: recipient.address,
+                delivery_id: recipient.delivery_id,
                 status: recipient.status,
               })),
+            }
+          : previous,
+      );
+    },
+    [user],
+  );
+  const recipientLoaded = useCallback(
+    (messageId: string, recipient: DiagnosticRecipient) => {
+      if (!user || user !== activeUser.current) return;
+      setSelected((previous) =>
+        previous?.id === messageId
+          ? {
+              ...previous,
+              recipients: mergeDiagnosticRecipient(
+                previous.recipients,
+                recipient,
+              ),
             }
           : previous,
       );
@@ -956,6 +977,7 @@ export default function Home() {
                       source={selected.decision?.source}
                       revision={diagnosticsRevision}
                       onLoaded={diagnosticsLoaded}
+                      onRecipientLoaded={recipientLoaded}
                     />
                   </Suspense>
                   {selected.mailing && (
