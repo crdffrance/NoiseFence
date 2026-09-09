@@ -1,4 +1,11 @@
 'use client';
+import {
+  ActionSettings,
+  RuleSettings,
+  actionLabel,
+  type ActionPolicy,
+  type Rule,
+} from './actions';
 import { MailingSettings, type MailingPolicy } from './mailing';
 import { ProtectionSettings, type ProtectionPolicy } from './protection';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -40,7 +47,8 @@ type Domain = {
   aliases: Record<string, string>;
 };
 type Filters = {
-  mode: 'observe' | 'tag';
+  mode: 'observe' | 'tag' | 'enforce';
+  rule_weights: Record<string, number>;
   threshold: number;
   require_corroboration: boolean;
   authentication: boolean;
@@ -58,11 +66,14 @@ type Settings = {
   domains: Domain[];
   gateways: Gateway[];
   filters: Filters;
+  actions: ActionPolicy | null;
   protection: ProtectionPolicy | null;
   mailing: MailingPolicy | null;
 };
 type Configuration = {
   revision: number;
+  actions: ActionPolicy;
+  rules: Rule[];
   settings: Settings;
   available: Filters;
   threshold_locked: boolean;
@@ -102,6 +113,7 @@ type Delivery = {
 };
 type Metrics = {
   queued_deliveries: number;
+  quarantined_deliveries: number;
   unnotified_failures: number;
   oldest_pending_age_seconds: number | null;
   received_last_hour: number;
@@ -115,7 +127,10 @@ type Metrics = {
   };
 };
 const modules: {
-  key: keyof Omit<Filters, 'mode' | 'threshold' | 'require_corroboration'>;
+  key: keyof Omit<
+    Filters,
+    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights'
+  >;
   title: string;
   description: string;
 }[] = [
@@ -804,7 +819,31 @@ export function AdminConsole({
       )}
       {section === 'filters' && (
         <>
+          <ActionSettings
+            policy={
+              draft.actions ?? {
+                ...config.actions,
+                publicity: draft.mailing?.tag_subject ? 'tag' : 'deliver',
+              }
+            }
+            mode={draft.filters.mode}
+            spamTagReady={config.tag_ready}
+            pubTagReady={config.pub_tag_ready}
+            publicityEnabled={!!draft.mailing}
+            onChange={(actions) => setDraft({ ...draft, actions })}
+          />
+          <RuleSettings
+            rules={config.rules}
+            weights={draft.filters.rule_weights ?? {}}
+            onChange={(rule_weights) =>
+              setDraft({
+                ...draft,
+                filters: { ...draft.filters, rule_weights },
+              })
+            }
+          />
           <MailingSettings
+            actionsManaged
             policy={draft.mailing}
             available={config.mailing_available}
             tagReady={config.pub_tag_ready}
@@ -821,9 +860,9 @@ export function AdminConsole({
             <div>
               <h2>Comportement du filtre</h2>
               <p className="muted small">
-                Les messages sont transmis. En mode marquage, les messages
-                classés indésirables reçoivent [SPAM] ; les publicités reçoivent
-                [PUB] si cette option est activée.
+                L’observation analyse et transmet sans préfixe. Le mode actif
+                applique les actions choisies pour les nouveaux messages :
+                transmission, marquage ou quarantaine.
               </p>
             </div>
             <div className="form-grid">
@@ -838,7 +877,12 @@ export function AdminConsole({
                   <option value="observe">
                     Observation — analyser et transmettre
                   </option>
-                  <option value="tag">Marquage — préfixer les objets</option>
+                  {draft.filters.mode === 'tag' && (
+                    <option value="tag">
+                      Actif — configuration de marquage existante
+                    </option>
+                  )}
+                  <option value="enforce">Actif — appliquer les actions</option>
                 </select>
               </label>
               <label className="field" htmlFor="filter-threshold">
@@ -1138,6 +1182,10 @@ export function AdminConsole({
             <section>
               <span>Livraisons en attente</span>
               <strong>{metrics?.queued_deliveries ?? '—'}</strong>
+              <small className="muted">
+                {metrics?.quarantined_deliveries ?? '—'} livraison(s) en
+                quarantaine
+              </small>
               <small className="muted">
                 {metrics?.oldest_pending_age_seconds != null
                   ? `Plus ancienne : ${Math.floor(metrics.oldest_pending_age_seconds / 60)} min`
@@ -1448,20 +1496,45 @@ export function AdminConsole({
                           ? 'incluses'
                           : 'exclues'}{' '}
                         · Préfixe [PUB] en mode marquage :{' '}
-                        {draft.mailing.tag_subject ? 'activé' : 'désactivé'}.
+                        {(draft.actions?.publicity ??
+                          (draft.mailing.tag_subject ? 'tag' : 'deliver')) ===
+                        'tag'
+                          ? 'activé'
+                          : 'désactivé'}
+                        .
                       </p>
                     )}
                   </li>
                 )}
+                {JSON.stringify(draft.actions) !==
+                  JSON.stringify(config.settings.actions) &&
+                  draft.actions && (
+                    <li>
+                      <strong>Actions après détection</strong>
+                      <p>
+                        Spam : {actionLabel[draft.actions.spam]} · PUB :{' '}
+                        {actionLabel[draft.actions.publicity]} · Malware :{' '}
+                        {actionLabel[draft.actions.malware]}.
+                      </p>
+                      <p>
+                        Quarantaine : suppression après{' '}
+                        {draft.actions.quarantine_days} jours sans libération.
+                      </p>
+                    </li>
+                  )}
                 {Object.entries(draft.filters)
                   .filter(
                     ([k, v]) =>
-                      v !== config.settings.filters[k as keyof Filters],
+                      JSON.stringify(v) !==
+                      JSON.stringify(
+                        config.settings.filters[k as keyof Filters],
+                      ),
                   )
                   .map(([k, v]) => (
                     <li key={k}>
                       {(
                         {
+                          rule_weights: 'Poids des règles heuristiques',
                           mode: 'Mode de fonctionnement',
                           threshold: 'Seuil de classement',
                           require_corroboration:
@@ -1474,15 +1547,24 @@ export function AdminConsole({
                         k}{' '}
                       :{' '}
                       <strong>
-                        {typeof v === 'boolean'
-                          ? v
-                            ? 'activé'
-                            : 'désactivé'
-                          : v === 'tag'
-                            ? 'marquage'
-                            : v === 'observe'
-                              ? 'observation'
-                              : v}
+                        {typeof v === 'object'
+                          ? Object.entries(v)
+                              .map(
+                                ([id, weight]) =>
+                                  `${config.rules.find((r) => r.id === id)?.label ?? id} : ${weight}`,
+                              )
+                              .join(' · ') || 'valeurs par défaut'
+                          : v === 'enforce'
+                            ? 'actions actives'
+                            : typeof v === 'boolean'
+                              ? v
+                                ? 'activé'
+                                : 'désactivé'
+                              : v === 'tag'
+                                ? 'marquage'
+                                : v === 'observe'
+                                  ? 'observation'
+                                  : v}
                       </strong>
                       .
                     </li>

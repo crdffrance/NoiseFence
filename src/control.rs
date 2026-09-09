@@ -33,6 +33,8 @@ pub struct ManagedDomain {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Filters {
+    #[serde(default)]
+    pub rule_weights: BTreeMap<String, f64>,
     pub mode: Mode,
     pub threshold: f64,
     #[serde(default)]
@@ -54,6 +56,8 @@ pub struct Settings {
     pub gateways: Vec<Gateway>,
     pub domains: Vec<ManagedDomain>,
     pub filters: Filters,
+    #[serde(default)]
+    pub actions: Option<crate::actions::Policy>,
     #[serde(default)]
     pub protection: Option<crate::protection::Policy>,
     #[serde(default)]
@@ -101,7 +105,9 @@ impl Settings {
             domains,
             protection: config.protection.as_ref().map(|c| c.policy.clone()),
             mailing: config.mailing.as_ref().map(|c| c.policy.clone()),
+            actions: config.actions.clone(),
             filters: Filters {
+                rule_weights: config.filter.rule_weights.clone(),
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
                 require_corroboration: config.filter.require_corroboration,
@@ -231,6 +237,8 @@ impl Settings {
                 "Le connecteur {name} doit être installé et configuré sur le serveur."
             );
         }
+        cfg.actions = self.actions.clone();
+        cfg.filter.rule_weights = f.rule_weights.clone();
         cfg.filter.mode = f.mode;
         cfg.filter.threshold = f.threshold;
         cfg.filter.require_corroboration = f.require_corroboration;

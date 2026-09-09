@@ -969,3 +969,300 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
         .await
         .unwrap();
 }
+
+async fn held_message(store: &Store, cfg: &noisefence::config::Config) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut scan = extract(common::MESSAGE, 10000);
+    scan.score = 99.;
+    scan.action = Some(noisefence::actions::Applied {
+        requested: noisefence::actions::Action::Quarantine,
+        effective: noisefence::actions::Action::Quarantine,
+        reason: "category".into(),
+        quarantine_days: 14,
+    });
+    store
+        .enqueue(
+            id.clone(),
+            "sender@example.org".into(),
+            ["alice@example.test", "bob@example.test"]
+                .map(|a| cfg.recipient(a).unwrap())
+                .to_vec(),
+            scan,
+            common::MESSAGE.to_vec(),
+        )
+        .await
+        .unwrap();
+    id
+}
+
+#[tokio::test]
+async fn quarantine_is_durable_and_recipient_actions_recheck_acl_session_and_state() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let bob = account(&store, "bob", false, vec!["bob@example.test"]).await;
+    let admin = account(&store, "admin", true, vec![]).await;
+    let id = held_message(&store, &cfg).await;
+    assert!(store.claim().await.unwrap().is_none());
+    store.cleanup().await.unwrap();
+    drop(store);
+    let store = Store::open(root.path()).unwrap();
+    store.recover().await.unwrap();
+    assert!(store.raw_path(&id).is_file());
+    assert!(store.claim().await.unwrap().is_none());
+    let app = api::router(cfg, store.clone()).unwrap();
+    let (code, list) = request(&app, &alice, "/messages?filter=quarantined", None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["recipients"].as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["recipients"][0]["address"], "alice@example.test");
+    assert!(list[0]["recipients"][0]["held_until"].as_i64().unwrap() > noisefence::now());
+    let (_, stats) = request(&app, &alice, "/stats", None).await;
+    assert_eq!(stats["quarantined"], 1);
+    assert_eq!(stats["pending"], 0);
+    let path = format!("/messages/{id}/quarantine");
+    for command in ["release", "delete"] {
+        assert_eq!(
+            request(
+                &app,
+                &alice,
+                &path,
+                Some(json!({"recipient":"bob@example.test","action":command}))
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    // Mutation routes require CSRF, including for an authenticated administrator.
+    let req = Request::builder()
+        .uri(format!("/api/v1{path}"))
+        .method("POST")
+        .header("cookie", format!("noisefence_session={admin}"))
+        .header("origin", "http://127.0.0.1:3000")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"recipient":"alice@example.test","action":"release"}).to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    // Late release gets a fresh delivery retry lifetime; history stays unchanged.
+    store
+        .run(|db| {
+            db.execute(
+                "UPDATE messages SET created=?1",
+                [noisefence::now() - 20 * 86400],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let response = request(
+        &app,
+        &alice,
+        &path,
+        Some(json!({"recipient":"alice@example.test","action":"release"})),
+    )
+    .await;
+    assert_eq!(response.0, StatusCode::OK);
+    assert_eq!(response.1["status"], "pending");
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &path,
+            Some(json!({"recipient":"alice@example.test","action":"release"}))
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let job = store.claim().await.unwrap().unwrap();
+    assert_eq!(job.destination, "alice@example.test");
+    assert!(job.created >= noisefence::now() - 2);
+    store.finish(&job, "delivered", "", 0).await.unwrap();
+    store.cleanup().await.unwrap();
+    assert!(store.raw_path(&id).is_file()); // Bob's hidden copy is still retained.
+    assert_eq!(
+        request(&app, &alice, "/messages?filter=quarantined", None)
+            .await
+            .1,
+        json!([])
+    );
+    let hash = noisefence::message::digest(bob.as_bytes());
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='bob'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            &app,
+            &bob,
+            &path,
+            Some(json!({"recipient":"bob@example.test","action":"delete"}))
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(matches!(
+        store
+            .quarantine_action(
+                "bob".into(),
+                hash,
+                id.clone(),
+                "bob@example.test".into(),
+                noisefence::quarantine::Command::Release
+            )
+            .await
+            .unwrap(),
+        noisefence::quarantine::Change::NotFound
+    ));
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            &path,
+            Some(json!({"recipient":"bob@example.test","action":"delete"}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    store.cleanup().await.unwrap();
+    assert!(!store.raw_path(&id).is_file());
+    assert!(store.claim().await.unwrap().is_none());
+    let (_, metrics) = request(&app, &admin, "/metrics", None).await;
+    assert_eq!(metrics["quarantined_deliveries"], 0);
+    store.run(|db|{
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM audit WHERE action IN ('quarantine_release','quarantine_delete')",[],|r|r.get::<_,i64>(0))?,2);
+        assert_eq!(db.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0))?,2);
+        Ok(())
+    }).await.unwrap();
+}
+
+#[tokio::test]
+async fn quarantine_expiry_never_releases_mail_and_expired_sessions_cannot_mutate() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let token = account(&store, "admin", true, vec![]).await;
+    let id = held_message(&store, &cfg).await;
+    store
+        .run(|db| {
+            db.execute("UPDATE sessions SET expires=?1", [noisefence::now() - 1])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .quarantine_action(
+                "admin".into(),
+                noisefence::message::digest(token.as_bytes()),
+                id.clone(),
+                "alice@example.test".into(),
+                noisefence::quarantine::Command::Release
+            )
+            .await
+            .unwrap(),
+        noisefence::quarantine::Change::NotFound
+    ));
+    store
+        .run(|db| {
+            db.execute(
+                "UPDATE delivery_policy SET held_until=?1",
+                [noisefence::now() - 1],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    store.cleanup().await.unwrap();
+    store.cleanup().await.unwrap();
+    assert!(store.claim().await.unwrap().is_none());
+    assert!(!store.raw_path(&id).is_file());
+    store
+        .run(|db| {
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM deliveries WHERE status='expired'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                2
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM audit WHERE action='quarantine_expire'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                2
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn console_persists_actions_and_rule_weights_without_reclassifying_accepted_mail() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let token = account(&store, "admin", true, vec![]).await;
+    let id = held_message(&store, &cfg).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let (_, view) = request(&app, &token, "/admin/config", None).await;
+    assert_eq!(view["rules"].as_array().unwrap().len(), 8);
+    assert_eq!(view["tag_ready"], false);
+    let mut settings = view["settings"].clone();
+    settings["filters"]["mode"] = json!("enforce");
+    settings["filters"]["rule_weights"] = json!({"urgency":0.0,"financial_lure":2.0});
+    settings["actions"] = json!({"spam":"quarantine","publicity":"deliver","malware":"quarantine","quarantine_days":2});
+    let (code, value) = request(
+        &app,
+        &token,
+        "/admin/config",
+        Some(json!({"revision":0,"settings":settings})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{value}");
+    assert_eq!(control.snapshot().config.filter.rule_weights["urgency"], 0.);
+    let restored = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    assert_eq!(restored.snapshot().settings, control.snapshot().settings);
+    assert_eq!(
+        noisefence::control::effective_from_disk(cfg)
+            .unwrap()
+            .actions,
+        control.snapshot().config.actions
+    );
+    let rows = store
+        .list("admin".into(), "".into(), "quarantined".into(), 0, 95.)
+        .await
+        .unwrap();
+    assert_eq!(rows[0].id, id);
+    assert!(rows[0].recipients[0].held_until.unwrap() > noisefence::now() + 13 * 86400);
+    settings["filters"]["rule_weights"] = json!({"malware_priority":0.0});
+    assert_eq!(
+        request(
+            &app,
+            &token,
+            "/admin/config",
+            Some(json!({"revision":1,"settings":settings}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(control.snapshot().revision, 1);
+}

@@ -57,6 +57,7 @@ def main():
     (output/'build.json').write_text(json.dumps({
         'project':'NoiseFence','platform':args.platform,'version':version,
         'rust':'1.98.0','minimum_glibc':'2.36','commit':commit,
+        'storage_schema':2,
         'source_sha256':source.hexdigest(),
         'source_digest_schema':'noisefence-build-inputs-2',
         'source_inputs':[str(p.relative_to(ROOT)) for p in sorted(inputs)],

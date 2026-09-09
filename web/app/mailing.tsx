@@ -20,15 +20,17 @@ export type MailingReport = {
 
 export function MailingSettings({
   policy,
+  actionsManaged = false,
   available,
   tagReady,
   mode,
   onChange,
 }: {
   policy: MailingPolicy | null;
+  actionsManaged?: boolean;
   available: boolean;
   tagReady: boolean;
-  mode: 'observe' | 'tag';
+  mode: 'observe' | 'tag' | 'enforce';
   onChange: (value: MailingPolicy | null) => void;
 }) {
   return (
@@ -88,26 +90,31 @@ export function MailingSettings({
               }
             />
           </label>
-          <label
-            className="toggle-row"
-            aria-label="Ajouter [PUB] dans l’objet en mode marquage"
-          >
-            <span>
-              <strong>Ajouter [PUB] dans l’objet en mode marquage</strong>
-              <small>
-                Un seul préfixe est ajouté. Le corps du message est conservé.
-              </small>
-            </span>
-            <input
-              type="checkbox"
-              role="switch"
-              aria-checked={policy.tag_subject}
-              checked={policy.tag_subject}
-              onChange={(e) =>
-                onChange({ ...policy, tag_subject: e.target.checked })
-              }
-            />
-          </label>
+          {!actionsManaged && (
+            <>
+              <label
+                className="toggle-row"
+                aria-label="Ajouter [PUB] dans l’objet en mode marquage"
+              >
+                <span>
+                  <strong>Ajouter [PUB] dans l’objet en mode marquage</strong>
+                  <small>
+                    Un seul préfixe est ajouté. Le corps du message est
+                    conservé.
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={policy.tag_subject}
+                  checked={policy.tag_subject}
+                  onChange={(e) =>
+                    onChange({ ...policy, tag_subject: e.target.checked })
+                  }
+                />
+              </label>
+            </>
+          )}
           <p className="muted small">
             Les factures, reçus, codes de connexion et conversations bénéficient
             de critères d’exclusion. Les corrections permettent d’évaluer et

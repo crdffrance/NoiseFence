@@ -7,6 +7,7 @@ bundle=$(realpath "${1:?Usage: install.sh EXTRACTED_RELEASE [INITIAL_CONFIG]}")
 initial_config=${2:-}
 cd "$bundle"
 sha256sum --check --quiet SHA256SUMS
+python3 -c "import sqlite3, tomllib"
 version=$(./noisefence --version | awk '{print $2}')
 case "$version" in ''|*[!0-9A-Za-z.-]*) echo 'Invalid version' >&2; exit 1;; esac
 base=/opt/noisefence
@@ -54,7 +55,8 @@ systemctl daemon-reload
 systemctl enable noisefence.service
 if ! (if "$vision_installed"; then systemctl restart noisefence-vision.service || exit 1; fi
       systemctl restart noisefence.service); then
-    if [ -n "$previous" ]; then
+    systemctl stop noisefence.service || { echo 'Could not stop candidate; automatic rollback refused.' >&2; exit 1; }
+    if [ -n "$previous" ] && python3 deploy/can-rollback.py --config /etc/noisefence/config.toml --previous "$base/$previous"; then
         ln -sfn "$previous" "$base/current.next"
         mv -Tf "$base/current.next" "$base/current"
         if "$vision_installed" && [ -f "$base/current/deploy/noisefence-vision.service" ]; then

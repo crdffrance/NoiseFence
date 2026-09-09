@@ -4,6 +4,22 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.4.0-dev.1] - 2026-09-09
+
+- Séparer les actions des classements : transmission sans préfixe, marquage ou
+  quarantaine, configurables pour spam, PUB et malware confirmé. Conserver
+  l’observation par défaut et les validations Proton/ARC pour le marquage.
+- Ajouter une quarantaine durable par destinataire, avec libération, suppression,
+  expiration de 1 à 30 jours, historique, compteurs et contrôles de session/ACL.
+  Le corps reste conservé jusqu’à résolution de toutes les copies ; une libération
+  dispose d’un nouveau délai de réessai SMTP.
+- Personnaliser huit contributions heuristiques bornées dans la console, avec
+  restauration des valeurs par défaut, sans modifier les caractéristiques apprises
+  ni supprimer la priorité antivirus et la confirmation du spam.
+- Migrer la base au schéma 2. Les versions 0.3 refusent ce schéma pour protéger
+  les corps en quarantaine. L’installateur bloque un retour automatique incompatible ;
+  sauvegarder avant migration et consulter [la procédure](docs/actions.md).
+
 ## [0.3.0-dev.22] - 2026-09-09
 
 - Publier les corrections de cohérence de dev.21 avec le libellé exact

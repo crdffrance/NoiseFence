@@ -32,3 +32,12 @@ CREATE TRIGGER IF NOT EXISTS feedback_category_invalidate
 AFTER UPDATE OF spam,created ON feedback BEGIN
  DELETE FROM feedback_categories WHERE username=NEW.username AND message_id=NEW.message_id;
 END;
+
+-- Schema v2 prevents old binaries from deleting a quarantined spool on cleanup.
+CREATE TABLE IF NOT EXISTS delivery_policy(
+ delivery_id INTEGER PRIMARY KEY REFERENCES deliveries(id) ON DELETE CASCADE,
+ action TEXT NOT NULL CHECK(action IN ('deliver','tag','quarantine')),
+ held_until INTEGER,
+ released_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS quarantine_expiry ON delivery_policy(held_until);

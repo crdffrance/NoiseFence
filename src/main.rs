@@ -499,6 +499,7 @@ async fn main() -> Result<()> {
         let raw = std::fs::read(message)?;
         noisefence::message::validate(&raw)?;
         let mut probe = (*config).clone();
+        probe.actions = None;
         probe.filter.mode = noisefence::config::Mode::Observe;
         if matches!(category, ProbeCategory::Publicity) {
             probe.mailing = Some(Default::default());

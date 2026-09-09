@@ -8,7 +8,7 @@ par défaut, secret ou mot de passe n’est fourni dans le logiciel.
 
 - **Messages** : historique de 30 jours, recherche par objet, expéditeur ou
   destinataire visible ; périmètre par domaine ; filtres spam, légitime, analyse
-  incomplète et livraison en attente. Ouvrir un message pour ses raisons,
+  incomplète, PUB, quarantaine et livraison en attente. Ouvrir un message pour ses raisons,
   détecteurs, destinataires autorisés et corrections Spam/Légitime.
 - **Domaines** : nom DNS ASCII/punycode, activation, passerelle, acceptation de
   toutes les adresses ou liste explicite, alias vers une destination configurée.
@@ -20,10 +20,11 @@ par défaut, secret ou mot de passe n’est fourni dans le logiciel.
   vérification du certificat est obligatoire vers les destinations publiques.
   Les hôtes de la passerelle elle-même, domaines protégés et destinations
   privées sont refusés (sauf le mode de test local explicitement configuré).
-- **Filtres** : mode observation/marquage, seuil et activation des connecteurs
+- **Filtres** : mode observation/actif, [actions par catégorie et poids heuristiques](actions.md), seuil et activation des connecteurs
   installés. Le seuil d’un modèle multilingue est lié à sa calibration ; les
   secrets, modèles, ressources, budgets et tarifs restent gérés côté serveur.
   L’activation du marquage exige toujours une preuve Proton récente et ARC.
+  La quarantaine permet de libérer ou supprimer chaque destinataire autorisé.
   Aucune nouvelle performance de détection n’est déduite de ces commandes.
 - **Comptes & accès** : création, rôle, accès, désactivation et nouveau mot de
   passe. Un administrateur voit tous les domaines et peut modifier les réglages.

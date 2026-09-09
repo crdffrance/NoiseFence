@@ -1,4 +1,5 @@
 'use client';
+import { actionLabel, type DeliveryAction } from './actions';
 import {
   MailingDetails,
   type MailingReport,
@@ -28,6 +29,12 @@ import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
 import { registerFeedbackTool } from './webmcp';
 type Mail = {
+  action?: {
+    requested: DeliveryAction;
+    effective: DeliveryAction;
+    reason: string;
+    quarantine_days: number;
+  } | null;
   protection?: ProtectionReport;
   mailing?: MailingReport;
   category: FeedbackCategory | 'undetermined';
@@ -66,7 +73,12 @@ type Mail = {
     } | null;
   };
   reasons: { id: string; detail: string; weight: number }[];
-  recipients: { address: string; status: string }[];
+  recipients: {
+    address: string;
+    status: string;
+    held_until?: number | null;
+    released_at?: number | null;
+  }[];
   feedback: boolean | null;
   antivirus?: {
     status:
@@ -132,6 +144,7 @@ type Stats = {
   flagged: number;
   publicity: number;
   pending: number;
+  quarantined: number;
   mode: string;
   threshold: number;
   decision_source?: 'legacy' | 'fusion';
@@ -279,6 +292,51 @@ export default function Home() {
       setBusy(false);
     }
   }
+  async function quarantineAction(
+    recipient: string,
+    action: 'release' | 'delete',
+  ) {
+    if (!selected || !user) return;
+    const id = selected.id;
+    if (
+      !window.confirm(
+        action === 'release'
+          ? `Libérer ce message vers ${recipient} ? Il sera transmis sans préfixe ; son classement reste inchangé.`
+          : `Supprimer la livraison retenue pour ${recipient} ? Cette action est définitive pour ce destinataire.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api<{ status: string }>(
+        `/messages/${id}/quarantine`,
+        { recipient, action },
+        user.csrf,
+      );
+      setSelected((previous) =>
+        previous?.id === id
+          ? {
+              ...previous,
+              recipients: previous.recipients.map((r) =>
+                r.address === recipient ? { ...r, status: result.status } : r,
+              ),
+            }
+          : previous,
+      );
+      setNotice(
+        action === 'release'
+          ? 'Message libéré : livraison en attente pour ce destinataire.'
+          : 'Livraison retenue supprimée pour ce destinataire.',
+      );
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   if (!ready)
     return (
       <main className="login">
@@ -419,7 +477,9 @@ export default function Home() {
           </span>
           <span className="mode">
             <i />
-            {stats?.mode === 'tag' ? 'Marquage actif' : 'Observation'}
+            {stats?.mode && stats.mode !== 'observe'
+              ? 'Actions actives'
+              : 'Observation'}
           </span>
         </header>
         {error && (
@@ -755,25 +815,71 @@ export default function Home() {
                       publicité frauduleuse doit être signalée comme spam.
                     </p>
                     <h2 className="subheading">Livraison</h2>
-                    {selected.recipients.map((r) => (
-                      <p className="recipient" key={r.address}>
-                        {r.address}
-                        <span>
-                          {(
-                            {
-                              pending: 'En attente',
-                              sending: 'En cours',
-                              delivered: 'Livré',
-                              failed: 'Échec',
-                              notified: 'Échec signalé',
-                            } as Record<string, string>
-                          )[r.status] || r.status}
-                        </span>
+                    {selected.action && (
+                      <p className="small muted">
+                        Action à la réception :{' '}
+                        {actionLabel[selected.action.effective]}.
+                        {selected.action.reason === 'observation' &&
+                          ` Observation active ; action prévue : ${actionLabel[selected.action.requested]}.`}
+                        {selected.action.reason === 'incomplete' &&
+                          ' Analyse incomplète : transmission sans préfixe.'}
                       </p>
+                    )}
+                    {selected.recipients.map((r) => (
+                      <div className="quarantine-recipient" key={r.address}>
+                        <p className="recipient">
+                          {r.address}
+                          <span>
+                            {(
+                              {
+                                pending: 'En attente',
+                                sending: 'En cours',
+                                delivered: 'Livré',
+                                failed: 'Échec',
+                                notified: 'Échec signalé',
+                                quarantined: 'En quarantaine',
+                                discarded: 'Supprimé manuellement',
+                                expired: 'Quarantaine expirée',
+                              } as Record<string, string>
+                            )[r.status] || r.status}
+                          </span>
+                        </p>
+                        {r.status === 'quarantined' && (
+                          <>
+                            <p className="small muted">
+                              {r.held_until
+                                ? `Suppression prévue le ${new Date(r.held_until * 1000).toLocaleString('fr-FR')}.`
+                                : 'Message retenu sur la passerelle.'}
+                            </p>
+                            <div className="feedback-actions">
+                              <Button
+                                disabled={busy}
+                                onClick={() =>
+                                  quarantineAction(r.address, 'release')
+                                }
+                              >
+                                Libérer et transmettre
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="danger"
+                                disabled={busy}
+                                onClick={() =>
+                                  quarantineAction(r.address, 'delete')
+                                }
+                              >
+                                Supprimer
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     ))}
                     <p className="small muted">
-                      Le corps et les pièces jointes sont supprimés après
-                      livraison.
+                      Le corps et les pièces jointes restent sur la passerelle
+                      tant qu’une livraison est en attente ou en quarantaine.
+                      Ils sont supprimés lorsque tous les destinataires sont
+                      résolus.
                     </p>
                   </section>
                 </div>
@@ -860,6 +966,10 @@ export default function Home() {
                         ['publicity', 'PUB'],
                         ['legitimate', 'Légitime'],
                         ['pending', 'En attente'],
+                        [
+                          'quarantined',
+                          `Quarantaine (${stats?.quarantined ?? 0})`,
+                        ],
                         ['review', 'À vérifier'],
                         ['incomplete', 'Analyse incomplète'],
                       ].map(([value, label]) => (
@@ -919,6 +1029,13 @@ export default function Home() {
                           <TableCell>
                             <span className="small recipient-list">
                               {m.recipients.map((r) => r.address).join(', ')}
+                              {m.recipients.some(
+                                (r) => r.status === 'quarantined',
+                              ) && (
+                                <span className="status quarantine-status">
+                                  En quarantaine
+                                </span>
+                              )}
                             </span>
                           </TableCell>
                           <TableCell>

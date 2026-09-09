@@ -68,12 +68,25 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
     let s = control.snapshot();
     let mut tag = s.settings.clone();
     tag.filters.mode = crate::config::Mode::Tag;
+    tag.actions = Some(crate::actions::Policy {
+        spam: crate::actions::Action::Tag,
+        malware: crate::actions::Action::Tag,
+        publicity: crate::actions::Action::Deliver,
+        quarantine_days: 14,
+    });
     let tag_ready = tag.effective(&control.base).is_ok();
     let mut pub_tag = tag.clone();
     pub_tag.mailing = Some(crate::mailing::Policy::default());
+    pub_tag.actions = Some(crate::actions::Policy {
+        spam: crate::actions::Action::Deliver,
+        malware: crate::actions::Action::Deliver,
+        publicity: crate::actions::Action::Tag,
+        quarantine_days: 14,
+    });
     let pub_tag_ready = pub_tag.effective(&control.base).is_ok();
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
         "available":Settings::from_config(&control.base).filters,
+        "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
         "threshold_locked":control.base.filter.semantic.is_some(),"tag_ready":tag_ready,
         "mailing_available":control.base.mailing.is_some(),"pub_tag_ready":pub_tag_ready,
         "hostname":control.base.hostname,"version":env!("CARGO_PKG_VERSION"),

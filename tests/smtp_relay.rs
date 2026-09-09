@@ -727,3 +727,107 @@ fn smtp_processing_capacity_is_bounded_and_backwards_compatible() {
     cfg.smtp.max_connections = 128;
     cfg.validate().unwrap();
 }
+
+#[tokio::test]
+async fn smtp_accepts_spam_and_pub_durably_into_quarantine_without_rewriting_subject_or_body() {
+    use noisefence::{
+        actions::{Action, Policy},
+        config::Mode,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.mode = Mode::Enforce;
+    cfg.filter.threshold = 90.;
+    cfg.actions = Some(Policy {
+        spam: Action::Quarantine,
+        publicity: Action::Quarantine,
+        malware: Action::Quarantine,
+        quarantine_days: 3,
+    });
+    cfg.mailing = Some(Default::default());
+    cfg.validate().unwrap();
+    let cfg = Arc::new(cfg);
+    let store = Store::open(root.path()).unwrap();
+    let (addr, stop, task) = server(cfg, store.clone()).await;
+    let mut io = client(addr).await;
+    assert_eq!(command(&mut io, "EHLO example.org\r\n").await, 250);
+    let promo=b"From: sender@example.org\r\nSubject: Offres exclusives\r\nList-Unsubscribe: <https://example.org/unsubscribe>\r\n\r\nProfitez de nos offres exclusives. Achetez maintenant avec 50% de reduction.\r\n";
+    // Spam fixture combines independent local heuristics at their default weights.
+    let spam=b"From: sender@example.org\r\nReply-To: someone@example.net\r\nSubject: URGENT VERIFY YOUR ACCOUNT LOTTERY\r\nContent-Type: text/html\r\n\r\n<form>guaranteed profit verify your account immediately <a href=\"http://192.0.2.1\">open</a></form>\r\n";
+    for (raw, category) in [(promo.as_slice(), "publicity"), (spam.as_slice(), "spam")] {
+        assert_eq!(
+            command(&mut io, "MAIL FROM:<sender@example.org>\r\n").await,
+            250
+        );
+        for address in ["alice@example.test", "bob@example.test"] {
+            assert_eq!(
+                command(&mut io, &format!("RCPT TO:<{address}>\r\n")).await,
+                250
+            );
+        }
+        assert_eq!(command(&mut io, "DATA\r\n").await, 354);
+        io.write_all(raw).await.unwrap();
+        io.write_all(b".\r\n").await.unwrap();
+        io.flush().await.unwrap();
+        assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+        let category = category.to_owned();
+        let id = store
+            .run(move |db| {
+                let (id, json): (String, String) = db.query_row(
+                    "SELECT id,scan FROM messages ORDER BY rowid DESC LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                let scan: noisefence::engine::Scan = serde_json::from_str(&json)?;
+                assert_eq!(
+                    noisefence::mailing::category(&scan, 90.).as_str(),
+                    category,
+                    "complete={} score={} reasons={:?}",
+                    scan.complete,
+                    scan.score,
+                    scan.reasons
+                );
+                assert_eq!(scan.action.unwrap().effective, Action::Quarantine);
+                assert!(!scan.tagged && !scan.pub_tagged);
+                Ok(id)
+            })
+            .await
+            .unwrap();
+        assert!(store.claim().await.unwrap().is_none());
+        let queued = std::fs::read(store.raw_path(&id)).unwrap();
+        assert_eq!(
+            noisefence::message::fields(raw).unwrap().1,
+            noisefence::message::fields(&queued).unwrap().1
+        );
+        assert_eq!(
+            mail_parser::MessageParser::default()
+                .parse(raw)
+                .unwrap()
+                .subject(),
+            mail_parser::MessageParser::default()
+                .parse(&queued)
+                .unwrap()
+                .subject()
+        );
+    }
+    assert_eq!(command(&mut io, "QUIT\r\n").await, 221);
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+    store.recover().await.unwrap();
+    store.cleanup().await.unwrap();
+    assert!(store.claim().await.unwrap().is_none());
+    store
+        .run(|db| {
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM deliveries WHERE status='quarantined'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                4
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

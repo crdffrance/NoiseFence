@@ -38,7 +38,7 @@ Un échec ultérieur ne supprime pas les contrôles déjà réussis. `complete =
 interdit toujours la modification de l’objet, même pour un malware détecté.
 Un tel message apparaît dans les filtres **Spam** et **Analyse incomplète** ;
 ce second filtre décrit l’état des contrôles, pas une catégorie concurrente.
-Aucune quarantaine, suppression ou réponse SMTP de rejet n’est ajoutée.
+Depuis 0.4, les [actions configurables](actions.md) peuvent retenir un message en quarantaine. La détection de malware confirmée reste admissible à cette action même si un autre contrôle échoue. Les autres analyses incomplètes transmettent sans préfixe ; aucune réponse SMTP de rejet n’est fondée sur le score.
 Les validations Proton et ARC restent requises pour le marquage.
 
 ## Signaux consultatifs

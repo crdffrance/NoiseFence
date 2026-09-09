@@ -14,6 +14,7 @@ pub struct Config {
     pub smtp: Smtp,
     pub web: Web,
     pub filter: Filter,
+    pub actions: Option<crate::actions::Policy>,
     pub fusion: Option<crate::fusion::runtime::Settings>,
     pub smtp_policy: Option<crate::smtp_policy::PolicyConfig>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
@@ -86,10 +87,13 @@ pub enum Mode {
     #[default]
     Observe,
     Tag,
+    Enforce,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
+    #[serde(default)]
+    pub rule_weights: BTreeMap<String, f64>,
     #[serde(default)]
     pub mode: Mode,
     #[serde(default = "threshold")]
@@ -432,20 +436,27 @@ impl Config {
         if let Some(s) = &self.filter.arc_selector {
             ensure!(valid_domain(s), "invalid ARC selector");
         }
-        if self.filter.mode == Mode::Tag {
+        crate::rules::validate(&self.filter.rule_weights)?;
+        let actions = crate::actions::Policy::from_config(self);
+        actions.validate()?;
+        let spam_tag = actions.spam_tag();
+        let pub_tag = self.mailing.is_some() && actions.publicity == crate::actions::Action::Tag;
+        if self.filter.mode != Mode::Observe && (spam_tag || pub_tag) {
             ensure!(
                 arc_count == 3 && self.filter.authentication,
                 "tag mode requires authentication and ARC sealing"
             );
-            let report = self
-                .filter
-                .proton_report
-                .as_ref()
-                .context("tag mode requires a Proton compatibility report")?;
-            let report: CompatibilityReport = serde_json::from_slice(&std::fs::read(report)?)?;
-            report.validate(self)?;
+            if spam_tag {
+                let report = self
+                    .filter
+                    .proton_report
+                    .as_ref()
+                    .context("tag mode requires a Proton compatibility report")?;
+                let report: CompatibilityReport = serde_json::from_slice(&std::fs::read(report)?)?;
+                report.validate(self)?;
+            }
             if let Some(mailing) = &self.mailing
-                && mailing.policy.tag_subject
+                && pub_tag
             {
                 let path = mailing
                     .proton_report

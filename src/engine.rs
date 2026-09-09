@@ -59,6 +59,8 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    #[serde(default)]
+    pub action: Option<crate::actions::Applied>,
     #[serde(default = "legacy_feature_version")]
     pub feature_version: u32,
     pub score: f64,
@@ -737,6 +739,7 @@ impl Engine {
         }
     }
     fn score(&self, scan: &mut Scan) {
+        crate::rules::apply(scan, &self.config.filter.rule_weights);
         scan.reasons.retain(|r| r.id != "model_contribution");
         let mut content = self
             .model
@@ -1306,6 +1309,7 @@ impl Engine {
                 Self::check_llm(&mut scan);
             }
             self.decide(&mut scan);
+            scan.action = Some(crate::actions::evaluate(&scan, &self.config));
             let subject_tag = crate::decision::subject_tag(&scan, &self.config);
             let tag = subject_tag == Some(message::SubjectTag::Spam);
             let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
@@ -1422,6 +1426,7 @@ impl Engine {
         scan.tagged = false;
         scan.pub_tagged = false;
         self.decide(&mut scan);
+        scan.action = Some(crate::actions::evaluate(&scan, &self.config));
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
         let bytes = message::rewrite(raw, false, &self.headers(ip, id, &scan))?;
         Ok((scan, bytes))

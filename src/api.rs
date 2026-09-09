@@ -298,6 +298,7 @@ async fn messages(
             "review",
             "incomplete",
             "pending",
+            "quarantined",
             "legitimate",
         ]
         .contains(&q.filter.as_str())
@@ -316,6 +317,34 @@ async fn messages(
             )
             .await?,
     ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QuarantineRequest {
+    recipient: String,
+    action: crate::quarantine::Command,
+}
+async fn quarantine(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<QuarantineRequest>,
+) -> ApiResult<Json<Value>> {
+    origin(&app, &h)?;
+    let user = authenticated(&app, &h).await?;
+    csrf(&user, &h)?;
+    if uuid::Uuid::parse_str(&id).is_err() || !crate::config::valid_address(&body.recipient) {
+        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
+    }
+    let hash = message::digest(token(&h).unwrap().as_bytes());
+    match app.store.quarantine_action(user.username, hash, id, body.recipient, body.action).await? {
+        crate::quarantine::Change::Done => Ok(Json(json!({"ok":true,"status":match body.action {
+            crate::quarantine::Command::Release => "pending",
+            crate::quarantine::Command::Delete => "discarded",
+        }}))),
+        crate::quarantine::Change::NotFound => Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into())),
+        crate::quarantine::Change::Conflict => Err(Error(StatusCode::CONFLICT, "Ce destinataire n’est plus en quarantaine ou sa conservation a expiré. Rechargez les messages.".into())),
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -369,7 +398,7 @@ async fn stats(
     let config = app.effective();
     let threshold = config.filter.threshold;
     let domain = q.domain;
-    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND m.created>=?2 AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity}))}).await?;
+    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
     result["decision_source"] = json!(if config
@@ -463,7 +492,16 @@ async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>>
             "Accès administrateur requis.".into(),
         ));
     }
-    let mut result=app.store.read(|db|{let (queued,failed,oldest)=db.query_row("SELECT SUM(status IN ('pending','sending')),SUM(status='failed'),MIN(CASE WHEN status IN ('pending','sending') THEN m.created END) FROM deliveries d JOIN messages m ON m.id=d.message_id",[],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?)))?;let (count,incomplete,p95)=db.query_row("SELECT COUNT(*),COALESCE(SUM(json_extract(scan,'$.complete')=0),0),COALESCE(MAX(json_extract(scan,'$.elapsed_ms')),0) FROM messages WHERE created>?1",[now()-3600],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"queued_deliveries":queued,"unnotified_failures":failed,"oldest_pending_age_seconds":oldest.map(|t|now()-t),"received_last_hour":count,"incomplete_last_hour":incomplete,"max_analysis_ms_last_hour":p95}))}).await?;
+    let mut result=app.store.read(|db|{let (queued,failed,oldest)=db.query_row("SELECT SUM(status IN ('pending','sending')),SUM(status='failed'),MIN(CASE WHEN status IN ('pending','sending') THEN COALESCE(p.released_at,m.created) END) FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id",[],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?)))?;let (count,incomplete,p95)=db.query_row("SELECT COUNT(*),COALESCE(SUM(json_extract(scan,'$.complete')=0),0),COALESCE(MAX(json_extract(scan,'$.elapsed_ms')),0) FROM messages WHERE created>?1",[now()-3600],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"queued_deliveries":queued,"unnotified_failures":failed,"oldest_pending_age_seconds":oldest.map(|t|now()-t),"received_last_hour":count,"incomplete_last_hour":incomplete,"max_analysis_ms_last_hour":p95}))}).await?;
+    result["quarantined_deliveries"] = json!(
+        app.store
+            .read(|db| Ok(db.query_row(
+                "SELECT COUNT(*) FROM deliveries WHERE status='quarantined'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?))
+            .await?
+    );
     result["disk_available_bytes"] = json!(crate::store::available_bytes(&app.store.root)?);
     if let Some(config) = &app.effective().llm {
         let path = app.store.root.join("llm-budget.sqlite3");
@@ -523,6 +561,7 @@ pub fn router_controlled(
         .route("/me", get(me))
         .route("/messages", get(messages))
         .route("/messages/{id}/feedback", post(feedback))
+        .route("/messages/{id}/quarantine", post(quarantine))
         .route("/stats", get(stats))
         .route("/password", post(password))
         .route("/metrics", get(metrics))

@@ -224,6 +224,7 @@ impl Artifacts {
             "application":env!("CARGO_PKG_VERSION"), "schema":SCHEMA,
             "rules":"legacy-rules-with-contextual-dqs-1", "semantic_compiled":cfg!(feature="semantic"),
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
+            "rule_weights":config.filter.rule_weights,
             "authentication":config.filter.authentication,
             "confirmation": (crate::confirmation::VERSION, config.filter.require_corroboration),
             "decision_policy": crate::decision::VERSION,

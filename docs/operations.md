@@ -161,3 +161,7 @@ décrit la comparaison des technologies et les conditions d'activation.
 Créer `/var/lib/noisefence/models` avant d’installer le timer fourni. Il exporte les annotations actuelles et entraîne un candidat ; il échoue explicitement quand un sous-ensemble ne contient pas les deux classes. Son activation est volontairement indépendante de la réception SMTP.
 
 Comparer le candidat sur un corpus récent conservé pour la validation. Un modèle qui respecte son évaluation textuelle nécessite encore la validation du pipeline complet. `model-activate` vérifie le hachage du modèle et le rapport, puis remplace atomiquement le modèle actif. Redémarrer le service pour charger la nouvelle version. Conserver la version précédente pour un retour arrière.
+
+## Mise à jour vers 0.4
+
+La quarantaine migre la base en schéma 2. Sauvegarder la base, le spool et la configuration à l’arrêt avant installation. Les binaires 0.3 ne peuvent plus ouvrir la base migrée ; voir les [règles de migration et de retour arrière](actions.md#migration-de-stockage). Le mode observation et les routes restent inchangés lors de l’installation. Surveiller aussi le compteur `quarantined_deliveries` et l’espace disque.

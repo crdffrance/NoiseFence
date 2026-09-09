@@ -22,6 +22,14 @@ public_origin = "https://noisefence.example.org"
 static_dir = "/opt/noisefence/web"
 secure_cookies = true
 
+# Optional: delivery actions, independent of classification. In observation, all deliver.
+# [actions]
+# spam = "quarantine"
+# publicity = "deliver"
+# malware = "quarantine"
+# quarantine_days = 14
+# Switch filter.mode to "enforce" to apply them; tagging still requires Proton/ARC.
+
 [filter]
 mode = "observe"
 threshold = 95.0

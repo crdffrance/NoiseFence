@@ -1072,3 +1072,20 @@ textarea {
 .mailing-settings .toggle-row small {
   display: block;
 }
+
+.quarantine-recipient {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.quarantine-recipient .recipient {
+  margin-bottom: 6px;
+}
+.quarantine-status {
+  display: inline-flex;
+  margin-top: 5px;
+  color: #8b4c0b;
+  background: #fff1d6;
+}
+.delivery-actions .form-grid {
+  align-items: start;
+}

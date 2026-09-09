@@ -44,20 +44,13 @@ pub fn subject_tag(
     scan: &Scan,
     config: &crate::config::Config,
 ) -> Option<crate::message::SubjectTag> {
-    use crate::{config::Mode, mailing::Category, message::SubjectTag};
-    if !scan.complete || config.filter.mode != Mode::Tag {
+    use crate::{actions::Action, mailing::Category, message::SubjectTag};
+    if crate::actions::evaluate(scan, config).effective != Action::Tag {
         return None;
     }
     match crate::mailing::category(scan, config.filter.threshold) {
         Category::Spam => Some(SubjectTag::Spam),
-        Category::Publicity
-            if config
-                .mailing
-                .as_ref()
-                .is_some_and(|m| m.policy.tag_subject) =>
-        {
-            Some(SubjectTag::Publicity)
-        }
+        Category::Publicity => Some(SubjectTag::Publicity),
         _ => None,
     }
 }
