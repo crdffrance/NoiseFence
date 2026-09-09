@@ -1,4 +1,5 @@
 'use client';
+import { deliveryPolicy, restoreDefaults } from './policies';
 import {
   ActionSettings,
   RuleSettings,
@@ -820,12 +821,7 @@ export function AdminConsole({
       {section === 'filters' && (
         <>
           <ActionSettings
-            policy={
-              draft.actions ?? {
-                ...config.actions,
-                publicity: draft.mailing?.tag_subject ? 'tag' : 'deliver',
-              }
-            }
+            policy={deliveryPolicy(draft)}
             mode={draft.filters.mode}
             spamTagReady={config.tag_ready}
             pubTagReady={config.pub_tag_ready}
@@ -1326,7 +1322,11 @@ export function AdminConsole({
                         )
                       )
                         return;
-                      setDraft(await api<Settings>('/admin/revisions/0'));
+                      setDraft(
+                        restoreDefaults(
+                          await api<Settings>('/admin/revisions/0'),
+                        ),
+                      );
                       setEpoch((e) => e + 1);
                       setNotice(
                         'Configuration initiale chargée. Vérifiez les modifications avant application.',
@@ -1357,7 +1357,9 @@ export function AdminConsole({
                           )
                             return;
                           setDraft(
-                            await api<Settings>(`/admin/revisions/${r.id}`),
+                            restoreDefaults(
+                              await api<Settings>(`/admin/revisions/${r.id}`),
+                            ),
                           );
                           setEpoch((e) => e + 1);
                           setNotice(`Révision ${r.id} chargée pour examen.`);
@@ -1507,21 +1509,21 @@ export function AdminConsole({
                   </li>
                 )}
                 {JSON.stringify(draft.actions) !==
-                  JSON.stringify(config.settings.actions) &&
-                  draft.actions && (
-                    <li>
-                      <strong>Actions après détection</strong>
-                      <p>
-                        Spam : {actionLabel[draft.actions.spam]} · PUB :{' '}
-                        {actionLabel[draft.actions.publicity]} · Malware :{' '}
-                        {actionLabel[draft.actions.malware]}.
-                      </p>
-                      <p>
-                        Quarantaine : suppression après{' '}
-                        {draft.actions.quarantine_days} jours sans libération.
-                      </p>
-                    </li>
-                  )}
+                  JSON.stringify(config.settings.actions) && (
+                  <li>
+                    <strong>Actions après détection</strong>
+                    <p>
+                      Spam : {actionLabel[deliveryPolicy(draft).spam]} · PUB :{' '}
+                      {actionLabel[deliveryPolicy(draft).publicity]} · Malware :{' '}
+                      {actionLabel[deliveryPolicy(draft).malware]}.
+                    </p>
+                    <p>
+                      Quarantaine : suppression après{' '}
+                      {deliveryPolicy(draft).quarantine_days} jours sans
+                      libération.
+                    </p>
+                  </li>
+                )}
                 {Object.entries(draft.filters)
                   .filter(
                     ([k, v]) =>

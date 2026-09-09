@@ -2,13 +2,8 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-export type DeliveryAction = 'deliver' | 'tag' | 'quarantine';
-export type ActionPolicy = {
-  spam: DeliveryAction;
-  publicity: DeliveryAction;
-  malware: DeliveryAction;
-  quarantine_days: number;
-};
+import type { ActionPolicy, DeliveryAction } from './policies';
+export type { ActionPolicy, DeliveryAction } from './policies';
 export type Rule = { id: string; label: string; weight: number };
 export const actionLabel: Record<DeliveryAction, string> = {
   deliver: 'Transmettre sans préfixe',

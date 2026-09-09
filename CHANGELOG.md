@@ -4,6 +4,15 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.4.0-dev.2] - 2026-09-09
+
+- Normaliser les anciens réglages lors de leur chargement pour examen : les
+  actions et poids affichés correspondent aux valeurs que le serveur applique,
+  y compris lors du retour à la politique historique sans actions explicites.
+- Afficher ce rétablissement dans le récapitulatif et couvrir la compatibilité
+  des anciennes révisions par des tests du frontend exécutés dans la CI.
+- Conserver le tag dev.1 comme étape de développement ; il n’a pas été installé.
+
 ## [0.4.0-dev.1] - 2026-09-09
 
 - Séparer les actions des classements : transmission sans préfixe, marquage ou
