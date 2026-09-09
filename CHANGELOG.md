@@ -4,6 +4,17 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.22] - 2026-09-09
+
+- Publier les corrections de cohérence de dev.21 avec le libellé exact
+  « indice de suspicion » : le score historique comprend aussi les signaux
+  consultatifs actifs.
+- Réessayer au maximum trois fois le téléchargement de l’image de construction
+  verrouillée par digest, puis échouer si elle reste indisponible. Les tests et
+  vérifications d’intégrité restent obligatoires.
+- Conserver le tag dev.21 ; sa publication a été interrompue après l’erreur
+  HTTP 502 du registre Docker. Aucun binaire dev.21 n’a été installé en production.
+
 ## [0.3.0-dev.21] - 2026-09-09
 
 - Donner la priorité aux malwares reconnus par l’antivirus principal, même avec

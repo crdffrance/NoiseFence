@@ -34,8 +34,14 @@ jobs:
         run: npm ci && npx tsc --noEmit && npm run lint && npm run build
       - name: Build and test Linux binary on Bookworm
         run: |
-          docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
-            rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
+          build_image=rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+          for pull_attempt in 1 2 3; do
+            if docker pull "$build_image"; then break; fi
+            if [ "$pull_attempt" -eq 3 ]; then exit 1; fi
+            sleep "$((pull_attempt * 5))"
+          done
+          docker run --pull=never --rm --volume "$PWD:/workspace" --workdir /workspace \
+            "$build_image" \
             sh -c 'cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
       - run: python3 scripts/collect_licenses.py
       - name: Assemble release

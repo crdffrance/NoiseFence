@@ -29,7 +29,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         }
         scan.reasons.push(Signal {
             id: MALWARE_REASON.into(),
-            detail: "La détection de malware par l’antivirus principal prime sur le score de contenu et la catégorie PUB. Ce classement ne correspond pas à une probabilité.".into(),
+            detail: "La détection de malware par l’antivirus principal prime sur l’indice de suspicion et la catégorie PUB. Ce classement ne correspond pas à une probabilité.".into(),
             weight: 0.0,
         });
     } else {

@@ -1,6 +1,6 @@
 # Cohérence des décisions
 
-Depuis 0.3.0-dev.21, `decision-policy-1` résout le classement après le score
+Depuis 0.3.0-dev.22, `decision-policy-1` résout le classement après le score
 historique, la fusion éventuelle et les observations des contrôles. Le résultat
 stocké pilote la catégorie, la console, les compteurs et les en-têtes SMTP.
 Le classement, l’exhaustivité des contrôles et la modification de l’objet sont
@@ -26,11 +26,13 @@ Le résultat `clean` ne constitue pas une autorisation générale et n’annule 
 autre signal. La distinction PUA suit la [documentation ClamAV](https://docs.clamav.net/faq/faq-pua.html).
 
 Pour cette décision, `decision.source = antivirus`, `outcome = unwanted` et
-`score = null`. Aucun poids artificiel ne force l’indice à 100. L’indice textuel
+`score = null`. Aucun poids artificiel ne force l’indice à 100. L’indice de suspicion
 historique reste dans `scan.score`, les caractéristiques restent intactes, et le
 motif `malware_priority` explique la priorité. Le résultat de fusion reste
 consultable séparément. Un LLM favorable, un score faible ou une newsletter ne
-peuvent effacer une détection de malware du scanner principal.
+peuvent effacer une détection de malware du scanner principal. L’indice historique
+combine le contenu et les signaux consultatifs actifs ; ce n’est pas un score
+exclusivement textuel.
 
 Un échec ultérieur ne supprime pas les contrôles déjà réussis. `complete = false`
 interdit toujours la modification de l’objet, même pour un malware détecté.

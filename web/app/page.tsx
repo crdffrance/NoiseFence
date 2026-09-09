@@ -491,7 +491,7 @@ export default function Home() {
                     </p>
                     {selected.decision?.source === 'antivirus' && (
                       <p className="notice">
-                        Le résultat antivirus prime sur l’indice textuel (
+                        Le résultat antivirus prime sur l’indice de suspicion (
                         {selected.score.toFixed(1)} / 100) et sur la détection
                         de publicité.
                       </p>
