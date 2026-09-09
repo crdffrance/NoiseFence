@@ -46,6 +46,12 @@ fn model_only_and_weak_advice_abstain_without_relabeling_as_legitimate() {
     let features = scan.features.clone();
     let score = scan.score;
     let out = apply(scan.clone());
+    let again = apply(out.clone());
+    assert_eq!(
+        serde_json::to_value(&out).unwrap(),
+        serde_json::to_value(again).unwrap(),
+        "Reapplying the same policy preserves the decision and its explanation"
+    );
     assert_eq!(verdict(&out), Outcome::Undetermined);
     assert!(out.complete);
     assert_eq!(out.features, features);

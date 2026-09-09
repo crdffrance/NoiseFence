@@ -4,10 +4,9 @@ use crate::{
     engine::{Scan, Signal},
     evidence::{self, AuthResult, State},
     fusion::runtime::{DecisionSource, Outcome},
-    llm::{Category, LlmStatus},
 };
 
-pub const VERSION: &str = "confirmation-1";
+pub const VERSION: &str = "confirmation-2";
 pub const REVIEW_REASON: &str = "confirmation_missing";
 
 /// Additional observations, not statistically independent votes. Weak SMTP
@@ -17,13 +16,7 @@ pub fn corroborated(scan: &Scan) -> bool {
     if scan.antivirus.status == AntivirusStatus::Malware {
         return true;
     }
-    if scan.llm.status == LlmStatus::Complete
-        && scan.llm.verdict.as_ref().is_some_and(|v| {
-            matches!(v.category, Category::Spam | Category::Phishing)
-                && (0.9..=1.0).contains(&v.confidence)
-                && (0.9..=1.0).contains(&v.spam_probability)
-        })
-    {
+    if scan.llm.advisory_weight() > 0.0 {
         return true;
     }
     let Some(e) = &scan.evidence else {
@@ -43,13 +36,7 @@ pub fn corroborated(scan: &Scan) -> bool {
     }
     let ip = &e.reputation.ip;
     // PBL / policy listings (10, 11) are not evidence of malicious content.
-    if ip.state == State::Complete
-        && evidence::dqs_codes(&ip.codes, evidence::Dataset::Zen).is_ok()
-        && ip
-            .codes
-            .iter()
-            .any(|c| matches!(c.octets(), [127, 0, 0, 2 | 3 | 4 | 9]))
-    {
+    if ip.state == State::Complete && evidence::malicious_ip(&ip.codes) {
         return true;
     }
     e.reputation.domains.iter().any(|d| {
@@ -63,6 +50,7 @@ pub fn corroborated(scan: &Scan) -> bool {
 /// fusion keeps its own policy. Abstention preserves the original score and
 /// extraction status, so training does not mistake caution for a failed scan.
 pub fn apply(scan: &mut Scan, enabled: bool) {
+    let already_reviewed = scan.reasons.iter().any(|r| r.id == REVIEW_REASON);
     scan.reasons.retain(|r| r.id != REVIEW_REASON);
     if !enabled || !scan.complete || corroborated(scan) {
         return;
@@ -70,7 +58,10 @@ pub fn apply(scan: &mut Scan, enabled: bool) {
     let Some(decision) = &mut scan.decision else {
         return;
     };
-    if decision.source == DecisionSource::Legacy && decision.outcome == Outcome::Unwanted {
+    if decision.source == DecisionSource::Legacy
+        && (decision.outcome == Outcome::Unwanted
+            || (decision.outcome == Outcome::Undetermined && already_reviewed))
+    {
         decision.outcome = Outcome::Undetermined;
         scan.tagged = false;
         scan.pub_tagged = false;
@@ -113,6 +104,7 @@ pub struct Audit {
     pub unsupported: usize,
     pub before: Counts,
     pub with_confirmation: Counts,
+    pub with_decision_policy: Counts,
 }
 
 /// Aggregate an existing, bounded feedback snapshot on the server. Never opens
@@ -157,7 +149,7 @@ pub fn audit(path: &std::path::Path) -> anyhow::Result<Audit> {
             report.unsupported += 1;
             continue;
         };
-        if !scan.complete || decision.source != DecisionSource::Legacy {
+        if !scan.complete || decision.source == DecisionSource::Fusion {
             report.unsupported += 1;
             continue;
         }
@@ -166,6 +158,10 @@ pub fn audit(path: &std::path::Path) -> anyhow::Result<Audit> {
         apply(&mut scan, true);
         report
             .with_confirmation
+            .add(scan.decision.as_ref().unwrap().outcome, min == 1);
+        crate::decision::apply(&mut scan, true);
+        report
+            .with_decision_policy
             .add(scan.decision.unwrap().outcome, min == 1);
     }
     Ok(report)

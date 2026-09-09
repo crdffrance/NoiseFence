@@ -146,6 +146,15 @@ pub fn malicious_domain(codes: &[Ipv4Addr]) -> bool {
         .any(|code| matches!(code.octets(), [127, 0, 1, 2 | 4 | 5 | 6]))
 }
 
+/// Shared ZEN interpretation for both legacy scoring and corroboration.
+/// PBL and BCL are recorded, but do not supply the malicious-reputation weight.
+pub fn malicious_ip(codes: &[Ipv4Addr]) -> bool {
+    dqs_codes(codes, Dataset::Zen).is_ok()
+        && codes
+            .iter()
+            .any(|c| matches!(c.octets(), [127, 0, 0, 2 | 3 | 4 | 9]))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
@@ -217,6 +226,7 @@ impl Artifacts {
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
             "authentication":config.filter.authentication,
             "confirmation": (crate::confirmation::VERSION, config.filter.require_corroboration),
+            "decision_policy": crate::decision::VERSION,
             "reputation_enabled":config.filter.spamhaus_key_env.is_some(), "reputation":REPUTATION_VERSION,
             "antivirus":av(&config.antivirus),"signatures":av(&config.signatures),
             "vision":config.vision.as_ref().map(|c| serde_json::json!({

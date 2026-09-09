@@ -49,6 +49,18 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
             true,
             Some((Outcome::Unwanted, Some(99.0))),
         ),
+        (
+            "antivirus-complete",
+            1.0,
+            true,
+            Some((Outcome::Unwanted, None)),
+        ),
+        (
+            "antivirus-incomplete",
+            1.0,
+            false,
+            Some((Outcome::Unwanted, None)),
+        ),
     ];
     for (subject, score, complete, decision) in cases {
         let mut scan = extract(common::MESSAGE, 10000);
@@ -56,7 +68,11 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
         scan.score = score;
         scan.complete = complete;
         scan.decision = decision.map(|(outcome, score)| Decision {
-            source: DecisionSource::Fusion,
+            source: if subject.starts_with("antivirus-") {
+                DecisionSource::Antivirus
+            } else {
+                DecisionSource::Fusion
+            },
             outcome,
             score,
             model: "SOFTWARE-TEST-ONLY".into(),
@@ -102,9 +118,11 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
         .unwrap()
         .to_string();
     for (path, count) in [
-        ("/api/v1/messages", 5),
-        ("/api/v1/messages?filter=spam", 2),
-        ("/api/v1/messages?filter=incomplete", 2),
+        ("/api/v1/messages", 7),
+        ("/api/v1/messages?filter=spam", 4),
+        ("/api/v1/messages?filter=incomplete", 3),
+        ("/api/v1/messages?filter=legitimate", 1),
+        ("/api/v1/messages?filter=publicity", 0),
     ] {
         let response = app
             .clone()
@@ -127,7 +145,19 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
                 assert_eq!(row["decision"]["outcome"], "unwanted");
             }
             if path.ends_with("=incomplete") {
-                assert_eq!(row["decision"]["outcome"], "undetermined");
+                assert_eq!(row["complete"], false);
+                assert_eq!(
+                    row["decision"]["outcome"],
+                    if row["decision"]["source"] == "antivirus" {
+                        "unwanted"
+                    } else {
+                        "undetermined"
+                    }
+                );
+            }
+            if row["decision"]["source"] == "antivirus" {
+                assert_eq!(row["category"], "spam");
+                assert!(row["decision"]["score"].is_null());
             }
         }
     }
@@ -143,9 +173,10 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
     assert_eq!(response.status(), StatusCode::OK);
     let stats: serde_json::Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(stats["received"], 5);
-    assert_eq!(stats["flagged"], 2);
-    assert_eq!(stats["pending"], 5);
+    assert_eq!(stats["received"], 7);
+    assert_eq!(stats["flagged"], 4);
+    assert_eq!(stats["pending"], 7);
+    assert_eq!(stats["publicity"], 0);
 }
 
 #[tokio::test]

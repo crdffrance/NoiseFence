@@ -42,7 +42,7 @@ type Mail = {
   complete: boolean;
   model: string;
   decision?: {
-    source: 'legacy' | 'fusion';
+    source: 'legacy' | 'fusion' | 'antivirus';
     outcome: 'legitimate' | 'unwanted' | 'undetermined';
     score: number | null;
     model: string;
@@ -469,20 +469,40 @@ export default function Home() {
                   <section className="panel">
                     <h2>Pourquoi ce classement ?</h2>
                     <div className="score-large">
-                      {displayedScore(selected)?.toFixed(1) ?? '—'}
-                      <span>/ 100</span>
+                      {selected.decision?.source === 'antivirus'
+                        ? 'Malware'
+                        : (displayedScore(selected)?.toFixed(1) ?? '—')}
+                      {selected.decision?.source !== 'antivirus' && (
+                        <span>/ 100</span>
+                      )}
                     </div>
                     <p className="muted">
-                      {selected.decision?.outcome === 'undetermined'
-                        ? selected.complete
-                          ? 'À vérifier · confirmation insuffisante'
-                          : 'Décision indéterminée'
-                        : selected.decision?.source === 'fusion'
-                          ? 'Estimation calibrée'
-                          : 'Indice de suspicion'}
+                      {selected.decision?.source === 'antivirus'
+                        ? 'Malware détecté · décision antivirus, sans score probabiliste'
+                        : selected.decision?.outcome === 'undetermined'
+                          ? selected.complete
+                            ? 'À vérifier · confirmation insuffisante'
+                            : 'Décision indéterminée'
+                          : selected.decision?.source === 'fusion'
+                            ? 'Estimation calibrée'
+                            : 'Indice de suspicion'}
                       {' · '}
                       {selected.decision?.model ?? selected.model}
                     </p>
+                    {selected.decision?.source === 'antivirus' && (
+                      <p className="notice">
+                        Le résultat antivirus prime sur l’indice textuel (
+                        {selected.score.toFixed(1)} / 100) et sur la détection
+                        de publicité.
+                      </p>
+                    )}
+                    {!selected.complete && (
+                      <p className="notice">
+                        Certains contrôles n’ont pas abouti. Les détections
+                        obtenues restent visibles ; aucun préfixe n’est ajouté à
+                        l’objet.
+                      </p>
+                    )}
                     {selected.fusion &&
                       selected.fusion.status !== 'disabled' && (
                         <div className="notice">
@@ -659,19 +679,15 @@ export default function Home() {
                           · {selected.signatures.elapsed_ms} ms
                         </p>
                       )}
-                    {!selected.complete && (
-                      <p className="notice">
-                        Analyse incomplète : aucun préfixe ajouté.
-                      </p>
-                    )}
                     <ul className="reasons">
                       {selected.reasons.map((r, i) => (
                         <li key={`${r.id}-${i}`}>
                           <span>{r.detail}</span>
                           {selected.decision?.source !== 'fusion' && (
                             <code>
-                              {r.weight > 0 ? '+' : ''}
-                              {r.weight.toFixed(1)}
+                              {r.id === 'malware_priority'
+                                ? 'Prioritaire'
+                                : `${r.weight > 0 ? '+' : ''}${r.weight.toFixed(1)}`}
                             </code>
                           )}
                         </li>
@@ -909,21 +925,27 @@ export default function Home() {
                             <span
                               className={`status ${unwanted(m, stats?.threshold ?? 95) ? 'spam' : m.category === 'publicity' ? 'publicity' : ''}`}
                             >
-                              {!m.complete
-                                ? 'Incomplet'
-                                : m.tagged
-                                  ? '[SPAM] ajouté'
-                                  : unwanted(m, stats?.threshold ?? 95)
-                                    ? 'Spam détecté'
-                                    : m.pub_tagged
-                                      ? '[PUB] ajouté'
-                                      : m.category === 'publicity'
-                                        ? 'PUB détecté'
-                                        : m.category === 'undetermined'
-                                          ? m.complete
-                                            ? 'À vérifier'
-                                            : 'Indéterminé'
-                                          : 'Légitime'}
+                              {m.decision?.source === 'antivirus'
+                                ? m.complete
+                                  ? m.tagged
+                                    ? 'Malware · [SPAM] ajouté'
+                                    : 'Malware détecté'
+                                  : 'Malware · analyse incomplète'
+                                : !m.complete
+                                  ? 'Incomplet'
+                                  : m.tagged
+                                    ? '[SPAM] ajouté'
+                                    : unwanted(m, stats?.threshold ?? 95)
+                                      ? 'Spam détecté'
+                                      : m.pub_tagged
+                                        ? '[PUB] ajouté'
+                                        : m.category === 'publicity'
+                                          ? 'PUB détecté'
+                                          : m.category === 'undetermined'
+                                            ? m.complete
+                                              ? 'À vérifier'
+                                              : 'Indéterminé'
+                                            : 'Légitime'}
                             </span>
                           </TableCell>
                           <TableCell>

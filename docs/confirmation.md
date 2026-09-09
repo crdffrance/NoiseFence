@@ -7,7 +7,7 @@ décision devient **À vérifier** (`undetermined`). Le message est transmis san
 préfixe. Son score, ses caractéristiques et son statut d’analyse restent conservés.
 Ce n’est ni une preuve de légitimité ni une catégorie PUB.
 
-Les confirmations prises en compte par `confirmation-1` sont :
+Les confirmations prises en compte par `confirmation-2` sont :
 
 - une détection de malware par l’antivirus principal ;
 - un avis LLM terminé, spam/phishing, avec confiance et probabilité déclarées
@@ -32,7 +32,9 @@ Le compteur de faux positifs doit être accompagné des abstentions : déplacer
 une erreur vers « À vérifier » n’équivaut pas à bien classer ce message.
 
 La fusion apprise, lorsqu’elle est activée avec son propre rapport de validation,
-conserve sa politique. Une analyse incomplète reste incomplète. Aucun contrôle
+conserve sa politique de confirmation. La [priorité antivirus](filter-policy.md)
+s’applique après la fusion comme après le score historique. Une analyse incomplète
+reste incomplète. Aucun contrôle
 supplémentaire ni appel réseau n’est déclenché par cette option, qui ne change
 pas les seuils ou les poids du modèle chargé. Son état et sa version font partie
 de l’empreinte de politique ; les artefacts de fusion doivent correspondre.
@@ -67,5 +69,7 @@ leur désactivation, les conflits et la rétention de trente jours sont vérifi�
 Les décisions absentes, incomplètes ou issues d’une fusion sont comptées à part.
 Un lot de corrections est biaisé ; ce bilan ne mesure pas le taux de faux
 positifs sur l’ensemble du trafic. Il ne rejoue pas le nouveau prompt LLM.
+Depuis dev.21, `with_decision_policy` mesure aussi l’effet de la priorité antivirus
+sur ces mêmes observations, sans recalculer le score ni les recherches DQS.
 
 La distinction des codes DQS suit la [table des zones Spamhaus](https://docs.spamhaus.com/datasets/docs/source/10-data-type-documentation/datasets/040-zones.html).

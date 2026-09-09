@@ -138,6 +138,9 @@ async fn confirmation_audit_is_aggregate_read_only_and_rechecks_human_grants() {
     assert_eq!(report.with_confirmation.spam_detected, 3);
     assert_eq!(report.with_confirmation.spam_to_review, 0);
     assert_eq!(report.with_confirmation.legitimate, 1);
+    assert_eq!(report.with_decision_policy.false_positives, 0);
+    assert_eq!(report.with_decision_policy.legitimate_to_review, 3);
+    assert_eq!(report.with_decision_policy.spam_detected, 3);
     let text = serde_json::to_string(&report).unwrap();
     assert!(!text.contains("PRIVATE") && !text.contains("alice") && !text.contains(&ids[0]));
     assert_eq!(before, snapshot());

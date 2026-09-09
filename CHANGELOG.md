@@ -4,6 +4,21 @@ Les versions suivent Semantic Versioning. Les versions 0.x restent expérimental
 
 ## [Unreleased]
 
+## [0.3.0-dev.21] - 2026-09-09
+
+- Donner la priorité aux malwares reconnus par l’antivirus principal, même avec
+  un score textuel faible ou une détection de publicité. Conserver l’alerte si
+  un autre contrôle échoue, en transmettant toujours sans préfixe dans ce cas.
+- Utiliser la même décision pour la catégorie, les en-têtes, les compteurs et
+  la console. Identifier la source antivirus sans inventer un score à 100.
+- Unifier l’interprétation des avis LLM et des codes ZEN ; conserver PBL/BCL
+  sans le poids attribué aux listes de réputation malveillante.
+- Conserver les raisons lors d’une nouvelle application de la confirmation,
+  et tester les désaccords entre moteurs, les pannes et la persistance des alertes.
+- Ajouter la source de décision `antivirus` : les nouvelles analyses nécessitent
+  dev.21 ou plus récent pour être lues ; voir la politique de compatibilité dans
+  [la documentation](docs/filter-policy.md).
+
 ## [0.3.0-dev.20] - 2026-09-09
 
 - Ajouter une option de confirmation du score historique : conserver en

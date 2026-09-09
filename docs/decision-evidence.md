@@ -38,6 +38,10 @@ aussi leurs rôles : enveloppe, HELO, From visible, corps. Une même recherche p
 avoir plusieurs rôles sans être comptée plusieurs fois. Les adresses mappées
 IPv4/IPv6 utilisent la recherche ZEN IPv4 correspondante.
 
+Depuis dev.21, PBL 10/11 et BCL 30 n’ajoutent plus le poids historique +4 de
+réputation malveillante. Leurs codes restent disponibles pour l’évaluation ;
+la confirmation emploie la même interprétation que le score.
+
 Les domaines malveillants et légitimes compromis sont distincts. Les codes DBL
 102–106 ne déclenchent plus le poids historique de domaine malveillant pour une
 identité d’expéditeur. Dans les liens du corps, ils restent observés avec un poids

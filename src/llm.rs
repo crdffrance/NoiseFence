@@ -178,6 +178,29 @@ pub struct LlmResult {
     pub accounted_micro_eur: Option<u64>,
 }
 
+impl LlmResult {
+    /// One bounded policy shared by scoring and corroboration. A stale verdict
+    /// attached to an unavailable result must never influence either path.
+    pub fn advisory_weight(&self) -> f64 {
+        let Some(v) = self
+            .verdict
+            .as_ref()
+            .filter(|v| self.status == LlmStatus::Complete && v.validate().is_ok())
+        else {
+            return 0.0;
+        };
+        match v.category {
+            Category::Spam | Category::Phishing
+                if v.confidence >= 0.9 && v.spam_probability >= 0.9 =>
+            {
+                1.5
+            }
+            Category::Legitimate if v.confidence >= 0.95 && v.spam_probability <= 0.1 => -0.5,
+            _ => 0.0,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Budget {
     connection: Arc<Mutex<Connection>>,

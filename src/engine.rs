@@ -1,7 +1,4 @@
-use crate::{
-    config::{Config, Mode},
-    message,
-};
+use crate::{config::Config, message};
 use anyhow::{Context, Result, ensure};
 use mail_auth::{
     AuthenticatedMessage, AuthenticationResults, DkimResult, DmarcResult, MessageAuthenticator,
@@ -687,8 +684,9 @@ impl Engine {
     fn decide(&self, scan: &mut Scan) {
         // The historical score remains available for the LLM selection policy,
         // evidence export and comparisons. Fusion never feeds itself on a retry.
-        scan.reasons
-            .retain(|r| r.id != crate::confirmation::REVIEW_REASON);
+        scan.reasons.retain(|r| {
+            r.id != crate::confirmation::REVIEW_REASON && r.id != crate::decision::MALWARE_REASON
+        });
         Self::refresh_evidence(scan);
         scan.decision = Some(crate::fusion::runtime::Decision::legacy(
             scan,
@@ -697,7 +695,7 @@ impl Engine {
         if let Some(fusion) = &self.fusion {
             fusion.apply(scan);
         }
-        crate::confirmation::apply(scan, self.config.filter.require_corroboration);
+        crate::decision::apply(scan, self.config.filter.require_corroboration);
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
         if matches!(
@@ -871,7 +869,8 @@ impl Engine {
                 Dataset::Zen,
             )
             .await?;
-        let ip_positive = !codes.is_empty();
+        let ip_positive = crate::evidence::malicious_ip(&codes);
+        let ip_policy = !codes.is_empty() && !ip_positive;
         scan.evidence.as_mut().unwrap().reputation.ip = Query {
             state: State::Complete,
             codes,
@@ -881,6 +880,12 @@ impl Engine {
                 id: "ip_reputation".into(),
                 detail: "IP signalée par la source de réputation".into(),
                 weight: 4.0,
+            });
+        } else if ip_policy {
+            scan.reasons.push(Signal {
+                id: "ip_reputation_policy".into(),
+                detail: "IP présente dans une liste PBL ou BCL ; observation conservée sans poids de réputation malveillante".into(),
+                weight: 0.0,
             });
         }
         for (index, target) in targets.iter().enumerate() {
@@ -1290,19 +1295,7 @@ impl Engine {
                 scan.evidence.as_mut().unwrap().llm.requested_at_score = Some(scan.score);
                 scan.llm = llm.classify(raw, scan.score).await;
                 if let Some(verdict) = &scan.llm.verdict {
-                    let weight = match verdict.category {
-                        crate::llm::Category::Spam | crate::llm::Category::Phishing
-                            if verdict.confidence >= 0.9 && verdict.spam_probability >= 0.9 =>
-                        {
-                            1.5
-                        }
-                        crate::llm::Category::Legitimate
-                            if verdict.confidence >= 0.95 && verdict.spam_probability <= 0.1 =>
-                        {
-                            -0.5
-                        }
-                        _ => 0.0,
-                    };
+                    let weight = scan.llm.advisory_weight();
                     scan.reasons.push(Signal {
                         id: "llm_advisory".into(),
                         detail: format!("Analyse LLM consultative : {}", verdict.explanation),
@@ -1313,34 +1306,15 @@ impl Engine {
                 Self::check_llm(&mut scan);
             }
             self.decide(&mut scan);
-            let tag = scan.complete
-                && self.config.filter.mode == Mode::Tag
-                && scan
-                    .decision
-                    .as_ref()
-                    .is_some_and(|d| d.outcome == crate::fusion::runtime::Outcome::Unwanted);
-            let pub_tag = scan.complete
-                && self.config.filter.mode == Mode::Tag
-                && self
-                    .config
-                    .mailing
-                    .as_ref()
-                    .is_some_and(|c| c.policy.tag_subject)
-                && crate::mailing::category(&scan, self.config.filter.threshold)
-                    == crate::mailing::Category::Publicity;
+            let subject_tag = crate::decision::subject_tag(&scan, &self.config);
+            let tag = subject_tag == Some(message::SubjectTag::Spam);
+            let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
             // If the chain cannot be extended, preserve the signed subject and fail open.
             if (tag || pub_tag) && !arc.can_be_sealed() {
                 anyhow::bail!("ARC chain cannot be extended");
             }
             scan.tagged = tag;
             scan.pub_tagged = pub_tag;
-            let subject_tag = if tag {
-                Some(message::SubjectTag::Spam)
-            } else if pub_tag {
-                Some(message::SubjectTag::Publicity)
-            } else {
-                None
-            };
             let mut bytes = message::rewrite_with_tag(
                 raw,
                 subject_tag,
@@ -1404,6 +1378,7 @@ impl Engine {
         };
         let source = match scan.decision.as_ref().map(|d| d.source) {
             Some(DecisionSource::Fusion) => "fusion",
+            Some(DecisionSource::Antivirus) => "antivirus",
             _ => "legacy",
         };
         let score = scan
@@ -1497,8 +1472,15 @@ mod tests {
     async fn reputation_categories_and_context_are_preserved_without_penalizing_abused_identities()
     {
         use crate::evidence::{Artifacts, DomainRole, Source, State};
-        for (code, body, expected_weight) in [(102, false, 0.0), (104, true, 0.0), (4, false, 4.0)]
-        {
+        for (code, body, ip_code, expected_weight, expected_ip_weight) in [
+            (102, false, None, 0.0, 0.0),
+            (104, true, None, 0.0, 0.0),
+            (4, false, None, 4.0, 0.0),
+            (102, false, Some(2), 0.0, 4.0),
+            (102, false, Some(10), 0.0, 0.0),
+            (102, false, Some(11), 0.0, 0.0),
+            (102, false, Some(30), 0.0, 0.0),
+        ] {
             let mut config = Config::load(Path::new("config/development.toml")).unwrap();
             let mut engine = Engine::new(Arc::new(config.clone())).unwrap();
             // Local cached provider fixtures avoid environment mutation and paid DNS.
@@ -1509,7 +1491,10 @@ mod tests {
             for (name, values) in [
                 (
                     "1.2.0.192.provider-fixture-key.zen.dq.spamhaus.net.",
-                    vec![],
+                    ip_code
+                        .map(|c| std::net::Ipv4Addr::new(127, 0, 0, c))
+                        .into_iter()
+                        .collect(),
                 ),
                 (
                     "example.org.provider-fixture-key.dbl.dq.spamhaus.net.",
@@ -1542,7 +1527,13 @@ mod tests {
             let observed = &scan.evidence.as_ref().unwrap().reputation;
             assert_eq!(observed.state, State::Complete);
             assert_eq!(observed.ip.state, State::Complete);
-            assert!(observed.ip.codes.is_empty());
+            assert_eq!(
+                observed.ip.codes,
+                ip_code
+                    .map(|c| std::net::Ipv4Addr::new(127, 0, 0, c))
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
             assert_eq!(observed.domains.len(), 1);
             assert_eq!(observed.domains[0].roles.contains(&DomainRole::Body), body);
             assert_eq!(observed.domains[0].roles.len(), if body { 4 } else { 3 });
@@ -1560,6 +1551,18 @@ mod tests {
             );
             let text = serde_json::to_string(scan.evidence.as_ref().unwrap()).unwrap();
             assert!(!text.contains("provider-fixture-key") && !text.contains("example.org"));
+            assert_eq!(
+                scan.reasons
+                    .iter()
+                    .filter(|r| r.id == "ip_reputation" || r.id == "ip_reputation_policy")
+                    .map(|r| r.weight)
+                    .sum::<f64>(),
+                expected_ip_weight
+            );
+            assert_eq!(
+                scan.reasons.iter().any(|r| r.id == "ip_reputation_policy"),
+                ip_code.is_some_and(|c| matches!(c, 10 | 11 | 30))
+            );
         }
     }
     #[tokio::test]

@@ -55,6 +55,15 @@ async fn independent_advisory_scan_cannot_hide_an_official_malware_result() {
         .unwrap();
     assert_eq!(scan.antivirus.status, AntivirusStatus::Malware);
     assert_eq!(scan.signatures.status, AntivirusStatus::Suspicious);
+    assert!(scan.score < 95.);
+    assert_eq!(
+        scan.decision.as_ref().unwrap().source,
+        noisefence::fusion::runtime::DecisionSource::Antivirus
+    );
+    assert_eq!(
+        noisefence::mailing::category(&scan, 95.),
+        noisefence::mailing::Category::Spam
+    );
     let evidence = scan.evidence.as_ref().unwrap();
     assert_eq!(
         evidence.signatures_state,
@@ -162,6 +171,13 @@ async fn antivirus_metadata_is_persisted_without_changing_the_original_body() {
         .unwrap();
     assert_eq!(scan.antivirus.status, AntivirusStatus::Malware);
     assert_eq!(scan.antivirus.signature.as_deref(), Some("Eicar-Signature"));
+    assert_eq!(
+        scan.decision.as_ref().unwrap().outcome,
+        noisefence::fusion::runtime::Outcome::Unwanted
+    );
+    assert!(scan.decision.as_ref().unwrap().score.is_none());
+    assert!(String::from_utf8_lossy(&raw).contains("X-NoiseFence-Category: spam"));
+    assert!(String::from_utf8_lossy(&raw).contains("X-NoiseFence-Decision-Source: antivirus\r\n"));
     assert!(!scan.tagged);
     let (_, original_body) = noisefence::message::fields(common::MESSAGE).unwrap();
     let (_, processed_body) = noisefence::message::fields(&raw).unwrap();
@@ -214,4 +230,80 @@ async fn unavailable_antivirus_is_never_recorded_as_clean() {
     assert_eq!(scan.antivirus.status, AntivirusStatus::Unavailable);
     assert!(!scan.complete);
     assert!(!scan.tagged);
+}
+
+#[tokio::test]
+async fn successful_malware_scan_survives_an_unavailable_advisory_scanner() {
+    use noisefence::{
+        engine::Engine,
+        fusion::runtime::{DecisionSource, Outcome},
+        mailing,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("main.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let daemon = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut command = [0; 10];
+        stream.read_exact(&mut command).await.unwrap();
+        assert_eq!(&command, b"zINSTREAM\0");
+        loop {
+            let size = stream.read_u32().await.unwrap() as usize;
+            if size == 0 {
+                break;
+            }
+            stream.read_exact(&mut vec![0; size]).await.unwrap();
+        }
+        stream
+            .write_all(b"stream: Eicar-Signature FOUND\0")
+            .await
+            .unwrap();
+    });
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.antivirus = Some(AntivirusConfig {
+        socket,
+        timeout_ms: 1000,
+        max_bytes: 10000,
+        trusted_unofficial_prefixes: vec![],
+    });
+    cfg.signatures = Some(AntivirusConfig {
+        socket: root.path().join("absent.sock"),
+        ..cfg.antivirus.clone().unwrap()
+    });
+    cfg.filter.require_corroboration = true;
+    cfg.mailing = Some(mailing::Settings::default());
+    let raw = b"Subject: Offres exclusives\r\nList-Unsubscribe: <https://example.org/stop>\r\nX-NoiseFence-Category: publicity\r\nX-NoiseFence-Decision: legitimate\r\n\r\nProfitez de nos offres exclusives. Achetez maintenant avec 50% de reduction.\r\n";
+    let (scan, wire) = Engine::new(Arc::new(cfg))
+        .unwrap()
+        .process(
+            raw,
+            "192.0.2.1".parse().unwrap(),
+            "mail.example.org",
+            "sender@example.org",
+            "malware-incomplete-fixture",
+        )
+        .await
+        .unwrap();
+    assert_eq!(scan.antivirus.status, AntivirusStatus::Malware);
+    assert_eq!(scan.signatures.status, AntivirusStatus::Unavailable);
+    assert!(!scan.complete && !scan.tagged && !scan.pub_tagged);
+    assert!(scan.mailing.as_ref().unwrap().is_publicity());
+    assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    assert_eq!(
+        scan.decision.as_ref().unwrap().source,
+        DecisionSource::Antivirus
+    );
+    assert!(scan.decision.as_ref().unwrap().score.is_none());
+    let text = String::from_utf8_lossy(&wire);
+    assert!(text.contains("X-NoiseFence-Status: incomplete\r\n"));
+    assert!(text.contains("X-NoiseFence-Decision: unwanted\r\n"));
+    assert!(text.contains("X-NoiseFence-Decision-Source: antivirus\r\n"));
+    assert!(text.contains("X-NoiseFence-Category: spam\r\n"));
+    assert!(!text.contains("X-NoiseFence-Category: publicity"));
+    assert!(!text.contains("Subject: ["));
+    assert_eq!(
+        noisefence::message::fields(raw).unwrap().1,
+        noisefence::message::fields(&wire).unwrap().1
+    );
+    daemon.await.unwrap();
 }

@@ -3,6 +3,7 @@ pub mod api;
 pub mod config;
 pub mod confirmation;
 pub mod corpus;
+pub mod decision;
 pub mod engine;
 pub mod evidence;
 pub mod features;

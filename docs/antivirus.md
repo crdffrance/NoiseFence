@@ -2,8 +2,10 @@
 
 Ces connecteurs sont facultatifs et désactivés sans configuration. Dans cette
 version de développement, ils enregistrent les détections et leurs raisons ; ils
-ne retiennent ni ne suppriment les messages. L'activation actuelle est consultative :
-les verdicts sont visibles dans la console, sans quarantaine ni rejet antivirus.
+ne retiennent ni ne suppriment les messages. Depuis dev.21, le statut `malware`
+du scanner principal reçoit une [priorité explicite de classement](filter-policy.md),
+avec un score décisionnel nul (`null`, pas zéro). Les signatures complémentaires
+restent consultatives, sans quarantaine ni rejet antivirus.
 Toute politique de rétention ou de modification des messages doit être validée
 séparément, notamment avec le relais Proton.
 
