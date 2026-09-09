@@ -1,5 +1,7 @@
 'use client';
 import { deliveryPolicy, restoreDefaults } from './policies';
+import { SectionTabs } from './console-ui';
+import { matchesAccount } from './presentation';
 import {
   ActionSettings,
   RuleSettings,
@@ -24,6 +26,7 @@ import {
   ShieldCheck,
   Trash2,
   CheckCircle2,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -127,6 +130,14 @@ type Metrics = {
     requests: number;
   };
 };
+const filterSections = [
+  { id: 'policy', label: 'Politique & actions' },
+  { id: 'detectors', label: 'Moteurs de détection' },
+  { id: 'rules', label: 'Poids des règles' },
+  { id: 'protection', label: 'Protection & réputation' },
+  { id: 'mailing', label: 'Publicités & newsletters' },
+] as const;
+type FilterSection = (typeof filterSections)[number]['id'];
 const modules: {
   key: keyof Omit<
     Filters,
@@ -345,6 +356,9 @@ export function AdminConsole({
     [audit, setAudit] = useState<Audit[]>([]),
     [revisions, setRevisions] = useState<Revision[]>([]);
   const [epoch, setEpoch] = useState(0);
+  const [filterSection, setFilterSection] = useState<FilterSection>('policy');
+  const [accountQuery, setAccountQuery] = useState('');
+  const [accountFilter, setAccountFilter] = useState('all');
   const dirty =
     !!config &&
     !!draft &&
@@ -820,146 +834,223 @@ export function AdminConsole({
       )}
       {section === 'filters' && (
         <>
-          <ActionSettings
-            policy={deliveryPolicy(draft)}
-            mode={draft.filters.mode}
-            spamTagReady={config.tag_ready}
-            pubTagReady={config.pub_tag_ready}
-            publicityEnabled={!!draft.mailing}
-            onChange={(actions) => setDraft({ ...draft, actions })}
+          <div className="policy-summary">
+            <span>
+              <strong>
+                {draft.filters.mode === 'observe'
+                  ? 'Observation'
+                  : 'Actions actives'}
+              </strong>
+              <small>Mode du brouillon</small>
+            </span>
+            <span>
+              <strong>
+                {modules.filter((m) => draft.filters[m.key]).length} /{' '}
+                {modules.length}
+              </strong>
+              <small>Moteurs activés</small>
+            </span>
+            <span>
+              <strong>
+                {Object.keys(draft.filters.rule_weights ?? {}).length}
+              </strong>
+              <small>Poids personnalisés</small>
+            </span>
+            <span className={`status ${dirty ? 'review' : 'good'}`}>
+              {dirty
+                ? 'Modifications non enregistrées'
+                : 'Configuration enregistrée'}
+            </span>
+          </div>
+          <SectionTabs
+            id="filters"
+            label="Rubriques des filtres"
+            items={filterSections}
+            value={filterSection}
+            onChange={setFilterSection}
           />
-          <RuleSettings
-            rules={config.rules}
-            weights={draft.filters.rule_weights ?? {}}
-            onChange={(rule_weights) =>
-              setDraft({
-                ...draft,
-                filters: { ...draft.filters, rule_weights },
-              })
-            }
-          />
-          <MailingSettings
-            actionsManaged
-            policy={draft.mailing}
-            available={config.mailing_available}
-            tagReady={config.pub_tag_ready}
-            mode={draft.filters.mode}
-            onChange={(mailing) => setDraft({ ...draft, mailing })}
-          />
-          <ProtectionSettings
-            key={epoch}
-            policy={draft.protection}
-            user={user}
-            onChange={(protection) => setDraft({ ...draft, protection })}
-          />
-          <div className="panel filter-policy">
-            <div>
-              <h2>Comportement du filtre</h2>
-              <p className="muted small">
-                L’observation analyse et transmet sans préfixe. Le mode actif
-                applique les actions choisies pour les nouveaux messages :
-                transmission, marquage ou quarantaine.
-              </p>
-            </div>
-            <div className="form-grid">
-              <label className="field">
-                Mode de fonctionnement
-                <select
-                  value={draft.filters.mode}
-                  onChange={(e) =>
-                    filterAt('mode', e.target.value as Filters['mode'])
-                  }
-                >
-                  <option value="observe">
-                    Observation — analyser et transmettre
-                  </option>
-                  {draft.filters.mode === 'tag' && (
-                    <option value="tag">
-                      Actif — configuration de marquage existante
+          <div
+            id="filters-panel-policy"
+            role="tabpanel"
+            aria-labelledby="filters-tab-policy"
+            hidden={filterSection !== 'policy'}
+            className="filter-section"
+          >
+            <div className="panel filter-policy">
+              <div>
+                <h2>Comportement du filtre</h2>
+                <p className="muted small">
+                  L’observation analyse et transmet sans préfixe. Le mode actif
+                  applique les actions choisies pour les nouveaux messages :
+                  transmission, marquage ou quarantaine.
+                </p>
+              </div>
+              <div className="form-grid">
+                <label className="field">
+                  Mode de fonctionnement
+                  <select
+                    value={draft.filters.mode}
+                    onChange={(e) =>
+                      filterAt('mode', e.target.value as Filters['mode'])
+                    }
+                  >
+                    <option value="observe">
+                      Observation — analyser et transmettre
                     </option>
-                  )}
-                  <option value="enforce">Actif — appliquer les actions</option>
-                </select>
-              </label>
-              <label className="field" htmlFor="filter-threshold">
-                Seuil de classement / 100
-                <Input
-                  id="filter-threshold"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  value={draft.filters.threshold}
-                  disabled={config.threshold_locked}
-                  onChange={(e) =>
-                    filterAt('threshold', Number(e.target.value))
-                  }
-                />
-                <small>
-                  {config.threshold_locked
-                    ? 'Seuil lié à la calibration du modèle multilingue. Une nouvelle calibration est requise pour le modifier.'
-                    : 'Un seuil plus élevé réduit le nombre de messages marqués.'}
-                </small>
-              </label>
+                    {draft.filters.mode === 'tag' && (
+                      <option value="tag">
+                        Actif — configuration de marquage existante
+                      </option>
+                    )}
+                    <option value="enforce">
+                      Actif — appliquer les actions
+                    </option>
+                  </select>
+                </label>
+                <label className="field" htmlFor="filter-threshold">
+                  Seuil de classement / 100
+                  <Input
+                    id="filter-threshold"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={draft.filters.threshold}
+                    disabled={config.threshold_locked}
+                    onChange={(e) =>
+                      filterAt('threshold', Number(e.target.value))
+                    }
+                  />
+                  <small>
+                    {config.threshold_locked
+                      ? 'Seuil lié à la calibration du modèle multilingue. Une nouvelle calibration est requise pour le modifier.'
+                      : 'Un seuil plus élevé réduit le nombre de messages marqués.'}
+                  </small>
+                </label>
+              </div>
+              <Toggle
+                label="Exiger une confirmation avant le classement Spam"
+                description="Un score élevé sans confirmation suffisante reste À vérifier. Réduit les classements fondés uniquement sur le modèle, mais peut laisser des spams à examiner. La fusion validée conserve sa propre politique."
+                checked={Boolean(draft.filters.require_corroboration)}
+                onChange={(v) => filterAt('require_corroboration', v)}
+              />
+              {!config.tag_ready && (
+                <p className="notice">
+                  Le marquage nécessite la validation de la livraison Proton et
+                  la configuration ARC. Le serveur refusera son activation tant
+                  que ces conditions ne sont pas remplies.
+                </p>
+              )}
             </div>
-            <Toggle
-              label="Exiger une confirmation avant le classement Spam"
-              description="Un score élevé sans confirmation suffisante reste À vérifier. Réduit les classements fondés uniquement sur le modèle, mais peut laisser des spams à examiner. La fusion validée conserve sa propre politique."
-              checked={Boolean(draft.filters.require_corroboration)}
-              onChange={(v) => filterAt('require_corroboration', v)}
+            <ActionSettings
+              policy={deliveryPolicy(draft)}
+              mode={draft.filters.mode}
+              spamTagReady={config.tag_ready}
+              pubTagReady={config.pub_tag_ready}
+              publicityEnabled={!!draft.mailing}
+              onChange={(actions) => setDraft({ ...draft, actions })}
             />
-            {!config.tag_ready && (
-              <p className="notice">
-                Le marquage nécessite la validation de la livraison Proton et la
-                configuration ARC. Le serveur refusera son activation tant que
-                ces conditions ne sont pas remplies.
+          </div>
+          <div
+            id="filters-panel-detectors"
+            role="tabpanel"
+            aria-labelledby="filters-tab-detectors"
+            hidden={filterSection !== 'detectors'}
+            className="filter-section"
+          >
+            <div className="module-grid">
+              {modules.map((m) => (
+                <section className="module-card" key={m.key}>
+                  <Toggle
+                    label={m.title}
+                    description={m.description}
+                    checked={Boolean(draft.filters[m.key])}
+                    disabled={
+                      m.key !== 'authentication' && !config.available[m.key]
+                    }
+                    onChange={(v) => filterAt(m.key, v)}
+                  />
+                  <span
+                    className={`status ${draft.filters[m.key] ? 'good' : ''}`}
+                  >
+                    {m.key !== 'authentication' && !config.available[m.key]
+                      ? 'À configurer sur le serveur'
+                      : draft.filters[m.key]
+                        ? 'Activé'
+                        : 'Désactivé'}
+                  </span>
+                </section>
+              ))}
+            </div>
+            <section className="panel">
+              <h2>Contribution au score</h2>
+              <p className="muted small">
+                L’observation enregistre les indices. Activer leur contribution
+                change le classement des futurs messages et demande une
+                validation de la qualité.
               </p>
-            )}
+              <Toggle
+                label="Indices SMTP et DNS dans le score"
+                checked={draft.filters.smtp_policy_scoring}
+                disabled={!draft.filters.smtp_policy}
+                onChange={(v) => filterAt('smtp_policy_scoring', v)}
+              />
+              <Toggle
+                label="Texte OCR et liens décodés dans le score"
+                checked={draft.filters.vision_scoring}
+                disabled={!draft.filters.vision}
+                onChange={(v) => filterAt('vision_scoring', v)}
+              />
+            </section>
           </div>
-          <div className="module-grid">
-            {modules.map((m) => (
-              <section className="module-card" key={m.key}>
-                <Toggle
-                  label={m.title}
-                  description={m.description}
-                  checked={Boolean(draft.filters[m.key])}
-                  disabled={
-                    m.key !== 'authentication' && !config.available[m.key]
-                  }
-                  onChange={(v) => filterAt(m.key, v)}
-                />
-                <span
-                  className={`status ${draft.filters[m.key] ? 'good' : ''}`}
-                >
-                  {m.key !== 'authentication' && !config.available[m.key]
-                    ? 'À configurer sur le serveur'
-                    : draft.filters[m.key]
-                      ? 'Activé'
-                      : 'Désactivé'}
-                </span>
-              </section>
-            ))}
+          <div
+            id="filters-panel-rules"
+            role="tabpanel"
+            aria-labelledby="filters-tab-rules"
+            hidden={filterSection !== 'rules'}
+            className="filter-section"
+          >
+            <RuleSettings
+              rules={config.rules}
+              weights={draft.filters.rule_weights ?? {}}
+              onChange={(rule_weights) =>
+                setDraft({
+                  ...draft,
+                  filters: { ...draft.filters, rule_weights },
+                })
+              }
+            />
           </div>
-          <section className="panel">
-            <h2>Contribution au score</h2>
-            <p className="muted small">
-              L’observation enregistre les indices. Activer leur contribution
-              change le classement des futurs messages et demande une validation
-              de la qualité.
-            </p>
-            <Toggle
-              label="Indices SMTP et DNS dans le score"
-              checked={draft.filters.smtp_policy_scoring}
-              disabled={!draft.filters.smtp_policy}
-              onChange={(v) => filterAt('smtp_policy_scoring', v)}
+          <div
+            id="filters-panel-protection"
+            role="tabpanel"
+            aria-labelledby="filters-tab-protection"
+            hidden={filterSection !== 'protection'}
+            className="filter-section"
+          >
+            <ProtectionSettings
+              key={epoch}
+              policy={draft.protection}
+              user={user}
+              onChange={(protection) => setDraft({ ...draft, protection })}
             />
-            <Toggle
-              label="Texte OCR et liens décodés dans le score"
-              checked={draft.filters.vision_scoring}
-              disabled={!draft.filters.vision}
-              onChange={(v) => filterAt('vision_scoring', v)}
+          </div>
+          <div
+            id="filters-panel-mailing"
+            role="tabpanel"
+            aria-labelledby="filters-tab-mailing"
+            hidden={filterSection !== 'mailing'}
+            className="filter-section"
+          >
+            <MailingSettings
+              actionsManaged
+              policy={draft.mailing}
+              available={config.mailing_available}
+              tagReady={config.pub_tag_ready}
+              mode={draft.filters.mode}
+              onChange={(mailing) => setDraft({ ...draft, mailing })}
             />
-          </section>
+          </div>
         </>
       )}
       {section === 'users' && (
@@ -986,6 +1077,32 @@ export function AdminConsole({
               <Plus size={16} />
               Créer un compte
             </Button>
+          </div>
+          <div className="directory-toolbar">
+            <label className="search" htmlFor="account-search">
+              <Search size={17} />
+              <Input
+                id="account-search"
+                aria-label="Rechercher un compte ou un accès"
+                placeholder="Rechercher un compte ou une adresse…"
+                value={accountQuery}
+                onChange={(e) => setAccountQuery(e.target.value)}
+                maxLength={150}
+              />
+            </label>
+            <label className="directory-filter">
+              Afficher
+              <select
+                aria-label="Filtrer les comptes"
+                value={accountFilter}
+                onChange={(e) => setAccountFilter(e.target.value)}
+              >
+                <option value="all">Tous les comptes</option>
+                <option value="admin">Administrateurs</option>
+                <option value="user">Utilisateurs</option>
+                <option value="disabled">Comptes désactivés</option>
+              </select>
+            </label>
           </div>
           {editing && (
             <form
@@ -1114,38 +1231,61 @@ export function AdminConsole({
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((a) => (
-                  <tr key={a.username}>
-                    <td>
-                      <strong>{a.username}</strong>
-                      {a.username === user.username && (
-                        <small className="muted"> · Vous</small>
-                      )}
-                    </td>
-                    <td>{a.admin ? 'Administrateur' : 'Utilisateur'}</td>
-                    <td className="wrap">
-                      {a.admin
-                        ? 'Tous les domaines'
-                        : a.addresses.join(', ') || 'Aucun accès'}
-                    </td>
-                    <td>
-                      <span className={`status ${a.disabled ? '' : 'good'}`}>
-                        {a.disabled ? 'Désactivé' : 'Actif'}
-                      </span>
-                    </td>
-                    <td>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setEditing({ ...a });
-                          setPassword('');
-                        }}
-                      >
-                        Modifier
-                      </Button>
+                {accounts
+                  .filter((a) => matchesAccount(a, accountQuery, accountFilter))
+                  .map((a) => (
+                    <tr key={a.username}>
+                      <td>
+                        <strong>{a.username}</strong>
+                        {a.username === user.username && (
+                          <small className="muted"> · Vous</small>
+                        )}
+                      </td>
+                      <td>{a.admin ? 'Administrateur' : 'Utilisateur'}</td>
+                      <td className="wrap">
+                        {a.admin
+                          ? 'Tous les domaines'
+                          : a.addresses.join(', ') || 'Aucun accès'}
+                      </td>
+                      <td>
+                        <span className={`status ${a.disabled ? '' : 'good'}`}>
+                          {a.disabled ? 'Désactivé' : 'Actif'}
+                        </span>
+                      </td>
+                      <td>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setEditing({ ...a });
+                            setPassword('');
+                          }}
+                        >
+                          Modifier
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                {!accounts.some((a) =>
+                  matchesAccount(a, accountQuery, accountFilter),
+                ) && (
+                  <tr>
+                    <td colSpan={5} aria-label="Aucun compte correspondant">
+                      <div className="empty compact">
+                        <h2>Aucun compte correspondant</h2>
+                        <p>Modifiez la recherche ou les critères d’accès.</p>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setAccountQuery('');
+                            setAccountFilter('all');
+                          }}
+                        >
+                          Réinitialiser les critères
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>

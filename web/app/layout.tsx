@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import './console.css';
+import './workspace.css';
 
 export const metadata: Metadata = {
   title: 'NoiseFence — Console de messagerie',

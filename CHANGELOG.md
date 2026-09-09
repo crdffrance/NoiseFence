@@ -2,6 +2,16 @@
 
 Les versions suivent Semantic Versioning. Les versions 0.x restent expérimentales.
 
+## 0.4.0-dev.3 — Console administrateur et utilisateur
+
+- Navigation séparant messagerie, administration et espace personnel ; accès direct à la quarantaine et menu mobile.
+- Tableau de messages distinguant classement et livraison, compteurs interactifs, recherche effaçable, actualisation périodique en arrière-plan et cartes adaptées aux téléphones.
+- Détail donnant priorité aux actions et aux principaux indices, avec contrôles techniques repliables.
+- Confirmation intégrée de quarantaine : destinataire explicite, annulation clavier, restitution du focus et erreurs dans la fenêtre.
+- Écran Mon compte : périmètre autorisé et changement du mot de passe avec confirmation.
+- Administration des filtres en cinq rubriques préservant le brouillon ; recherche des comptes par nom, accès et rôle.
+- Tests de présentation pour décisions canoniques, antivirus, livraisons multiples et recherche des comptes. Moteur, API, stockage et politique de production inchangés.
+
 ## [Unreleased]
 
 ## [0.4.0-dev.2] - 2026-09-09

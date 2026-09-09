@@ -1,5 +1,8 @@
 'use client';
 import { actionLabel, type DeliveryAction } from './actions';
+import { ConfirmDialog } from './console-ui';
+import { MyAccount } from './account';
+import { classification, deliverySummary } from './presentation';
 import {
   MailingDetails,
   type MailingReport,
@@ -14,6 +17,14 @@ import {
   ArrowLeft,
   Check,
   Flag,
+  Inbox,
+  Archive,
+  UserRound,
+  RefreshCw,
+  X,
+  ChevronRight,
+  Menu,
+  Clock3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -156,11 +167,6 @@ function displayedScore(mail: Mail) {
       ? mail.score
       : null;
 }
-function unwanted(mail: Mail, threshold: number) {
-  return mail.decision
-    ? mail.decision.outcome === 'unwanted'
-    : mail.complete && mail.score >= threshold;
-}
 const fusionFamilies: Record<string, string> = {
   lexical: 'Contenu textuel',
   semantic: 'Sens du message',
@@ -183,7 +189,15 @@ function fusionReason(feature: string) {
   return family;
 }
 export default function Home() {
-  const [section, setSection] = useState<Section>('messages');
+  const [section, setSection] = useState<Section | 'account'>('messages');
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [confirmation, setConfirmation] = useState<{
+    recipient: string;
+    action: 'release' | 'delete';
+  } | null>(null);
+  const [confirmationError, setConfirmationError] = useState('');
   const [domain, setDomain] = useState('');
   const [domains, setDomains] = useState<string[]>([]);
   const [configDirty, setConfigDirty] = useState(false);
@@ -192,8 +206,7 @@ export default function Home() {
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const [username, setUsername] = useState(''),
-    [password, setPassword] = useState(''),
-    [newPassword, setNewPassword] = useState('');
+    [password, setPassword] = useState('');
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('all'),
     [offset, setOffset] = useState(0);
@@ -212,7 +225,12 @@ export default function Home() {
     setSelected(null);
     setNotice('');
     setPassword('');
-    setNewPassword('');
+    setConfirmation(null);
+    setConfirmationError('');
+    setMobileMenu(false);
+    setUpdatedAt(null);
+    setLoading(!!next);
+    setBusy(false);
     setSearch('');
     setFilter('all');
     setOffset(0);
@@ -235,6 +253,7 @@ export default function Home() {
   const refresh = useCallback(async () => {
     if (!user || user !== activeUser.current) return;
     const requestId = ++latestRequest.current;
+    setLoading(true);
     try {
       const [messages, totals, scope] = await Promise.all([
         api<Mail[]>(
@@ -248,19 +267,41 @@ export default function Home() {
       setMails(messages);
       setStats(totals);
       setDomains(scope);
+      setUpdatedAt(new Date());
       setError('');
     } catch (e) {
-      setError((e as Error).message);
+      if (user === activeUser.current && requestId === latestRequest.current)
+        setError((e as Error).message);
+    } finally {
+      if (user === activeUser.current && requestId === latestRequest.current)
+        setLoading(false);
     }
   }, [user, search, filter, offset, domain]);
   useEffect(() => {
     const timer = setTimeout(refresh, 200);
     return () => clearTimeout(timer);
   }, [refresh]);
+  useEffect(() => {
+    if (!user || section !== 'messages' || selected || confirmation || busy)
+      return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [user, section, selected, confirmation, busy, refresh]);
+  function navigate(next: Section | 'account', nextFilter = 'all') {
+    setSection(next);
+    setFilter(nextFilter);
+    setOffset(0);
+    setSelected(null);
+    setNotice('');
+    setMobileMenu(false);
+  }
   const recordFeedback = useCallback(
     async (id: string, category: FeedbackCategory) => {
       if (!user) throw new Error('Connexion requise.');
       await api(`/messages/${id}/feedback`, { category }, user.csrf);
+      if (user !== activeUser.current) return;
       setSelected((previous) =>
         previous?.id === id
           ? {
@@ -298,23 +339,17 @@ export default function Home() {
   ) {
     if (!selected || !user) return;
     const id = selected.id;
-    if (
-      !window.confirm(
-        action === 'release'
-          ? `Libérer ce message vers ${recipient} ? Il sera transmis sans préfixe ; son classement reste inchangé.`
-          : `Supprimer la livraison retenue pour ${recipient} ? Cette action est définitive pour ce destinataire.`,
-      )
-    )
-      return;
     setBusy(true);
     setError('');
     setNotice('');
+    setConfirmationError('');
     try {
       const result = await api<{ status: string }>(
         `/messages/${id}/quarantine`,
         { recipient, action },
         user.csrf,
       );
+      if (user !== activeUser.current) return;
       setSelected((previous) =>
         previous?.id === id
           ? {
@@ -325,6 +360,7 @@ export default function Home() {
             }
           : previous,
       );
+      setConfirmation(null);
       setNotice(
         action === 'release'
           ? 'Message libéré : livraison en attente pour ce destinataire.'
@@ -332,9 +368,10 @@ export default function Home() {
       );
       await refresh();
     } catch (e) {
-      setError((e as Error).message);
+      if (user === activeUser.current)
+        setConfirmationError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (user === activeUser.current) setBusy(false);
     }
   }
   if (!ready)
@@ -410,32 +447,104 @@ export default function Home() {
     );
   return (
     <div className="shell">
-      <aside className="rail">
-        <div className="wordmark">
-          <ShieldCheck size={23} /> NoiseFence
+      <a className="skip-link" href="#main-content">
+        Aller au contenu
+      </a>
+      <aside className={`rail ${mobileMenu ? 'menu-open' : ''}`}>
+        <div className="rail-brand">
+          <div className="wordmark">
+            <span className="brand-symbol">
+              <ShieldCheck size={23} />
+            </span>
+            <div>
+              NoiseFence<small>CONSOLE DE MESSAGERIE</small>
+            </div>
+          </div>
+          <button
+            className="mobile-menu"
+            aria-label={mobileMenu ? 'Fermer le menu' : 'Ouvrir le menu'}
+            aria-expanded={mobileMenu}
+            aria-controls="console-navigation"
+            onClick={() => setMobileMenu(!mobileMenu)}
+          >
+            {mobileMenu ? <X size={21} /> : <Menu size={21} />}
+          </button>
         </div>
-        <div className="rail-label">
-          {user.admin ? 'ADMINISTRATION' : 'VOTRE ESPACE'}
+        <div id="console-navigation" className="rail-navigation">
+          <div className="rail-label">MESSAGERIE</div>
+          <nav className="navigation" aria-label="Messagerie">
+            <button
+              className={`nav-item ${section === 'messages' && filter !== 'quarantined' ? 'nav-active' : ''}`}
+              aria-current={
+                section === 'messages' && filter !== 'quarantined'
+                  ? 'page'
+                  : undefined
+              }
+              onClick={() => navigate('messages')}
+            >
+              <Inbox size={18} />
+              {user.admin ? 'Tous les messages' : 'Mes messages'}
+            </button>
+            <button
+              className={`nav-item ${section === 'messages' && filter === 'quarantined' ? 'nav-active' : ''}`}
+              aria-current={
+                section === 'messages' && filter === 'quarantined'
+                  ? 'page'
+                  : undefined
+              }
+              onClick={() => navigate('messages', 'quarantined')}
+            >
+              <Archive size={18} />
+              Quarantaine
+              {stats && (
+                <span
+                  className="nav-count"
+                  title="Dans le périmètre sélectionné"
+                >
+                  {stats.quarantined}
+                </span>
+              )}
+            </button>
+          </nav>
+          {user.admin && (
+            <>
+              <div className="rail-label admin-label">ADMINISTRATION</div>
+              <nav className="navigation" aria-label="Administration">
+                {navigation
+                  .filter((n) => n.id !== 'messages')
+                  .map((n) => (
+                    <button
+                      key={n.id}
+                      className={`nav-item ${section === n.id ? 'nav-active' : ''}`}
+                      aria-current={section === n.id ? 'page' : undefined}
+                      onClick={() => navigate(n.id)}
+                    >
+                      <n.icon size={18} />
+                      {n.label}
+                      {configDirty &&
+                        ['domains', 'gateways', 'filters'].includes(n.id) && (
+                          <span
+                            className="draft-dot"
+                            aria-label="Brouillon non enregistré"
+                          />
+                        )}
+                    </button>
+                  ))}
+              </nav>
+            </>
+          )}
+          <div className="rail-label admin-label">ESPACE PERSONNEL</div>
+          <nav className="navigation" aria-label="Espace personnel">
+            <button
+              className={`nav-item ${section === 'account' ? 'nav-active' : ''}`}
+              aria-current={section === 'account' ? 'page' : undefined}
+              onClick={() => navigate('account')}
+            >
+              <UserRound size={18} />
+              Mon compte
+            </button>
+          </nav>
         </div>
-        <nav className="navigation" aria-label="Navigation principale">
-          {navigation
-            .filter((n) => user.admin || n.id === 'messages')
-            .map((n) => (
-              <button
-                key={n.id}
-                className={`nav-item ${section === n.id ? 'nav-active' : ''}`}
-                aria-current={section === n.id ? 'page' : undefined}
-                onClick={() => {
-                  setSection(n.id);
-                  setSelected(null);
-                  setNotice('');
-                }}
-              >
-                <n.icon size={18} />
-                {n.label}
-              </button>
-            ))}
-        </nav>
         <div className="rail-footer">
           <strong>{user.username}</strong>
           <span>
@@ -467,19 +576,25 @@ export default function Home() {
           </Button>
         </div>
       </aside>
-      <main className="workspace">
+      <main id="main-content" className="workspace" tabIndex={-1}>
         <header className="topline">
           <span>
             Console /{' '}
             {selected
               ? 'Décision du filtre'
-              : navigation.find((n) => n.id === section)?.label}
+              : section === 'account'
+                ? 'Mon compte'
+                : section === 'messages' && filter === 'quarantined'
+                  ? 'Quarantaine'
+                  : navigation.find((n) => n.id === section)?.label}
           </span>
           <span className="mode">
             <i />
-            {stats?.mode && stats.mode !== 'observe'
-              ? 'Actions actives'
-              : 'Observation'}
+            {stats
+              ? stats.mode !== 'observe'
+                ? 'Actions actives'
+                : 'Mode observation'
+              : 'Chargement du mode…'}
           </span>
         </header>
         {error && (
@@ -489,10 +604,10 @@ export default function Home() {
         )}
         {notice && <output className="notice">{notice}</output>}
         {user.admin && (
-          <div hidden={section === 'messages'}>
+          <div hidden={section === 'messages' || section === 'account'}>
             <AdminConsole
               user={user}
-              section={section}
+              section={section === 'account' ? 'messages' : section}
               onDirty={setConfigDirty}
               onApplied={refresh}
               onDomain={(name) => {
@@ -503,6 +618,13 @@ export default function Home() {
               }}
             />
           </div>
+        )}
+        {section === 'account' && (
+          <MyAccount
+            key={user.username}
+            user={user}
+            onPasswordChanged={() => changeSession(null)}
+          />
         )}
         {section === 'messages' && (
           <>
@@ -519,6 +641,28 @@ export default function Home() {
                 </Button>
                 <div className="detail-heading">
                   <p className="eyebrow">DÉCISION DU FILTRE</p>
+                  <div className="detail-badges">
+                    <span
+                      className={`status ${classification(selected, stats?.threshold ?? 95).tone}`}
+                    >
+                      {classification(selected, stats?.threshold ?? 95).label}
+                    </span>
+                    <span
+                      className={`status ${deliverySummary(selected.recipients).tone}`}
+                    >
+                      {deliverySummary(selected.recipients).label}
+                    </span>
+                    {selected.feedback_category && (
+                      <span className="status">
+                        Correction :{' '}
+                        {selected.feedback_category === 'legitimate'
+                          ? 'Légitime'
+                          : selected.feedback_category === 'publicity'
+                            ? 'PUB'
+                            : 'Spam'}
+                      </span>
+                    )}
+                  </div>
                   <h1>{selected.subject || '(Sans objet)'}</h1>
                   <p className="muted">
                     {selected.sender || 'Expéditeur d’enveloppe vide'} ·{' '}
@@ -526,7 +670,7 @@ export default function Home() {
                   </p>
                 </div>
                 <div className="detail-grid">
-                  <section className="panel">
+                  <section className="panel analysis-panel">
                     <h2>Pourquoi ce classement ?</h2>
                     <div className="score-large">
                       {selected.decision?.source === 'antivirus'
@@ -563,182 +707,186 @@ export default function Home() {
                         l’objet.
                       </p>
                     )}
-                    {selected.fusion &&
-                      selected.fusion.status !== 'disabled' && (
-                        <div className="notice">
-                          <strong>
-                            {selected.fusion.mode === 'observe'
-                              ? 'Fusion en observation'
-                              : 'Décision commune'}
-                          </strong>
-                          <p>
-                            {
-                              {
-                                not_run:
-                                  'Contexte insuffisant pour combiner les détecteurs.',
-                                complete: selected.fusion.prediction
-                                  ?.tag_eligible
-                                  ? `Estimation : ${((selected.fusion.prediction?.probability ?? 0) * 100).toFixed(1)} / 100.`
-                                  : 'Contrôles incomplets : estimation inutilisable pour le marquage.',
-                                unavailable:
-                                  'Fusion indisponible pour ce message.',
-                                unsupported_profile:
-                                  'Cette combinaison de contrôles n’a pas encore été validée.',
-                                validation_expired:
-                                  'Validation du modèle expirée : aucun préfixe ajouté.',
-                              }[selected.fusion.status]
-                            }
-                          </p>
-                          {selected.fusion.mode === 'observe' && (
+                    <details className="analysis-details">
+                      <summary>Contrôles et détails de l’analyse</summary>
+                      {selected.fusion &&
+                        selected.fusion.status !== 'disabled' && (
+                          <div className="notice">
+                            <strong>
+                              {selected.fusion.mode === 'observe'
+                                ? 'Fusion en observation'
+                                : 'Décision commune'}
+                            </strong>
                             <p>
-                              Résultat de recherche, sans effet sur le
-                              classement.
+                              {
+                                {
+                                  not_run:
+                                    'Contexte insuffisant pour combiner les détecteurs.',
+                                  complete: selected.fusion.prediction
+                                    ?.tag_eligible
+                                    ? `Estimation : ${((selected.fusion.prediction?.probability ?? 0) * 100).toFixed(1)} / 100.`
+                                    : 'Contrôles incomplets : estimation inutilisable pour le marquage.',
+                                  unavailable:
+                                    'Fusion indisponible pour ce message.',
+                                  unsupported_profile:
+                                    'Cette combinaison de contrôles n’a pas encore été validée.',
+                                  validation_expired:
+                                    'Validation du modèle expirée : aucun préfixe ajouté.',
+                                }[selected.fusion.status]
+                              }
                             </p>
-                          )}
-                          <small>{selected.fusion.model}</small>
-                          {selected.fusion.status === 'complete' &&
-                            selected.fusion.prediction?.tag_eligible && (
-                              <ul className="reasons">
-                                {selected.fusion.prediction.contributions
-                                  .filter((c) => c.contribution !== 0)
-                                  .map((c, i) => (
-                                    <li key={`${c.feature}-${i}`}>
-                                      <span>{fusionReason(c.feature)}</span>
-                                      <small>
-                                        {c.contribution > 0
-                                          ? 'Augmente'
-                                          : 'Réduit'}{' '}
-                                        l’estimation
-                                      </small>
-                                    </li>
-                                  ))}
-                              </ul>
+                            {selected.fusion.mode === 'observe' && (
+                              <p>
+                                Résultat de recherche, sans effet sur le
+                                classement.
+                              </p>
                             )}
-                        </div>
-                      )}
-                    {selected.smtp_policy &&
-                      selected.smtp_policy.status !== 'disabled' && (
-                        <p className="muted">
-                          Cohérence SMTP et DNS :{' '}
-                          {
-                            {
-                              complete: 'contrôlée',
-                              busy: 'capacité occupée, contrôle incomplet',
-                              unavailable: 'indisponible ou délai dépassé',
-                            }[selected.smtp_policy.status]
-                          }{' '}
-                          · {selected.smtp_policy.elapsed_ms} ms
-                          {selected.smtp_policy.status === 'complete' &&
-                            !selected.smtp_policy.scoring_enabled &&
-                            ' · observation sans effet sur le score'}
-                        </p>
-                      )}
-                    {selected.semantic &&
-                      selected.semantic.status !== 'disabled' && (
-                        <p className="muted">
-                          Analyse multilingue locale :{' '}
-                          {
-                            {
-                              complete: 'effectuée',
-                              busy: 'capacité occupée, analyse incomplète',
-                              unavailable: 'indisponible ou délai dépassé',
-                            }[selected.semantic.status]
-                          }{' '}
-                          · {selected.semantic.elapsed_ms} ms
-                        </p>
-                      )}
-                    {selected.vision &&
-                      selected.vision.status !== 'disabled' && (
-                        <div className="notice">
-                          <strong>
-                            Lecture des images et PDF :{' '}
+                            <small>{selected.fusion.model}</small>
+                            {selected.fusion.status === 'complete' &&
+                              selected.fusion.prediction?.tag_eligible && (
+                                <ul className="reasons">
+                                  {selected.fusion.prediction.contributions
+                                    .filter((c) => c.contribution !== 0)
+                                    .map((c, i) => (
+                                      <li key={`${c.feature}-${i}`}>
+                                        <span>{fusionReason(c.feature)}</span>
+                                        <small>
+                                          {c.contribution > 0
+                                            ? 'Augmente'
+                                            : 'Réduit'}{' '}
+                                          l’estimation
+                                        </small>
+                                      </li>
+                                    ))}
+                                </ul>
+                              )}
+                          </div>
+                        )}
+                      {selected.smtp_policy &&
+                        selected.smtp_policy.status !== 'disabled' && (
+                          <p className="muted">
+                            Cohérence SMTP et DNS :{' '}
                             {
                               {
-                                complete: selected.vision.parts
-                                  ? 'effectuée'
-                                  : 'aucun contenu visuel local',
-                                limited:
-                                  'partielle, limites atteintes ou document illisible',
+                                complete: 'contrôlée',
+                                busy: 'capacité occupée, contrôle incomplet',
+                                unavailable: 'indisponible ou délai dépassé',
+                              }[selected.smtp_policy.status]
+                            }{' '}
+                            · {selected.smtp_policy.elapsed_ms} ms
+                            {selected.smtp_policy.status === 'complete' &&
+                              !selected.smtp_policy.scoring_enabled &&
+                              ' · observation sans effet sur le score'}
+                          </p>
+                        )}
+                      {selected.semantic &&
+                        selected.semantic.status !== 'disabled' && (
+                          <p className="muted">
+                            Analyse multilingue locale :{' '}
+                            {
+                              {
+                                complete: 'effectuée',
                                 busy: 'capacité occupée, analyse incomplète',
                                 unavailable: 'indisponible ou délai dépassé',
-                              }[selected.vision.status]
-                            }
-                          </strong>
-                          {selected.vision.pages > 0 && (
-                            <p>
-                              {selected.vision.pages} page(s) ·{' '}
-                              {selected.vision.text_chars} caractères ·{' '}
-                              {selected.vision.qr_codes} QR code(s) ·{' '}
-                              {selected.vision.other_codes} autre(s) code(s) ·{' '}
-                              {selected.vision.link_domains} domaine(s) dans les
-                              liens
-                            </p>
-                          )}
-                          <small>
-                            Traitement local · {selected.vision.elapsed_ms} ms ·
-                            Les liens décodés ne sont pas ouverts.
-                          </small>
-                        </div>
-                      )}
-                    {selected.llm && selected.llm.status !== 'disabled' && (
-                      <p className="muted">
-                        Analyse complémentaire Scaleway :{' '}
-                        {
+                              }[selected.semantic.status]
+                            }{' '}
+                            · {selected.semantic.elapsed_ms} ms
+                          </p>
+                        )}
+                      {selected.vision &&
+                        selected.vision.status !== 'disabled' && (
+                          <div className="notice">
+                            <strong>
+                              Lecture des images et PDF :{' '}
+                              {
+                                {
+                                  complete: selected.vision.parts
+                                    ? 'effectuée'
+                                    : 'aucun contenu visuel local',
+                                  limited:
+                                    'partielle, limites atteintes ou document illisible',
+                                  busy: 'capacité occupée, analyse incomplète',
+                                  unavailable: 'indisponible ou délai dépassé',
+                                }[selected.vision.status]
+                              }
+                            </strong>
+                            {selected.vision.pages > 0 && (
+                              <p>
+                                {selected.vision.pages} page(s) ·{' '}
+                                {selected.vision.text_chars} caractères ·{' '}
+                                {selected.vision.qr_codes} QR code(s) ·{' '}
+                                {selected.vision.other_codes} autre(s) code(s) ·{' '}
+                                {selected.vision.link_domains} domaine(s) dans
+                                les liens
+                              </p>
+                            )}
+                            <small>
+                              Traitement local · {selected.vision.elapsed_ms} ms
+                              · Les liens décodés ne sont pas ouverts.
+                            </small>
+                          </div>
+                        )}
+                      {selected.llm && selected.llm.status !== 'disabled' && (
+                        <p className="muted">
+                          Analyse complémentaire Scaleway :{' '}
                           {
-                            not_needed: 'non sollicitée pour ce message',
-                            busy: 'capacité occupée, analyse incomplète',
-                            budget_limited:
-                              'plafond atteint, analyse locale conservée',
-                            pricing_expired:
-                              'tarifs à revalider, analyse locale conservée',
-                            unavailable: 'indisponible',
-                            complete: 'effectuée',
-                          }[selected.llm.status]
-                        }
-                        {selected.llm.status === 'complete' &&
-                          ` · ${selected.llm.model} · ${selected.llm.elapsed_ms} ms`}
-                      </p>
-                    )}
-                    {selected.antivirus &&
-                      selected.antivirus.status !== 'disabled' && (
-                        <div className="notice">
-                          <strong>
-                            Antivirus :{' '}
+                            {
+                              not_needed: 'non sollicitée pour ce message',
+                              busy: 'capacité occupée, analyse incomplète',
+                              budget_limited:
+                                'plafond atteint, analyse locale conservée',
+                              pricing_expired:
+                                'tarifs à revalider, analyse locale conservée',
+                              unavailable: 'indisponible',
+                              complete: 'effectuée',
+                            }[selected.llm.status]
+                          }
+                          {selected.llm.status === 'complete' &&
+                            ` · ${selected.llm.model} · ${selected.llm.elapsed_ms} ms`}
+                        </p>
+                      )}
+                      {selected.antivirus &&
+                        selected.antivirus.status !== 'disabled' && (
+                          <div className="notice">
+                            <strong>
+                              Antivirus :{' '}
+                              {
+                                {
+                                  clean: 'aucune détection',
+                                  malware: 'fichier malveillant détecté',
+                                  suspicious: 'signal suspect à examiner',
+                                  unscannable:
+                                    'analyse limitée ou contenu chiffré',
+                                  unavailable: 'service indisponible',
+                                }[selected.antivirus.status]
+                              }
+                            </strong>
+                            {selected.antivirus.signature && (
+                              <p>{selected.antivirus.signature}</p>
+                            )}
+                            <small>
+                              ClamAV · {selected.antivirus.elapsed_ms} ms
+                            </small>
+                          </div>
+                        )}
+                      {selected.signatures &&
+                        selected.signatures.status !== 'disabled' && (
+                          <p className="muted">
+                            Signatures complémentaires :{' '}
                             {
                               {
                                 clean: 'aucune détection',
-                                malware: 'fichier malveillant détecté',
-                                suspicious: 'signal suspect à examiner',
-                                unscannable:
-                                  'analyse limitée ou contenu chiffré',
+                                malware: 'signal consultatif à examiner',
+                                suspicious: 'signal consultatif à examiner',
+                                unscannable: 'analyse limitée',
                                 unavailable: 'service indisponible',
-                              }[selected.antivirus.status]
-                            }
-                          </strong>
-                          {selected.antivirus.signature && (
-                            <p>{selected.antivirus.signature}</p>
-                          )}
-                          <small>
-                            ClamAV · {selected.antivirus.elapsed_ms} ms
-                          </small>
-                        </div>
-                      )}
-                    {selected.signatures &&
-                      selected.signatures.status !== 'disabled' && (
-                        <p className="muted">
-                          Signatures complémentaires :{' '}
-                          {
-                            {
-                              clean: 'aucune détection',
-                              malware: 'signal consultatif à examiner',
-                              suspicious: 'signal consultatif à examiner',
-                              unscannable: 'analyse limitée',
-                              unavailable: 'service indisponible',
-                            }[selected.signatures.status]
-                          }{' '}
-                          · {selected.signatures.elapsed_ms} ms
-                        </p>
-                      )}
+                              }[selected.signatures.status]
+                            }{' '}
+                            · {selected.signatures.elapsed_ms} ms
+                          </p>
+                        )}
+                    </details>
+                    <h3 className="subheading">Principaux indices</h3>
                     <ul className="reasons">
                       {selected.reasons.map((r, i) => (
                         <li key={`${r.id}-${i}`}>
@@ -771,8 +919,8 @@ export default function Home() {
                   {selected.protection && (
                     <ProtectionDetails report={selected.protection} />
                   )}
-                  <section className="panel">
-                    <h2>Votre avis compte</h2>
+                  <section className="panel message-actions-panel">
+                    <h2>Corriger le classement</h2>
                     <p className="muted">
                       Corrigez la décision pour améliorer les prochains
                       classements.
@@ -854,9 +1002,13 @@ export default function Home() {
                             <div className="feedback-actions">
                               <Button
                                 disabled={busy}
-                                onClick={() =>
-                                  quarantineAction(r.address, 'release')
-                                }
+                                onClick={() => (
+                                  setConfirmationError(''),
+                                  setConfirmation({
+                                    recipient: r.address,
+                                    action: 'release',
+                                  })
+                                )}
                               >
                                 Libérer et transmettre
                               </Button>
@@ -864,9 +1016,13 @@ export default function Home() {
                                 variant="outline"
                                 className="danger"
                                 disabled={busy}
-                                onClick={() =>
-                                  quarantineAction(r.address, 'delete')
-                                }
+                                onClick={() => (
+                                  setConfirmationError(''),
+                                  setConfirmation({
+                                    recipient: r.address,
+                                    action: 'delete',
+                                  })
+                                )}
                               >
                                 Supprimer
                               </Button>
@@ -888,19 +1044,31 @@ export default function Home() {
               <>
                 <div className="page-heading">
                   <div>
-                    <p className="eyebrow">VISIBILITÉ & CONTRÔLE</p>
-                    <h1>Historique des messages</h1>
-                    <p className="muted">
-                      {domain
-                        ? `Les messages de ${domain}`
+                    <p className="eyebrow">
+                      {user.admin
+                        ? 'VUE DE L’ORGANISATION'
+                        : 'VOTRE MESSAGERIE'}
+                    </p>
+                    <h1>
+                      {filter === 'quarantined'
+                        ? 'Quarantaine'
                         : user.admin
-                          ? 'Tous les domaines de votre organisation'
-                          : 'Les messages de vos adresses'}{' '}
-                      · 30 derniers jours.
+                          ? 'Tous les messages'
+                          : 'Mes messages'}
+                    </h1>
+                    <p className="muted">
+                      {filter === 'quarantined'
+                        ? 'Examinez les messages retenus et choisissez leur traitement.'
+                        : 'Comprenez les décisions du filtre et corrigez les erreurs de classement.'}
                     </p>
                   </div>
-                  <Button variant="outline" onClick={refresh}>
-                    Actualiser
+                  <Button
+                    variant="outline"
+                    onClick={() => void refresh()}
+                    disabled={loading}
+                  >
+                    <RefreshCw size={16} className={loading ? 'spin' : ''} />
+                    {loading ? 'Actualisation…' : 'Actualiser'}
                   </Button>
                 </div>
                 <div className="scope-bar">
@@ -928,33 +1096,77 @@ export default function Home() {
                       : 'Destinataires autorisés uniquement'}
                   </span>
                 </div>
-                <div className="stats">
-                  <section>
-                    <span>Messages reçus</span>
-                    <strong>
-                      {stats?.received.toLocaleString('fr-FR') ?? '—'}
-                    </strong>
-                  </section>
-                  <section>
-                    <span>Détectés comme spam</span>
-                    <strong>
-                      {stats?.flagged.toLocaleString('fr-FR') ?? '—'}
-                    </strong>
-                  </section>
-                  <section>
-                    <span>Publicités et newsletters</span>
-                    <strong>
-                      {stats?.publicity?.toLocaleString('fr-FR') ?? '—'}
-                    </strong>
-                  </section>
-                  <section>
-                    <span>Livraisons en attente</span>
-                    <strong>
-                      {stats?.pending.toLocaleString('fr-FR') ?? '—'}
-                    </strong>
-                  </section>
+                <div className="stats message-stats">
+                  {[
+                    {
+                      id: 'all',
+                      label: 'Messages reçus',
+                      count: stats?.received,
+                      icon: Inbox,
+                      tone: 'blue',
+                    },
+                    {
+                      id: 'spam',
+                      label: 'Spam détecté',
+                      count: stats?.flagged,
+                      icon: ShieldCheck,
+                      tone: 'orange',
+                    },
+                    {
+                      id: 'publicity',
+                      label: 'Publicités · PUB',
+                      count: stats?.publicity,
+                      icon: Flag,
+                      tone: 'purple',
+                    },
+                    {
+                      id: 'quarantined',
+                      label: 'En quarantaine',
+                      count: stats?.quarantined,
+                      icon: Archive,
+                      tone: 'amber',
+                    },
+                  ].map((card) => (
+                    <button
+                      key={card.id}
+                      className={`stat-card ${filter === card.id ? 'stat-active' : ''}`}
+                      aria-pressed={filter === card.id}
+                      onClick={() => {
+                        setFilter(card.id);
+                        setOffset(0);
+                      }}
+                    >
+                      <span className={`stat-icon ${card.tone}`}>
+                        <card.icon size={19} />
+                      </span>
+                      <span>{card.label}</span>
+                      <strong>
+                        {card.count?.toLocaleString('fr-FR') ?? '—'}
+                      </strong>
+                      <ChevronRight className="stat-arrow" size={16} />
+                    </button>
+                  ))}
                 </div>
-                <section className="messages">
+                {stats?.mode === 'observe' && (
+                  <div className="observation-banner">
+                    <ShieldCheck size={18} />
+                    <p>
+                      <strong>Observation active</strong> Les messages sont
+                      analysés et transmis. Les actions de marquage et de
+                      quarantaine ne sont pas appliquées.
+                      {user.admin && ' Vous pouvez les activer dans Filtres.'}
+                    </p>
+                    {user.admin && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => navigate('filters')}
+                      >
+                        Voir les actions <ChevronRight size={15} />
+                      </Button>
+                    )}
+                  </div>
+                )}
+                <section className="messages" aria-busy={loading}>
                   <div className="toolbar">
                     <fieldset
                       className="tabs"
@@ -976,6 +1188,7 @@ export default function Home() {
                         <Button
                           key={value}
                           variant={filter === value ? 'default' : 'ghost'}
+                          aria-pressed={filter === value}
                           onClick={() => {
                             setFilter(value);
                             setOffset(0);
@@ -985,7 +1198,7 @@ export default function Home() {
                         </Button>
                       ))}
                     </fieldset>
-                    <div className="search">
+                    <div className="search message-search">
                       <Search size={18} />
                       <Input
                         aria-label="Rechercher par objet, expéditeur ou destinataire"
@@ -997,111 +1210,200 @@ export default function Home() {
                         }}
                         maxLength={150}
                       />
+                      {search && (
+                        <button
+                          className="clear-search"
+                          aria-label="Effacer la recherche"
+                          onClick={() => {
+                            setSearch('');
+                            setOffset(0);
+                          }}
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Message</TableHead>
-                        <TableHead>Destinataires</TableHead>
-                        <TableHead>Classement</TableHead>
-                        <TableHead>Score spam</TableHead>
-                        <TableHead>Reçu le</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {mails.map((m) => (
-                        <TableRow key={m.id}>
-                          <TableCell>
-                            <button
-                              className="message-link"
-                              onClick={() => {
-                                setSelected(m);
-                                setNotice('');
-                              }}
-                            >
-                              <strong>{m.subject || '(Sans objet)'}</strong>
-                              <span>
-                                {m.sender || 'Notification de livraison'}
-                              </span>
-                            </button>
-                          </TableCell>
-                          <TableCell>
-                            <span className="small recipient-list">
-                              {m.recipients.map((r) => r.address).join(', ')}
-                              {m.recipients.some(
-                                (r) => r.status === 'quarantined',
-                              ) && (
-                                <span className="status quarantine-status">
-                                  En quarantaine
+                  <div className="results-meta">
+                    <span>
+                      {loading
+                        ? 'Actualisation des messages…'
+                        : `${mails.length} message${mails.length > 1 ? 's' : ''} sur cette page`}
+                      {domain && ` · ${domain}`}
+                    </span>
+                    <span>
+                      <Clock3 size={13} />
+                      {updatedAt
+                        ? `Actualisé à ${updatedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                        : 'Chargement…'}
+                    </span>
+                  </div>
+                  <div className="desktop-messages">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Message</TableHead>
+                          <TableHead>Destinataires</TableHead>
+                          <TableHead>Classement</TableHead>
+                          <TableHead>Livraison</TableHead>
+                          <TableHead>Indice spam</TableHead>
+                          <TableHead>Reçu le</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {mails.map((m) => (
+                          <TableRow key={m.id}>
+                            <TableCell>
+                              <button
+                                className="message-link"
+                                onClick={() => {
+                                  setSelected(m);
+                                  setNotice('');
+                                }}
+                              >
+                                <strong>{m.subject || '(Sans objet)'}</strong>
+                                <span>
+                                  {m.sender || 'Notification de livraison'}
                                 </span>
+                              </button>
+                            </TableCell>
+                            <TableCell>
+                              <span className="small recipient-list">
+                                {m.recipients.map((r) => r.address).join(', ')}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
+                              >
+                                {
+                                  classification(m, stats?.threshold ?? 95)
+                                    .label
+                                }
+                              </span>
+                              {(m.tagged || m.pub_tagged) && (
+                                <small className="tag-note">
+                                  {m.tagged ? '[SPAM]' : '[PUB]'} ajouté
+                                </small>
                               )}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span
-                              className={`status ${unwanted(m, stats?.threshold ?? 95) ? 'spam' : m.category === 'publicity' ? 'publicity' : ''}`}
-                            >
-                              {m.decision?.source === 'antivirus'
-                                ? m.complete
-                                  ? m.tagged
-                                    ? 'Malware · [SPAM] ajouté'
-                                    : 'Malware détecté'
-                                  : 'Malware · analyse incomplète'
-                                : !m.complete
-                                  ? 'Incomplet'
-                                  : m.tagged
-                                    ? '[SPAM] ajouté'
-                                    : unwanted(m, stats?.threshold ?? 95)
-                                      ? 'Spam détecté'
-                                      : m.pub_tagged
-                                        ? '[PUB] ajouté'
-                                        : m.category === 'publicity'
-                                          ? 'PUB détecté'
-                                          : m.category === 'undetermined'
-                                            ? m.complete
-                                              ? 'À vérifier'
-                                              : 'Indéterminé'
-                                            : 'Légitime'}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="score">
-                              {displayedScore(m)?.toFixed(1) ?? '—'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="muted">
+                              {m.feedback_category && (
+                                <small className="tag-note">
+                                  Correction enregistrée
+                                </small>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`status ${deliverySummary(m.recipients).tone}`}
+                              >
+                                {deliverySummary(m.recipients).label}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span className="score">
+                                {displayedScore(m)?.toFixed(1) ?? '—'}
+                              </span>
+                            </TableCell>
+                            <TableCell className="muted">
+                              {new Date(m.created * 1000).toLocaleString(
+                                'fr-FR',
+                                {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                },
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="mobile-messages">
+                    {mails.map((m) => (
+                      <button
+                        key={m.id}
+                        className="mobile-message"
+                        onClick={() => {
+                          setSelected(m);
+                          setNotice('');
+                        }}
+                      >
+                        <span className="mobile-message-top">
+                          <span
+                            className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
+                          >
+                            {classification(m, stats?.threshold ?? 95).label}
+                          </span>
+                          <time
+                            dateTime={new Date(m.created * 1000).toISOString()}
+                          >
                             {new Date(m.created * 1000).toLocaleString(
                               'fr-FR',
                               {
-                                day: '2-digit',
+                                day: 'numeric',
                                 month: 'short',
                                 hour: '2-digit',
                                 minute: '2-digit',
                               },
                             )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  {!mails.length && (
+                          </time>
+                        </span>
+                        <strong>{m.subject || '(Sans objet)'}</strong>
+                        <small>{m.sender || 'Notification de livraison'}</small>
+                        <small>
+                          À : {m.recipients.map((r) => r.address).join(', ')}
+                        </small>
+                        <span className="delivery-line">
+                          <span
+                            className={`status ${deliverySummary(m.recipients).tone}`}
+                          >
+                            {deliverySummary(m.recipients).label}
+                          </span>
+                          {(m.tagged || m.pub_tagged) && (
+                            <span>{m.tagged ? '[SPAM]' : '[PUB]'} ajouté</span>
+                          )}
+                          <ChevronRight size={15} />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {!mails.length && !loading && (
                     <div className="empty">
                       <ShieldCheck size={32} />
                       <h2>
-                        {search
-                          ? 'Aucun message correspondant'
-                          : 'Aucun message pour le moment'}
+                        {filter === 'quarantined'
+                          ? 'Aucun message en quarantaine'
+                          : search || filter !== 'all'
+                            ? 'Aucun résultat pour ces critères'
+                            : 'Votre historique est prêt'}
                       </h2>
                       <p>
-                        Les messages traités pour vos adresses apparaîtront ici.
+                        {filter === 'quarantined'
+                          ? 'Les messages retenus pour vos destinataires apparaîtront ici.'
+                          : search || filter !== 'all'
+                            ? 'Modifiez la recherche ou affichez tous les messages.'
+                            : 'Les prochains messages traités pour vos adresses apparaîtront ici.'}
                       </p>
+                      {(search || filter !== 'all') && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setSearch('');
+                            setFilter('all');
+                            setOffset(0);
+                          }}
+                        >
+                          Afficher tous les messages
+                        </Button>
+                      )}
                     </div>
                   )}
                   <div className="pagination">
                     <Button
                       variant="ghost"
-                      disabled={offset === 0}
+                      disabled={loading || offset === 0}
                       onClick={() => setOffset(Math.max(0, offset - 50))}
                     >
                       Précédent
@@ -1109,63 +1411,58 @@ export default function Home() {
                     <span>Page {Math.floor(offset / 50) + 1}</span>
                     <Button
                       variant="ghost"
-                      disabled={mails.length < 50}
+                      disabled={loading || mails.length < 50}
                       onClick={() => setOffset(offset + 50)}
                     >
                       Suivant
                     </Button>
                   </div>
                 </section>
-                <details className="account">
-                  <summary>Changer mon mot de passe</summary>
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      try {
-                        await api(
-                          '/password',
-                          {
-                            current_password: password,
-                            new_password: newPassword,
-                          },
-                          user.csrf,
-                        );
-                        setPassword('');
-                        setNewPassword('');
-                        changeSession(null);
-                      } catch (e) {
-                        setError((e as Error).message);
-                      }
-                    }}
-                  >
-                    <Input
-                      type="password"
-                      aria-label="Mot de passe actuel"
-                      placeholder="Mot de passe actuel"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                    <Input
-                      type="password"
-                      aria-label="Nouveau mot de passe"
-                      placeholder="Nouveau mot de passe (12 caractères minimum)"
-                      autoComplete="new-password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      minLength={12}
-                      maxLength={128}
-                      required
-                    />
-                    <Button type="submit">Enregistrer</Button>
-                  </form>
-                </details>
               </>
             )}
           </>
         )}
       </main>
+      {confirmation && selected && (
+        <ConfirmDialog
+          title={
+            confirmation.action === 'release'
+              ? 'Libérer ce message ?'
+              : 'Supprimer cette livraison ?'
+          }
+          confirmLabel={
+            confirmation.action === 'release'
+              ? 'Libérer et transmettre'
+              : 'Supprimer définitivement'
+          }
+          danger={confirmation.action === 'delete'}
+          busy={busy}
+          onCancel={() => {
+            setConfirmation(null);
+            setConfirmationError('');
+          }}
+          onConfirm={() =>
+            void quarantineAction(confirmation.recipient, confirmation.action)
+          }
+        >
+          <p className="confirmation-subject">
+            {selected.subject || '(Sans objet)'}
+          </p>
+          <p>
+            Destinataire : <strong>{confirmation.recipient}</strong>
+          </p>
+          <p>
+            {confirmation.action === 'release'
+              ? 'Le message sera transmis sans préfixe. Son classement et les autres destinataires restent inchangés.'
+              : 'Cette livraison sera supprimée sans envoi. Cette action est définitive pour ce destinataire.'}
+          </p>
+          {confirmationError && (
+            <p className="error" role="alert">
+              {confirmationError}
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

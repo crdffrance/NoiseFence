@@ -4,6 +4,31 @@ La console et son API sont servies par NoiseFence. Se connecter avec un compte
 créé avec `user-add nom --admin` pour accéder à l’administration. Aucun compte
 par défaut, secret ou mot de passe n’est fourni dans le logiciel.
 
+## Parcours de la console
+
+Depuis 0.4.0-dev.3, la navigation commune donne accès à **Mes messages**
+(**Tous les messages** pour un administrateur), **Quarantaine** et **Mon compte**.
+Les rubriques d’administration sont réservées au rôle administrateur. Sur téléphone,
+le bouton de menu expose les mêmes accès et les messages deviennent des cartes.
+
+Le classement, l’ajout éventuel d’un préfixe et la livraison sont présentés séparément.
+Un message retenu ou en échec chez un destinataire n’apparaît pas comme entièrement livré.
+Les compteurs filtrent la liste et suivent le périmètre sélectionné. La liste s’actualise
+toutes les 30 secondes lorsque l’onglet est visible, sauf pendant la consultation d’un
+détail ou une action. Le bouton Actualiser reste disponible sur mobile.
+
+Le détail donne accès aux corrections et aux actions par destinataire. Les contrôles
+techniques sont repliables. La confirmation de quarantaine nomme le destinataire,
+permet une annulation avec Échap et remet le focus sur le bouton d’origine.
+**Mon compte** affiche les accès et permet de changer le mot de passe de la console,
+avec saisie de confirmation ; une reconnexion est nécessaire après modification.
+
+Dans **Filtres**, cinq rubriques séparent politique et actions, moteurs de détection,
+poids des règles, protection et réputation, publicités et newsletters. Changer de
+rubrique conserve les modifications du brouillon. Le récapitulatif avant application
+couvre l’ensemble des réglages. **Comptes & accès** permet une recherche par identifiant
+ou adresse autorisée et un filtre par rôle ou désactivation.
+
 ## Parcours
 
 - **Messages** : historique de 30 jours, recherche par objet, expéditeur ou
