@@ -2,6 +2,12 @@
 
 Les versions suivent Semantic Versioning. Les versions 0.x restent expérimentales.
 
+## 0.4.0-dev.4 — Réglages adaptés aux petits écrans
+
+- Limite la largeur intrinsèque des sélecteurs dans les formulaires : les options longues ne font plus déborder la politique de filtrage sur téléphone.
+- Validation de la politique à 320 pixels et de la navigation clavier des rubriques.
+- La version 0.4.0-dev.3 a été publiée pour validation mais n’a pas été installée en production ; la refonte est livrée avec cette correction.
+
 ## 0.4.0-dev.3 — Console administrateur et utilisateur
 
 - Navigation séparant messagerie, administration et espace personnel ; accès direct à la quarantaine et menu mobile.

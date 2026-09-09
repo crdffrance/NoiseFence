@@ -1012,3 +1012,11 @@ select {
     padding: 20px;
   }
 }
+/* Native select options must not set the minimum width of a grid column. */
+.field {
+  min-width: 0;
+}
+.field select {
+  min-width: 0;
+  width: 100%;
+}
