@@ -5,6 +5,20 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.14 — Retour arrière du service et des workers
+
+- Restaurer l’unité systemd du serveur avec le binaire précédent lorsque le
+  démarrage d’une mise à niveau échoue. Recharger les définitions restaurées
+  et réinitialiser les états d’échec avant les tentatives de redémarrage.
+- Conserver le worker historique inactif lors d’une mise à niveau du pool.
+  Ne pas redémarrer le SMTP si un worker nécessaire à la restauration échoue ;
+  signaler explicitement la récupération manuelle nécessaire.
+- Ajouter six scénarios sur une machine Linux jetable : installation, mise à
+  niveau, échec d’unité SMTP ou OCR, schéma incompatible et échec du worker au
+  retour arrière. Vérifier le démon natif, les workers réels, la configuration
+  et un message conservé en file ; distinguer cette validation de la compatibilité
+  entre deux versions différentes du binaire.
+
 ### 0.5.0-dev.13 — Pool de workers OCR isolés
 
 - Répartir les analyses entre au plus quatre sockets de workers, avec réservation
@@ -17,7 +31,9 @@ incompatible demande une version mineure et une migration documentée.
   contrôler les deux pièces/pages/codes et les empreintes d’originaux. Enregistrer
   le nombre de sockets et le parallélisme configurés dans les mesures.
 - Étendre les contrôles Linux aux traitements concurrents et à l’accès entre
-  instances. Le débit complet du pool et la qualité du filtrage restent à mesurer.
+  instances. Le relevé Linux suivant mesure 200 livraisons synthétiques intactes
+  et un débit multiplié par 1,88 à 1,95 ; la qualité indépendante du filtrage et
+  le débit soutenu représentatif restent à mesurer.
 
 ### 0.5.0-dev.12 — Routes MX absolues
 

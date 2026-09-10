@@ -21,6 +21,24 @@ autre construction de la même version. Avant toute mise à niveau, conserver un
 sauvegarde cohérente des données et de la configuration. Un retour en arrière
 exige un schéma compatible ; suivre la [procédure de migration et restauration](actions.md#migration-de-stockage).
 
+Depuis `0.5.0-dev.14`, un échec de la commande de démarrage restaure aussi l’unité
+systemd du serveur précédent, avec les définitions OCR disponibles dans cette
+release. Seuls les workers précédemment actifs sont redémarrés ; les fichiers
+du worker historique peuvent être installés sans qu’il soit utilisé par le pool.
+Le retour automatique exige la compatibilité du schéma SQLite et l’acceptation
+de la configuration par l’ancien binaire. Si un worker nécessaire ne redémarre
+pas, le SMTP reste arrêté et l’installateur signale la récupération manuelle.
+L’installateur conserve un code de sortie en échec même si le retour arrière
+réussit : la mise à niveau demandée n’a pas abouti.
+
+Le scénario `sudo /usr/bin/python3 tests/systemd_install.py target/release/noisefence --disposable-host`
+est réservé à une VM jetable et refuse toute installation ou compte NoiseFence
+existant. Il utilise le vrai installateur, systemd, le démon et deux workers OCR,
+avec une file synthétique sur disque. Les deux bundles du scénario emploient le
+même binaire natif ; les erreurs d’unité et de manifeste sont injectées. Ce test
+ne qualifie donc pas la compatibilité binaire entre deux releases différentes,
+ni une migration de données, ni la disponibilité continue pendant une mise à niveau.
+
 Le [guide de première installation](getting-started.md) détaille le téléchargement,
 la préparation de la configuration, la création de l’administrateur et les contrôles.
 

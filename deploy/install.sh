@@ -46,9 +46,13 @@ ln -sfn current/noisefence "$base/noisefence"
 ln -sfn current/web "$base/web"
 install -m 0644 deploy/noisefence.service /etc/systemd/system/noisefence.service
 vision_installed=false
+vision_was_active=false
 vision_pool_instances=
 if [ -f /etc/systemd/system/noisefence-vision.service ]; then
+    # Pool installations also ship the legacy unit without starting it. Do not
+    # allocate an unused extra OCR process during every gateway upgrade.
     vision_installed=true
+    if systemctl is-active --quiet noisefence-vision.service; then vision_was_active=true; fi
     install -m 0644 deploy/noisefence-vision.service /etc/systemd/system/
     install -m 0644 deploy/noisefence-vision.socket /etc/systemd/system/
 fi
@@ -63,37 +67,56 @@ if [ -f /etc/systemd/system/noisefence-vision@.service ]; then
 fi
 systemctl daemon-reload
 systemctl enable noisefence.service
-if ! (if "$vision_installed"; then systemctl restart noisefence-vision.service || exit 1; fi
+if ! (if "$vision_was_active"; then systemctl restart noisefence-vision.service || exit 1; fi
       for instance in $vision_pool_instances; do
           systemctl restart "noisefence-vision@$instance.service" || exit 1
       done
       systemctl restart noisefence.service); then
     systemctl stop noisefence.service || { echo 'Could not stop candidate; automatic rollback refused.' >&2; exit 1; }
-    if [ -n "$previous" ] && python3 deploy/can-rollback.py --config /etc/noisefence/config.toml --previous "$base/$previous" \
+    if [ -n "$previous" ] && [ -f "$base/$previous/deploy/noisefence.service" ] \
+       && python3 deploy/can-rollback.py --config /etc/noisefence/config.toml --previous "$base/$previous" \
        && "$base/$previous/noisefence" --config /etc/noisefence/config.toml check-config; then
         ln -sfn "$previous" "$base/current.next"
         mv -Tf "$base/current.next" "$base/current"
+        # A candidate unit can itself be the reason startup failed. Restore the
+        # daemon definition as well as its executable and optional workers.
+        install -m 0644 "$base/current/deploy/noisefence.service" /etc/systemd/system/
+        rollback_workers_ok=true
         if "$vision_installed" && [ -f "$base/current/deploy/noisefence-vision.service" ]; then
             install -m 0644 "$base/current/deploy/noisefence-vision.service" /etc/systemd/system/
             install -m 0644 "$base/current/deploy/noisefence-vision.socket" /etc/systemd/system/
-            systemctl daemon-reload
-            systemctl restart noisefence-vision.service || true
         fi
         if [ -f "$base/current/deploy/noisefence-vision@.service" ]; then
             install -m 0644 "$base/current/deploy/noisefence-vision@.service" /etc/systemd/system/
             install -m 0644 "$base/current/deploy/noisefence-vision@.socket" /etc/systemd/system/
-            systemctl daemon-reload
+        fi
+        systemctl daemon-reload
+        if "$vision_was_active" && [ -f "$base/current/deploy/noisefence-vision.service" ]; then
+            systemctl reset-failed noisefence-vision.service || true
+            systemctl restart noisefence-vision.service || rollback_workers_ok=false
+        fi
+        if [ -f "$base/current/deploy/noisefence-vision@.service" ]; then
             for instance in $vision_pool_instances; do
-                systemctl restart "noisefence-vision@$instance.service" || true
+                systemctl reset-failed "noisefence-vision@$instance.service" || true
+                systemctl restart "noisefence-vision@$instance.service" || rollback_workers_ok=false
             done
         else
             # A prior release without pooling may still accept a legacy config.
             # Stop unused pool instances rather than leave candidate workers live.
             for instance in $vision_pool_instances; do
-                systemctl stop "noisefence-vision@$instance.socket" "noisefence-vision@$instance.service" || true
+                systemctl stop "noisefence-vision@$instance.socket" "noisefence-vision@$instance.service" || rollback_workers_ok=false
             done
         fi
-        systemctl restart noisefence.service || true
+        if "$rollback_workers_ok"; then
+            systemctl reset-failed noisefence.service || true
+            if systemctl restart noisefence.service; then
+                echo 'Previous service definition, release and workers restored.' >&2
+            else
+                echo 'Previous SMTP service could not restart; manual recovery required.' >&2
+            fi
+        else
+            echo 'Previous OCR workers could not restart; SMTP remains stopped for manual recovery.' >&2
+        fi
     fi
     echo 'Startup failed; inspect journalctl -u noisefence.' >&2
     exit 1

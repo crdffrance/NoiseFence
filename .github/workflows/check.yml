@@ -72,6 +72,12 @@ jobs:
           python3 scripts/smtp_load.py --binary target/release/noisefence --output-dir var/smtp-load-large --messages 8 --concurrency 2 --message-bytes 1048576 --processing 2
       - name: Verify research detectors in SMTP and incomplete-analysis accounting
         run: python3 tests/smtp_load_research.py target/release/noisefence var/smtp-load-research
+      - name: Verify installer upgrade and rollback with an existing OCR pool
+        if: matrix.runner == 'ubuntu-latest' && matrix.features == ''
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng zbar-tools python3-pil poppler-utils qrencode fonts-dejavu-core
+          sudo /usr/bin/python3 tests/systemd_install.py target/release/noisefence --disposable-host
       - uses: actions/setup-python@v5
         if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
         with:

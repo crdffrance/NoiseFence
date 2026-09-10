@@ -395,3 +395,22 @@ sur serveur partagé ne remplissent pas la qualification de débit soutenu,
 l’évaluation indépendante du classement, l’exécution Office isolée ni les essais
 Proton des nouvelles actions. L’exécution complète d’une mise à niveau avec le
 pool déjà installé reste également à vérifier.
+
+## Candidat 0.5.0-dev.14 : restaurer les services après un échec
+
+La revue de l’installateur a identifié deux défauts : l’unité du serveur SMTP
+restait celle du candidat lors d’un retour arrière, et la présence du fichier
+du worker historique pouvait provoquer son démarrage alors que seul le pool
+était utilisé. L’installateur restaure maintenant les définitions du serveur et
+des workers, conserve l’état inactif du worker historique et garde le SMTP arrêté
+si un worker nécessaire à la restauration ne redémarre pas. Les barrières de
+compatibilité SQLite et de configuration demeurent obligatoires.
+
+Le scénario `tests/systemd_install.py` est raccordé au job Linux AMD64 avec le
+binaire natif. Il couvre une installation neuve, une mise à niveau et quatre
+échecs contrôlés, avec deux workers réels et un message synthétique conservé
+dans la file. Il refuse un serveur déjà équipé de NoiseFence. Les deux bundles
+utilisent le même binaire et des définitions systemd différentes : ce périmètre
+teste les transitions de déploiement, sans prouver la compatibilité entre deux
+versions de l’application. Les résultats sont ceux du job du commit testé ;
+la CI dev.13 et les mesures précédentes ne valident pas ce nouveau scénario.
