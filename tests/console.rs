@@ -690,6 +690,119 @@ async fn configuration_reuses_loaded_lexical_artifact_until_explicit_restart() {
 }
 
 #[tokio::test]
+async fn provider_quota_overrides_are_authorized_versioned_and_survive_reload() {
+    use noisefence::protection::{Policy, Provider, Quota};
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.protection = Some(noisefence::protection::Settings {
+        crdf_per_minute: 17,
+        crdf_per_day: 600,
+        ..Default::default()
+    });
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "reader", false, vec![]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let mut settings = serde_json::to_value(control.snapshot().settings.clone()).unwrap();
+    // Older revisions have no quota fields and inherit the configured budget.
+    settings["protection"]
+        .as_object_mut()
+        .unwrap()
+        .remove("crdf_quota");
+    settings["protection"]
+        .as_object_mut()
+        .unwrap()
+        .remove("virustotal_quota");
+    let old: noisefence::control::Settings = serde_json::from_value(settings.clone()).unwrap();
+    assert!(
+        serde_json::to_value(&old).unwrap()["protection"]
+            .get("crdf_quota")
+            .is_none()
+    );
+    let effective = old.effective(&cfg).unwrap();
+    let protection = effective.protection.unwrap();
+    assert_eq!(
+        protection.quota(Provider::Crdf, &protection.policy),
+        Quota {
+            minute: 17,
+            day: 600
+        }
+    );
+    for bad in [
+        json!({"minute":0}),
+        json!({"minute":null,"day":0}),
+        json!({"minute":-1,"day":0}),
+        json!({"minute":1.5,"day":0}),
+        json!({"minute":4294967296_u64,"day":0}),
+    ] {
+        let mut policy = json!({"crdf_quota":bad});
+        assert!(serde_json::from_value::<Policy>(policy.take()).is_err());
+    }
+    settings["protection"]["crdf_quota"] = json!({"minute":0,"day":0});
+    let body = json!({"revision":0,"settings":settings});
+    assert_eq!(
+        request(&app, &reader, "/admin/config", Some(body.clone()))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let req = Request::builder()
+        .uri("/api/v1/admin/config")
+        .method("POST")
+        .header("content-type", "application/json")
+        .header("origin", "http://127.0.0.1:3000")
+        .header("cookie", format!("noisefence_session={admin}"))
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, &admin, "/admin/config", Some(body.clone()))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&app, &admin, "/admin/config", Some(body)).await.0,
+        StatusCode::CONFLICT
+    );
+    let (_, state) = request(&app, &admin, "/admin/protection", None).await;
+    assert_eq!(state["quotas"]["crdf"], json!({"minute":0,"day":0}));
+    assert_eq!(
+        state["bootstrap_quotas"]["crdf"],
+        json!({"minute":17,"day":600})
+    );
+    assert_eq!(state["quotas"]["virustotal"], json!({"minute":4,"day":500}));
+    assert_eq!(state["usage"]["crdf"]["day_used"], 0);
+    let resumed = Controller::load(cfg, store).await.unwrap();
+    assert_eq!(
+        resumed
+            .snapshot()
+            .settings
+            .protection
+            .as_ref()
+            .unwrap()
+            .crdf_quota,
+        Some(Quota { minute: 0, day: 0 })
+    );
+    let revision = resumed.snapshot().revision;
+    resumed.apply(revision, old, "admin".into()).await.unwrap();
+    let snapshot = resumed.snapshot();
+    let protection = snapshot.config.protection.as_ref().unwrap();
+    assert_eq!(
+        protection.quota(Provider::Crdf, &protection.policy),
+        Quota {
+            minute: 17,
+            day: 600
+        }
+    );
+}
+
+#[tokio::test]
 async fn protection_credentials_stay_private_and_policy_changes_preserve_the_score() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(dir.path())).clone();

@@ -11,6 +11,7 @@ import {
 } from './actions';
 import { MailingSettings, type MailingPolicy } from './mailing';
 import { ProtectionSettings, type ProtectionPolicy } from './protection';
+import { quotaLabel } from './provider-quotas';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Activity,
@@ -1601,6 +1602,17 @@ export function AdminConsole({
                           {draft.protection.crdf ? 'activé' : 'désactivé'} ·
                           VirusTotal :{' '}
                           {draft.protection.virustotal ? 'activé' : 'désactivé'}
+                          .
+                        </p>
+                        <p>
+                          Quotas CRDF :{' '}
+                          {draft.protection.crdf_quota
+                            ? quotaLabel(draft.protection.crdf_quota)
+                            : 'plafonds du serveur'}
+                          . Quotas VirusTotal :{' '}
+                          {draft.protection.virustotal_quota
+                            ? quotaLabel(draft.protection.virustotal_quota)
+                            : 'plafonds du serveur'}
                           .
                         </p>
                         <p>

@@ -5,6 +5,18 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-10
+
+- Configurer les quotas CRDF et VirusTotal par minute et par jour depuis la console,
+  avec mode illimité explicite et héritage des plafonds du serveur pour les anciennes
+  configurations. Appliquer les changements sans redémarrer ni réinitialiser l’usage.
+- Afficher les limites actives, les compteurs persistants, leurs échéances et les
+  pauses fournisseur. Conserver le cache, les délais, la concurrence bornée et les
+  plafonds de travail par message, même avec une clé illimitée.
+- Versionner et contrôler les modifications via l’API d’administration existante.
+  Aucun changement du score, des modèles, du routage ou du schéma de stockage.
+  Avant retour à un binaire antérieur, restaurer une révision sans champs de quota.
+
 ## [0.4.4] - 2026-09-10
 
 - Suivre les redirections HTTP et HTML des liens du texte et de l’OCR/QR avec

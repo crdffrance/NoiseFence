@@ -336,13 +336,23 @@ async fn retry(
 async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
     let control = controller(&app)?;
-    let settings = control.base.protection.clone();
+    let snapshot = control.snapshot();
+    let settings = snapshot.config.protection.as_ref();
+    let base = control.base.protection.as_ref();
     let root = app.store.root.clone();
-    let keys=tokio::task::spawn_blocking(move||json!({"crdf":crate::protection::key_present(&root,crate::protection::Provider::Crdf),"virustotal":crate::protection::key_present(&root,crate::protection::Provider::Virustotal)})).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"État des connecteurs indisponible.".into()))?;
-    Ok(Json(
-        json!({"available":settings.is_some(),"keys":keys,"observation_only":true,
-        "quotas":settings.map(|s|json!({"crdf":{"minute":s.crdf_per_minute,"day":s.crdf_per_day},"virustotal":{"minute":s.virustotal_per_minute,"day":s.virustotal_per_day}}))}),
-    ))
+    let (keys, usage) = tokio::task::spawn_blocking(move || {
+        use crate::protection::{Provider, key_present, quota_usage};
+        (json!({"crdf":key_present(&root,Provider::Crdf),"virustotal":key_present(&root,Provider::Virustotal)}),
+         json!({"crdf":quota_usage(&root,Provider::Crdf).ok(),"virustotal":quota_usage(&root,Provider::Virustotal).ok()}))
+    }).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"État des connecteurs indisponible.".into()))?;
+    use crate::protection::Provider;
+    Ok(Json(json!({
+        "available":base.is_some(), "enabled":settings.is_some(), "revision":snapshot.revision,
+        "keys":keys, "observation_only":true, "usage":usage,
+        "quotas":settings.map(|s|json!({"crdf":s.quota(Provider::Crdf,&s.policy),"virustotal":s.quota(Provider::Virustotal,&s.policy)})),
+        "bootstrap_quotas":base.map(|s|json!({"crdf":s.bootstrap_quota(Provider::Crdf),"virustotal":s.bootstrap_quota(Provider::Virustotal)})),
+        "capacity":base.map(|s|json!({"timeout_ms":s.timeout_ms,"max_parallel":s.max_parallel,"max_indicators":12}))
+    })))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

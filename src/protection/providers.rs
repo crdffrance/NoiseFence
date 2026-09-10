@@ -1,4 +1,4 @@
-use super::{ProviderReport, Settings, Status, Targets};
+use super::{Policy, ProviderReport, Quota, Settings, Status, Targets};
 use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,57 @@ impl Provider {
             _ => anyhow::bail!("Fournisseur inconnu"),
         }
     }
+}
+#[derive(Debug, Serialize)]
+pub struct QuotaUsage {
+    pub minute_used: i64,
+    pub day_used: i64,
+    pub minute_resets_at: i64,
+    pub day_resets_at: i64,
+    pub cooldown_until: Option<i64>,
+}
+/// Read aggregate counters only. Never expose cache identifiers or credentials.
+pub fn quota_usage(root: &Path, provider: Provider) -> Result<QuotaUsage> {
+    let now = crate::now();
+    let mut usage = QuotaUsage {
+        minute_used: 0,
+        day_used: 0,
+        minute_resets_at: (now / 60 + 1) * 60,
+        day_resets_at: (now / 86400 + 1) * 86400,
+        cooldown_until: None,
+    };
+    let path = root.join("protection/reputation.sqlite3");
+    if !path.exists() {
+        return Ok(usage);
+    }
+    let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.busy_timeout(Duration::from_millis(100))?;
+    let row: Option<(i64, i64, i64, i64)> = db
+        .query_row(
+            "SELECT day,day_used,minute,minute_used FROM quota WHERE provider=?1",
+            [provider.name()],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    if let Some((day, du, minute, mu)) = row {
+        if day == now / 86400 {
+            usage.day_used = du;
+        }
+        if minute == now / 60 {
+            usage.minute_used = mu;
+        }
+    }
+    if let Ok(key) = read_key(root, provider) {
+        let credential = crate::message::digest(format!("{}:{key}", provider.name()).as_bytes());
+        usage.cooldown_until = db
+            .query_row(
+                "SELECT expires FROM cooldown WHERE key=?1 AND expires>?2",
+                params![credential, now],
+                |r| r.get(0),
+            )
+            .optional()?;
+    }
+    Ok(usage)
 }
 fn key_path(root: &Path, provider: Provider) -> PathBuf {
     root.join("protection")
@@ -141,15 +192,9 @@ impl Client {
         provider: Provider,
         cache_key: String,
         credential_id: String,
+        quota: Quota,
     ) -> Result<Reservation> {
         let db = self.db.clone();
-        let (minute_limit, day_limit) = match provider {
-            Provider::Crdf => (self.config.crdf_per_minute, self.config.crdf_per_day),
-            Provider::Virustotal => (
-                self.config.virustotal_per_minute,
-                self.config.virustotal_per_day,
-            ),
-        };
         tokio::task::spawn_blocking(move || -> Result<Reservation> {
             let mut db = db
                 .lock()
@@ -174,7 +219,7 @@ impl Client {
             if cooling {
                 return Ok(Reservation::Quota);
             }
-            let previous: Option<(i64, u32, i64, u32)> = tx
+            let previous: Option<(i64, i64, i64, i64)> = tx
                 .query_row(
                     "SELECT day,day_used,minute,minute_used FROM quota WHERE provider=?1",
                     [provider.name()],
@@ -191,12 +236,18 @@ impl Client {
                     )
                 })
                 .unwrap_or((0, 0));
-            if used_day >= day_limit || used_minute >= minute_limit {
+            if quota.exhausted(used_minute, used_day) {
                 return Ok(Reservation::Quota);
             }
             tx.execute(
                 "INSERT OR REPLACE INTO quota VALUES(?1,?2,?3,?4,?5)",
-                params![provider.name(), day, used_day + 1, minute, used_minute + 1],
+                params![
+                    provider.name(),
+                    day,
+                    used_day.saturating_add(1),
+                    minute,
+                    used_minute.saturating_add(1)
+                ],
             )?;
             tx.commit()?;
             Ok(Reservation::Fetch)
@@ -247,12 +298,19 @@ impl Client {
             Provider::Virustotal => self.http.get(endpoint).header("x-apikey", key),
         }
     }
-    async fn query(&self, provider: Provider, key: &str, indicator: &str, file: bool) -> Lookup {
+    async fn query(
+        &self,
+        provider: Provider,
+        key: &str,
+        indicator: &str,
+        file: bool,
+        quota: Quota,
+    ) -> Lookup {
         let credential = crate::message::digest(format!("{}:{key}", provider.name()).as_bytes());
         let cache_key =
             crate::message::digest(format!("{credential}:{file}:{indicator}").as_bytes());
         match self
-            .reserve(provider, cache_key.clone(), credential.clone())
+            .reserve(provider, cache_key.clone(), credential.clone(), quota)
             .await
         {
             Ok(Reservation::Cached(verdict)) => {
@@ -331,6 +389,7 @@ impl Client {
         provider: Provider,
         enabled: bool,
         targets: &Targets,
+        policy: &Policy,
     ) -> (ProviderReport, Vec<(String, bool)>) {
         if !enabled {
             return (Default::default(), vec![]);
@@ -374,7 +433,15 @@ impl Client {
                 .collect();
             report.omitted = indicators.len().saturating_sub(12);
             for (indicator, file) in indicators.into_iter().take(12) {
-                let result = self.query(provider, &key, indicator, file).await;
+                let result = self
+                    .query(
+                        provider,
+                        &key,
+                        indicator,
+                        file,
+                        self.config.quota(provider, policy),
+                    )
+                    .await;
                 if result.status != Status::Complete {
                     report.status = result.status;
                     break;
@@ -534,7 +601,12 @@ mod tests {
         let client = Client::new(&settings, root.path()).unwrap();
         assert!(matches!(
             client
-                .reserve(Provider::Crdf, "hash".into(), "key".into())
+                .reserve(
+                    Provider::Crdf,
+                    "hash".into(),
+                    "key".into(),
+                    Quota { minute: 1, day: 1 }
+                )
                 .await
                 .unwrap(),
             Reservation::Fetch
@@ -545,7 +617,12 @@ mod tests {
             .unwrap();
         assert!(matches!(
             client
-                .reserve(Provider::Crdf, "hash".into(), "key".into())
+                .reserve(
+                    Provider::Crdf,
+                    "hash".into(),
+                    "key".into(),
+                    Quota { minute: 1, day: 1 }
+                )
                 .await
                 .unwrap(),
             Reservation::Cached(Verdict::Unknown)
@@ -554,7 +631,12 @@ mod tests {
         let client = Client::new(&settings, root.path()).unwrap();
         assert!(matches!(
             client
-                .reserve(Provider::Crdf, "different".into(), "key".into())
+                .reserve(
+                    Provider::Crdf,
+                    "different".into(),
+                    "key".into(),
+                    Quota { minute: 1, day: 1 }
+                )
                 .await
                 .unwrap(),
             Reservation::Quota
@@ -565,7 +647,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let client = Client::new(&Settings::default(), root.path()).unwrap();
         let (report, hits) = client
-            .inspect(Provider::Crdf, true, &Targets::default())
+            .inspect(
+                Provider::Crdf,
+                true,
+                &Targets::default(),
+                &Policy::default(),
+            )
             .await;
         assert_eq!(report.status, Status::NotConfigured);
         assert!(hits.is_empty());
@@ -575,11 +662,186 @@ mod tests {
             .unwrap();
         assert!(matches!(
             client
-                .reserve(Provider::Crdf, "different".into(), "key".into())
+                .reserve(
+                    Provider::Crdf,
+                    "different".into(),
+                    "key".into(),
+                    Quota { minute: 1, day: 1 }
+                )
                 .await
                 .unwrap(),
             Reservation::Quota
         ));
+    }
+    #[tokio::test]
+    async fn unlimited_and_changed_limits_keep_usage_and_provider_cooldown() {
+        let root = tempfile::tempdir().unwrap();
+        let client = Arc::new(Client::new(&Settings::default(), root.path()).unwrap());
+        let unlimited = Quota { minute: 0, day: 0 };
+        let mut tasks = tokio::task::JoinSet::new();
+        for i in 0..64 {
+            let client = client.clone();
+            tasks.spawn(async move {
+                client
+                    .reserve(
+                        Provider::Crdf,
+                        format!("indicator-{i}"),
+                        "key".into(),
+                        Quota { minute: 0, day: 7 },
+                    )
+                    .await
+                    .unwrap()
+            });
+        }
+        let mut fetched = 0;
+        while let Some(result) = tasks.join_next().await {
+            fetched += usize::from(matches!(result.unwrap(), Reservation::Fetch));
+        }
+        assert_eq!(fetched, 7);
+        assert!(matches!(
+            client
+                .reserve(Provider::Crdf, "extra".into(), "key".into(), unlimited)
+                .await
+                .unwrap(),
+            Reservation::Fetch
+        ));
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            8
+        );
+        assert!(matches!(
+            client
+                .reserve(
+                    Provider::Crdf,
+                    "extra".into(),
+                    "key".into(),
+                    Quota { minute: 0, day: 7 }
+                )
+                .await
+                .unwrap(),
+            Reservation::Quota
+        ));
+        // Provider refusal still pauses an unlimited account; existing cache remains useful.
+        client
+            .remember("cached".into(), "key".into(), Some(Verdict::NoHit), true)
+            .await
+            .unwrap();
+        assert!(matches!(
+            client
+                .reserve(Provider::Crdf, "extra".into(), "key".into(), unlimited)
+                .await
+                .unwrap(),
+            Reservation::Quota
+        ));
+        assert!(matches!(
+            client
+                .reserve(Provider::Crdf, "cached".into(), "key".into(), unlimited)
+                .await
+                .unwrap(),
+            Reservation::Cached(Verdict::NoHit)
+        ));
+        drop(client);
+        let resumed = Client::new(&Settings::default(), root.path()).unwrap();
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            8
+        );
+        assert!(matches!(
+            resumed
+                .reserve(Provider::Crdf, "extra".into(), "key".into(), unlimited)
+                .await
+                .unwrap(),
+            Reservation::Quota
+        ));
+        assert!(matches!(
+            resumed
+                .reserve(
+                    Provider::Virustotal,
+                    "extra".into(),
+                    "other-key".into(),
+                    Quota { minute: 0, day: 1 }
+                )
+                .await
+                .unwrap(),
+            Reservation::Fetch
+        ));
+    }
+    #[tokio::test]
+    async fn windows_reset_independently_and_unlimited_counters_do_not_overflow() {
+        let root = tempfile::tempdir().unwrap();
+        let client = Client::new(&Settings::default(), root.path()).unwrap();
+        let now = crate::now();
+        client
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO quota VALUES('crdf',?1,99,?2,99)",
+                params![now / 86400, now / 60 - 1],
+            )
+            .unwrap();
+        assert!(matches!(
+            client
+                .reserve(
+                    Provider::Crdf,
+                    "a".into(),
+                    "key".into(),
+                    Quota { minute: 1, day: 0 }
+                )
+                .await
+                .unwrap(),
+            Reservation::Fetch
+        ));
+        let usage = quota_usage(root.path(), Provider::Crdf).unwrap();
+        assert_eq!(usage.day_used, 100);
+        assert_eq!(usage.minute_used, 1);
+        client
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE quota SET day=?1,day_used=99,minute=?2,minute_used=0",
+                params![now / 86400 - 1, now / 60],
+            )
+            .unwrap();
+        assert!(matches!(
+            client
+                .reserve(
+                    Provider::Crdf,
+                    "b".into(),
+                    "key".into(),
+                    Quota { minute: 0, day: 1 }
+                )
+                .await
+                .unwrap(),
+            Reservation::Fetch
+        ));
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            1
+        );
+        client
+            .db
+            .lock()
+            .unwrap()
+            .execute("UPDATE quota SET day_used=?1,minute_used=?1", [i64::MAX])
+            .unwrap();
+        assert!(matches!(
+            client
+                .reserve(
+                    Provider::Crdf,
+                    "c".into(),
+                    "key".into(),
+                    Quota { minute: 0, day: 0 }
+                )
+                .await
+                .unwrap(),
+            Reservation::Fetch
+        ));
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            i64::MAX
+        );
     }
     #[test]
     fn credentials_are_atomic_private_and_reject_header_injection() {
@@ -674,7 +936,9 @@ mod transport_tests {
         targets
             .hashes
             .insert("private attachment must not be sent".into());
-        let (result, hits) = client.inspect(Provider::Crdf, true, &targets).await;
+        let (result, hits) = client
+            .inspect(Provider::Crdf, true, &targets, &Policy::default())
+            .await;
         assert_eq!(result.status, Status::Complete);
         assert_eq!(result.unknown, 1);
         assert!(hits.is_empty());
@@ -691,8 +955,68 @@ mod transport_tests {
             body,
             serde_json::json!({"method":"search_urls","urls":["example.com"]})
         );
-        let (cached, _) = client.inspect(Provider::Crdf, true, &targets).await;
+        let (cached, _) = client
+            .inspect(Provider::Crdf, true, &targets, &Policy::default())
+            .await;
         assert_eq!(cached.cache_hits, 1);
+    }
+    #[tokio::test]
+    async fn transaction_policy_changes_budget_on_the_existing_client() {
+        let root = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            crdf_per_minute: 1,
+            crdf_per_day: 1,
+            ..Default::default()
+        };
+        let mut client = Client::new(&settings, root.path()).unwrap();
+        save_key(
+            root.path(),
+            Provider::Crdf,
+            "synthetic-key-for-transport-1234",
+        )
+        .unwrap();
+        client
+            .reserve(
+                Provider::Crdf,
+                "old".into(),
+                "old".into(),
+                Quota { minute: 0, day: 0 },
+            )
+            .await
+            .unwrap();
+        let mut targets = Targets::default();
+        targets.domains.insert("example.com".into());
+        let (blocked, _) = client
+            .inspect(Provider::Crdf, true, &targets, &Policy::default())
+            .await;
+        assert_eq!(blocked.status, Status::Quota);
+        let (url,task) = server("200 OK",serde_json::json!({"error":false,"data":[{"url":"example.com","error":false,"in_database":false}]}).to_string(),0).await;
+        client.endpoint_override = Some(url);
+        let policy = Policy {
+            crdf_quota: Some(Quota { minute: 0, day: 0 }),
+            ..Default::default()
+        };
+        let (report, _) = client
+            .inspect(Provider::Crdf, true, &targets, &policy)
+            .await;
+        assert_eq!(report.status, Status::Complete);
+        assert_eq!(report.checked, 1);
+        task.await.unwrap();
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            2
+        );
+        // Returning to bootstrap limits does not erase existing usage.
+        targets.domains.clear();
+        targets.domains.insert("example.org".into());
+        assert_eq!(
+            client
+                .inspect(Provider::Crdf, true, &targets, &Policy::default())
+                .await
+                .0
+                .status,
+            Status::Quota
+        );
     }
     #[tokio::test]
     async fn discovered_destination_precedes_original_domains_under_quota() {
@@ -719,7 +1043,9 @@ mod transport_tests {
         targets
             .destination_domains
             .insert("z-final.example.com".into());
-        let (report, hits) = client.inspect(Provider::Crdf, true, &targets).await;
+        let (report, hits) = client
+            .inspect(Provider::Crdf, true, &targets, &Policy::default())
+            .await;
         assert_eq!(report.checked, 1);
         assert_eq!(report.omitted, 2); // 14 unique domains, with a 12-target limit.
         assert_eq!(report.status, Status::Quota);
@@ -756,7 +1082,9 @@ mod transport_tests {
             let mut targets = Targets::default();
             targets.domains.insert("example.com".into());
             let start = Instant::now();
-            let (report, hits) = client.inspect(Provider::Virustotal, true, &targets).await;
+            let (report, hits) = client
+                .inspect(Provider::Virustotal, true, &targets, &Policy::default())
+                .await;
             assert_eq!(report.status, Status::Unavailable);
             assert!(hits.is_empty());
             assert!(start.elapsed() < Duration::from_secs(3));

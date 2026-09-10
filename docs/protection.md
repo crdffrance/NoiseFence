@@ -22,8 +22,8 @@ virustotal_per_day = 500
 ```
 
 Les plafonds sont des budgets locaux conservateurs, à adapter au contrat réel.
-Ils persistent sur disque et ne sont pas réinitialisés par le redémarrage du
-service. Les réglages de la console priment sur ceux du TOML une fois une
+Leurs compteurs persistent sur disque et ne sont pas réinitialisés par le redémarrage du
+service ni par un changement de plafond. Les réglages de la console priment sur ceux du TOML une fois une
 révision enregistrée ; activer le module dans Filtres après son installation.
 
 ## Console et clés
@@ -43,6 +43,39 @@ Les paramètres `identity`, `links`, `campaigns`, `crdf`, `virustotal`, `follow_
 protégés et les exceptions de réponse/suivi sont versionnés dans la console.
 Les exceptions portent sur un hôte exact et une seule heuristique : elles ne
 contournent jamais SPF/DKIM/DMARC, la réputation, l’antivirus ou le modèle.
+
+## Quotas configurables (depuis 0.4.5)
+
+Dans chaque carte de fournisseur, désactiver **Utiliser les plafonds du serveur**
+pour choisir des limites par minute et par jour. **Clé illimitée** enlève les deux
+plafonds ; les cases **Illimité** permettent aussi de ne lever qu’une limite.
+Enregistrer avec **Vérifier et appliquer**. Le changement est audité, versionné et
+s’applique dès la prochaine transaction SMTP, sans redémarrage. Un message déjà
+en cours conserve sa politique. **Actualiser les compteurs** affiche l’usage actuel.
+
+L’API de configuration accepte `crdf_quota` et `virustotal_quota` dans `protection`,
+par exemple `"crdf_quota": {"minute": 0, "day": 0}`. Zéro signifie explicitement
+illimité ; tout entier positif jusqu’à 4 294 967 295 est un plafond. Les deux champs
+sont obligatoires dans un objet de quota. Un quota absent ou `null` hérite des valeurs
+du TOML (`crdf_per_minute`, etc.), qui acceptent également zéro. Les anciennes
+révisions conservent donc leurs plafonds initiaux. Le connecteur se désactive avec
+son interrupteur, jamais avec un quota zéro. Les budgets sont indépendants par
+fournisseur et partagés entre domaines, utilisateurs et connexions du serveur.
+
+Les compteurs mesurent les requêtes réservées avant l’appel HTTP, même si celui-ci
+échoue ou est annulé. Le cache ne les consomme pas. Les fenêtres sont fixes :
+minute UTC et jour UTC (remise à zéro à minuit UTC). Modifier les limites ou la clé
+ne remet pas les compteurs à zéro. Le mode illimité continue de compter les appels.
+L’API administrateur `/admin/protection` expose les limites effectives, celles du
+TOML, la consommation, les échéances et la pause éventuelle ; une lecture impossible
+donne un compteur indisponible, pas un faux zéro.
+
+« Illimité » retire uniquement les budgets locaux. La concurrence, les délais,
+les douze indicateurs maximum par fournisseur/message, le cache et les pauses de
+cinq minutes en cas de refus du fournisseur restent actifs. Les quotas ne changent
+pas les scores. Les limites de capacité restent dans le TOML et nécessitent un
+redémarrage. Revenir à un ancien binaire exige d’abord de restaurer une révision
+sans les nouveaux champs de quota ; aucun changement du schéma SQLite n’est requis.
 
 ## CRDF et VirusTotal
 

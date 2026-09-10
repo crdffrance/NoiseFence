@@ -141,6 +141,7 @@ recipients = []
 [protection]
 timeout_ms = 1200
 max_parallel = 2
+# 0 = illimité ; réglables aussi dans la console (quotas partagés par serveur).
 crdf_per_minute = 2
 crdf_per_day = 200
 virustotal_per_minute = 4

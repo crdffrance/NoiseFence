@@ -4,6 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
 import {
+  ProviderQuotas,
+  type ProviderQuota,
+  type QuotaUsage,
+} from './provider-quotas';
+import {
   UrlResolutionDetails,
   type UrlResolutionReport,
 } from './url-resolution';
@@ -14,6 +19,8 @@ export type ProtectionPolicy = {
   campaigns: boolean;
   crdf: boolean;
   virustotal: boolean;
+  crdf_quota?: ProviderQuota | null;
+  virustotal_quota?: ProviderQuota | null;
   follow_urls: boolean;
   protected_names: { name: string; domain: string }[];
   reply_exceptions: string[];
@@ -23,7 +30,14 @@ type Provider = 'crdf' | 'virustotal';
 type ProviderState = {
   available: boolean;
   keys: Record<Provider, boolean>;
-  quotas: Record<Provider, { minute: number; day: number }> | null;
+  quotas: Record<Provider, ProviderQuota> | null;
+  bootstrap_quotas: Record<Provider, ProviderQuota> | null;
+  usage: Record<Provider, QuotaUsage | null>;
+  capacity: {
+    timeout_ms: number;
+    max_parallel: number;
+    max_indicators: number;
+  } | null;
 };
 const defaults: ProtectionPolicy = {
   identity: true,
@@ -263,6 +277,28 @@ export function ProtectionSettings({
                 VirusTotal. Aucun corps de message, fichier ou lien complet
                 envoyé. Utilisez des clés dont la licence autorise cet usage.
               </p>
+              <p className="small muted">
+                Les quotas sont partagés par tout le serveur. Les modifier ne
+                remet pas les compteurs à zéro. Même en illimité :{' '}
+                {status.capacity?.max_parallel} analyses fournisseur
+                simultanées,
+                {status.capacity?.max_indicators} indicateurs par fournisseur et
+                message, délai de {status.capacity?.timeout_ms} ms par
+                fournisseur.
+              </p>
+              <Button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setStatus(await api<ProviderState>('/admin/protection'));
+                    setError('');
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                Actualiser les compteurs
+              </Button>
               <div className="module-grid">
                 {(['crdf', 'virustotal'] as const).map((provider) => (
                   <section className="module-card" key={provider}>
@@ -277,8 +313,6 @@ export function ProtectionSettings({
                           {status.keys[provider]
                             ? 'Clé enregistrée'
                             : 'Clé à renseigner'}{' '}
-                          · {status.quotas?.[provider].minute}/min ·{' '}
-                          {status.quotas?.[provider].day}/jour
                         </small>
                       </span>
                       <input
@@ -293,6 +327,18 @@ export function ProtectionSettings({
                         }
                       />
                     </label>
+                    {status.bootstrap_quotas && (
+                      <ProviderQuotas
+                        name={provider === 'crdf' ? 'CRDF' : 'VirusTotal'}
+                        value={policy[`${provider}_quota`]}
+                        bootstrap={status.bootstrap_quotas[provider]}
+                        applied={status.quotas?.[provider] ?? null}
+                        usage={status.usage?.[provider]}
+                        onChange={(quota) =>
+                          update({ [`${provider}_quota`]: quota })
+                        }
+                      />
+                    )}
                     <label className="field">
                       {status.keys[provider] ? 'Remplacer la clé' : 'Clé API'}
                       <Input

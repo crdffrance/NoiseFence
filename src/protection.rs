@@ -5,7 +5,7 @@ mod providers;
 pub mod redirects;
 use anyhow::{Result, ensure};
 pub use local::{Feed, canonical_url, local_checks};
-pub use providers::{Provider, key_present, save_key};
+pub use providers::{Provider, key_present, quota_usage, save_key};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::Path, sync::Arc, time::Instant};
 
@@ -19,6 +19,11 @@ pub struct Policy {
     pub campaigns: bool,
     pub crdf: bool,
     pub virustotal: bool,
+    /// None inherits the bootstrap budget; zero explicitly removes a limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crdf_quota: Option<Quota>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virustotal_quota: Option<Quota>,
     /// Active HTTP requests; separate from passive link inspection.
     pub follow_urls: bool,
     pub protected_names: Vec<Identity>,
@@ -34,6 +39,8 @@ impl Default for Policy {
             campaigns: true,
             crdf: false,
             virustotal: false,
+            crdf_quota: None,
+            virustotal_quota: None,
             follow_urls: false,
             protected_names: vec![],
             reply_exceptions: vec![],
@@ -74,6 +81,20 @@ impl Policy {
         Ok(())
     }
 }
+/// Per-provider, fixed UTC windows. Zero means unlimited, never disabled.
+/// Both fields are required so a malformed override cannot silently lift a cap.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Quota {
+    pub minute: u32,
+    pub day: u32,
+}
+impl Quota {
+    fn exhausted(self, minute_used: i64, day_used: i64) -> bool {
+        (self.minute != 0 && minute_used >= i64::from(self.minute))
+            || (self.day != 0 && day_used >= i64::from(self.day))
+    }
+}
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
@@ -101,6 +122,25 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    pub fn bootstrap_quota(&self, provider: Provider) -> Quota {
+        match provider {
+            Provider::Crdf => Quota {
+                minute: self.crdf_per_minute,
+                day: self.crdf_per_day,
+            },
+            Provider::Virustotal => Quota {
+                minute: self.virustotal_per_minute,
+                day: self.virustotal_per_day,
+            },
+        }
+    }
+    pub fn quota(&self, provider: Provider, policy: &Policy) -> Quota {
+        let custom = match provider {
+            Provider::Crdf => policy.crdf_quota,
+            Provider::Virustotal => policy.virustotal_quota,
+        };
+        custom.unwrap_or_else(|| self.bootstrap_quota(provider))
+    }
     pub fn validate(&self) -> Result<()> {
         self.policy.validate()?;
         self.url_resolution.validate()?;
@@ -108,15 +148,6 @@ impl Settings {
             (100..=2000).contains(&self.timeout_ms) && (1..=8).contains(&self.max_parallel),
             "Invalid protection capacity/deadline"
         );
-        for (minute, day) in [
-            (self.crdf_per_minute, self.crdf_per_day),
-            (self.virustotal_per_minute, self.virustotal_per_day),
-        ] {
-            ensure!(
-                minute > 0 && minute <= 1000 && day >= minute && day <= 1_000_000,
-                "Invalid provider quota"
-            );
-        }
         Ok(())
     }
 }
@@ -299,9 +330,9 @@ impl Runtime {
         }
         let (crdf, vt, campaign) = tokio::join!(
             self.providers
-                .inspect(Provider::Crdf, policy.crdf, &targets),
+                .inspect(Provider::Crdf, policy.crdf, &targets, policy),
             self.providers
-                .inspect(Provider::Virustotal, policy.virustotal, &targets),
+                .inspect(Provider::Virustotal, policy.virustotal, &targets, policy),
             campaign::inspect(
                 &self.root,
                 policy.campaigns,
