@@ -4,6 +4,9 @@ Le [protocole d’étiquetage et de validation](labeling-protocol.md) définit l
 classes, les usages séparés des données et les preuves requises pour une décision
 commune aux moteurs. Il s’applique aussi aux diagnostics et aux nouveaux corpus.
 
+Le [pipeline d'import Enron CSV](enron-training.md) permet d'entraîner un candidat
+textuel en contrôlant aussi les recouvrements masqués par la ponctuation du CSV.
+
 La [comparaison d’un apport de données](content-augmentation.md) entraîne un
 candidat lexical/sémantique en contrôlant les faux positifs par source de
 développement, sans ouvrir les jeux réservés ni activer de modèle.

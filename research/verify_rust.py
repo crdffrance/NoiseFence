@@ -15,6 +15,8 @@ def main():
     p.add_argument('experiment', type=Path)
     p.add_argument('--binary', type=Path, default=Path('target/release/noisefence'))
     p.add_argument('--corpus', type=Path, default=Path('corpus'))
+    p.add_argument('--manifest', type=Path,
+                   help='Optional combined source manifest, with paths relative to --corpus')
     p.add_argument('--regression', type=Path)
     a = p.parse_args()
     binary = a.binary.resolve()
@@ -42,7 +44,7 @@ def main():
                         break
         cache.write_text(json.dumps({'corpus_sha256': report['corpus_sha256'], 'features': features}) + '\n')
     paths = {}
-    with (a.corpus / 'research/prepared/manifest.jsonl').open() as source:
+    with (a.manifest or a.corpus / 'research/prepared/manifest.jsonl').open() as source:
         for line in source:
             record = json.loads(line)
             raw_path = a.corpus / record['path']
