@@ -182,7 +182,7 @@ impl Projection {
                 .filter_map(|i| self.validity_deadlines.get(*i).copied())
                 .collect(),
             raw_hash: self.raw_hash.clone(),
-            epoch: self.epoch.clone(),
+            epoch: self.epoch.as_ref().map(|epoch| epoch.select(indices)),
         }
     }
     pub(crate) fn applied(&mut self, threshold: f64, optional_llm_omitted: bool) {
@@ -198,7 +198,13 @@ impl Projection {
         self.epoch.clone()
     }
     pub(crate) fn active_epoch(&self) -> Option<epoch::Epoch> {
-        let mut epoch = self.epoch.clone()?;
+        let indices: Vec<_> = self
+            .reports
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| r.applied.is_some().then_some(i))
+            .collect();
+        let mut epoch = self.epoch.as_ref()?.select(&indices);
         let mut active = false;
         for (report, deadline) in self.reports.iter().zip(&self.validity_deadlines) {
             if report.applied.is_some() {
@@ -366,6 +372,7 @@ pub fn install(db: &Connection) -> Result<()> {
 /// Prune expired receipts on the Store writer or inside its enqueue transaction.
 /// Trust expires at query time even if there is no maintenance traffic.
 pub fn prune(db: &Connection) -> Result<usize> {
+    epoch::prune(db, crate::now())?;
     Ok(db.execute(
         "DELETE FROM sender_history_receipts WHERE received<=?1",
         [crate::now() - TTL_SECONDS],
@@ -673,7 +680,7 @@ impl History {
             db.execute_batch("BEGIN")?;
             let now = crate::now();
             let epoch = if policy.mode == Mode::Adaptive {
-                Some(epoch::Epoch::capture(&db, now)?)
+                Some(epoch::Epoch::capture(&db, now, &scopes)?)
             } else {
                 None
             };

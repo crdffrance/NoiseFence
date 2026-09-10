@@ -10,24 +10,40 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and verify the measurement tool
         run: |
+          mkdir -p var/pipeline-probe
           docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
             rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
-            sh -c 'cargo build --release --locked --features semantic --example pipeline_probe && python3 tests/pipeline_probe.py target/release/examples/pipeline_probe'
+            sh -c 'cargo build --release --locked --features semantic --example pipeline_probe && python3 tests/pipeline_probe.py target/release/examples/pipeline_probe && cargo test --release --locked --features semantic --lib --no-run --message-format=json > var/pipeline-probe/test-build.jsonl'
       - name: Record the exact engine source and executable
         run: |
           mkdir -p var/pipeline-probe
           cp target/release/examples/pipeline_probe var/pipeline-probe/
           python3 - <<'PY'
-          import hashlib, json, pathlib, subprocess
+          import hashlib, json, pathlib, shutil, subprocess
           root = pathlib.Path('.')
           source = hashlib.sha256()
-          for p in [root/'Cargo.toml', root/'Cargo.lock', *sorted((root/'src').glob('*.rs'))]:
-              source.update(p.name.encode()); source.update(p.read_bytes())
+          inputs = [root/'Cargo.toml', root/'Cargo.lock', *sorted(p for p in (root/'src').rglob('*') if p.is_file())]
+          for p in inputs:
+              name = p.as_posix().encode(); content = p.read_bytes()
+              source.update(len(name).to_bytes(8,'big')); source.update(name)
+              source.update(len(content).to_bytes(8,'big')); source.update(content)
           executable = root/'var/pipeline-probe/pipeline_probe'
           elf = executable.read_bytes()[:20]
           assert elf[:4] == b'\x7fELF' and int.from_bytes(elf[18:20], 'little') == 62
+          build_log = root/'var/pipeline-probe/test-build.jsonl'
+          builds = [json.loads(line) for line in build_log.read_text().splitlines()]
+          tests = [pathlib.Path(b['executable']) for b in builds if b.get('reason')=='compiler-artifact' and b.get('executable') and b['target']['kind']==['lib'] and b['target']['name']=='noisefence']
+          assert len(tests)==1, 'Expected one native library test executable'
+          test_binary = root/'var/pipeline-probe/noisefence-test-probes'
+          shutil.copy2(root/tests[0].relative_to('/workspace'),test_binary)
+          test_elf = test_binary.read_bytes()[:20]
+          assert test_elf[:4] == b'\x7fELF' and int.from_bytes(test_elf[18:20], 'little') == 62
+          build_log.unlink()
           metadata = {'commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
               'engine_source_sha256':source.hexdigest(),
+              'engine_source_manifest':'noisefence-source-tree-2',
+              'engine_source_files':len(inputs),
+              'test_binary_sha256':hashlib.sha256(test_binary.read_bytes()).hexdigest(),
               'probe_source_sha256':hashlib.sha256((root/'examples/pipeline_probe.rs').read_bytes()).hexdigest(),
               'binary_sha256':hashlib.sha256(executable.read_bytes()).hexdigest(),
               'platform':'linux-amd64', 'profile':'release', 'features':['semantic'],

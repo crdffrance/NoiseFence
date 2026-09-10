@@ -745,3 +745,92 @@ async fn real_smtp_acknowledges_the_whole_batch_or_returns_451_for_a_second_vari
         }
     }
 }
+
+#[tokio::test]
+async fn another_recipient_feedback_on_a_shared_message_does_not_invalidate_our_variant() {
+    let mut f = Fixture::new().await;
+    Arc::make_mut(&mut f.engine.config)
+        .sender_history
+        .as_mut()
+        .unwrap()
+        .mode = Mode::Observation;
+    f.engine.sender_history = Some(Arc::new(sender_history::History::new(
+        f.root.path(),
+        f.engine.config.sender_history.clone().unwrap(),
+    )));
+    let (legacy, wire) = f.analyze(700, &[ALICE, BOB]).await;
+    assert!(legacy.delivery_variants.is_empty());
+    f.store
+        .enqueue(
+            "history-700".into(),
+            SENDER.into(),
+            f.recipients(&[ALICE, BOB]),
+            legacy,
+            wire,
+        )
+        .await
+        .unwrap();
+    Arc::make_mut(&mut f.engine.config)
+        .sender_history
+        .as_mut()
+        .unwrap()
+        .mode = Mode::Adaptive;
+    f.engine.sender_history = Some(Arc::new(sender_history::History::new(
+        f.root.path(),
+        f.engine.config.sender_history.clone().unwrap(),
+    )));
+    let (mixed, wire) = f.analyze(701, &[ALICE, BOB]).await;
+    assert_eq!(mixed.delivery_variants.len(), 1);
+    let other = Store::open(f.root.path()).unwrap();
+    for _ in 0..10 {
+        other
+            .feedback("bob".into(), "history-700".into(), true)
+            .await
+            .unwrap();
+    }
+    f.store
+        .enqueue(
+            "history-701".into(),
+            SENDER.into(),
+            f.recipients(&[ALICE, BOB]),
+            mixed,
+            wire,
+        )
+        .await
+        .unwrap();
+    // Promotion now makes that same human vote authoritative for Alice too.
+    let (before_promotion, wire) = f.analyze(702, &[ALICE]).await;
+    assert!(applied(&before_promotion).is_some());
+    other
+        .run(|db| {
+            db.execute("UPDATE users SET admin=1 WHERE username='bob'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        f.store
+            .enqueue(
+                "history-702".into(),
+                SENDER.into(),
+                f.recipients(&[ALICE]),
+                before_promotion,
+                wire
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("sender history changed")
+    );
+    let (after, _) = f.analyze(703, &[ALICE]).await;
+    assert!(applied(&after).is_none());
+    assert!(
+        after
+            .sender_history_projection
+            .as_ref()
+            .unwrap()
+            .shared_report()
+            .unwrap()
+            .contradicted
+    );
+}

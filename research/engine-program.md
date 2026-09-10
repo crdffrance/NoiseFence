@@ -121,7 +121,7 @@ les tests du serveur, ceux du script et l’aperçu visuel. Le parcours, les quo
 les réponses génériques et la migration sont décrits dans le
 [guide du challenge](../docs/challenge.md).
 
-## Travail encore nécessaire
+## État du candidat 0.5.0-dev.4
 
 Le candidat 0.5.0-dev.4 raccorde maintenant la confiance à une décision par
 destinataire et à l’omission réelle du LLM facultatif, tout en maintenant les
@@ -131,6 +131,28 @@ preuve avant le commit. Le [guide](../docs/sender-history.md) décrit la configu
 les conditions restrictives et les compteurs ; le
 [relevé logiciel](sender-history-adaptive-validation-20260910.json) sépare les
 tests et la mesure synthétique des performances encore à démontrer.
+
+## État du candidat 0.5.0-dev.5
+
+La preuve de confiance est maintenant limitée aux destinataires adaptés et aux
+droits pertinents. Les corrections simultanées d’un autre destinataire, même sur
+un ancien message partagé, ne forcent plus de réessai sans lien. Le débordement
+des compteurs conserve une invalidation globale prudente ; les révocations et
+changements d’autorisation restent vérifiés dans la transaction d’acceptation.
+
+Le [relevé de validation](sender-history-scoped-validation-20260910.json) conserve
+452 tests Rust réussis et la mesure de 256 preuves de révision avec quatre
+lecteurs et 64 transactions de correction concurrentes. Cette mesure porte sur
+SQLite et les preuves, pas sur le débit du traitement complet.
+
+La CI du candidat précédent, `0.5.0-dev.4`, a échoué sur une assertion de temps
+mural du test de sandbox ; les tests de recherche, du frontend et du déploiement
+ont réussi. Le candidat suivant remplace cette assertion par une réponse réseau
+retenue jusqu’à la vérification de l’expiration effective. Le délai réseau du
+produit n’a pas été augmenté. La réussite locale ne remplace pas la nouvelle
+validation Linux.
+
+## Travail encore nécessaire
 
 - Validation d’un vrai CAPEv2 et de sa VM Office isolée : instantané, restauration,
   absence d’accès au serveur de messagerie et au réseau de production, et politique

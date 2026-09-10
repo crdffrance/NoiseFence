@@ -51,6 +51,8 @@ struct FakeState {
     requests: Vec<String>,
     lose_submit_reply: bool,
     delay_ms: u64,
+    // A stalled response is released only after the client proves its timeout.
+    stall_view: Option<Arc<tokio::sync::Notify>>,
     http_error: bool,
     error_json: bool,
     invalid_json: bool,
@@ -130,7 +132,13 @@ async fn submit(State(fake): State<Fake>, headers: HeaderMap, body: Bytes) -> Re
 async fn view(State(fake): State<Fake>, Path(id): Path<u64>) -> Response {
     let active = fake.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
     fake.peak.fetch_max(active, Ordering::SeqCst);
-    let delay = fake.state.lock().unwrap().delay_ms;
+    let (delay, stall) = {
+        let state = fake.state.lock().unwrap();
+        (state.delay_ms, state.stall_view.clone())
+    };
+    if let Some(stall) = stall {
+        stall.notified().await;
+    }
     tokio::time::sleep(Duration::from_millis(delay)).await;
     fake.in_flight.fetch_sub(1, Ordering::SeqCst);
     let mut state = fake.state.lock().unwrap();
@@ -542,11 +550,12 @@ async fn remote_failures_deadlines_and_protocol_errors_never_become_clean() {
         let client = h.client();
         let job = h.enqueue(&client).await;
         client.tick().await.unwrap();
+        let release = Arc::new(tokio::sync::Notify::new());
         let expected = {
             let mut s = h.fake.state.lock().unwrap();
             match variant {
                 0 => {
-                    s.delay_ms = 500;
+                    s.stall_view = Some(release.clone());
                     Detail::RequestTimeout
                 }
                 1 => {
@@ -571,13 +580,17 @@ async fn remote_failures_deadlines_and_protocol_errors_never_become_clean() {
                 }
             }
         };
-        let started = std::time::Instant::now();
-        h.tick(&client).await;
-        assert!(started.elapsed() < Duration::from_millis(450));
+        // A 450 ms wall-clock assertion included poll scheduling and durable
+        // SQLite writes and failed on a contended Linux runner. Exercise the
+        // actual timeout against a response which cannot arrive on its own.
+        tokio::time::timeout(Duration::from_secs(5), h.tick(&client))
+            .await
+            .expect("sandbox tick did not terminate");
         let result = client.get(&job.job_id).await.unwrap().unwrap();
         assert_eq!(result.detail, Some(expected), "variant {variant}");
         assert_eq!(result.outcome, Outcome::Inconclusive);
         assert!(!serde_json::to_string(&result).unwrap().contains("PRIVATE"));
+        release.notify_waiters();
     }
 }
 

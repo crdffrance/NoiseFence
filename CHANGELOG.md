@@ -5,6 +5,22 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.5 — Révocations limitées aux destinataires concernés
+
+- Revérifier la confiance adaptative avec des compteurs propres aux destinataires
+  et à leurs droits. Les corrections sans accès à une autre livraison ne forcent
+  plus son réessai, y compris pour un ancien message partagé avec copies cachées.
+- Couvrir les changements de droits et de comptes, les modifications de preuves,
+  la reprise et la maintenance. Borner les compteurs et conserver une invalidation
+  globale en cas de débordement, ainsi que la compatibilité de retour au candidat
+  précédent.
+- Remplacer une assertion de durée instable sur Linux par un serveur simulé qui
+  reste silencieux jusqu’à la constatation du délai d’expiration. Le délai réseau
+  du produit reste identique.
+- Préparer les exécutables Linux de mesure avec une empreinte de l’ensemble des
+  sources Rust, y compris les sous-modules. Les résultats locaux restent des
+  preuves logicielles, sans activation de la R&D en production.
+
 ### 0.5.0-dev.4 — Historique adaptatif par destinataire
 
 - Raccorder la confiance apprise ou configurée à un seuil explicite par

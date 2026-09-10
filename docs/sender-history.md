@@ -370,13 +370,30 @@ permettent de les rapprocher sans exposer un autre destinataire dans la console.
 Les compteurs de messages comptent ces enregistrements, pas des réceptions uniques.
 
 Une preuve de lecture valable au plus cinq secondes est revérifiée dans la
-transaction d’acceptation. La révision de modification est globale : un lot de
-corrections peut donc provoquer des réessais pour d’autres relations en cours.
-Les échéances d’expiration, elles, sont propres aux destinataires concernés. Une correction humaine, une modification de compte,
-de droits ou d’observation pertinente l’invalide ; l’expiration temporelle est
-également vérifiée. Dans ce cas, le serveur répond `451` et le prochain essai
-refait l’analyse. L’arrivée de messages sans correction humaine ne crée pas de
-confiance et n’invalide pas à elle seule cette preuve. Une panne ou une analyse
-incomplète conserve la transmission normale sans adaptation. Les tests couvrent
-les décisions mixtes, les octets ARC, les droits, l’apprentissage humain, les
-révocations concurrentes et les appels LLM réellement omis sur des messages distincts.
+transaction d’acceptation. Depuis `0.5.0-dev.5`, ses compteurs de modification
+portent sur le couple destinataire/destination et les droits exacts ou de domaine
+qui peuvent lui donner accès. Seuls les destinataires dont la décision est
+adaptée contribuent à cette preuve. Une correction de Bob ne force donc pas le
+réessai d’Alice, même sur un ancien message partagé, si Bob n’a pas accès à la
+livraison d’Alice. Une promotion de Bob en administrateur rend en revanche ses
+corrections applicables et invalide alors la preuve d’Alice.
+
+Une correction humaine, une modification de compte, de droits ou d’observation
+pertinente l’invalide ; les échéances temporelles restent propres aux
+destinataires concernés. Dans ce cas, le serveur répond `451` et le prochain
+essai refait l’analyse. L’arrivée de messages sans correction humaine ne crée
+pas de confiance et n’invalide pas à elle seule cette preuve. Une panne ou une
+analyse incomplète conserve la transmission normale sans adaptation.
+
+Les clés de révision sont privées, absentes des scans sérialisés et bornées à
+131 072 entrées. La maintenance supprime les modifications âgées d’au moins
+60 secondes, au-delà de la durée de toute preuve utilisable. Une clé recréée
+reçoit une nouvelle révision monotone. Si la capacité est atteinte, un compteur
+global de débordement invalide les preuves en cours : des réessais sans lien
+entre destinataires restent alors possibles, sans perdre une révocation. Les
+anciens déclencheurs globaux sont conservés pour un retour au binaire
+`0.5.0-dev.4` ; ils ne servent plus à la décision normale du nouveau binaire.
+
+Les tests couvrent les décisions mixtes, les octets ARC, les droits,
+l’apprentissage humain, les révocations concurrentes, la maintenance et le
+débordement, ainsi que les appels LLM réellement omis sur des messages distincts.
