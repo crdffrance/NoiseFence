@@ -380,7 +380,7 @@ async def run(args):
             for _, s in scans:
                 execution = s.get('research_execution') or {}
                 assert execution.get('version') == 'local-research-1', 'Missing research execution proof'
-                for name, version in [('heuristics', 'heuristics-1'), ('content_inspection', 'noisefence-content-inspection-2')]:
+                for name, version in [('heuristics', 'heuristics-1'), ('content_inspection', 'noisefence-content-inspection-3')]:
                     value = s.get(name)
                     assert value is None or value.get('version') == version, f'Unexpected {name} version'
                     if execution.get('status') == 'complete':

@@ -493,9 +493,15 @@
     "note": "Coverage-only local Clang instrumentation. Missing sanitizer crash/stack hooks are reported in the log. This is not a security certification or Linux fuzz campaign."
   },
   "ci": {
-    "candidate_status": "not_yet_published",
+    "candidate_status": "failed_in_measurement_harness",
     "parent_runtime_run": "34484307835",
-    "parent_runtime_conclusion": "success, all6jobs; not evidence for this candidate"
+    "parent_runtime_conclusion": "success, all6jobs; not evidence for this candidate",
+    "candidate_run": "34490586015",
+    "candidate_conclusion": "failure: stale structural-report assertion; default Rust job failed, semantic/ARM matrix siblings cancelled, other3jobs successful",
+    "pipeline_run": "34490673931",
+    "pipeline_conclusion": "failure at the same assertion; no measurement artifact available",
+    "candidate_failed_log_sha256": "d33d6110afffd96435f6ee4c45a4c96211d504b8b55cb5c6da26c634493dba7f",
+    "pipeline_failed_log_sha256": "a027c54e81cbe19ef0eb23e78c30de7f3dc9a563ba02845007a49ffcb6ca2179"
   },
   "outstanding": [
     "Corrected release binary with real OCR and models onLinux: PDF/alternating SMTP completeness and longer capacity.",
@@ -506,5 +512,25 @@
   "sources": [
     "https://opensource.adobe.com/dc-acrobat-sdk-docs/standards/pdfstandards/pdf/PDF32000_2008.pdf",
     "https://github.com/python-pillow/Pillow/blob/11.1.0/src/PIL/PdfParser.py"
-  ]
+  ],
+  "initial_candidate_commit": "579e8f047445de75f16697b7604390b889aa913a",
+  "sources_scope": "Initial candidate579e8f0; the corrected measurement script is recorded separately under probe_version_followup.",
+  "probe_version_followup": {
+    "change": "Require structural report revision3 in the SMTP measurement harness. Keep an exact version check; historical model-binding rejection of revisions1and2 remains intact.",
+    "path": "scripts/smtp_load.py",
+    "previous_sha256": "fc7076e096d2e7b48d6d95eda8ee95f2bc03f7c571134d2c1b8d30f5332d0128",
+    "corrected_sha256": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+    "local_validation": {
+      "test": "tests/smtp_load_research.py",
+      "binary_sha256": "171ecdfaff7f997165141572506364cc50f598c29bc294bad1d7002fc8751003",
+      "cases_passed": 2,
+      "delivered": 10,
+      "complete_document_analyses": 8,
+      "limited_analyses_explicit": 2,
+      "body_changes": 0,
+      "log_sha256": "9b0f663cbf74e27c146c8bbe5557393c3008ba4e9debd4b2d5f8a6fca9719a5b",
+      "scope": "Real local loopback SMTP on the unchanged dev.11 native binary; not Linux qualification or a capacity/quality claim."
+    },
+    "linux_validation": "pending a new run on the corrected probe"
+  }
 }
