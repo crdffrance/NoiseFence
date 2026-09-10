@@ -204,6 +204,174 @@ async fn diagnostics_enforce_recipient_grants_and_authentication() {
 }
 
 #[tokio::test]
+async fn restricted_api_redacts_other_bcc_and_aliases_in_new_and_historical_remote_text() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    api::create_user(
+        &store,
+        "alice".into(),
+        "a long password 123".into(),
+        vec!["alice@example.test".into()],
+        false,
+    )
+    .await
+    .unwrap();
+    let (id, a, b) = queue(&store, &cfg).await;
+    assert_eq!(a.destination, "alice@example.test");
+    assert_eq!(b.destination, "bob@example.test");
+
+    // Bob is a Bcc recipient of the same message. Neither the unknown mailbox
+    // nor the alias below belongs to the current delivery's envelope. Stored
+    // historical text must be protected even though it predates relay redaction.
+    let raw = concat!(
+        "451 4.7.1 upstream quota for bob@example.test; ",
+        "unlisted-bcc@outside.test; archive+alias@outside.test; ",
+        r#""hidden \"quoted\" name"@outside.test; "#,
+        r#"\"hidden \\\"escaped\\\" name\"@outside.test; "#,
+        "用户@例子.公司; “hidden name”＠例子。公司; ",
+        r"hidden\u0040outside.test; hidden%40outside.test; retry later",
+    );
+    fn assert_private(text: &str) {
+        for private in [
+            "bob@example.test",
+            "unlisted-bcc",
+            "archive+alias",
+            "hidden",
+            "outside.test",
+            "用户",
+            "例子",
+            "mx-bcc-only",
+        ] {
+            assert!(!text.contains(private), "leaked remote identity: {private}");
+        }
+        assert!(text.contains("[redacted]"));
+        assert!(text.contains("451 4.7.1 upstream quota"));
+        assert!(text.contains("retry later"));
+    }
+    let mut trace = transcript("mx.remote.test", 451);
+    trace.events[0].response = Some(raw.into());
+    trace.events[0].detail = Some(raw.into());
+    let historical = serde_json::to_string(&trace).unwrap();
+    store
+        .finish_with_attempts(&a, "pending", raw, noisefence::now() + 1800, &[trace])
+        .await
+        .unwrap();
+    store
+        .finish_with_attempts(
+            &b,
+            "pending",
+            "451 Bcc-only delivery error",
+            noisefence::now() + 1800,
+            &[transcript("mx-bcc-only.example.test", 451)],
+        )
+        .await
+        .unwrap();
+    let delivery_id = a.delivery_id;
+    let persisted: (String, String) = store
+        .read(move |db| {
+            Ok(db.query_row(
+                "SELECT d.error,a.trace FROM deliveries d JOIN delivery_attempts a ON a.delivery_id=d.id WHERE d.id=?1",
+                [delivery_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_private(&persisted.0);
+    assert_private(&persisted.1);
+
+    // Bypass the current write sanitizer to simulate an actual pre-hotfix row.
+    let old_trace = historical.clone();
+    store
+        .run(move |db| {
+            db.execute(
+                "UPDATE deliveries SET error=?2 WHERE id=?1",
+                rusqlite::params![delivery_id, raw],
+            )?;
+            db.execute(
+                "UPDATE delivery_attempts SET trace=?2 WHERE delivery_id=?1",
+                rusqlite::params![delivery_id, old_trace],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    drop(store);
+    let store = Store::open(root.path()).unwrap();
+    let app = api::router(cfg.clone(), store.clone()).unwrap();
+    let login = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, &cfg.web.public_origin)
+                .body(Body::from(
+                    r#"{"username":"alice","password":"a long password 123"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login.status(), StatusCode::OK);
+    let cookie = login.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    let path = format!("/api/v1/messages/{id}/diagnostics");
+    for url in [path.clone(), format!("{path}?delivery_id={delivery_id}")] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(url)
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_private(std::str::from_utf8(&body).unwrap());
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let recipients = value["recipients"].as_array().unwrap();
+        assert_eq!(recipients.len(), 1);
+        assert_eq!(recipients[0]["address"], "alice@example.test");
+        assert_private(recipients[0]["last_error"].as_str().unwrap());
+        let event = &recipients[0]["logs"][0]["events"][0];
+        assert_eq!(event["code"], 451);
+        assert_eq!(event["enhanced_code"], "4.7.1");
+        assert_private(event["response"].as_str().unwrap());
+        assert_private(event["detail"].as_str().unwrap());
+    }
+    let forbidden = app
+        .oneshot(
+            Request::get(format!("{path}?delivery_id={}", b.delivery_id))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::NOT_FOUND);
+    // The fixture is still raw on disk: privacy came from the read boundary,
+    // not a migration or a coincidental rewrite by the persistence sanitizer.
+    let still_historical: (String, String) = store
+        .read(move |db| {
+            Ok(db.query_row(
+                "SELECT d.error,a.trace FROM deliveries d JOIN delivery_attempts a ON a.delivery_id=d.id WHERE d.id=?1",
+                [delivery_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(still_historical, (raw.to_string(), historical));
+}
+
+#[tokio::test]
 async fn traces_survive_restart_are_bounded_and_expire_with_metadata() {
     let root = tempfile::tempdir().unwrap();
     let cfg = common::config(root.path());

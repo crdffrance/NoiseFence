@@ -333,6 +333,125 @@ async fn caps_multiline_responses_sanitizes_controls_and_preserves_final_code() 
 }
 
 #[tokio::test]
+async fn upstream_replies_redact_other_bcc_aliases_and_escaped_unicode_mailboxes() {
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let identities = [
+        "unlisted-bcc@other.test",
+        "private+alias@example.test",
+        r#""hidden \"quoted\" person"@other.test"#,
+        r#"\"hidden \\\"quoted\\\" person\"@other.test"#,
+        "私密用户@例子.公司",
+        "“hidden person”＠other.test",
+        "hidden@[IPv6:2001:db8::7]",
+        r"hidden\u0040other.test",
+        "hidden%40other.test",
+    ];
+    let captured = Capture::default();
+    let writer = captured.clone();
+    // This is the only subscriber installed in this test binary. A global
+    // dispatcher avoids thread-local callsite interest races with the parallel
+    // SMTP tests. Select this connection's events by its unique loopback route.
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .without_time()
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(move || writer.clone())
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
+    for code in [250, 451, 550] {
+        captured.0.lock().unwrap().clear();
+        let enhanced = if code == 250 {
+            "2.0.0"
+        } else if code == 451 {
+            "4.7.1"
+        } else {
+            "5.7.1"
+        };
+        let mut final_reply = String::new();
+        for (index, identity) in identities.iter().enumerate() {
+            final_reply.push_str(&format!(
+                "{code}{}{enhanced} recipient <{identity}> processed\r\n",
+                if index + 1 == identities.len() {
+                    ' '
+                } else {
+                    '-'
+                }
+            ));
+        }
+        let (route, task) = scripted("220 sink.test ESMTP\r\n".into(), steps(&final_reply)).await;
+        let own_route = format!("route={route} ");
+        let report = relay::deliver_traced(&cfg, &job(vec![route]), common::MESSAGE).await;
+        task.await.unwrap();
+        let operational = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+        let operational = operational
+            .lines()
+            .filter(|line| line.contains(&own_route))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(operational.contains("outbound SMTP event"));
+        assert!(
+            operational.contains("data_result"),
+            "{operational}\n{report:?}"
+        );
+        assert!(operational.contains("recipient <[redacted]> processed"));
+        let diagnostics = format!(
+            "{} {:?} {operational}",
+            serde_json::to_string(&report.attempts).unwrap(),
+            report.outcome
+        );
+        for private in [
+            "private-sender@example.org",
+            "private-destination@example.test",
+            "unlisted-bcc",
+            "private+alias",
+            "hidden",
+            "私密",
+            "例子",
+            "other.test",
+            "2001:db8::7",
+        ] {
+            assert!(
+                !diagnostics.contains(private),
+                "remote diagnostic leaked {private}"
+            );
+        }
+        let result = report.attempts[0]
+            .events
+            .iter()
+            .find(|e| e.phase == "data_result")
+            .unwrap();
+        assert_eq!(result.code, Some(code));
+        assert_eq!(result.enhanced_code.as_deref(), Some(enhanced));
+        assert!(
+            result
+                .response
+                .as_deref()
+                .unwrap()
+                .contains("recipient <[redacted]> processed")
+        );
+        assert!(matches!(
+            (code, &report.outcome),
+            (250, Outcome::Delivered) | (451, Outcome::Temporary(_)) | (550, Outcome::Permanent(_))
+        ));
+        assert_safe(&report);
+    }
+}
+
+#[tokio::test]
 async fn tls_certificate_failure_keeps_actual_error_and_prior_replies() {
     rustls::crypto::ring::default_provider()
         .install_default()

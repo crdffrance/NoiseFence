@@ -5,6 +5,17 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-10
+
+- Masquer les adresses pouvant être réaffichées dans les réponses SMTP distantes,
+  y compris les alias, les copies cachées et les représentations encodées usuelles.
+  Le masquage intervient avant troncature et s’applique aussi à la consultation des
+  anciens journaux et erreurs dans la console.
+- Conserver les codes SMTP, codes étendus, étapes, durées et motifs utiles au
+  diagnostic. Les textes importés dépassant le budget d’inspection sont omis.
+- Couvrir les réponses distantes, les journaux structurés et l’API authentifiée
+  avec des régressions sur les droits par destinataire et la confidentialité.
+
 ## [0.4.1] - 2026-09-09
 
 - Historique SMTP sortant par destinataire : serveurs essayés, IP, TLS vérifié,

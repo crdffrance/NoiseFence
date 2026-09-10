@@ -136,6 +136,9 @@ Les utilisateurs corrigent leurs propres messages. Les retours contradictoires e
 
 ## Validation et déploiement
 
+Le [guide des diagnostics SMTP et des filtres](docs/smtp-diagnostics.md) explique
+les réponses du serveur distant, les réessais et les contributions enregistrées.
+
 Les [observations de chaque contrôle](docs/decision-evidence.md) distinguent les
 résultats, erreurs et contrôles non exécutés, conservent les catégories de
 réputation et identifient les modèles chargés. La [fusion native facultative](research/fusion.md) combine ces observations et

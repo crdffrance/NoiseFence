@@ -82,15 +82,14 @@ impl Trace {
     }
 
     fn clean(&mut self, value: &str) -> String {
-        // Remove escapes before redaction so a peer cannot hide an echoed
-        // envelope address behind terminal formatting. Never pass DATA here.
-        let (safe, _) = delivery_log::sanitize(value, usize::MAX);
-        let redacted = self
-            .redactor
-            .as_ref()
-            .map(|r| r.replace_all(&safe, "[redacted]"))
-            .unwrap_or_else(|| std::borrow::Cow::Borrowed(&safe));
-        let (safe, cut) = delivery_log::sanitize(&redacted, delivery_log::MAX_TEXT_BYTES);
+        // Shared privacy processing runs before every log/truncation boundary;
+        // exact envelope matching supplements redaction of OTHER mailboxes too.
+        // Never pass DATA here: arbitrary private phrases are not identifiable.
+        let (safe, cut) = delivery_log::sanitize_with(
+            value,
+            delivery_log::MAX_TEXT_BYTES,
+            self.redactor.as_ref(),
+        );
         self.attempt.truncated |= cut;
         safe
     }
