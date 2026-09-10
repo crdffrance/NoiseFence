@@ -373,7 +373,25 @@ quatre pages sont vérifiées. Les unités et fichiers du banc ont été retiré
 
 Le profil SMTP `combined` exige les deux pièces dans chaque message, en complément
 du profil alterné. L’artefact Linux inclut les templates et le test du pool pour
-permettre un essai avec le binaire correspondant. La CI du candidat, les mesures
-SMTP avec modèles/scanners et la comparaison de débit restent à terminer ; cet
-essai de fonctionnement ne remplit pas les validations de qualité ou de latence
-encore ouvertes dans le programme.
+permettre un essai avec le binaire correspondant. Les six jobs de la CI du commit
+`0b2b712`, dont AMD64/ARM64 et les assertions renforcées sur les deux requêtes de
+chauffe du worker, ont réussi.
+
+Le [relevé Linux suivant](vision-pool-linux-validation-20260910.json) ajoute
+200 messages SMTP synthétiques complets et livrés intacts avec les modèles
+lexicaux/sémantiques et les scanners locaux. À limites de décodage identiques,
+deux workers et deux traitements SMTP simultanés donnent un débit de 1,88 à
+1,95 fois celui d’un worker sur les trois types de pièces. Les 152 comparaisons
+entre répétitions des 48 originaux ne montrent aucun changement des décisions
+ou des observations, hors durées et empreinte de concurrence. Les bases SQLite
+sont intactes ; les 15 refus temporaires du mode séquentiel aboutissent après
+réessai. Le contrôle dans les services réels confirme le refus de création de
+sockets IPv4 et l’isolation des fichiers et sockets entre workers.
+
+Les fichiers, unités et cinq copies de modèles du banc ont été retirés après
+vérification de l’archive d’audit. La production reste en 0.4.3, avec configuration
+et modèles inchangés. Le p95 d’analyse reste supérieur à 500 ms ; ces courts lots
+sur serveur partagé ne remplissent pas la qualification de débit soutenu,
+l’évaluation indépendante du classement, l’exécution Office isolée ni les essais
+Proton des nouvelles actions. L’exécution complète d’une mise à niveau avec le
+pool déjà installé reste également à vérifier.

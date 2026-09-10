@@ -93,11 +93,10 @@
     "cleanup": "Two root-owned Python caches prevented non-root removal; exact remainder and terminal units verified before privileged cleanup."
   },
   "not_proved": [
-    "Published candidate CI, including ARM64 and strengthened warmup assertions.",
-    "Native Linux Rust SMTP pool measurements with matched binary, workers, models and scanners.",
     "Representative sustained throughput and p95 analysis below500ms.",
     "Recent independent capture/false-positive calibration.",
-    "Real isolated CAPEv2/Office execution and Proton behavior for new actions."
+    "Real isolated CAPEv2/Office execution and Proton behavior for new actions.",
+    "Full installer upgrade/rollback with existing production pool instances."
   ],
   "sources": [
     "https://github.com/systemd/systemd/blob/main/man/systemd.exec.xml",
@@ -108,5 +107,12 @@
     "commit": "f7e9ae3cd079c07902d7ef20fe68cd2176a95e7c",
     "run": 34497480758,
     "conclusion": "success, all six jobs; not validation of this newer candidate"
+  },
+  "follow_up": {
+    "report": "vision-pool-linux-validation-20260910.json",
+    "commit": "0b2b71222b65f15b423690ac9d27fe5a34e332df",
+    "ci": "success, all six jobs including AMD64/ARM64 and strengthened warmup assertions",
+    "native_linux_smtp": "200 complete, intact synthetic deliveries; 152 repeated-original decision comparisons without differences after excluding timing and the changed concurrency policy digest.",
+    "scope": "Separate follow-up proof; the original pre-publication test scope and its initial failures remain recorded above."
   }
 }

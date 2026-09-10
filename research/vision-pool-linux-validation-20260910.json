@@ -1,0 +1,1944 @@
+{
+  "schema": "noisefence-vision-pool-linux-validation-1",
+  "version": "0.5.0-dev.13",
+  "recorded_at": "2026-09-10T16:43:09.121987+00:00",
+  "commit": "0b2b71222b65f15b423690ac9d27fe5a34e332df",
+  "scope": "One versus two active isolated serial OCR workers through native Linux Rust SMTP, fixed synthetic originals, lexical/semantic models and two local scanners. Short shared-host capacity experiment, not filtering quality or representative sustained throughput.",
+  "artifact": {
+    "commit": "0b2b71222b65f15b423690ac9d27fe5a34e332df",
+    "run_id": 34500945140,
+    "artifact_id": 10162235810,
+    "artifact_digest": "sha256:aec1b86cf1a2f07e0d4dbaf1126a61e4d7fa856c459bf0c6445f1d74dccd703e",
+    "source_files_verified": 61,
+    "build": {
+      "commit": "0b2b71222b65f15b423690ac9d27fe5a34e332df",
+      "engine_source_sha256": "52fbd66f581722ce98f6d9228bfddb15a5a8b04d4a9008261e1e9eee300dbba9",
+      "engine_source_manifest": "noisefence-source-tree-2",
+      "engine_source_files": 61,
+      "test_binary_sha256": "213a92a53aa2771edec109991c9574f40f613abc39b515ec2c01f5ef504241b2",
+      "daemon_binary_sha256": "b76f06cc9437684ea5af907c86d11b7b0a597f2348e1c9cebfe35e3dc2c0688e",
+      "runtime_files_sha256": {
+        "config/development.toml": "da7489c8118bfc523677989f605791a2d6bb42370543dbdc59cec7b4ad518163",
+        "scripts/smtp_load.py": "da38fde0f6d34f0846911a4f0fc631e7b273d62a24a240c5d8e04faa20128601",
+        "scripts/smtp_load_vision.py": "074f1954bbbdc6cb0b3da52ab41d7c7ac114d42767681a0b811f25f8e83b9a65",
+        "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0",
+        "deploy/vision-worker.py": "dd6f924bf9406bf8ea7db6ca015fe5accb37b7bc969158353fdf29ce05c9c600",
+        "deploy/noisefence-vision@.service": "f1503b8474cb00a0098dc40b13a5069d46aa2c908ce59d241ce297dfa902f1db",
+        "deploy/noisefence-vision@.socket": "07b81dcd8ad838e8c59c458480ccf2eed8ee0cf644ba0f2a4dabd3db46dc54e9",
+        "tests/systemd_vision_pool.py": "d29fe933114302e5bd08168e10320123a159ef9cf00c51fd0a4e3e5a5905a526"
+      },
+      "probe_source_sha256": "8a8efa7c1ae634fd99e87c36eeea8c79337b5cad2a9db4b357883dc4f83ae408",
+      "binary_sha256": "6cae22d57a70a3e7be5cede4fc98a2bd21ae2dd2be26f48a90be137a190c56c7",
+      "platform": "linux-amd64",
+      "profile": "release",
+      "features": [
+        "semantic"
+      ],
+      "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+    },
+    "verified": true
+  },
+  "ci": {
+    "run_id": 34500862501,
+    "url": "https://github.com/crdffrance/NoiseFence/actions/runs/34500862501",
+    "commit": "0b2b71222b65f15b423690ac9d27fe5a34e332df",
+    "conclusion": "success",
+    "jobs": {
+      "research": "success",
+      "rust (ubuntu-24.04-arm, --features semantic, --release)": "success",
+      "deployment": "success",
+      "rust (ubuntu-latest)": "success",
+      "rust (ubuntu-latest, --features semantic)": "success",
+      "web": "success"
+    },
+    "deployment_job_log_sha256": "2f1e514ddd61c8d221d1b9a017bb447a78b1aeb3608d81b89f75aa87c41327eb",
+    "deployment_pool_test": {
+      "workers": 2,
+      "warmup_requests": 2,
+      "combined_requests": 2,
+      "exact_pages_verified": 6,
+      "backend_sha256": "2008f0aa7b040bba39e9bb2949f0332a431df51517239017b3fadc554c07e473",
+      "scope": "Separate CI host and backend; exact assertions include both warmups. Not throughput."
+    }
+  },
+  "platform": {
+    "kernel": "6.12.100+deb13-cloud-amd64",
+    "architecture": "x86_64",
+    "nominal_vcpu": 4,
+    "ram_mib": 7757
+  },
+  "resources": {
+    "smtp_cpu_quota_percent": 400,
+    "smtp_memory_max_bytes": 3221225472,
+    "vision_instances": 2,
+    "vision_cpu_quota_each_percent": 100,
+    "vision_memory_max_each_bytes": 943718400,
+    "cpu_weight": 10,
+    "nice": 10
+  },
+  "cpu_environment": {
+    "RAYON_NUM_THREADS": "1",
+    "CANDLE_NUM_THREADS": "1",
+    "TOKENIZERS_PARALLELISM": "false",
+    "TOKIO_WORKER_THREADS": "4"
+  },
+  "observed_cgroups": {
+    "smtp": {
+      "memory_peak_bytes": 1320730624,
+      "cpu_usage_usec": 88311688
+    },
+    "vision1": {
+      "memory_peak_bytes": 143966208,
+      "cpu_usage_usec": 145318627
+    },
+    "vision2": {
+      "memory_peak_bytes": 143622144,
+      "cpu_usage_usec": 49913790
+    }
+  },
+  "model_sha256": {
+    "model.json": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+    "combination.json": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+    "encoder/config.json": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+    "encoder/tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+    "encoder/model.safetensors": "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
+  },
+  "vision_backend": {
+    "protocol": "noisefence-vision-1",
+    "backend_sha256": "94888e19ca54b00f263f3282fb5df02c7493e135da27afdd073fb43bdccec83a",
+    "components": {
+      "tesseract": "tesseract 5.5.0",
+      "zbarimg": "0.23.93",
+      "pdftoppm": "pdftoppm version 25.03.0",
+      "pdfinfo": "pdfinfo version 25.03.0",
+      "pillow": "11.1.0",
+      "traineddata": {
+        "fra": "ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca",
+        "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+      },
+      "worker_sha256": "dd6f924bf9406bf8ea7db6ca015fe5accb37b7bc969158353fdf29ce05c9c600"
+    }
+  },
+  "fixture_sha256": {
+    "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+    "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+  },
+  "configuration": {
+    "components_enabled": [
+      "lexical",
+      "semantic",
+      "antivirus",
+      "signatures",
+      "vision",
+      "heuristics",
+      "content_inspection"
+    ],
+    "semantic_parallel": 2,
+    "semantic_timeout_ms": 500,
+    "smtp_clients": 4,
+    "smtp_processing_wait_ms": 3000,
+    "relay_workers": 8,
+    "single": {
+      "active_vision_workers": 1,
+      "vision_parallel": 1,
+      "smtp_processing": 1
+    },
+    "pool": {
+      "active_vision_workers": 2,
+      "vision_parallel": 2,
+      "smtp_processing": 2
+    },
+    "changed_config_paths": [
+      "/data_dir",
+      "/relay/port",
+      "/smtp/listen",
+      "/smtp/max_processing",
+      "/vision/additional_sockets",
+      "/vision/max_parallel",
+      "/web/listen",
+      "/web/static_dir"
+    ],
+    "durability": "unmodified SQLite FULL + spool fsync",
+    "transport": "loopback plaintext both hops",
+    "fixture_control": "A private wrapper overrides only the public fixture factory to copy the same previously generated image/PDF bytes across every trial. Original messages matched by raw SHA256; PDF generation timestamps do not vary between arms.",
+    "decoder_limits": "Identical in both arms; each worker retains serial execution, 1 CPU, 900MiB memory and 128MiB temporary storage."
+  },
+  "test_order": [
+    "image-single-smoke",
+    "combined-pool-smoke",
+    "image-workers1-trial1",
+    "image-workers2-trial2",
+    "image-workers2-trial3",
+    "image-workers1-trial4",
+    "pdf-workers2-trial1",
+    "pdf-workers1-trial2",
+    "pdf-workers1-trial3",
+    "pdf-workers2-trial4",
+    "combined-workers1-trial1",
+    "combined-workers2-trial2",
+    "combined-workers2-trial3",
+    "combined-workers1-trial4"
+  ],
+  "wall_seconds": 222.67803687497508,
+  "totals": {
+    "profiles": 14,
+    "messages": 200,
+    "accepted": 200,
+    "delivered": 200,
+    "complete": 200,
+    "changed_bodies": 0,
+    "missing": 0,
+    "duplicates": 0,
+    "temporary_451": 15
+  },
+  "cases": {
+    "image-single-smoke": {
+      "messages": 4,
+      "message_bytes_range": [
+        27634,
+        27634
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 4,
+      "delivered": 4,
+      "complete": 4,
+      "primary_complete": 4,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 576,
+        "p95": 659,
+        "max": 659
+      },
+      "acceptance_ms": {
+        "p50": 1263.557,
+        "p95": 2418.118,
+        "max": 2418.118
+      },
+      "admission_seconds": 2.439,
+      "drained_seconds": 2.543,
+      "complete_per_second": 1.573,
+      "statuses": {
+        "semantic": {
+          "complete": 4
+        },
+        "antivirus": {
+          "clean": 4
+        },
+        "signatures": {
+          "clean": 4
+        },
+        "vision": {
+          "complete": 4
+        },
+        "llm": {
+          "disabled": 4
+        },
+        "research_execution": {
+          "complete": 4
+        },
+        "heuristics": {
+          "complete": 4
+        },
+        "content_inspection": {
+          "complete": 4
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 4,
+      "ocr_complete_messages": 4,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 570,
+        "p95": 627,
+        "max": 627
+      },
+      "ocr_by_kind": {
+        "image": {
+          "messages": 4,
+          "complete": 4,
+          "verified": 4,
+          "ocr_elapsed_ms": {
+            "p50": 570,
+            "p95": 627,
+            "max": 627
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1137377280,
+      "peak_daemon_threads": 9,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 2249453,
+        "vision2": 0,
+        "smtp": 5165308
+      },
+      "config_sha256": "9b07d7bd92b0e488d21d8329b89685a806c0b7ebc1faa9139c75b0367f5b07b5",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+      }
+    },
+    "combined-pool-smoke": {
+      "messages": 4,
+      "message_bytes_range": [
+        86505,
+        86505
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 4,
+      "delivered": 4,
+      "complete": 4,
+      "primary_complete": 4,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 1489,
+        "p95": 1594,
+        "max": 1594
+      },
+      "acceptance_ms": {
+        "p50": 1608.773,
+        "p95": 3099.382,
+        "max": 3099.382
+      },
+      "admission_seconds": 3.122,
+      "drained_seconds": 3.226,
+      "complete_per_second": 1.24,
+      "statuses": {
+        "semantic": {
+          "complete": 4
+        },
+        "antivirus": {
+          "clean": 4
+        },
+        "signatures": {
+          "clean": 4
+        },
+        "vision": {
+          "complete": 4
+        },
+        "llm": {
+          "disabled": 4
+        },
+        "research_execution": {
+          "complete": 4
+        },
+        "heuristics": {
+          "complete": 4
+        },
+        "content_inspection": {
+          "complete": 4
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 4,
+      "ocr_complete_messages": 4,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 1483,
+        "p95": 1552,
+        "max": 1552
+      },
+      "ocr_by_kind": {
+        "combined": {
+          "messages": 4,
+          "complete": 4,
+          "verified": 4,
+          "ocr_elapsed_ms": {
+            "p50": 1483,
+            "p95": 1552,
+            "max": 1552
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1211699200,
+      "peak_daemon_threads": 11,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 2870727,
+        "vision2": 2845502,
+        "smtp": 5212144
+      },
+      "config_sha256": "09626b43012863a064ec494f61f4c8d67ecc86942c5ed257ac6c981c2e444d54",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "image-workers1-trial1": {
+      "messages": 16,
+      "message_bytes_range": [
+        27634,
+        27636
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 552,
+        "p95": 687,
+        "max": 687
+      },
+      "acceptance_ms": {
+        "p50": 2238.1,
+        "p95": 2375.004,
+        "max": 2375.004
+      },
+      "admission_seconds": 9.134,
+      "drained_seconds": 9.237,
+      "complete_per_second": 1.732,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 549,
+        "p95": 654,
+        "max": 654
+      },
+      "ocr_by_kind": {
+        "image": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 549,
+            "p95": 654,
+            "max": 654
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1247322112,
+      "peak_daemon_threads": 10,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 8733224,
+        "vision2": 0,
+        "smtp": 6236571
+      },
+      "config_sha256": "3ca09e399fd206ccb25fa774b4c07f55cd22a87f5cb05bb7666b490b7c7fb72a",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+      }
+    },
+    "image-workers2-trial2": {
+      "messages": 16,
+      "message_bytes_range": [
+        27634,
+        27636
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 570,
+        "p95": 660,
+        "max": 660
+      },
+      "acceptance_ms": {
+        "p50": 1160.582,
+        "p95": 1280.947,
+        "max": 1280.947
+      },
+      "admission_seconds": 4.846,
+      "drained_seconds": 4.95,
+      "complete_per_second": 3.232,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 566,
+        "p95": 627,
+        "max": 627
+      },
+      "ocr_by_kind": {
+        "image": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 566,
+            "p95": 627,
+            "max": 627
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1197498368,
+      "peak_daemon_threads": 10,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 4402567,
+        "vision2": 4484845,
+        "smtp": 6099471
+      },
+      "config_sha256": "aa9f74c056e30017e4db47558b77c7a62655473d2bed527676146dbc9a92d753",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+      }
+    },
+    "image-workers2-trial3": {
+      "messages": 16,
+      "message_bytes_range": [
+        27634,
+        27636
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 570,
+        "p95": 652,
+        "max": 652
+      },
+      "acceptance_ms": {
+        "p50": 1143.845,
+        "p95": 1254.033,
+        "max": 1254.033
+      },
+      "admission_seconds": 4.745,
+      "drained_seconds": 4.849,
+      "complete_per_second": 3.3,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 567,
+        "p95": 616,
+        "max": 616
+      },
+      "ocr_by_kind": {
+        "image": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 567,
+            "p95": 616,
+            "max": 616
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1142726656,
+      "peak_daemon_threads": 11,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 4412073,
+        "vision2": 4385451,
+        "smtp": 6217302
+      },
+      "config_sha256": "8801f29c62da28a7477201183d35c7303117d74a9ae980ecb81faf3c37837e79",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+      }
+    },
+    "image-workers1-trial4": {
+      "messages": 16,
+      "message_bytes_range": [
+        27634,
+        27636
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 547,
+        "p95": 620,
+        "max": 620
+      },
+      "acceptance_ms": {
+        "p50": 2228.713,
+        "p95": 2304.607,
+        "max": 2304.607
+      },
+      "admission_seconds": 9.056,
+      "drained_seconds": 9.159,
+      "complete_per_second": 1.747,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 544,
+        "p95": 585,
+        "max": 585
+      },
+      "ocr_by_kind": {
+        "image": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 544,
+            "p95": 585,
+            "max": 585
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1122582528,
+      "peak_daemon_threads": 9,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 8711007,
+        "vision2": 0,
+        "smtp": 6079629
+      },
+      "config_sha256": "ac5b1c37b237e213b2a86ca77b866e765022a804913fc846251c473aa46bc11e",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+      }
+    },
+    "pdf-workers2-trial1": {
+      "messages": 16,
+      "message_bytes_range": [
+        59366,
+        59368
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 984,
+        "p95": 1058,
+        "max": 1058
+      },
+      "acceptance_ms": {
+        "p50": 1976.1,
+        "p95": 2109.079,
+        "max": 2109.079
+      },
+      "admission_seconds": 8.099,
+      "drained_seconds": 8.202,
+      "complete_per_second": 1.951,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 981,
+        "p95": 1025,
+        "max": 1025
+      },
+      "ocr_by_kind": {
+        "pdf": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 981,
+            "p95": 1025,
+            "max": 1025
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1201516544,
+      "peak_daemon_threads": 11,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 7585920,
+        "vision2": 7628903,
+        "smtp": 6193286
+      },
+      "config_sha256": "5c52e102461c058cb08e7985040be87e6b29952a2d661f7be63960d2748e80b0",
+      "fixture_inputs_sha256": {
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "pdf-workers1-trial2": {
+      "messages": 16,
+      "message_bytes_range": [
+        59366,
+        59368
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {
+        "451": 1
+      },
+      "analysis_ms": {
+        "p50": 970,
+        "p95": 1076,
+        "max": 1076
+      },
+      "acceptance_ms": {
+        "p50": 3880.327,
+        "p95": 5939.914,
+        "max": 5939.914
+      },
+      "admission_seconds": 15.751,
+      "drained_seconds": 15.854,
+      "complete_per_second": 1.009,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 965,
+        "p95": 1042,
+        "max": 1042
+      },
+      "ocr_by_kind": {
+        "pdf": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 965,
+            "p95": 1042,
+            "max": 1042
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1220263936,
+      "peak_daemon_threads": 10,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 15308824,
+        "vision2": 0,
+        "smtp": 6531996
+      },
+      "config_sha256": "77cb1d14f201baf2b5e7270f07a027113fdd11673f75d60796ecd3666bcdd553",
+      "fixture_inputs_sha256": {
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "pdf-workers1-trial3": {
+      "messages": 16,
+      "message_bytes_range": [
+        59366,
+        59368
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {
+        "451": 2
+      },
+      "analysis_ms": {
+        "p50": 980,
+        "p95": 1094,
+        "max": 1094
+      },
+      "acceptance_ms": {
+        "p50": 3082.607,
+        "p95": 6930.685,
+        "max": 6930.685
+      },
+      "admission_seconds": 15.953,
+      "drained_seconds": 16.056,
+      "complete_per_second": 0.997,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 976,
+        "p95": 1040,
+        "max": 1040
+      },
+      "ocr_by_kind": {
+        "pdf": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 976,
+            "p95": 1040,
+            "max": 1040
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1254363136,
+      "peak_daemon_threads": 11,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 15495348,
+        "vision2": 0,
+        "smtp": 6863591
+      },
+      "config_sha256": "5b3a72eef21bd2e701a6b3e47ff04ce79d4154ea0774004e6a2e060f8b24195e",
+      "fixture_inputs_sha256": {
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "pdf-workers2-trial4": {
+      "messages": 16,
+      "message_bytes_range": [
+        59366,
+        59368
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 979,
+        "p95": 1106,
+        "max": 1106
+      },
+      "acceptance_ms": {
+        "p50": 1972.26,
+        "p95": 2136.188,
+        "max": 2136.188
+      },
+      "admission_seconds": 8.073,
+      "drained_seconds": 8.177,
+      "complete_per_second": 1.957,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 970,
+        "p95": 1069,
+        "max": 1069
+      },
+      "ocr_by_kind": {
+        "pdf": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 970,
+            "p95": 1069,
+            "max": 1069
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1219821568,
+      "peak_daemon_threads": 10,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 7620028,
+        "vision2": 7649030,
+        "smtp": 6455041
+      },
+      "config_sha256": "46e6d748f79402c5aa94e5376749eb7c0e43fdebf53b46f1931884645c613df2",
+      "fixture_inputs_sha256": {
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "combined-workers1-trial1": {
+      "messages": 16,
+      "message_bytes_range": [
+        86505,
+        86507
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {
+        "451": 6
+      },
+      "analysis_ms": {
+        "p50": 1430,
+        "p95": 1490,
+        "max": 1490
+      },
+      "acceptance_ms": {
+        "p50": 4301.009,
+        "p95": 23053.796,
+        "max": 23053.796
+      },
+      "admission_seconds": 23.08,
+      "drained_seconds": 23.185,
+      "complete_per_second": 0.69,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 1425,
+        "p95": 1456,
+        "max": 1456
+      },
+      "ocr_by_kind": {
+        "combined": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 1425,
+            "p95": 1456,
+            "max": 1456
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1157021696,
+      "peak_daemon_threads": 9,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 22494822,
+        "vision2": 0,
+        "smtp": 6890675
+      },
+      "config_sha256": "ced86a42bf6179d779cd543f14697f51ac46a3f46debc83832b86d93551dbabf",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "combined-workers2-trial2": {
+      "messages": 16,
+      "message_bytes_range": [
+        86505,
+        86507
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 1438,
+        "p95": 1543,
+        "max": 1543
+      },
+      "acceptance_ms": {
+        "p50": 2904.639,
+        "p95": 3029.357,
+        "max": 3029.357
+      },
+      "admission_seconds": 11.831,
+      "drained_seconds": 11.936,
+      "complete_per_second": 1.34,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 1433,
+        "p95": 1503,
+        "max": 1503
+      },
+      "ocr_by_kind": {
+        "combined": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 1433,
+            "p95": 1503,
+            "max": 1503
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1237659648,
+      "peak_daemon_threads": 12,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 11200778,
+        "vision2": 11330398,
+        "smtp": 6670758
+      },
+      "config_sha256": "c793286ecc1d77751a3fde64306f64bca6a3009176b1461019104991fc5275bb",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "combined-workers2-trial3": {
+      "messages": 16,
+      "message_bytes_range": [
+        86505,
+        86507
+      ],
+      "processing": 2,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "analysis_ms": {
+        "p50": 1442,
+        "p95": 1528,
+        "max": 1528
+      },
+      "acceptance_ms": {
+        "p50": 2888.789,
+        "p95": 3027.848,
+        "max": 3027.848
+      },
+      "admission_seconds": 11.788,
+      "drained_seconds": 11.892,
+      "complete_per_second": 1.345,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 1433,
+        "p95": 1493,
+        "max": 1493
+      },
+      "ocr_by_kind": {
+        "combined": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 1433,
+            "p95": 1493,
+            "max": 1493
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1135767552,
+      "peak_daemon_threads": 11,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 11316189,
+        "vision2": 11283893,
+        "smtp": 6585560
+      },
+      "config_sha256": "c83fc048b2ea3b874cb8e8e702436ee5d686e4e42d80fc3bb92f1d169a9502c8",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    },
+    "combined-workers1-trial4": {
+      "messages": 16,
+      "message_bytes_range": [
+        86505,
+        86507
+      ],
+      "processing": 1,
+      "concurrency": 4,
+      "processing_wait_ms": 3000,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {
+        "451": 6
+      },
+      "analysis_ms": {
+        "p50": 1423,
+        "p95": 1508,
+        "max": 1508
+      },
+      "acceptance_ms": {
+        "p50": 4286.668,
+        "p95": 23091.344,
+        "max": 23091.344
+      },
+      "admission_seconds": 23.111,
+      "drained_seconds": 23.215,
+      "complete_per_second": 0.689,
+      "statuses": {
+        "semantic": {
+          "complete": 16
+        },
+        "antivirus": {
+          "clean": 16
+        },
+        "signatures": {
+          "clean": 16
+        },
+        "vision": {
+          "complete": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "ocr_verified_messages": 16,
+      "ocr_complete_messages": 16,
+      "ocr_requirements_met": true,
+      "ocr_elapsed_ms": {
+        "p50": 1418,
+        "p95": 1479,
+        "max": 1479
+      },
+      "ocr_by_kind": {
+        "combined": {
+          "messages": 16,
+          "complete": 16,
+          "verified": 16,
+          "ocr_elapsed_ms": {
+            "p50": 1418,
+            "p95": 1479,
+            "max": 1479
+          }
+        },
+        "unknown": {
+          "messages": 0,
+          "complete": 0,
+          "verified": 0,
+          "ocr_elapsed_ms": {
+            "p50": null,
+            "p95": null,
+            "max": null
+          }
+        }
+      },
+      "peak_daemon_rss_bytes": 1216909312,
+      "peak_daemon_threads": 9,
+      "cgroup_cpu_delta_usec": {
+        "vision1": 22611582,
+        "vision2": 0,
+        "smtp": 7028791
+      },
+      "config_sha256": "5db338867decceae9d894b97351349190d9e446eb210081f764334096ffaced9",
+      "fixture_inputs_sha256": {
+        "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "pdf": "910881480ea887543716d6849ed6df6d892a71d644fade4cd524b037d0fa27f1"
+      }
+    }
+  },
+  "comparison_excluding_smoke": {
+    "image": {
+      "1": {
+        "trials": [
+          "image-workers1-trial1",
+          "image-workers1-trial4"
+        ],
+        "messages": 32,
+        "drained_seconds": 18.396,
+        "complete_per_second": 1.7395085888236572,
+        "analysis_ms": {
+          "p50": 550,
+          "p95": 620,
+          "max": 687
+        },
+        "retryable_responses": {},
+        "cgroup_cpu_delta_usec": {
+          "vision1": 17444231,
+          "vision2": 0,
+          "smtp": 12316200
+        },
+        "cpu_total_seconds_per_message": 0.93001346875
+      },
+      "2": {
+        "trials": [
+          "image-workers2-trial2",
+          "image-workers2-trial3"
+        ],
+        "messages": 32,
+        "drained_seconds": 9.799,
+        "complete_per_second": 3.2656393509541792,
+        "analysis_ms": {
+          "p50": 570,
+          "p95": 659,
+          "max": 660
+        },
+        "retryable_responses": {},
+        "cgroup_cpu_delta_usec": {
+          "vision1": 8814640,
+          "vision2": 8870296,
+          "smtp": 12316773
+        },
+        "cpu_total_seconds_per_message": 0.93755340625
+      },
+      "capacity_ratio_two_to_one": 1.8773344218797838
+    },
+    "pdf": {
+      "1": {
+        "trials": [
+          "pdf-workers1-trial2",
+          "pdf-workers1-trial3"
+        ],
+        "messages": 32,
+        "drained_seconds": 31.91,
+        "complete_per_second": 1.0028204324663115,
+        "analysis_ms": {
+          "p50": 978,
+          "p95": 1076,
+          "max": 1094
+        },
+        "retryable_responses": {
+          "451": 3
+        },
+        "cgroup_cpu_delta_usec": {
+          "vision1": 30804172,
+          "vision2": 0,
+          "smtp": 13395587
+        },
+        "cpu_total_seconds_per_message": 1.38124246875
+      },
+      "2": {
+        "trials": [
+          "pdf-workers2-trial1",
+          "pdf-workers2-trial4"
+        ],
+        "messages": 32,
+        "drained_seconds": 16.378999999999998,
+        "complete_per_second": 1.9537212284022227,
+        "analysis_ms": {
+          "p50": 984,
+          "p95": 1105,
+          "max": 1106
+        },
+        "retryable_responses": {},
+        "cgroup_cpu_delta_usec": {
+          "vision1": 15205948,
+          "vision2": 15277933,
+          "smtp": 12648327
+        },
+        "cpu_total_seconds_per_message": 1.3478815
+      },
+      "capacity_ratio_two_to_one": 1.9482263874473416
+    },
+    "combined": {
+      "1": {
+        "trials": [
+          "combined-workers1-trial1",
+          "combined-workers1-trial4"
+        ],
+        "messages": 32,
+        "drained_seconds": 46.4,
+        "complete_per_second": 0.6896551724137931,
+        "analysis_ms": {
+          "p50": 1426,
+          "p95": 1490,
+          "max": 1508
+        },
+        "retryable_responses": {
+          "451": 12
+        },
+        "cgroup_cpu_delta_usec": {
+          "vision1": 45106404,
+          "vision2": 0,
+          "smtp": 13919466
+        },
+        "cpu_total_seconds_per_message": 1.8445584375
+      },
+      "2": {
+        "trials": [
+          "combined-workers2-trial2",
+          "combined-workers2-trial3"
+        ],
+        "messages": 32,
+        "drained_seconds": 23.828,
+        "complete_per_second": 1.342957864696995,
+        "analysis_ms": {
+          "p50": 1442,
+          "p95": 1542,
+          "max": 1543
+        },
+        "retryable_responses": {},
+        "cgroup_cpu_delta_usec": {
+          "vision1": 22516967,
+          "vision2": 22614291,
+          "smtp": 13256318
+        },
+        "cpu_total_seconds_per_message": 1.82461175
+      },
+      "capacity_ratio_two_to_one": 1.9472889038106427
+    }
+  },
+  "aggregation": {
+    "capacity": "Total complete messages / sum of drained_seconds for the two matched 16-message trials in each arm. Source elapsed seconds rounded to milliseconds.",
+    "analysis_quantiles": "Nearest-rank quantiles recomputed from each stored scan.elapsed_ms, including all 32 analyses per arm; never average trial quantiles.",
+    "smoke": "Two four-message checks included in totals and decision audit, excluded from capacity ratios.",
+    "cpu": "Cgroup deltas include per-trial probe/fixture/model startup; shared scanner CPU excluded. memory.peak is cumulative across this suite, not a per-trial measurement."
+  },
+  "decision_audit": {
+    "databases_integrity_ok": 14,
+    "messages": 200,
+    "distinct_originals": 48,
+    "comparisons": 152,
+    "group_sizes": {
+      "5": 8,
+      "4": 40
+    },
+    "differences": {},
+    "normalization": "Compare the entire stored scan, including score, decision, action, tags, completeness, features, model outputs and evidence. Exclude only recursive elapsed_ms/elapsed_us and evidence.artifacts.policy_sha256; sort reasons.",
+    "policy_difference": "vision.max_parallel differs between arms and is included in the policy digest. Socket and temporary runtime paths are absent from that digest. All config differences were audited; scoring settings, semantic budget and OCR decoder limits are unchanged.",
+    "policy_hashes_by_case": {
+      "combined-pool-smoke": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ],
+      "combined-workers1-trial1": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "combined-workers1-trial4": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "combined-workers2-trial2": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ],
+      "combined-workers2-trial3": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ],
+      "image-single-smoke": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "image-workers1-trial1": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "image-workers1-trial4": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "image-workers2-trial2": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ],
+      "image-workers2-trial3": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ],
+      "pdf-workers1-trial2": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "pdf-workers1-trial3": [
+        "8cb2590a0e2c3ea29581e92d8bc31ce85e1777fbeb95aefb0b4f1ec51b2aa1a7"
+      ],
+      "pdf-workers2-trial1": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ],
+      "pdf-workers2-trial4": [
+        "ab726ae66345e870177d641f75bafba584fceff3e6153876357b4308ba2e5edb"
+      ]
+    },
+    "normalized_scan_sha256_by_raw_sha256": {
+      "2aa87404d206a591287ec86e43a81521ecc43f2324e262609b8c93bb322b73fb": "d77f633d8c45e4cd9a6ac746ddf8b0d1a1512fc867b4039bedd56cc97e8797bb",
+      "55ce15dc3b7484268e8df45f538624a25d2140e5aee93a282f5c5d25e3c2720c": "b71e7853de423db13eef7570fcd07afac42bc12a953ea72d7e67f29b21e61136",
+      "f471a4955ba49ad9c277f5bbe876eaf8b1ff43a1d1fab35b5b33f3effed7db79": "f3ada414ccafb446a8cad32a068cf8675def247dc245de6eea35713a22ecc527",
+      "9fe98df1c9ba0760d5d9efcaddfbf16aaf014ac7bdd86729ce7977c14b6af85c": "1bb9eaf1e59a95603befbd15bee368fc8e08c4d897b3d0440bc39dd6a1e12e94",
+      "a6b8127a34d37899162f039501a612fecf1d61618d287d7da692801ba9f49941": "5fa821c45236b78175be1c2355d79974022b854e05179aea3f8ae28bb69d99bd",
+      "5f732120fdcaeca5981ce42abcf0781685ab3a9d7ce103245bd7fc296cc11d76": "f2caa0e9f1bbecd2c36cef82e211fdc885bae9d6795a9043f92024ad5fbc57d1",
+      "21b4ba85ae0a7970dc15d7963d0e824998483850e1f83e9d65e3e18d84872308": "b7417f1a1348064f8de6533cefbce66ced3423303e77efd2980315ab4ddb654c",
+      "49b1f9f91d6c58f60df22028913d13fa09462a530aba22a66aef4df691cd85d1": "fc502c49ded07d18b7a26f47c5591fc69b26c8734f8926d67d5a75626e2616d6",
+      "a7585f770bb1859fc46e73edc4083cfd4e673e5476318d1325213b3e0b33f8a0": "00e2256f5dbee70b457fab7d3b984bbdab702d0ac774a3b2dc12f4367781567a",
+      "08f0b29368e31a6cb0396eaaeba776c4eef6107fb46b7ae23372cc38b84e9dda": "4437755be1fd01dd5a29edb74c90fa1c1094b8cdc5efc49a1998e25306d7aa8d",
+      "61a14d7094d5d47720479486ff0ca70a62ed96b227291567dd1bff45051908e7": "e36fad8f064cf5dcd89c23c36432776e6c8aa4219ce2b4326f477fd0665eb48b",
+      "ebdd5fa5a63eea89d80c0d38b2fc636bafdf2be3ff3ac0838a46ee37679f0b33": "d9f0a07570901bda2f538a49572a8165658c7f86b428ed4ece7cabeb50d15b4e",
+      "e8b234bca39525c2bef4542b9682c22348dbc31494798128460b050539e57611": "e76918e8208133f82dd188c151decf694b12931b6e0f0ec1d59cccb4d598f906",
+      "554e5d54f4789d394a3ceaa7032a1371120b543b202c7c3d3fa27f96102804aa": "a9fc3afcb08ffab55e396d096296d8e5dd9ef55abf1c750aa6bc30d00fd8a6aa",
+      "1bc6934fded10e3a23028f90fbbacd0d726d982b13c1f8a011031e6ff2fd8e49": "865812d7b4842271488f4d4065c917d4a42c8e75c7fb51a276471b8d9f213757",
+      "a100692ce59c8b4d6c26247af33d1c38a118c4a34bc8c5635cb6f936708ef994": "a8347a4861aaa8d96c9147294d99e82acc365ceab773865b40d4056858b7ab38",
+      "86e85abf20d0a3ffd8a08afb3c98ab8cd85de1b4d7858b18f9c7ab611281e6c2": "1843d8c4a86fdf10c0ae1c137c1c8871c341dae3bc3d1f19bd1ddd8ab6a8455c",
+      "2f0811ad6f2cfa7be3e7289c4ae8771389a2bfccef77c147727237f2d4d1c3d8": "c94ba873608a79a715806cba49d88c1ce5a56f8d28f4b783d292ed25215889ae",
+      "16ce4211a30eb9ea4063fc2dcfe1f9c702918729385f1021456f6c1592843dd4": "1a5704a7045386fa4e2f55fe8b8d4cec3863a7c7b7f908a97f0919f60ee2f086",
+      "55bc1b67a03dbfab8f320dad1a7b4c0d68f6b79b0f0bda74c812ee568d22550b": "9eb6b3739612c7dc6b8b94ea5a0708511b1eb555533adc6b741525e12e76d4c5",
+      "335302f7a1f95015a285843c4842cf9c27da27a51446612eb89d2281f00087db": "b8b0976ea621f4e24589fde1a7b5e9fc171964725ea9787062d5d1ba9076faaf",
+      "301bff8b178cc1f27e35adbdb94e318b94f89c265d87e65376b0bf18390b2af8": "f656b8f2932208d3d05a66d4755d224efe1cdd3cfc166df95d845d140436324d",
+      "c751d8b6821955029e62bf667a27fb22d076649edbd7bf42b325588915bad4c5": "fde80dfe21bdd8d6e5f730621b2880f70ca4c0e20d223d1d82f9af6baff2b024",
+      "8e8f1e32b0a882c91fda210eab1e3e5e61bc4dc2b0d1c22313e942b8b04c099e": "d422b37775940c3b61dde6d61fbe047f900d5fed8bbc148f88b49eb8b18e8e11",
+      "53b6bfeab4303318b5c06b9a55eeaf5996dd157125d0e7075b8d84307cc900c8": "58c0e60329e867092cc48c6d8b29f286bfd65a5e6b31375f8fa16261d079c6b3",
+      "6e496119abd44718e6f1bd1e62277149a2b127fc6e8d20dea7f760a45f3cb4ae": "183d5f60f5660f52c5054f968a09ca3d31cb601311b7c8a6e0ff71aa43a1c723",
+      "d6a9397473a822d9ba337da8ed05a2eda0a9b213fd0b88ffc3280fcec8ab8852": "e35d27d0a0bd4b728ba25fab696d50374bcdc8d7b6a6dfeee317449d12bc2790",
+      "f89c26a42b911580657b43f10034f31db1e849c52821e8892c51629e7b545016": "5b655a79f51b0f1af3ace467d95fde74dd6db8f685d496bd12a1f689e93a899a",
+      "e08b9faef4c6166a32c5934a7f6a7bbd995368aa1edd136d2fef7e7681bd21be": "c7335a0712153d201020029413c3ab0f7052560e65ea27795266d1375627fdbc",
+      "a8f0fd0f0a48d1718375744a8628d45168e00eff0a5a2f285bbde45bcdd8850e": "0dd50804fbe31975737886233382605a899860c3bd933ea86e16069c19beae40",
+      "99f885d82b30c8c3fba76cbb57e5eb9f760c8a8fa9477d82dbfc968d1dab4f69": "8e0e41623c39006655f9457c83b59263e486b487b24cca013658a94045bb35b4",
+      "96f8d4013c2d4707560b26e2bf38f133d4bce252f426590bfbeb8f85fdc3e1ec": "662be034fe983c981b003330a489c6c1ebf855f22f00365e820cc2d97e6d3e9f",
+      "0b33ef54ad938d7ee2d164453ec2af0e90a398998ea847d1500b7974a962502e": "b93679047e94617ad784ac82db71ce1980707bcd3267274cdd23fd70bfef70aa",
+      "eb81035ae4b219ae9618c53ce766b6c5543a1573c15d7105137cd16d553be956": "d71f007c02cfbc039a9855f87b24cebcb03f7b0a1f5ab61650b955e5c0d83d5a",
+      "117004f72152a332fd008dca2d1044ebd9d744679a7e50ead14fffaa340948a5": "1875ef7ea3cf6329dc5009f9690edb8e2c78f3543d82d2a948e716cd56e8ba4c",
+      "d4007e552e8270a256570fab8305e67500344075b751888cf9f6f6f269e3d0e8": "55b440274a8d4e6eb263530d02d7e0dfff80e73a12f473436a2bb8505c4f731c",
+      "a93844c61fb77b99a990a8257decccb55a142187ffa3c77ea4a560e8202f1ee1": "d215dba4797630f632bdded646510039682f3a2de6b8cadf8346a7839ffeab54",
+      "04ae522fb567ecff87a7752d820030710e97fdc5bc747ef134737c0d0db609e6": "7bf4b757726e58387b6d53e3aa7eceaca52d5027512bdcb0218305177c09fb89",
+      "6a856bb795140f895928d21e43f266c8ecc3fa0da5b7bdfb52212e5766646389": "991c05daba7929266343c1dd6357b096cece5533e556efd2fef2910ad0a2bb12",
+      "95482f38602808269630e3babb94491856e527dfda7bbc1802d55e7b0dfd4667": "8a32ea3537f11d6399955c964e18b7d51a41fa135f2b58c36ec7ea98e2ad37a4",
+      "81d1c894a2f393c2f1d95b7e62aa9ab7ba9e8b704502417897151f51b56a132b": "961feb473d1685415c2f8488c90a3eb879c6d97b67caa6988fd4992138be609e",
+      "0156290413eaab5c45e173f77564c140508c1296675077648070aded6ba80e18": "3f3066630dc4a2357a9a434c6689cf42b43fd7a43f881db130b4738fd4eff780",
+      "040eaaba6f8f14ab9143272f4de7b8715a94af45b1aed79786f0f1f4f49937c9": "d594130220e7d4d9dd03b07056b7811424f6cf6e56c8334f4b64b52779488ddd",
+      "dd1e998fa5da0dc6399a14fbb65efef5f8109176f063d3da39944d5a891a620e": "e7c080231bb927af442a340119bd6e160ba81e4bf4a5ad09be2fd57f10c063f7",
+      "5bfb852a35cc980c235952533008bdc91d7eac1cb93d25538021f060cb6bb6c6": "713e078a45ee78dded7ff4baeb50d66a25843f763b4a2b02aa3075dddfc223bb",
+      "f2b848cd1b847ddbb0588b5c5599a31405be518656f8c8a000846c8db82f1261": "299befec5b01765a622a859d6bb40df9997e0d5bf61a271001bf965561e49286",
+      "7c9bf5fda077664e08a43d0ff864d1cfb171d4d19cc74922593593ef99c1624c": "1be5fe49247385e77563b716ed0980c2a0b6b47f76cc32e7910b3632fc010262",
+      "cca5befeedaa23b021e4eb430b08070833540320ac5c419f77c0f8aadb509e9e": "e46ffcec30896f8e2e9064547051aaa7a4a78d64c4af883aad7a1a55bef90b10"
+    },
+    "vision_assertions": "SMTP probe checks selected parts, pages, QR count and text-character minimum per original; it does not compare exact raw OCR text. Direct CI worker test separately checks expected text and QR content."
+  },
+  "isolation": {
+    "actual_worker_service_checks": true,
+    "distinct_users": true,
+    "distinct_mount_and_network_namespaces": true,
+    "protected_reads_denied_per_instance": 4,
+    "ipv4_socket_creation_denied": true,
+    "peer_state_and_socket_access_denied_both_directions": true,
+    "method": "A private entry wrapper checks access inside each actual confined service, records capabilities, waits for both workers, checks the peer, then execs the unchanged pinned worker while preserving socket activation. The root controller confirms distinct identities and namespaces.",
+    "private_smtp_network": true,
+    "external_messages": 0
+  },
+  "provenance": {
+    "controller_sources_sha256": {
+      "worker-entry.py": "98458de69bd7ff2b771242791c78e61fb5ec6756df88cdb9040abb989b152957",
+      "run-capacity-suite.py": "601bc025ab872745b088a36dbb94ceb0d3ab50e617dc801dc6373efc8cad010a",
+      "prepare-run-capacity.py": "a9bde841a8e6583582dada48472a62012af9e68e4986394e574c65a530f5b322",
+      "run-frozen-fixture.py": "d4bf0d370700d78dd840e738d6280ce9d6bb86adbde1c9ba59be55f831297020"
+    },
+    "input_manifest_sha256": "6d935eceebed8b21c95994f305c421daac0216b3ba10c796bbd6b268f107be0a",
+    "private_result_sha256": "129cf238342331ea440f901958c05611a9ce37f004c257f38b0dc797bd91f49d",
+    "private_decision_audit_sha256": "be1788dfdda91003616ac1d9f04e6086b19c5490b6daa0b01b0e5eb03123ccd6",
+    "decision_audit_script_sha256": "e8f154cd2b9efff41470fe0dc176ad369cbe7be943928435b1c6f1963e29c96c",
+    "configuration_audit_sha256": "f20e5af2d04759714cfbe331546ae52af40c600b2e04e35fc94bc8bc5da93964",
+    "private_audit_archive_sha256": "6ea80ab0b1b45ad65ff59960769efd11b931eb34a50a53b4a97bca7b7ea0cfdc",
+    "verified_archive_files": 326
+  },
+  "cleanup": {
+    "stage_removed": true,
+    "private_model_copies_removed": 5,
+    "production_active": true,
+    "audit_sha256": "6ea80ab0b1b45ad65ff59960769efd11b931eb34a50a53b4a97bca7b7ea0cfdc",
+    "verified_files": 326
+  },
+  "production": {
+    "version": "noisefence 0.4.3",
+    "active": true,
+    "configuration_unchanged": true,
+    "models_unchanged": true,
+    "test_units_removed": true,
+    "candidate_deployed": false
+  },
+  "limitations": [
+    "Synthetic fixed image/PDF/combined fixtures, shared host, repeated16-message trials; not representative sustained capacity.",
+    "Single vs pooled arms change SMTP processing/client concurrency and use one vs two active CPU-limited workers.",
+    "Both worker instances remain allocated; startup excluded from per-message latency, scanner services outside measured cgroups.",
+    "Per-trial cgroup CPU includes fixture/probe/model startup; cumulative memory peaks must not be treated as per-trial peaks.",
+    "DNS/authentication, reputation providers, LLM, TLS, Proton and filtering-quality evaluation excluded.",
+    "All pooled analysis p95 values remain above500ms; higher concurrency improves capacity, not individual analysis latency.",
+    "48 distinct synthetic originals repeated four or five times; repetition consistency does not establish capture or false-positive rates.",
+    "Shared scanner database hashes were not pinned in these scan artifacts; only model and OCR/backend hashes are verified.",
+    "No full installer upgrade/rollback execution, production switch, real isolated CAPEv2/Office evaluation or new Proton delivery-action validation."
+  ]
+}

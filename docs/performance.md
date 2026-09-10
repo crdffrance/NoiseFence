@@ -556,3 +556,36 @@ et un `--processing` cohérent avec les réservations OCR. Exiger `--require-com
 conserver tous les refus temporaires et erreurs, et contrôler les corps livrés.
 Les tests de chevauchement de jobs et de sockets ne prouvent pas un gain de débit
 du pipeline complet. Les mesures dev.11 ci-dessus ne qualifient pas le pool dev.13.
+
+Le [relevé Linux de dev.13](../research/vision-pool-linux-validation-20260910.json)
+compare maintenant une et deux instances avec le même binaire, les modèles
+lexicaux/sémantiques, les deux scanners locaux et les inspections R&D. Sur le
+serveur partagé de 4 vCPU et 7 757 Mio, les 200 messages synthétiques sont acceptés,
+entièrement analysés et livrés intacts. Les deux contrôles initiaux de quatre
+messages sont exclus des débits ci-dessous ; chaque case agrège deux essais de
+16 messages avec des originaux identiques, dans un ordre alterné entre les modes.
+
+| Pièces par message | Débit complet, 1 worker | Débit complet, 2 workers | Rapport | p95 d’analyse, 1 / 2 workers |
+| --- | ---: | ---: | ---: | ---: |
+| Une image avec texte et QR | 1,74 msg/s | 3,27 msg/s | × 1,88 | 620 / 659 ms |
+| Un PDF scanné avec texte et QR | 1,00 msg/s | 1,95 msg/s | × 1,95 | 1 076 / 1 105 ms |
+| Une image et un PDF | 0,69 msg/s | 1,34 msg/s | × 1,95 | 1 490 / 1 542 ms |
+
+Le débit est le nombre d’analyses complètes divisé par la durée totale jusqu’à
+livraison. Les quantiles sont recalculés à partir des analyses individuelles.
+Les 15 réponses temporaires `451` surviennent avec un seul worker ; les réessais
+aboutissent tous. Les 152 comparaisons entre répétitions des 48 originaux ne
+montrent aucune différence de score, décision, action, caractéristiques ou
+observations, après exclusion des durées et de l’empreinte de politique modifiée
+par la concurrence OCR. Les budgets de décodage et de calcul sémantique sont
+identiques entre les modes.
+
+Deux workers augmentent la capacité sur ces cas sans réduire leur latence
+d’analyse sous 500 ms. Le pic mémoire du groupe SMTP atteint environ 1,23 Gio,
+et chacun des deux workers environ 137 Mio ; ces pics couvrent toute la suite
+et excluent les scanners partagés. Les deux workers restent alloués pendant
+la comparaison, même lorsque le second est inactif. Le réseau SMTP est privé,
+sans DNS/authentification, réputation externe, LLM, TLS ou Proton. Le rapport
+conserve les limites, les empreintes et le nettoyage des unités et copies de
+modèles. Ces courts essais ne mesurent ni un débit soutenu représentatif ni
+la qualité du classement ; la production demeure en 0.4.3.
