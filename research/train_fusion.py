@@ -149,7 +149,7 @@ def validate_local_binding(binding):
     structure = binding['structure']
     if structure is not None:
         require(isinstance(structure, dict) and set(structure) == {'version', 'settings_digest', 'limits'}
-                and structure['version'] == 'noisefence-content-inspection-1'
+                and structure['version'] == 'noisefence-content-inspection-2'
                 and is_hex(structure['settings_digest']), 'Invalid structure binding')
         limits = structure['limits']
         require(isinstance(limits, dict) and set(limits) == {k for k, _ in STRUCTURE_LIMITS}

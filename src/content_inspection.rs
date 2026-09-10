@@ -10,7 +10,7 @@ use std::{
     io::{Cursor, Read, Seek, SeekFrom},
 };
 
-pub const REPORT_VERSION: &str = "noisefence-content-inspection-1";
+pub const REPORT_VERSION: &str = "noisefence-content-inspection-2";
 const MIB: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -256,14 +256,15 @@ impl Inspection<'_> {
         self.r.stats.structure_nodes += 1;
         Ok(())
     }
+    fn absolute_unpack_cap(&self) -> usize {
+        self.s.max_unpacked_bytes.min(
+            self.s
+                .max_total_unpacked_bytes
+                .saturating_sub(self.r.stats.unpacked_bytes),
+        )
+    }
     fn unpack_cap(&self, compressed: usize) -> usize {
-        self.s
-            .max_unpacked_bytes
-            .min(
-                self.s
-                    .max_total_unpacked_bytes
-                    .saturating_sub(self.r.stats.unpacked_bytes),
-            )
+        self.absolute_unpack_cap()
             .min(compressed.saturating_mul(self.s.max_compression_ratio))
     }
     fn inflate(&mut self, bytes: &[u8], zlib: bool) -> ParseResult<Vec<u8>> {
@@ -907,15 +908,10 @@ impl Inspection<'_> {
                     };
                     let row = (u64::from(w) * channels * u64::from(depth)).div_ceil(8) + 1;
                     let expected = row.checked_mul(u64::from(h)).ok_or(Fault::Limit)?;
-                    if expected > self.unpack_cap(idat.len()) as u64 {
+                    if expected > self.absolute_unpack_cap() as u64 {
                         return Err(Fault::Limit);
                     }
-                    let decoded = self.inflate(&idat, true)?;
-                    if decoded.len() as u64 != expected
-                        || decoded.chunks_exact(row as usize).any(|r| r[0] > 4)
-                    {
-                        return Err(Fault::Malformed);
-                    }
+                    self.png_rows(&idat, row as usize, expected as usize)?;
                     return Ok((pos, 1));
                 }
                 b"acTL" | b"fcTL" | b"fdAT" => return Err(Fault::Unsupported),
@@ -924,6 +920,47 @@ impl Inspection<'_> {
                         return Err(Fault::Unsupported);
                     }
                 }
+            }
+        }
+    }
+    /// IHDR fixes the exact output length. Enforce that length and both absolute
+    /// byte budgets, without rejecting ordinary, highly compressible banners or
+    /// allocating a pixel buffer. PDF/Office retain the generic ratio guard.
+    fn png_rows(&mut self, bytes: &[u8], row: usize, expected: usize) -> ParseResult<()> {
+        let mut decoder = flate2::Decompress::new(true);
+        let mut chunk = [0; 8192];
+        loop {
+            let before_in = decoder.total_in();
+            let produced = decoder.total_out() as usize;
+            let remaining = expected - produced;
+            // A single discarded sentinel detects forged IHDR dimensions.
+            let n = chunk.len().min(remaining + 1);
+            let result = decoder.decompress(
+                &bytes[before_in as usize..],
+                &mut chunk[..n],
+                flate2::FlushDecompress::None,
+            );
+            let written = decoder.total_out() as usize - produced;
+            self.r.stats.unpacked_bytes += written.min(remaining);
+            let result = result.map_err(|_| Fault::Malformed)?;
+            if written > remaining {
+                return Err(Fault::Malformed);
+            }
+            let first_filter = (row - produced % row) % row;
+            if (first_filter..written).step_by(row).any(|i| chunk[i] > 4) {
+                return Err(Fault::Malformed);
+            }
+            if result == flate2::Status::StreamEnd {
+                return if produced + written == expected
+                    && decoder.total_in() as usize == bytes.len()
+                {
+                    Ok(())
+                } else {
+                    Err(Fault::Malformed)
+                };
+            }
+            if decoder.total_in() == before_in && written == 0 {
+                return Err(Fault::Malformed);
             }
         }
     }

@@ -5,6 +5,20 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.7 — Inspection PNG et diagnostics du banc OCR
+
+- Inspecter les lignes PNG avec un tampon fixe de 8 Kio, en contrôlant leur taille
+  exacte et les plafonds absolus. Les bannières ordinaires très compressées ne
+  provoquent plus une analyse incomplète due au seul ratio de compression.
+- Conserver les contrôles de flux, sommes de contrôle, filtres de lignes et
+  budgets partagés, ainsi que les limites de ratio PDF/Office. Versionner les
+  nouvelles observations structurelles pour refuser les anciens modèles liés
+  à une sémantique différente.
+- Conserver les mesures OCR et QR lorsqu’un autre contrôle du banc échoue,
+  sans masquer cet échec ni convertir l’analyse en succès.
+- Publier le premier relevé Linux du candidat dev.6 : 664 messages synthétiques
+  livrés intacts, avec les analyses limitées et l’échec PNG/OCR documentés.
+
 ### 0.5.0-dev.6 — Mesures SMTP des moteurs de recherche
 
 - Étendre le banc de charge aux heuristiques FR/EN et à l’inspection HTML/PNG/PDF,

@@ -54,8 +54,21 @@ async def run(args):
 
         load.fixture = fixture
         args.message_bytes = len(fixture(0, 0)[0])
-        await original_run(args)
         root = args.output_dir.resolve()
+        output_existed = root.exists()
+        failure = None
+        try:
+            await original_run(args)
+        except SystemExit as error:
+            # A failed completeness requirement still leaves a valid report.
+            # Preserve the OCR evidence, then preserve the original exit status.
+            # Preflight failures must not read a stale output directory.
+            if output_existed or error.code != 1 or not (root/'summary.json').is_file():
+                raise
+            report = json.loads((root/'summary.json').read_text())
+            if not report.get('run_finished') or report.get('requirements_met') is not False:
+                raise
+            failure = error
         with sqlite3.connect(f'file:{root}/data/state.sqlite3?mode=ro', uri=True) as db:
             scans = [json.loads(row[0]) for row in db.execute('SELECT scan FROM messages')]
         completed = [s['vision'] for s in scans if s['vision']['status'] == 'complete']
@@ -68,12 +81,16 @@ async def run(args):
             ROOT/'scripts/smtp_load.py', ROOT/'scripts/smtp_load_vision.py', ROOT/'tests/vision_worker.py')}
         report['ocr_verified_messages'] = decoded
         report['ocr_complete_messages'] = len(completed)
+        report['ocr_requirements_met'] = bool(completed) and decoded == len(completed)
+        report['requirements_met'] = report.get('requirements_met', False) and report['ocr_requirements_met']
         report['ocr_elapsed_ms'] = load.quantiles([s['vision']['elapsed_ms'] for s in scans])
         report['ocr_backend_sha256'] = sorted({s['backend_sha256'] for s in completed})
         (root/'summary.json').write_text(json.dumps(report, indent=2)+'\n')
         print(json.dumps({'ocr_complete':len(completed),'ocr_verified':decoded,
                           'ocr_elapsed_ms':report['ocr_elapsed_ms']}), flush=True)
-        if not completed or decoded != len(completed):
+        if failure is not None:
+            raise failure
+        if not report['ocr_requirements_met']:
             raise SystemExit('A completed OCR did not decode the synthetic text and QR')
 
 

@@ -26,12 +26,15 @@ fn chunk(tag: &[u8], data: &[u8]) -> Vec<u8> {
     out
 }
 fn png(w: u32, h: u32, rows: &[u8]) -> Vec<u8> {
+    png_idat(w, h, 0, &zlib(rows))
+}
+fn png_idat(w: u32, h: u32, color: u8, compressed: &[u8]) -> Vec<u8> {
     let mut b = b"\x89PNG\r\n\x1a\n".to_vec();
     let mut ihdr = w.to_be_bytes().to_vec();
     ihdr.extend(h.to_be_bytes());
-    ihdr.extend([8, 0, 0, 0, 0]);
+    ihdr.extend([8, color, 0, 0, 0]);
     b.extend(chunk(b"IHDR", &ihdr));
-    b.extend(chunk(b"IDAT", &zlib(rows)));
+    b.extend(chunk(b"IDAT", compressed));
     b.extend(chunk(b"IEND", &[]));
     b
 }
@@ -340,6 +343,111 @@ fn png_bombs_large_dimensions_and_trailing_polyglot_are_incomplete() {
     let r = scan("image/png", &b);
     assert!(has(&r, FindingId::TrailingData));
     incomplete(&r);
+}
+#[test]
+fn png_high_compression_banners_are_complete_with_bounded_row_storage() {
+    for (color, channels) in [(0, 1), (2, 3), (6, 4)] {
+        let row = 1300 * channels + 1;
+        let mut rows = vec![255; row * 650];
+        for filter in rows.iter_mut().step_by(row) {
+            *filter = 0;
+        }
+        let compressed = zlib(&rows);
+        assert!(rows.len() > compressed.len() * 100);
+        let r = scan("image/png", &png_idat(1300, 650, color, &compressed));
+        assert_eq!(r.status, Status::Complete, "{r:#?}");
+        assert_eq!(r.stats.unpacked_bytes, rows.len());
+        assert!(!has(&r, FindingId::DecompressionLimit));
+    }
+}
+#[test]
+fn png_row_filters_cross_scratch_buffer_boundaries() {
+    for row in [3, 8191, 8192, 8193, 16387] {
+        let mut rows = vec![255; row * 7];
+        for (i, filter) in rows.iter_mut().step_by(row).enumerate() {
+            *filter = (i % 5) as u8;
+        }
+        assert_eq!(
+            scan("image/png", &png((row - 1) as u32, 7, &rows)).status,
+            Status::Complete
+        );
+        // Put the invalid filter beyond the first scratch buffer in every case.
+        let bad = if row == 3 { 8193 } else { row * 2 };
+        let height = if row == 3 { 3000 } else { 7 };
+        if row == 3 {
+            rows = vec![0; row * height];
+        }
+        rows[bad] = 5;
+        let r = scan("image/png", &png((row - 1) as u32, height as u32, &rows));
+        incomplete(&r);
+        assert!(has(&r, FindingId::ImageStructureInvalid));
+    }
+}
+#[test]
+fn png_exact_length_rejects_forged_small_dimensions_without_expanding_bomb() {
+    let bomb = zlib(&vec![0; 2 * MIB]);
+    let r = scan("image/png", &png_idat(1, 1, 0, &bomb));
+    incomplete(&r);
+    assert!(has(&r, FindingId::ImageStructureInvalid));
+    assert_eq!(r.stats.unpacked_bytes, 2);
+    let r = scan("image/png", &png(2, 2, &[0; 5]));
+    incomplete(&r);
+    assert!(has(&r, FindingId::ImageStructureInvalid));
+}
+#[test]
+fn png_stream_checksum_truncation_and_concatenation_are_rejected() {
+    let valid = zlib(&vec![0; 20_000]);
+    for n in 0..valid.len() {
+        let r = scan("image/png", &png_idat(99, 200, 0, &valid[..n]));
+        incomplete(&r);
+        assert!(has(&r, FindingId::ImageStructureInvalid));
+        assert!(r.stats.unpacked_bytes <= 20_000);
+    }
+    let mut corrupt = valid.clone();
+    *corrupt.last_mut().unwrap() ^= 1;
+    let mut concatenated = valid.clone();
+    concatenated.extend(zlib(&[]));
+    let mut trailing = valid;
+    trailing.push(0);
+    for compressed in [corrupt, concatenated, trailing] {
+        let r = scan("image/png", &png_idat(99, 200, 0, &compressed));
+        incomplete(&r);
+        assert!(has(&r, FindingId::ImageStructureInvalid));
+    }
+}
+#[test]
+fn png_absolute_and_shared_unpacked_limits_remain_hard_bounds() {
+    let image = png(99, 100, &vec![0; 10_000]);
+    let r = analyze(
+        &message("image/png", &image),
+        &Settings {
+            max_unpacked_bytes: 9999,
+            ..Settings::default()
+        },
+    );
+    incomplete(&r);
+    assert!(has(&r, FindingId::DecompressionLimit));
+    assert_eq!(r.stats.unpacked_bytes, 0);
+    let mut raw = b"Content-Type: multipart/mixed; boundary=x\r\n\r\n".to_vec();
+    for _ in 0..3 {
+        raw.extend(b"--x\r\n");
+        raw.extend(message("image/png", &image));
+        raw.extend(b"\r\n");
+    }
+    raw.extend(b"--x--\r\n");
+    let r = analyze(
+        &raw,
+        &Settings {
+            max_unpacked_bytes: 10_000,
+            max_total_unpacked_bytes: 20_000,
+            max_compression_ratio: 1,
+            ..Settings::default()
+        },
+    );
+    incomplete(&r);
+    assert!(has(&r, FindingId::DecompressionLimit));
+    assert_eq!(r.stats.unpacked_bytes, 20_000);
+    assert!(r.parts[0].complete && r.parts[1].complete && !r.parts[2].complete);
 }
 #[test]
 fn image_type_and_count_consistency() {

@@ -175,9 +175,20 @@ identiques.
 
 Le [guide de performance](../docs/performance.md) décrit les profils et le test
 d’intégration ; le [relevé logiciel](capacity-probe-validation-20260910.json)
-conserve les vérifications du candidat. Les essais locaux couvrent le texte, le HTML, les documents et le
-cas d’un message de 1 Mio qui dépasse la limite heuristique. Ils ne constituent
-pas encore la mesure de débit Linux du nouveau candidat.
+conserve les vérifications du candidat. Le [relevé Linux](capacity-linux-dev6-20260910.json)
+ajoute 664 messages synthétiques livrés intacts sur 4 vCPU et 7 757 Mio de RAM,
+en réseau privé, avec durabilité réelle. Les modèles lexicaux/sémantiques et les
+scanners locaux sont activés dans trois profils distincts. Les 24 messages texte
+R&D terminent tous l’analyse, avec un p95 de 338 ms ; ce petit lot ne constitue
+pas une garantie de débit soutenu ni une comparaison statistique des moteurs.
+
+La suite conserve deux limites : huit messages de 1 Mio dépassent le budget
+heuristique ; les huit images OCR ont texte et QR décodés, mais l’inspection PNG
+échoue sur le ratio de compression. Ce dernier cas, inattendu, fait échouer le
+critère global du banc. Le candidat dev.7 corrige l’inspection PNG sans relever
+les plafonds absolus, avec un rapport structurel révisé et conservation des
+résultats OCR même lorsqu’une autre analyse échoue. Sa validation Linux après
+correction reste à effectuer ; le relevé dev.6 demeure inchangé.
 
 ## Travail encore nécessaire
 
@@ -188,10 +199,11 @@ pas encore la mesure de débit Linux du nouveau candidat.
   rappel, faux positifs, précision et intervalles de confiance. Le crédit de
   confiance et les poids expérimentaux ne constituent pas une liste blanche
   automatique validée ni un modèle promu.
-- Mesures du traitement complet et du débit sur Linux 4 vCPU/8 Go, puis contrôle
+- Mesures soutenues du traitement complet et du débit sur Linux 4 vCPU/8 Go,
+  au-delà des premiers lots synthétiques, puis contrôle
   de la livraison Proton pour les nouvelles actions explicitement activées.
 - Validation de chaque nouveau candidat sur Linux et choix d’activation des
-  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2, 0.5.0-dev.3 et 0.5.0-dev.5 ont réussi
+  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2, 0.5.0-dev.3, 0.5.0-dev.5 et 0.5.0-dev.6 ont réussi
   sur AMD64 et ARM64 ;
   elles ne valident pas par avance les modifications suivantes.
 

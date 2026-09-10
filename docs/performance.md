@@ -1,5 +1,15 @@
 # Mesurer le traitement complet
 
+Le [premier relevé Linux de la R&D](../research/capacity-linux-dev6-20260910.json)
+conserve les résultats du candidat dev.6, y compris l’échec d’inspection PNG du
+profil OCR. Les 664 messages synthétiques sont livrés intacts, mais les analyses
+incomplètes ne comptent pas dans le débit d’analyse complète. Ce sont de courts
+lots sur un serveur partagé, avec des exclusions détaillées par profil.
+
+Depuis dev.7, le banc OCR ajoute `ocr_requirements_met` et conserve ses compteurs
+même si une autre analyse obligatoire échoue. Son code de sortie demeure en
+échec et `requirements_met` exige aussi la lecture du texte et du QR attendus.
+
 `model-benchmark` mesure l'extraction et l'inférence locales. Pour mesurer aussi
 les connecteurs, le banc `pipeline_probe` appelle le même `Engine::process` que
 la réception SMTP, plusieurs fois dans un seul processus. Il charge le modèle

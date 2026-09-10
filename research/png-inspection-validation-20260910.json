@@ -1,0 +1,38 @@
+{
+  "schema": "noisefence-png-validation-1",
+  "version": "0.5.0-dev.7",
+  "report_version": "noisefence-content-inspection-2",
+  "rust": {
+    "features": [
+      "semantic"
+    ],
+    "passed": 458,
+    "failed": 0,
+    "ignored": 1,
+    "suites": 35,
+    "ignored_scope": "Live ClamAV connection; requires an explicitly configured test socket."
+  },
+  "focused_content_tests": 50,
+  "python": {
+    "passed": 62,
+    "initial_environment_failures": 4,
+    "resolution": "Repeated the four certificate deployment tests with Homebrew OpenSSL 3 instead of macOS LibreSSL; all passed. Updated OCR report tests rechecked after their final reporting change."
+  },
+  "clippy_semantic_all_targets": true,
+  "formatting": true,
+  "manifests_aligned": true,
+  "regressions": [
+    "high-compression grayscale/RGB/RGBA banners",
+    "filter offsets across 8 KiB buffers",
+    "forged small dimensions stop at expected output plus one byte",
+    "truncated zlib, checksum failure, concatenated streams and trailing bytes",
+    "per-image and aggregate absolute budgets",
+    "unchanged PDF/Office ratio limits",
+    "reject old structural binding even with its correct digest",
+    "retain OCR evidence and original failure on incomplete research analysis",
+    "wrong QR fails OCR requirements in both summary and exit status"
+  ],
+  "linux_after_fix": "pending",
+  "quality_claim": false,
+  "production_activation": false
+}

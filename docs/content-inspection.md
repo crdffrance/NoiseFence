@@ -40,7 +40,7 @@ Do not convert a worker panic into a complete report.
 
 ## Report and privacy
 
-The current `version` is `noisefence-content-inspection-1`. The JSON contains:
+The current `version` is `noisefence-content-inspection-2`. The JSON contains:
 
 | Field | Meaning |
 | --- | --- |
@@ -51,6 +51,15 @@ The current `version` is `noisefence-content-inspection-1`. The JSON contains:
 | `stats` | Parts, decoded bytes, unpacked bytes, structure nodes, images, PDFs, Office documents and HTML parts |
 | `parts` | Bounded list of inspected leaves with `index`, `kind`, decoded `bytes`, optional `width`, `height`, `frames`, and `complete` |
 | `findings` | Deduplicated `{ "id": "stable_snake_case_id", "part": integer_or_null }` records |
+
+Revision 2 (0.5.0-dev.7) changes PNG completeness: an ordinary highly compressible
+image can complete when its exact declared scanline size fits both absolute
+unpacked-byte budgets. Revision 1 incorrectly applied the generic ratio limit.
+Historical reports remain readable. The native fusion binding and Python trainer
+require revision 2 for new structural observations; revision-1 structural models
+must be re-exported, trained and validated before use with this detector. Their
+digests must not be edited to bypass the mismatch. Fusion without a structural
+binding and the frozen feature catalogs are unchanged.
 
 A **complete** report means the advertised static checks completed within their
 scope. It never means safe, virus-free, renderable, or free of macros. Incomplete
@@ -93,7 +102,7 @@ validation. Byte, structure and finding counters are shared across the message.
 | `max_archive_entries` | 256 | 1–1024 ZIP records / visited CFB entries per container |
 | `max_unpacked_bytes` | 4 MiB | 1–8 MiB per inflation/member |
 | `max_total_unpacked_bytes` | 8 MiB | At least per-inflation limit and at most 32 MiB |
-| `max_compression_ratio` | 100 | 1–200; output ≤ compressed input × ratio |
+| `max_compression_ratio` | 100 | 1–200; PDF/ZIP output ≤ compressed input × ratio; PNG uses its exact IHDR length and the absolute byte budgets |
 | `max_structure_nodes` | 50,000 | 1–100,000 shared tokens/nodes/chunks/blocks/records |
 | `max_nesting` | 32 | 1–64 PDF values/literal parentheses, XML depth, CFB path components |
 | `max_findings` | 128 | 1–512 distinct `(id, part)` pairs |
@@ -153,6 +162,12 @@ absence of every possible polyglot.
   row byte count and scanline filter values. Interlaced PNG, APNG and unknown
   critical chunks are unsupported/incomplete. Pixel reconstruction, color
   semantics and all optional-chunk ordering rules are not validated.
+  Inflation checks each scanline filter with fixed 8 KiB scratch storage, without
+  retaining pixel rows. Exact IHDR size, full stream consumption, checksum and
+  both absolute unpacked-byte caps are required. The length calculation follows
+  the [PNG scanline and compression specification](https://www.w3.org/TR/png-3/#10Compression).
+  A forged shorter declaration is detected with at most one discarded extra
+  byte. PDF and Office inflation still enforce the compression-ratio limit.
 * JPEG: bounded markers and segment lengths, supported SOF dimensions, SOS
   framing, entropy byte stuffing/restart markers and EOI. Baseline/extended and
   progressive DCT headers are covered; other SOF types are incomplete. Huffman

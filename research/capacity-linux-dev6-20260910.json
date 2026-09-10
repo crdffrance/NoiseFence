@@ -1,0 +1,1021 @@
+{
+  "recorded_at": "2026-09-10T10:42:13.657373+00:00",
+  "commit": "04e6a0c9cabc6f74e7805582120c2ce46f4fe07d",
+  "build": {
+    "commit": "04e6a0c9cabc6f74e7805582120c2ce46f4fe07d",
+    "engine_source_sha256": "6833ce89db4c56663f1e406d7e6cddd84d6325f31bdf21f6b3e3042e4f1eb1f9",
+    "engine_source_manifest": "noisefence-source-tree-2",
+    "engine_source_files": 60,
+    "test_binary_sha256": "5b4cb3484ac797ad7aa92a7883190e96192140746ae855488678763cb3d181b6",
+    "daemon_binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+    "runtime_files_sha256": {
+      "config/development.toml": "da7489c8118bfc523677989f605791a2d6bb42370543dbdc59cec7b4ad518163",
+      "scripts/smtp_load.py": "173cb7a30f69baca92ee5a79e84dd5c036c96a36e1dbc573357e9489048f2b31",
+      "scripts/smtp_load_vision.py": "2bc150306081a4f2c09400d9ac553b4dd3d804f99b05314a94039b37635d0296",
+      "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969",
+      "deploy/vision-worker.py": "26b2ebd9a4c62ee3f56c3e5ee11e59d2e8c08ff9b579d49224661628ba0b5d48"
+    },
+    "probe_source_sha256": "8a8efa7c1ae634fd99e87c36eeea8c79337b5cad2a9db4b357883dc4f83ae408",
+    "binary_sha256": "b23c526564e519742ba5a57f3dff0121f782c1acb184b99da6d823725ab9e885",
+    "platform": "linux-amd64",
+    "profile": "release",
+    "features": [
+      "semantic"
+    ],
+    "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+  },
+  "production_version": "noisefence 0.4.2",
+  "production_service_active": true,
+  "configuration_unchanged": true,
+  "production_state_inaccessible": true,
+  "private_network": true,
+  "external_messages": 0,
+  "model_sha256": {
+    "model.json": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+    "combination.json": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+    "encoder/config.json": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+    "encoder/tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+    "encoder/model.safetensors": "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
+  },
+  "platform": {
+    "os": "Linux",
+    "kernel": "6.12.100+deb13-cloud-amd64",
+    "architecture": "x86_64",
+    "nominal_vcpu": 4,
+    "ram_mib": 7757
+  },
+  "resources": {
+    "cpu_quota_percent": 400,
+    "cpu_weight": 10,
+    "memory_max_bytes": 3221225472,
+    "nice": 10,
+    "scanners_outside_measurement_cgroup": true
+  },
+  "observed": {
+    "memory_peak_bytes": 1375973376,
+    "cpu_usage_usec": 46132383,
+    "wall_seconds": 50.46149863797473
+  },
+  "unit_exit_status": 0,
+  "limitations": [
+    "Synthetic sequential bursts; host is shared with production, not a sustained production-traffic capacity guarantee.",
+    "DNS/authentication, external reputation, paid LLM, TLS and Proton delivery are excluded; configured local models and scanners are identified per profile.",
+    "Model copies and model loading are excluded from SMTP admission/analysis times; cgroup CPU includes startup and the driver, but excludes shared scanner services.",
+    "Cgroup counters sampled every 100 ms; last CPU value may precede exit.",
+    "No filtering-quality or real CAPEv2 claim."
+  ],
+  "schema": "noisefence-capacity-linux-1",
+  "private_record_sha256": "44e6a291bdc53fd9ca7014f8d415a4b7ab9d644f69d514f36e3361b72ebd42da",
+  "build_workflow": "https://github.com/crdffrance/NoiseFence/actions/runs/34465229758",
+  "checks_workflow": "https://github.com/crdffrance/NoiseFence/actions/runs/34464987316",
+  "checks_conclusion": "success",
+  "artifact_sha256": "2469123f4b89d4d4572458ebe1d729c41707a93bca009bd3a2d353ddaefa970d",
+  "suite": {
+    "run_finished": true,
+    "all_profile_expectations_met": false,
+    "cases": {
+      "core": {
+        "schema": "noisefence-smtp-load-1",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 200,
+        "concurrency": 8,
+        "message_bytes": 1024,
+        "processing": 4,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": false,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": false,
+          "content_inspection": false,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "correctness_passed": true,
+        "accepted": 200,
+        "delivered": 200,
+        "complete": 200,
+        "primary_complete": 200,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "disabled": 200
+          },
+          "antivirus": {
+            "disabled": 200
+          },
+          "signatures": {
+            "disabled": 200
+          },
+          "vision": {
+            "disabled": 200
+          },
+          "llm": {
+            "disabled": 200
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 21
+        },
+        "acceptance_ms": {
+          "p50": 6.359,
+          "p95": 53.517,
+          "max": 293.216
+        },
+        "analysis_ms": {
+          "p50": 0,
+          "p95": 0,
+          "max": 21
+        },
+        "admission_seconds": 0.491,
+        "drained_seconds": 1.31,
+        "accepted_per_second": 407.631,
+        "delivered_per_second": 152.62,
+        "complete_per_second": 152.62,
+        "delivery_states": {
+          "delivered": 200
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 36298752,
+        "peak_daemon_threads": 15,
+        "peak_pending_deliveries": 146,
+        "daemon_cpu_seconds": 0.66,
+        "wall_seconds": 1.535,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "research-text": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 200,
+        "concurrency": 8,
+        "message_bytes": 1024,
+        "processing": 4,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": false,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 0,
+            "max": 3
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 200,
+        "delivered": 200,
+        "complete": 200,
+        "primary_complete": 200,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "disabled": 200
+          },
+          "antivirus": {
+            "disabled": 200
+          },
+          "signatures": {
+            "disabled": 200
+          },
+          "vision": {
+            "disabled": 200
+          },
+          "llm": {
+            "disabled": 200
+          },
+          "research_execution": {
+            "complete": 200
+          },
+          "heuristics": {
+            "complete": 200
+          },
+          "content_inspection": {
+            "complete": 200
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 27
+        },
+        "acceptance_ms": {
+          "p50": 6.896,
+          "p95": 74.753,
+          "max": 193.853
+        },
+        "analysis_ms": {
+          "p50": 0,
+          "p95": 1,
+          "max": 18
+        },
+        "admission_seconds": 0.5,
+        "drained_seconds": 1.32,
+        "accepted_per_second": 399.725,
+        "delivered_per_second": 151.572,
+        "complete_per_second": 151.572,
+        "delivery_states": {
+          "delivered": 200
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 39563264,
+        "peak_daemon_threads": 15,
+        "peak_pending_deliveries": 148,
+        "daemon_cpu_seconds": 0.68,
+        "wall_seconds": 1.55,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "research-html": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 100,
+        "concurrency": 8,
+        "message_bytes": 8192,
+        "processing": 4,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": false,
+          "protection": false,
+          "html_fixture": true,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 2,
+            "max": 3
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 100,
+        "delivered": 100,
+        "complete": 100,
+        "primary_complete": 100,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "disabled": 100
+          },
+          "antivirus": {
+            "disabled": 100
+          },
+          "signatures": {
+            "disabled": 100
+          },
+          "vision": {
+            "disabled": 100
+          },
+          "llm": {
+            "disabled": 100
+          },
+          "research_execution": {
+            "complete": 100
+          },
+          "heuristics": {
+            "complete": 100
+          },
+          "content_inspection": {
+            "complete": 100
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 19
+        },
+        "acceptance_ms": {
+          "p50": 11.19,
+          "p95": 78.56,
+          "max": 388.828
+        },
+        "analysis_ms": {
+          "p50": 1,
+          "p95": 3,
+          "max": 21
+        },
+        "admission_seconds": 0.442,
+        "drained_seconds": 0.749,
+        "accepted_per_second": 226.456,
+        "delivered_per_second": 133.46,
+        "complete_per_second": 133.46,
+        "delivery_states": {
+          "delivered": 100
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 39731200,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 62,
+        "daemon_cpu_seconds": 0.52,
+        "wall_seconds": 0.97,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "research-documents": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 100,
+        "concurrency": 8,
+        "message_bytes": 8192,
+        "processing": 4,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": false,
+          "protection": false,
+          "html_fixture": true,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": true
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {
+              "fr.credentials": 100,
+              "en.credentials": 100
+            },
+            "content_inspection": {
+              "html_event_handler": 100,
+              "pdf_active_name": 100
+            }
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 1,
+            "max": 2
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 100,
+        "delivered": 100,
+        "complete": 100,
+        "primary_complete": 100,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "disabled": 100
+          },
+          "antivirus": {
+            "disabled": 100
+          },
+          "signatures": {
+            "disabled": 100
+          },
+          "vision": {
+            "disabled": 100
+          },
+          "llm": {
+            "disabled": 100
+          },
+          "research_execution": {
+            "complete": 100
+          },
+          "heuristics": {
+            "complete": 100
+          },
+          "content_inspection": {
+            "complete": 100
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 14
+        },
+        "acceptance_ms": {
+          "p50": 9.372,
+          "p95": 65.824,
+          "max": 235.466
+        },
+        "analysis_ms": {
+          "p50": 1,
+          "p95": 3,
+          "max": 18
+        },
+        "admission_seconds": 0.294,
+        "drained_seconds": 0.705,
+        "accepted_per_second": 340.315,
+        "delivered_per_second": 141.792,
+        "complete_per_second": 141.792,
+        "delivery_states": {
+          "delivered": 100
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 40153088,
+        "peak_daemon_threads": 15,
+        "peak_pending_deliveries": 65,
+        "daemon_cpu_seconds": 0.43,
+        "wall_seconds": 0.926,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "research-large": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 8,
+        "concurrency": 2,
+        "message_bytes": 1048576,
+        "processing": 2,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": false,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {
+            "part_bytes": 8
+          },
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 2,
+            "max": 2
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 0,
+        "primary_complete": 8,
+        "incomplete": 8,
+        "statuses": {
+          "semantic": {
+            "disabled": 8
+          },
+          "antivirus": {
+            "disabled": 8
+          },
+          "signatures": {
+            "disabled": 8
+          },
+          "vision": {
+            "disabled": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "limited": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {},
+        "acceptance_ms": {
+          "p50": 79.396,
+          "p95": 159.26,
+          "max": 159.26
+        },
+        "analysis_ms": {
+          "p50": 13,
+          "p95": 29,
+          "max": 29
+        },
+        "admission_seconds": 0.515,
+        "drained_seconds": 0.747,
+        "accepted_per_second": 15.522,
+        "delivered_per_second": 10.706,
+        "complete_per_second": 0.0,
+        "delivery_states": {
+          "delivered": 8
+        },
+        "integrity": "ok",
+        "requirements_met": false,
+        "peak_daemon_rss_bytes": 55304192,
+        "peak_daemon_threads": 9,
+        "peak_pending_deliveries": 4,
+        "daemon_cpu_seconds": 0.3,
+        "wall_seconds": 0.949,
+        "exit_status": 1,
+        "expected_exit_status": 1,
+        "profile_expectation_met": true
+      },
+      "model-baseline": {
+        "schema": "noisefence-smtp-load-1",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 24,
+        "concurrency": 8,
+        "message_bytes": 1024,
+        "processing": 1,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": false,
+          "content_inspection": false,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "correctness_passed": true,
+        "accepted": 24,
+        "delivered": 24,
+        "complete": 24,
+        "primary_complete": 24,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 24
+          },
+          "antivirus": {
+            "clean": 24
+          },
+          "signatures": {
+            "clean": 24
+          },
+          "vision": {
+            "complete": 24
+          },
+          "llm": {
+            "disabled": 24
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 66
+        },
+        "acceptance_ms": {
+          "p50": 346.074,
+          "p95": 9148.364,
+          "max": 10310.832
+        },
+        "analysis_ms": {
+          "p50": 310,
+          "p95": 347,
+          "max": 362
+        },
+        "admission_seconds": 10.313,
+        "drained_seconds": 10.417,
+        "accepted_per_second": 2.327,
+        "delivered_per_second": 2.304,
+        "complete_per_second": 2.304,
+        "delivery_states": {
+          "delivered": 24
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1246867456,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 15.86,
+        "wall_seconds": 15.285,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "model-research": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 24,
+        "concurrency": 8,
+        "message_bytes": 1024,
+        "processing": 1,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 24,
+        "delivered": 24,
+        "complete": 24,
+        "primary_complete": 24,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 24
+          },
+          "antivirus": {
+            "clean": 24
+          },
+          "signatures": {
+            "clean": 24
+          },
+          "vision": {
+            "complete": 24
+          },
+          "llm": {
+            "disabled": 24
+          },
+          "research_execution": {
+            "complete": 24
+          },
+          "heuristics": {
+            "complete": 24
+          },
+          "content_inspection": {
+            "complete": 24
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 62
+        },
+        "acceptance_ms": {
+          "p50": 306.0,
+          "p95": 9333.518,
+          "max": 10343.568
+        },
+        "analysis_ms": {
+          "p50": 294,
+          "p95": 338,
+          "max": 347
+        },
+        "admission_seconds": 10.346,
+        "drained_seconds": 10.451,
+        "accepted_per_second": 2.32,
+        "delivered_per_second": 2.296,
+        "complete_per_second": 2.296,
+        "delivery_states": {
+          "delivered": 24
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1164451840,
+        "peak_daemon_threads": 11,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 15.51,
+        "wall_seconds": 15.165,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "model-ocr": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "b0ac71ce10ca45a7bd588648a3bf612c8cc15acf6eaac1412d4985e2f287c23f",
+        "version": "noisefence 0.5.0-dev.6",
+        "messages": 8,
+        "concurrency": 4,
+        "message_bytes": 27634,
+        "processing": 1,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {
+              "decompression_limit": 8
+            }
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 0,
+            "max": 0
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 0,
+        "primary_complete": 8,
+        "incomplete": 8,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "incomplete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 22
+        },
+        "acceptance_ms": {
+          "p50": 683.339,
+          "p95": 7404.426,
+          "max": 7404.426
+        },
+        "analysis_ms": {
+          "p50": 673,
+          "p95": 780,
+          "max": 780
+        },
+        "admission_seconds": 7.416,
+        "drained_seconds": 7.519,
+        "accepted_per_second": 1.079,
+        "delivered_per_second": 1.064,
+        "complete_per_second": 0.0,
+        "delivery_states": {
+          "delivered": 8
+        },
+        "integrity": "ok",
+        "requirements_met": false,
+        "peak_daemon_rss_bytes": 1202733056,
+        "peak_daemon_threads": 12,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 5.53,
+        "wall_seconds": 12.665,
+        "exit_status": 1,
+        "expected_exit_status": 0,
+        "profile_expectation_met": false
+      }
+    }
+  },
+  "ocr_supplement": {
+    "source": "Read-only aggregation of the isolated synthetic SQLite queue after the wrapper exited on an incomplete structural scan. The original dev.6 summary did not contain these OCR counters.",
+    "messages": 8,
+    "vision_complete": 8,
+    "one_qr_one_page_and_at_least_80_characters": 8,
+    "text_chars_per_message": 124,
+    "original_summary_rewritten": false
+  }
+}
