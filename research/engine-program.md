@@ -414,3 +414,12 @@ utilisent le même binaire et des définitions systemd différentes : ce périm�
 teste les transitions de déploiement, sans prouver la compatibilité entre deux
 versions de l’application. Les résultats sont ceux du job du commit testé ;
 la CI dev.13 et les mesures précédentes ne valident pas ce nouveau scénario.
+
+Le premier passage du commit `abf076d` a échoué avant toute installation : le
+garde-fou du banc exigeait un code zéro pour un inventaire systemd filtré vide,
+alors que la commande retourne un dans ce cas sur le runner. Le banc consulte
+désormais l’inventaire complet puis refuse localement toute unité NoiseFence ;
+une erreur du gestionnaire reste bloquante. Ce résultat ne valide aucun des six
+scénarios. Les jobs recherche, frontend et déploiement ont réussi ; les deux
+autres jobs Rust ont été annulés par la matrice après cet échec. Le nouveau
+passage doit fournir les preuves d’installation et de restauration attendues.

@@ -123,7 +123,11 @@ def main():
     assert os.geteuid() == 0 and Path('/run/systemd/system').is_dir()
     assert not any(p.exists() or p.is_symlink() for p in (BASE, CONFIG.parent, DATA))
     assert not list(UNITS.glob('noisefence*')) and not list(Path('/run').glob('noisefence*'))
-    assert not run('systemctl', 'list-unit-files', 'noisefence*', '--no-legend', '--no-pager').stdout.strip()
+    # With a pattern, systemctl can return1 for a valid empty result. Read the
+    # successful complete inventory, then reject matching units locally; real
+    # manager/permission errors must still abort before any mutation.
+    inventory = run('systemctl', 'list-unit-files', '--no-legend', '--no-pager').stdout
+    assert not any(line.split()[0].startswith('noisefence') for line in inventory.splitlines() if line.strip())
     for user in ('noisefence', 'noisefence-vision'):
         try:
             pwd.getpwnam(user)
