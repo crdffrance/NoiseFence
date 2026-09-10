@@ -96,7 +96,7 @@ y compris les propriétés des images et des PDF, disposent d’un chemin comple
 vers l’entraînement, la prédiction native et la décision SMTP après promotion.
 Les modèles restent liés à leurs versions et paramètres ; une observation
 manquante ou incomplète ne devient pas une conclusion légitime. Les expériences
-restent distinctes de la production 0.4.2.
+restent distinctes de la production stable, désormais en 0.4.3.
 
 Le [rapport logiciel](fusion-local-validation-20260910.json) conserve les tests,
 les empreintes des sources, le premier essai rejeté pour problème d’échelle et
@@ -314,5 +314,41 @@ enregistrée et fait échouer un profil exigeant la complétude.
 
 Le [relevé logiciel](pdf-structure-validation-20260910.json) conserve le premier
 échec Linux, les tests Rust/Python et l’analyse locale du vrai moteur sur un PDF
-généré valide et deux variantes malformées. La qualification Linux/SMTP du nouveau
-binaire et les autres validations du programme restent à terminer.
+généré valide et deux variantes malformées. Les validations Linux réalisées
+ensuite sont enregistrées séparément de ces premiers résultats.
+
+La première CI de dev.11 et son build de mesure échouent sur une assertion du
+banc qui attend encore la révision 2 du rapport structurel. Le correctif conserve
+une vérification exacte, désormais sur la révision 3. Le test SMTP local valide
+ensuite huit analyses complètes et deux volontairement limitées, avec dix corps
+livrés intacts. Les échecs initiaux sont conservés dans le relevé ; ils ne valent
+pas validation Linux du banc corrigé.
+
+La CI corrigée du commit `dc5a909` termine ses six jobs avec succès, dont ARM64.
+Le [relevé Linux](vision-pdf-linux-validation-20260910.json) vérifie les empreintes
+de l’artefact et de ses sources avant les essais SMTP. Douze messages vérifient
+le raccordement sans modèles, puis 280 messages sont entièrement analysés et
+livrés intacts avec modèles, antivirus, signatures et worker OCR du candidat.
+Les profils alternent des messages avec une image ou un PDF ; ils ne vérifient
+pas encore les deux types de pièces joints au même message.
+
+Les lots de 64 images, 64 PDF et 128 messages alternés atteignent respectivement
+des p95 d’analyse de 590, 1 031 et 1 030 ms. Les six réponses temporaires avant DATA
+sont suivies d’une livraison réussie. Les 44 comparaisons d’images originales
+identiques conservent les mêmes décisions et caractéristiques sélectionnées.
+Ces résultats synthétiques, avec un seul traitement simultané et un worker OCR
+limité à un CPU, ne démontrent ni le débit soutenu ni la qualité de classement.
+L’audit est conservé, les unités temporaires et copies de modèles supprimées.
+Les validations du corpus récent, de la sandbox Office réelle et des nouvelles
+actions chez Proton restent ouvertes, ainsi que l’objectif d’analyse sous 500 ms.
+
+## Candidat 0.5.0-dev.12 : cohérence avec le relais stable
+
+L’audit des diagnostics en production a révélé un rejet local des noms MX absolus
+présents dans les avis d’échec en file. La version stable 0.4.3 corrige ce défaut,
+avec validation Linux, TLS et persistance. Le report dans la R&D conserve le nom
+absolu pour le DNS et retire un seul point pour les contrôles de boucle et le nom
+TLS. Le [relevé local](mx-root-rnd-validation-20260910.json) conserve les quinze
+tests de routes, traces SMTP et droits des diagnostics réussis, ainsi que Clippy.
+La CI Linux de dev.12 reste à terminer ; les mesures PDF effectuées avec dev.11
+restent liées à leur propre binaire et à leurs paramètres.

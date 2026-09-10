@@ -115,6 +115,39 @@ fn assert_safe(report: &DeliveryReport) {
 }
 
 #[tokio::test]
+async fn rooted_mx_routes_deliver_failure_notices_and_keep_the_original_trace() {
+    let root = tempfile::tempdir().unwrap();
+    for explicit_port in [false, true] {
+        let mut cfg = (*common::config(root.path())).clone();
+        let (address, task) = scripted(
+            "220 sink.test ESMTP\r\n".into(),
+            steps("250 2.0.0 notice accepted\r\n"),
+        )
+        .await;
+        cfg.relay.port = address.rsplit_once(':').unwrap().1.parse().unwrap();
+        let route = if explicit_port {
+            format!("localhost.:{}", cfg.relay.port)
+        } else {
+            "localhost.".into()
+        };
+        let mut notice = job(vec![route.clone()]);
+        notice.sender.clear();
+        notice.is_dsn = true;
+        let report = relay::deliver_traced(&cfg, &notice, common::MESSAGE).await;
+        assert!(matches!(report.outcome, Outcome::Delivered), "{report:?}");
+        assert_eq!(task.await.unwrap(), common::MESSAGE);
+        assert_eq!(report.attempts[0].route, route);
+        assert!(
+            report.attempts[0]
+                .events
+                .iter()
+                .any(|event| { event.phase == "data_result" && event.code == Some(250) })
+        );
+        assert_safe(&report);
+    }
+}
+
+#[tokio::test]
 async fn captures_success_and_classifies_451_and_550_without_leaking_content() {
     let root = tempfile::tempdir().unwrap();
     let cfg = common::config(root.path());

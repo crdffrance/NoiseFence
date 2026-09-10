@@ -1,0 +1,1408 @@
+{
+  "schema": "noisefence-vision-pdf-linux-validation-1",
+  "runtime_version": "0.5.0-dev.11",
+  "runtime_commit": "dc5a90936ac9bdedb05a9ab05d993e5dd3b49c1b",
+  "recorded_at": "2026-09-10T15:22:29.591007+00:00",
+  "scope": "Real isolated Linux SMTP with synthetic image/PDF attachments. Alternating profiles contain one image OR one PDF per message, not both in a single message. Quality/calibration and representative traffic remain unproved.",
+  "verification": {
+    "ci_run": 34492656790,
+    "ci_conclusion": "success, all6jobs",
+    "ci_observation_sha256": "7a944a807a9dd913c18806ed7362e975f1367ee135e794adef5cec2d8bebf02a",
+    "build_run": 34492811783,
+    "artifact_id": 10158924801,
+    "artifact_digest": "sha256:8b3ed9840d50303b54cd9e8617970ab3bfc4cedb0f53e6ab78127562c0daa9c7",
+    "source_files_verified": 61,
+    "build": {
+      "commit": "dc5a90936ac9bdedb05a9ab05d993e5dd3b49c1b",
+      "engine_source_sha256": "f2c3fbeb78ff2e8e10b922132a9d394f74c717a48374b023b7759f5582568694",
+      "engine_source_manifest": "noisefence-source-tree-2",
+      "engine_source_files": 61,
+      "test_binary_sha256": "9a9853a99f8bec3a944a482e80f69e571f08cba117827fe44c1e7c3ccb473ab3",
+      "daemon_binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+      "runtime_files_sha256": {
+        "config/development.toml": "da7489c8118bfc523677989f605791a2d6bb42370543dbdc59cec7b4ad518163",
+        "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+        "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+        "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0",
+        "deploy/vision-worker.py": "cc649322f0b3d358a9b3bc35183c36ea03065e487e1a8295f20232d12a39554b"
+      },
+      "probe_source_sha256": "8a8efa7c1ae634fd99e87c36eeea8c79337b5cad2a9db4b357883dc4f83ae408",
+      "binary_sha256": "3588f372d974ecd8f3c2da66f3fe8e89edc4546f2d2692caaaa75a6f84280bd9",
+      "platform": "linux-amd64",
+      "profile": "release",
+      "features": [
+        "semantic"
+      ],
+      "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+    },
+    "initial_local_verifier_failure": {
+      "commit": "dc5a90936ac9bdedb05a9ab05d993e5dd3b49c1b",
+      "expected": "f2c3fbeb78ff2e8e10b922132a9d394f74c717a48374b023b7759f5582568694",
+      "string_sort": "7d6bed5ba51b0ddcf47925c56500b2a94956b004d82b299d3e460817c8a4f0d3",
+      "path_sort": "f2c3fbeb78ff2e8e10b922132a9d394f74c717a48374b023b7759f5582568694",
+      "first_order_difference": {
+        "index": 2,
+        "string_sort": "src/api.rs",
+        "path_sort": "src/api/admin.rs"
+      },
+      "source_files": 61
+    },
+    "verifier_resolution": "Preserve the workflow\u2019s path-component ordering; reverify the existing archive, extracted files, pinned sources and executables. No hash check was bypassed."
+  },
+  "functional_wiring": {
+    "finished": true,
+    "scope": "12 synthetic loopback SMTP messages. No model, antivirus, signature scanner or external authentication. Functional probe/worker wiring only; binary version and digest explicitly retained. One private network namespace shared by test SMTP and worker, not a production-confinement or capacity proof.",
+    "messages": 12,
+    "cases": {
+      "image": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 4,
+        "concurrency": 2,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          27634,
+          27634
+        ],
+        "vision_fixture": "image",
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "1",
+          "CANDLE_NUM_THREADS": null,
+          "TOKENIZERS_PARALLELISM": null,
+          "TOKIO_WORKER_THREADS": "2"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 4,
+        "delivered": 4,
+        "complete": 4,
+        "primary_complete": 4,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "disabled": 4
+          },
+          "antivirus": {
+            "disabled": 4
+          },
+          "signatures": {
+            "disabled": 4
+          },
+          "vision": {
+            "complete": 4
+          },
+          "llm": {
+            "disabled": 4
+          },
+          "research_execution": {
+            "complete": 4
+          },
+          "heuristics": {
+            "complete": 4
+          },
+          "content_inspection": {
+            "complete": 4
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 593,
+          "p95": 626,
+          "max": 626
+        },
+        "acceptance_ms": {
+          "p50": 1153.766,
+          "p95": 1229.442,
+          "max": 1229.442
+        },
+        "admission_seconds": 2.393,
+        "drained_seconds": 2.497,
+        "complete_per_second": 1.602,
+        "peak_daemon_rss_bytes": 58687488,
+        "peak_daemon_threads": 7,
+        "peak_pending_deliveries": 1,
+        "ocr_verified_messages": 4,
+        "ocr_complete_messages": 4,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 590,
+          "p95": 610,
+          "max": 610
+        },
+        "ocr_by_kind": {
+          "image": {
+            "messages": 4,
+            "complete": 4,
+            "verified": 4,
+            "ocr_elapsed_ms": {
+              "p50": 590,
+              "p95": 610,
+              "max": 610
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        }
+      },
+      "pdf": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 4,
+        "concurrency": 2,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          59366,
+          59366
+        ],
+        "vision_fixture": "pdf",
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "1",
+          "CANDLE_NUM_THREADS": null,
+          "TOKENIZERS_PARALLELISM": null,
+          "TOKIO_WORKER_THREADS": "2"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 4,
+        "delivered": 4,
+        "complete": 4,
+        "primary_complete": 4,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "disabled": 4
+          },
+          "antivirus": {
+            "disabled": 4
+          },
+          "signatures": {
+            "disabled": 4
+          },
+          "vision": {
+            "complete": 4
+          },
+          "llm": {
+            "disabled": 4
+          },
+          "research_execution": {
+            "complete": 4
+          },
+          "heuristics": {
+            "complete": 4
+          },
+          "content_inspection": {
+            "complete": 4
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 983,
+          "p95": 1069,
+          "max": 1069
+        },
+        "acceptance_ms": {
+          "p50": 1965.358,
+          "p95": 2062.072,
+          "max": 2062.072
+        },
+        "admission_seconds": 4.092,
+        "drained_seconds": 4.196,
+        "complete_per_second": 0.953,
+        "peak_daemon_rss_bytes": 58400768,
+        "peak_daemon_threads": 7,
+        "peak_pending_deliveries": 0,
+        "ocr_verified_messages": 4,
+        "ocr_complete_messages": 4,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 981,
+          "p95": 1051,
+          "max": 1051
+        },
+        "ocr_by_kind": {
+          "pdf": {
+            "messages": 4,
+            "complete": 4,
+            "verified": 4,
+            "ocr_elapsed_ms": {
+              "p50": 981,
+              "p95": 1051,
+              "max": 1051
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "pdf": "d7d79ac9a06881b6466fdaba35eef402364899ba96f1b89ff76d78bf4108c0ef"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        }
+      },
+      "alternating": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 4,
+        "concurrency": 2,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          27634,
+          59366
+        ],
+        "vision_fixture": "alternating",
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "1",
+          "CANDLE_NUM_THREADS": null,
+          "TOKENIZERS_PARALLELISM": null,
+          "TOKIO_WORKER_THREADS": "2"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 4,
+        "delivered": 4,
+        "complete": 4,
+        "primary_complete": 4,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "disabled": 4
+          },
+          "antivirus": {
+            "disabled": 4
+          },
+          "signatures": {
+            "disabled": 4
+          },
+          "vision": {
+            "complete": 4
+          },
+          "llm": {
+            "disabled": 4
+          },
+          "research_execution": {
+            "complete": 4
+          },
+          "heuristics": {
+            "complete": 4
+          },
+          "content_inspection": {
+            "complete": 4
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 612,
+          "p95": 974,
+          "max": 974
+        },
+        "acceptance_ms": {
+          "p50": 1513.71,
+          "p95": 1597.113,
+          "max": 1597.113
+        },
+        "admission_seconds": 3.121,
+        "drained_seconds": 3.225,
+        "complete_per_second": 1.24,
+        "peak_daemon_rss_bytes": 58327040,
+        "peak_daemon_threads": 6,
+        "peak_pending_deliveries": 0,
+        "ocr_verified_messages": 4,
+        "ocr_complete_messages": 4,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 592,
+          "p95": 972,
+          "max": 972
+        },
+        "ocr_by_kind": {
+          "image": {
+            "messages": 2,
+            "complete": 2,
+            "verified": 2,
+            "ocr_elapsed_ms": {
+              "p50": 532,
+              "p95": 592,
+              "max": 592
+            }
+          },
+          "pdf": {
+            "messages": 2,
+            "complete": 2,
+            "verified": 2,
+            "ocr_elapsed_ms": {
+              "p50": 971,
+              "p95": 972,
+              "max": 972
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+          "pdf": "a3f43a018b894bfc36159d5cb36cb528ae2154df9af4ee49afed6fe911cff639"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        }
+      }
+    },
+    "source_sha256": {
+      "noisefence": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+      "deploy/vision-worker.py": "cc649322f0b3d358a9b3bc35183c36ea03065e487e1a8295f20232d12a39554b",
+      "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+      "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+      "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+    },
+    "stage_removed": true
+  },
+  "full_processing": {
+    "messages": 280,
+    "messages_by_kind": {
+      "image": 140,
+      "pdf": 140
+    },
+    "platform": {
+      "os": "Linux",
+      "kernel": "6.12.100+deb13-cloud-amd64",
+      "architecture": "x86_64",
+      "nominal_vcpu": 4,
+      "ram_mib": 7757
+    },
+    "resources": {
+      "smtp_cpu_quota_percent": 400,
+      "smtp_memory_max_bytes": 3221225472,
+      "vision_cpu_quota_percent": 100,
+      "vision_memory_max_bytes": 943718400,
+      "cpu_weight": 10,
+      "nice": 10
+    },
+    "observed": {
+      "smtp": {
+        "memory_peak_bytes": 1306906624,
+        "cpu_usage_usec": 63682542
+      },
+      "vision": {
+        "memory_peak_bytes": 141447168,
+        "cpu_usage_usec": 212772147
+      },
+      "wall_seconds": 251.24513240501983
+    },
+    "model_sha256": {
+      "model.json": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+      "combination.json": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+      "encoder/config.json": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+      "encoder/tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+      "encoder/model.safetensors": "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
+    },
+    "vision_capabilities": {
+      "capabilities": {
+        "protocol": "noisefence-vision-1",
+        "backend_sha256": "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5",
+        "components": {
+          "tesseract": "tesseract 5.5.0",
+          "zbarimg": "0.23.93",
+          "pdftoppm": "pdftoppm version 25.03.0",
+          "pdfinfo": "pdfinfo version 25.03.0",
+          "pillow": "11.1.0",
+          "traineddata": {
+            "fra": "ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca",
+            "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+          },
+          "worker_sha256": "cc649322f0b3d358a9b3bc35183c36ea03065e487e1a8295f20232d12a39554b"
+        }
+      },
+      "protected_reads_denied": 4,
+      "ipv4_socket_denied": true
+    },
+    "cases": {
+      "model-ocr-image-smoke": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 8,
+        "concurrency": 4,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          27634,
+          27634
+        ],
+        "vision_fixture": "image",
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 550,
+          "p95": 686,
+          "max": 686
+        },
+        "acceptance_ms": {
+          "p50": 2203.539,
+          "p95": 2393.716,
+          "max": 2393.716
+        },
+        "admission_seconds": 4.612,
+        "drained_seconds": 4.716,
+        "complete_per_second": 1.696,
+        "peak_daemon_rss_bytes": 1188225024,
+        "peak_daemon_threads": 12,
+        "peak_pending_deliveries": 1,
+        "ocr_verified_messages": 8,
+        "ocr_complete_messages": 8,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 547,
+          "p95": 643,
+          "max": 643
+        },
+        "ocr_by_kind": {
+          "image": {
+            "messages": 8,
+            "complete": 8,
+            "verified": 8,
+            "ocr_elapsed_ms": {
+              "p50": 547,
+              "p95": 643,
+              "max": 643
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        },
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-pdf-smoke": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 8,
+        "concurrency": 4,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          59366,
+          59366
+        ],
+        "vision_fixture": "pdf",
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "retryable_responses": {
+          "451": 1
+        },
+        "analysis_ms": {
+          "p50": 956,
+          "p95": 1066,
+          "max": 1066
+        },
+        "acceptance_ms": {
+          "p50": 2915.823,
+          "p95": 6895.882,
+          "max": 6895.882
+        },
+        "admission_seconds": 7.843,
+        "drained_seconds": 7.947,
+        "complete_per_second": 1.007,
+        "peak_daemon_rss_bytes": 1175212032,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 0,
+        "ocr_verified_messages": 8,
+        "ocr_complete_messages": 8,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 954,
+          "p95": 1032,
+          "max": 1032
+        },
+        "ocr_by_kind": {
+          "pdf": {
+            "messages": 8,
+            "complete": 8,
+            "verified": 8,
+            "ocr_elapsed_ms": {
+              "p50": 954,
+              "p95": 1032,
+              "max": 1032
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "pdf": "1910d6f37b7ead36a8e0c029a582ce181e452b00f2cfa719406241a7481251b7"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        },
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-mixed-smoke": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 8,
+        "concurrency": 4,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          27634,
+          59366
+        ],
+        "vision_fixture": "alternating",
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 637,
+          "p95": 1016,
+          "max": 1016
+        },
+        "acceptance_ms": {
+          "p50": 2730.092,
+          "p95": 3196.155,
+          "max": 3196.155
+        },
+        "admission_seconds": 6.366,
+        "drained_seconds": 6.47,
+        "complete_per_second": 1.237,
+        "peak_daemon_rss_bytes": 1207955456,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 0,
+        "ocr_verified_messages": 8,
+        "ocr_complete_messages": 8,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 603,
+          "p95": 1012,
+          "max": 1012
+        },
+        "ocr_by_kind": {
+          "image": {
+            "messages": 4,
+            "complete": 4,
+            "verified": 4,
+            "ocr_elapsed_ms": {
+              "p50": 545,
+              "p95": 603,
+              "max": 603
+            }
+          },
+          "pdf": {
+            "messages": 4,
+            "complete": 4,
+            "verified": 4,
+            "ocr_elapsed_ms": {
+              "p50": 982,
+              "p95": 1012,
+              "max": 1012
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+          "pdf": "d46f84de33a5ce991b336c3a5c2e14c2133b998b3412084e13e3928189b6ec34"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        },
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-pdf-load": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 64,
+        "concurrency": 4,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          59366,
+          59368
+        ],
+        "vision_fixture": "pdf",
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 64,
+        "delivered": 64,
+        "complete": 64,
+        "primary_complete": 64,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "complete": 64
+          },
+          "antivirus": {
+            "clean": 64
+          },
+          "signatures": {
+            "clean": 64
+          },
+          "vision": {
+            "complete": 64
+          },
+          "llm": {
+            "disabled": 64
+          },
+          "research_execution": {
+            "complete": 64
+          },
+          "heuristics": {
+            "complete": 64
+          },
+          "content_inspection": {
+            "complete": 64
+          }
+        },
+        "retryable_responses": {
+          "451": 5
+        },
+        "analysis_ms": {
+          "p50": 976,
+          "p95": 1031,
+          "max": 1080
+        },
+        "acceptance_ms": {
+          "p50": 3910.698,
+          "p95": 6079.642,
+          "max": 6989.998
+        },
+        "admission_seconds": 63.379,
+        "drained_seconds": 63.483,
+        "complete_per_second": 1.008,
+        "peak_daemon_rss_bytes": 1169317888,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "ocr_verified_messages": 64,
+        "ocr_complete_messages": 64,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 973,
+          "p95": 1025,
+          "max": 1066
+        },
+        "ocr_by_kind": {
+          "pdf": {
+            "messages": 64,
+            "complete": 64,
+            "verified": 64,
+            "ocr_elapsed_ms": {
+              "p50": 973,
+              "p95": 1025,
+              "max": 1066
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "pdf": "d7b2bacd5c0a50ff56776f0a9ad96b39eadd05b5967a9a2527915fb35c875042"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        },
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-mixed-load": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 128,
+        "concurrency": 4,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          27634,
+          59370
+        ],
+        "vision_fixture": "alternating",
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 128,
+        "delivered": 128,
+        "complete": 128,
+        "primary_complete": 128,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "complete": 128
+          },
+          "antivirus": {
+            "clean": 128
+          },
+          "signatures": {
+            "clean": 128
+          },
+          "vision": {
+            "complete": 128
+          },
+          "llm": {
+            "disabled": 128
+          },
+          "research_execution": {
+            "complete": 128
+          },
+          "heuristics": {
+            "complete": 128
+          },
+          "content_inspection": {
+            "complete": 128
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 674,
+          "p95": 1030,
+          "max": 1085
+        },
+        "acceptance_ms": {
+          "p50": 3140.551,
+          "p95": 3224.156,
+          "max": 3312.498
+        },
+        "admission_seconds": 100.872,
+        "drained_seconds": 100.975,
+        "complete_per_second": 1.268,
+        "peak_daemon_rss_bytes": 1126514688,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "ocr_verified_messages": 128,
+        "ocr_complete_messages": 128,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 635,
+          "p95": 1028,
+          "max": 1083
+        },
+        "ocr_by_kind": {
+          "image": {
+            "messages": 64,
+            "complete": 64,
+            "verified": 64,
+            "ocr_elapsed_ms": {
+              "p50": 560,
+              "p95": 599,
+              "max": 635
+            }
+          },
+          "pdf": {
+            "messages": 64,
+            "complete": 64,
+            "verified": 64,
+            "ocr_elapsed_ms": {
+              "p50": 985,
+              "p95": 1031,
+              "max": 1083
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+          "pdf": "866bc4eb23389bbaab69ae088ffa525e4477f825b35d32a39768880e27573e9f"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        },
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-image-load": {
+        "version": "noisefence 0.5.0-dev.11",
+        "binary_sha256": "618579e48712d175c6ce65f495a45541a23026d4dc35551e5ebd8450a1aaa7b7",
+        "messages": 64,
+        "concurrency": 4,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "message_bytes_range": [
+          27634,
+          27636
+        ],
+        "vision_fixture": "image",
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "accepted": 64,
+        "delivered": 64,
+        "complete": 64,
+        "primary_complete": 64,
+        "incomplete": 0,
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "correctness_passed": true,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "complete": 64
+          },
+          "antivirus": {
+            "clean": 64
+          },
+          "signatures": {
+            "clean": 64
+          },
+          "vision": {
+            "complete": 64
+          },
+          "llm": {
+            "disabled": 64
+          },
+          "research_execution": {
+            "complete": 64
+          },
+          "heuristics": {
+            "complete": 64
+          },
+          "content_inspection": {
+            "complete": 64
+          }
+        },
+        "retryable_responses": {},
+        "analysis_ms": {
+          "p50": 559,
+          "p95": 590,
+          "max": 674
+        },
+        "acceptance_ms": {
+          "p50": 2270.586,
+          "p95": 2315.637,
+          "max": 2348.735
+        },
+        "admission_seconds": 36.456,
+        "drained_seconds": 36.56,
+        "complete_per_second": 1.751,
+        "peak_daemon_rss_bytes": 1176465408,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "ocr_verified_messages": 64,
+        "ocr_complete_messages": 64,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 557,
+          "p95": 587,
+          "max": 639
+        },
+        "ocr_by_kind": {
+          "image": {
+            "messages": 64,
+            "complete": 64,
+            "verified": 64,
+            "ocr_elapsed_ms": {
+              "p50": 557,
+              "p95": 587,
+              "max": 639
+            }
+          },
+          "unknown": {
+            "messages": 0,
+            "complete": 0,
+            "verified": 0,
+            "ocr_elapsed_ms": {
+              "p50": null,
+              "p95": null,
+              "max": null
+            }
+          }
+        },
+        "ocr_backend_sha256": [
+          "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+        ],
+        "fixture_inputs_sha256": {
+          "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+        },
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a9d19320d5da73a3b7dc6c1607d6ecc3aac23bfc8befcf25ce4d125233a06d0f",
+          "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+          "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0"
+        },
+        "private_worker_identity_verified": true
+      }
+    },
+    "repeatability": {
+      "messages": 280,
+      "distinct_raw_messages": 236,
+      "repeated_originals": 36,
+      "repeated_comparisons": 44,
+      "different_selected_decisions": 0,
+      "admission_events": {
+        "True": 274,
+        "False": 6
+      },
+      "scope": "Exact original SHA256, selected score/decision/features/sorted reason weights and OCR summary; excludes elapsed times and is not filtering-quality evidence.",
+      "comparison_kinds": {
+        "image": 44
+      }
+    },
+    "temporary_451": 6,
+    "production_version_during_test": "noisefence 0.4.3",
+    "configuration_unchanged": true,
+    "models_unchanged": true,
+    "production_state_inaccessible": true,
+    "private_network": true,
+    "external_messages": 0,
+    "unit_exit_status": 0,
+    "confinement_template_sha256": "861e7c5a62894fde4359bcb59d2ec7a75975a93f510934d296401f64a84c2d8a",
+    "controller_sources_sha256": {
+      "prepare-run-capacity.py": "23c1da237b428a9521c386ffb23862c0f98c4ef431bbe48e801ec5b747ecc6c2",
+      "run-capacity-suite.py": "a89dba5a3e6167f9a7785c4d720225d97ead78ac6c7a6118293dfc2b4450ba47",
+      "worker-entry.py": "e0e1e66ae6807dc28aa84252e130ac20939a05ce4664e63fe86adfc324f292f1"
+    },
+    "audit": {
+      "verified_files": 118,
+      "sha256": "89385cd11c240d23e63a51f9f5f243468f09533731e837fb43b74289665407fc",
+      "private_model_copies_removed": 5,
+      "stage_removed": true,
+      "production_active_after_cleanup": true
+    },
+    "limitations": [
+      "Synthetic image/PDF/alternating OCR/QR mail only; shared production host and low scheduling weight, not a production traffic capacity guarantee.",
+      "DNS/authentication, external reputation, LLM, TLS and Proton delivery excluded.",
+      "Models and local scanners enabled. AV and signatures are shared existing services outside measured cgroups; OCR uses a separate exact-source candidate service.",
+      "SMTP and OCR counters sampled every 100 ms; final CPU sample may precede SMTP process exit; model loading excluded from per-message analysis times.",
+      "Shipped OCR confinement reused; explicit private socket replaces socket activation. Protected reads and IPv4 socket denial verified inside worker.",
+      "No filtering-quality or real CAPEv2 claim."
+    ]
+  },
+  "interpretation": {
+    "analysis_p95_ms": {
+      "64_images": 590,
+      "64_pdf": 1031,
+      "128_alternating": 1030
+    },
+    "complete_per_second": {
+      "64_images": 1.751,
+      "64_pdf": 1.008,
+      "128_alternating": 1.268
+    },
+    "target_analysis_p95_below_500ms": false,
+    "throughput_scope": "Single processing slot, four SMTP clients, one serial OCR worker limited to100%CPU, shared4vCPU host. Per-profile rates include drain but not startup. Do not pool profile quantiles.",
+    "scope_of_repeatability": "Selected decisions and features match for44 repeated-image comparisons; this does not establish spam capture, false positives or PDF-repeatability.",
+    "next_measurement": "Investigate the serial OCR bottleneck and qualify messages with multiple attachment kinds together; preserve decoder coverage and per-job isolation."
+  },
+  "not_proved": [
+    "Recent independent capture/false-positive calibration.",
+    "True isolated CAPEv2/Office execution.",
+    "Proton behavior for newly enabled actions.",
+    "Sustained representative production capacity and p95below500ms."
+  ]
+}

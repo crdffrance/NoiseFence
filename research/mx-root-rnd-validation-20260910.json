@@ -1,0 +1,41 @@
+{
+  "schema": "noisefence-rnd-mx-validation-1",
+  "version": "0.5.0-dev.12",
+  "parent_runtime_commit": "dc5a90936ac9bdedb05a9ab05d993e5dd3b49c1b",
+  "stable_origin_commit": "cb90eff9c4b539a17f14865e6b1962d7045c7863",
+  "scope": "Port the validated stable MX-root handling into the R&D candidate; not a production deployment or detector-quality claim.",
+  "sources_sha256": {
+    "src/config.rs": "2656838a9b81d4653da93e709c80f1e19490e55f9656a3baf892deb710500255",
+    "src/relay.rs": "84f5fc56b3e9fdfe16b431d8785cb21532b0604cd1c3149975aa1465cb36fc08",
+    "tests/relay_endpoints.rs": "ea222ff4b0b89f6f2c7a162f8ae1ffa9c4fd00d4ec1dda8b93f0fc26117df5c1",
+    "tests/relay_trace.rs": "c529d0e38ffc0e00d43d784ff43c6816dca148528feeca08f0c5250026b77585"
+  },
+  "validation": {
+    "targeted_tests": {
+      "passed": 15,
+      "suites": [
+        "relay_endpoints",
+        "relay_trace",
+        "diagnostics"
+      ],
+      "features": [
+        "semantic"
+      ],
+      "platform": "macOS",
+      "log_sha256": "27b116bf1f4a230cc044187c43435522b244aeda45c05c79b1cfdb4fabd3cd82"
+    },
+    "clippy": {
+      "result": "pass: all targets, semantic, -D warnings",
+      "log_sha256": "1da5f9c7dfc306f8b453be2010104a60bb53c39ca6264d72e48d0ce0296ae948"
+    },
+    "format_version_diff": "passed"
+  },
+  "invariants": [
+    "One final DNS root dot is removed only for endpoint validation, loop checks and the TLS name.",
+    "The original absolute name is retained for DNS lookup, including persisted DSN routes.",
+    "Root/empty labels, malformed endpoints and looping gateway/domain routes stay invalid.",
+    "SMTP replies and the original route are retained; unknown TLS issuers, recipient ACLs and transactional trace persistence keep their existing checks."
+  ],
+  "linux_candidate_validation": "pending after publication; stable 0.4.3 checks are recorded separately and do not qualify the whole R&D candidate",
+  "production": "stable0.4.3; no R&D deployment"
+}

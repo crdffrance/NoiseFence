@@ -501,13 +501,20 @@
     "pipeline_run": "34490673931",
     "pipeline_conclusion": "failure at the same assertion; no measurement artifact available",
     "candidate_failed_log_sha256": "d33d6110afffd96435f6ee4c45a4c96211d504b8b55cb5c6da26c634493dba7f",
-    "pipeline_failed_log_sha256": "a027c54e81cbe19ef0eb23e78c30de7f3dc9a563ba02845007a49ffcb6ca2179"
+    "pipeline_failed_log_sha256": "a027c54e81cbe19ef0eb23e78c30de7f3dc9a563ba02845007a49ffcb6ca2179",
+    "corrected_candidate": {
+      "commit": "dc5a90936ac9bdedb05a9ab05d993e5dd3b49c1b",
+      "run": 34492656790,
+      "conclusion": "success, all6jobs",
+      "pipeline_run": 34492811783,
+      "pipeline_conclusion": "success; artifact and61source inputs verified"
+    }
   },
   "outstanding": [
-    "Corrected release binary with real OCR and models onLinux: PDF/alternating SMTP completeness and longer capacity.",
     "Recent independent calibration and capture/false-positive evaluation.",
     "Real isolated CAPEv2/Office execution validation.",
-    "Proton delivery behavior for newly enabled actions."
+    "Proton delivery behavior for newly enabled actions.",
+    "Representative sustained capacity, mixed attachment kinds within one message and the p95below500ms target."
   ],
   "sources": [
     "https://opensource.adobe.com/dc-acrobat-sdk-docs/standards/pdfstandards/pdf/PDF32000_2008.pdf",
@@ -531,6 +538,11 @@
       "log_sha256": "9b0f663cbf74e27c146c8bbe5557393c3008ba4e9debd4b2d5f8a6fca9719a5b",
       "scope": "Real local loopback SMTP on the unchanged dev.11 native binary; not Linux qualification or a capacity/quality claim."
     },
-    "linux_validation": "pending a new run on the corrected probe"
+    "linux_validation": {
+      "status": "passed corrected CI and real image/PDF/alternating SMTP",
+      "report": "vision-pdf-linux-validation-20260910.json",
+      "messages_without_models": 12,
+      "messages_with_models_and_scanners": 280
+    }
   }
 }

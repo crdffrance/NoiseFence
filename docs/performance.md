@@ -505,3 +505,35 @@ complet, mais les quatre inspections PDF étaient incomplètes. Le
 [relevé](../research/pdf-structure-validation-20260910.json) conserve cet échec,
 le correctif du générateur synthétique et les tests du contrôle JPEG/PDF.
 Il ne présente pas cet essai comme une capacité validée du candidat corrigé.
+
+Le [relevé corrigé sur Linux](../research/vision-pdf-linux-validation-20260910.json)
+utilise le binaire dev.11 du commit `dc5a909`, dont les six jobs CI ont réussi.
+Douze messages vérifient d’abord le raccordement du banc, puis 280 messages passent
+par les modèles lexical et sémantique, l’antivirus, les signatures, les heuristiques,
+l’inspection structurelle et l’OCR. Tous sont entièrement analysés et livrés
+intacts. Les trois lots les plus longs donnent :
+
+| Profil | Messages | Analyse p95 | Analyses complètes et livraisons/s | Réponses temporaires avant DATA |
+| --- | --- | --- | --- | --- |
+| Image | 64 | 590 ms | 1,75 | 0 |
+| PDF scanné | 64 | 1 031 ms | 1,01 | 5 |
+| Alternance image/PDF | 128 | 1 030 ms | 1,27 | 0 |
+
+Une réponse temporaire supplémentaire concerne le petit lot PDF initial. Les
+clients réessaient et les six réponses `451` ne provoquent aucune perte. Les
+profils alternés contiennent une seule pièce jointe par message, image ou PDF.
+Le test avec plusieurs types de pièces joints au même message reste à effectuer.
+
+Le banc emploie quatre clients SMTP, un traitement simultané, une attente de
+capacité de trois secondes et un worker OCR séquentiel limité à un CPU et 900 Mio.
+L’unité SMTP est plafonnée à quatre CPU et 3 Gio sur un hôte partagé de 4 vCPU et
+environ 8 Go. Son pic mémoire cgroup atteint 1,22 Gio ; celui du worker 135 Mio.
+Les scanners externes à ces unités ne sont pas inclus dans ces pics.
+
+Les 44 comparaisons d’images originales identiques retrouvent les mêmes décisions,
+caractéristiques et résumés OCR sélectionnés. Cela ne mesure pas la capture ni
+les faux positifs. L’objectif de p95 inférieur à 500 ms reste non atteint.
+Le débit soutenu et le parallélisme OCR doivent être mesurés en conservant
+la couverture des décodeurs et l’isolation des traitements. Les empreintes,
+versions des moteurs et limites du banc sont conservées dans le relevé ; les
+unités et copies de modèles temporaires ont été supprimées après l’audit.

@@ -5,6 +5,18 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.12 — Routes MX absolues
+
+- Reporter le correctif de la version stable 0.4.3 : accepter un point DNS final
+  dans les routes SMTP, y compris les avis d’échec déjà en file. Conserver le nom
+  absolu pour la résolution, le nom canonique pour TLS et les contrôles de boucle.
+- Couvrir les routes avec ou sans port, les noms invalides et les traces de
+  livraison des avis d’échec dans le contexte du moteur R&D.
+- Publier le relevé Linux de dev.11 : 292 messages synthétiques entièrement
+  analysés et livrés intacts, dont 280 avec modèles et scanners locaux. Conserver
+  les six réponses temporaires, les plafonds du banc et l’objectif de latence
+  encore non atteint ; ces mesures restent liées au binaire dev.11.
+
 ### 0.5.0-dev.11 — Inspection des PDF contenant des images JPEG
 
 - Inspecter les images XObject à filtre DCT avec limites, contrôle du cadrage
@@ -162,6 +174,14 @@ incompatible demande une version mineure et une migration documentée.
 - Fournir l’export local de développement et une cible de fuzzing des nouveaux
   décodeurs. Documenter les mesures historiques et l’absence de validation d’une VM
   réelle ou d’amélioration démontrée du taux de capture.
+
+## [0.4.3] - 2026-09-10
+
+- Accepter le point final des noms MX pour le relais SMTP, notamment les avis
+  d’échec déjà en file. Conserver la résolution DNS absolue, le nom TLS canonique,
+  la vérification des certificats et les contrôles contre les boucles.
+- Documenter les tentatives arrêtées avant toute réponse SMTP et couvrir les
+  routes avec ou sans port, les noms invalides et la livraison locale des avis.
 
 ## [0.4.2] - 2026-09-10
 
