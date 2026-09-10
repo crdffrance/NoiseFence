@@ -5,6 +5,15 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+- Repenser la console avec une identité orange, une navigation claire, une page
+  de connexion illustrée et un habillage commun aux espaces administrateur et
+  utilisateur. Adapter les listes, les réglages et les confirmations aux petits écrans.
+- Rendre le journal plus lisible avec des statuts distincts, des indices de suspicion
+  accessibles et les filtres secondaires regroupés. Ajouter le raccourci Ctrl/⌘+K
+  pour la recherche et la possibilité d’afficher temporairement le mot de passe.
+- Conserver les décisions, les autorisations, les requêtes API et les politiques
+  de livraison existantes. Aucune migration de stockage ni modification du moteur.
+
 ## [0.4.5] - 2026-09-10
 
 - Configurer les quotas CRDF et VirusTotal par minute et par jour depuis la console,

@@ -2,6 +2,7 @@
 import { actionLabel, type DeliveryAction } from './actions';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
+import { BrandMark, LoginStory, ScoreMeter } from './brand';
 import { classification, deliverySummary } from './presentation';
 import {
   deliveryStatus,
@@ -39,6 +40,12 @@ import {
   ChevronRight,
   Menu,
   Clock3,
+  ArrowUpRight,
+  LockKeyhole,
+  Eye,
+  EyeOff,
+  Globe2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -205,6 +212,8 @@ function fusionReason(feature: string) {
   return family;
 }
 export default function Home() {
+  const [showPassword, setShowPassword] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [section, setSection] = useState<Section | 'account'>('messages');
   const [mobileMenu, setMobileMenu] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -247,6 +256,7 @@ export default function Home() {
     setHistoricalThreshold(null);
     setNotice('');
     setPassword('');
+    setShowPassword(false);
     setConfirmation(null);
     setConfirmationError('');
     setMobileMenu(false);
@@ -353,6 +363,23 @@ export default function Home() {
     }, 30000);
     return () => clearInterval(timer);
   }, [user, section, selected, confirmation, busy, refresh]);
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (
+        user &&
+        section === 'messages' &&
+        !selected &&
+        !confirmation &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'k'
+      ) {
+        event.preventDefault();
+        searchInput.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', focusSearch);
+    return () => window.removeEventListener('keydown', focusSearch);
+  }, [user, section, selected, confirmation]);
   function navigate(next: Section | 'account', nextFilter = 'all') {
     setSection(next);
     setFilter(nextFilter);
@@ -441,73 +468,107 @@ export default function Home() {
   }
   if (!ready)
     return (
-      <main className="login">
-        <output>Connexion à la passerelle…</output>
+      <main className="connection-screen">
+        <BrandMark />
+        <output>
+          <RefreshCw size={16} className="spin" /> Connexion à votre espace…
+        </output>
       </main>
     );
   if (!user)
     return (
       <main className="login">
-        <form
-          className="login-card"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError('');
-            try {
-              changeSession(await api<User>('/login', { username, password }));
-              setPassword('');
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <span className="brand-icon">
-            <ShieldCheck size={28} />
-          </span>
-          <p className="eyebrow">NOISEFENCE</p>
-          <h1>
-            Vos messages,
-            <br />
-            en toute clarté.
-          </h1>
-          <p className="muted">
-            Consultez les décisions du filtre et signalez les erreurs de
-            classement.
-          </p>
-          <label htmlFor="username">Identifiant</label>
-          <Input
-            id="username"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            maxLength={100}
-          />
-          <label htmlFor="password">Mot de passe de la console</label>
-          <Input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            maxLength={128}
-          />
-          {error && (
-            <p className="error" role="alert">
-              {error}
+        <LoginStory />
+        <div className="login-form-side">
+          <div className="login-mobile-brand">
+            <BrandMark /> NoiseFence
+          </div>
+          <form
+            className="login-card"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setError('');
+              try {
+                changeSession(
+                  await api<User>('/login', { username, password }),
+                );
+                setPassword('');
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <span className="login-lock">
+              <LockKeyhole size={22} />
+            </span>
+            <p className="eyebrow">BIENVENUE DANS VOTRE ESPACE</p>
+            <h1>Content de vous retrouver.</h1>
+            <p className="muted">
+              Connectez-vous pour retrouver vos messages et les décisions du
+              filtre.
             </p>
-          )}
-          <Button className="login-submit" disabled={busy} type="submit">
-            {busy ? 'Connexion…' : 'Se connecter'}
-          </Button>
-          <p className="small muted">
-            Utilisez le compte créé par votre administrateur.
+            <label htmlFor="username">Identifiant</label>
+            <Input
+              id="username"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              maxLength={100}
+              placeholder="Votre identifiant"
+            />
+            <label htmlFor="password">Mot de passe</label>
+            <div className="password-input">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                maxLength={128}
+                placeholder="Votre mot de passe"
+              />
+              <button
+                type="button"
+                aria-label={
+                  showPassword
+                    ? 'Masquer le mot de passe'
+                    : 'Afficher le mot de passe'
+                }
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <Button className="login-submit" disabled={busy} type="submit">
+              {busy ? (
+                <>
+                  <RefreshCw size={17} className="spin" /> Connexion…
+                </>
+              ) : (
+                <>
+                  Se connecter <ArrowUpRight size={18} />
+                </>
+              )}
+            </Button>
+            <p className="login-help">
+              Besoin d’un accès ? Contactez votre administrateur.
+            </p>
+          </form>
+          <p className="login-footnote">
+            <LockKeyhole size={13} /> Un espace réservé à votre organisation.
           </p>
-        </form>
+        </div>
       </main>
     );
   return (
@@ -519,10 +580,10 @@ export default function Home() {
         <div className="rail-brand">
           <div className="wordmark">
             <span className="brand-symbol">
-              <ShieldCheck size={23} />
+              <BrandMark />
             </span>
             <div>
-              NoiseFence<small>CONSOLE DE MESSAGERIE</small>
+              NoiseFence<small>LA CLARTÉ DANS VOS MESSAGES</small>
             </div>
           </div>
           <button
@@ -536,6 +597,16 @@ export default function Home() {
           </button>
         </div>
         <div id="console-navigation" className="rail-navigation">
+          <div className="workspace-identity">
+            <span className="workspace-monogram">{user.admin ? 'A' : 'M'}</span>
+            <div>
+              <strong>{user.admin ? 'Mon organisation' : 'Mon espace'}</strong>
+              <small>
+                {user.admin ? 'Espace administrateur' : 'Espace personnel'}
+              </small>
+            </div>
+            <LockKeyhole size={13} />
+          </div>
           <div className="rail-label">MESSAGERIE</div>
           <nav className="navigation" aria-label="Messagerie">
             <button
@@ -611,12 +682,19 @@ export default function Home() {
           </nav>
         </div>
         <div className="rail-footer">
-          <strong>{user.username}</strong>
-          <span>
-            {user.admin
-              ? 'Administrateur · Tous les domaines'
-              : user.addresses.join(', ') || 'Aucune adresse attribuée'}
-          </span>
+          <div className="signed-in-user">
+            <span className="user-avatar">
+              {Array.from(user.username).slice(0, 2).join('').toUpperCase()}
+            </span>
+            <div>
+              <strong>{user.username}</strong>
+              <span>
+                {user.admin
+                  ? 'Administrateur · Tous les domaines'
+                  : user.addresses.join(', ') || 'Aucune adresse attribuée'}
+              </span>
+            </div>
+          </div>
           <Button
             variant="ghost"
             onClick={async () => {
@@ -643,17 +721,22 @@ export default function Home() {
       </aside>
       <main id="main-content" className="workspace" tabIndex={-1}>
         <header className="topline">
-          <span>
-            Console /{' '}
-            {selected
-              ? 'Décision du filtre'
-              : section === 'account'
-                ? 'Mon compte'
-                : section === 'messages' && filter === 'quarantined'
-                  ? 'Quarantaine'
-                  : navigation.find((n) => n.id === section)?.label}
+          <span className="breadcrumbs">
+            <span>Espace de travail</span>
+            <ChevronRight size={14} />
+            <strong>
+              {selected
+                ? 'Décision du filtre'
+                : section === 'account'
+                  ? 'Mon compte'
+                  : section === 'messages' && filter === 'quarantined'
+                    ? 'Quarantaine'
+                    : navigation.find((n) => n.id === section)?.label}
+            </strong>
           </span>
-          <span className="mode">
+          <span
+            className={`mode ${stats && stats.mode !== 'observe' ? 'mode-active' : ''}`}
+          >
             <i />
             {stats
               ? stats.mode !== 'observe'
@@ -1121,7 +1204,7 @@ export default function Home() {
                     <p className="muted">
                       {filter === 'quarantined'
                         ? 'Examinez les messages retenus et choisissez leur traitement.'
-                        : 'Comprenez les décisions du filtre et corrigez les erreurs de classement.'}
+                        : 'Suivez chaque message, de son analyse à sa livraison.'}
                     </p>
                   </div>
                   <Button
@@ -1134,6 +1217,7 @@ export default function Home() {
                   </Button>
                 </div>
                 <div className="scope-bar">
+                  <Globe2 size={16} />
                   <label htmlFor="domain-scope">Périmètre</label>
                   <select
                     id="domain-scope"
@@ -1166,6 +1250,7 @@ export default function Home() {
                       count: stats?.received,
                       icon: Inbox,
                       tone: 'blue',
+                      detail: 'Historique disponible',
                     },
                     {
                       id: 'spam',
@@ -1173,6 +1258,7 @@ export default function Home() {
                       count: stats?.flagged,
                       icon: ShieldCheck,
                       tone: 'orange',
+                      detail: 'Classés indésirables',
                     },
                     {
                       id: 'publicity',
@@ -1180,6 +1266,7 @@ export default function Home() {
                       count: stats?.publicity,
                       icon: Flag,
                       tone: 'purple',
+                      detail: 'Publicités et newsletters',
                     },
                     {
                       id: 'quarantined',
@@ -1187,6 +1274,7 @@ export default function Home() {
                       count: stats?.quarantined,
                       icon: Archive,
                       tone: 'amber',
+                      detail: 'Messages retenus',
                     },
                   ].map((card) => (
                     <button
@@ -1205,7 +1293,8 @@ export default function Home() {
                       <strong>
                         {card.count?.toLocaleString('fr-FR') ?? '—'}
                       </strong>
-                      <ChevronRight className="stat-arrow" size={16} />
+                      <small className="stat-detail">{card.detail}</small>
+                      <ArrowUpRight className="stat-arrow" size={16} />
                     </button>
                   ))}
                 </div>
@@ -1229,6 +1318,19 @@ export default function Home() {
                   </div>
                 )}
                 <section className="messages" aria-busy={loading}>
+                  <div className="journal-heading">
+                    <div>
+                      <h2>
+                        {filter === 'quarantined'
+                          ? 'Messages en quarantaine'
+                          : 'Journal des messages'}
+                      </h2>
+                      <p>Les décisions et la livraison, au même endroit.</p>
+                    </div>
+                    <span className="journal-period">
+                      <Clock3 size={14} /> Historique disponible
+                    </span>
+                  </div>
                   <div className="toolbar">
                     <fieldset
                       className="tabs"
@@ -1239,13 +1341,10 @@ export default function Home() {
                         ['spam', 'Spam détecté'],
                         ['publicity', 'PUB'],
                         ['legitimate', 'Légitime'],
-                        ['pending', 'En attente'],
                         [
                           'quarantined',
                           `Quarantaine (${stats?.quarantined ?? 0})`,
                         ],
-                        ['review', 'À vérifier'],
-                        ['incomplete', 'Analyse incomplète'],
                       ].map(([value, label]) => (
                         <Button
                           key={value}
@@ -1259,10 +1358,37 @@ export default function Home() {
                           {label}
                         </Button>
                       ))}
+                      <label
+                        className={`more-filters ${['pending', 'review', 'incomplete'].includes(filter) ? 'has-filter' : ''}`}
+                      >
+                        <SlidersHorizontal size={14} />
+                        <select
+                          aria-label="Autres filtres de messages"
+                          value={
+                            ['pending', 'review', 'incomplete'].includes(filter)
+                              ? filter
+                              : ''
+                          }
+                          onChange={(event) => {
+                            if (event.target.value) {
+                              setFilter(event.target.value);
+                              setOffset(0);
+                            }
+                          }}
+                        >
+                          <option value="" disabled>
+                            Plus de filtres
+                          </option>
+                          <option value="pending">En attente</option>
+                          <option value="review">À vérifier</option>
+                          <option value="incomplete">Analyse incomplète</option>
+                        </select>
+                      </label>
                     </fieldset>
                     <div className="search message-search">
                       <Search size={18} />
                       <Input
+                        ref={searchInput}
                         aria-label="Rechercher par objet, expéditeur ou destinataire"
                         placeholder="Rechercher un message…"
                         value={search}
@@ -1272,6 +1398,15 @@ export default function Home() {
                         }}
                         maxLength={150}
                       />
+                      {!search && (
+                        <kbd
+                          className="search-shortcut"
+                          title="Ctrl ou ⌘ + K"
+                          aria-hidden="true"
+                        >
+                          ⌘ K
+                        </kbd>
+                      )}
                       {search && (
                         <button
                           className="clear-search"
@@ -1323,9 +1458,20 @@ export default function Home() {
                                   setNotice('');
                                 }}
                               >
-                                <strong>{m.subject || '(Sans objet)'}</strong>
-                                <span>
-                                  {m.sender || 'Notification de livraison'}
+                                <span
+                                  className="sender-avatar"
+                                  aria-hidden="true"
+                                >
+                                  {Array.from(m.sender || 'NF')
+                                    .slice(0, 2)
+                                    .join('')
+                                    .toUpperCase()}
+                                </span>
+                                <span className="message-copy">
+                                  <strong>{m.subject || '(Sans objet)'}</strong>
+                                  <span>
+                                    {m.sender || 'Notification de livraison'}
+                                  </span>
                                 </span>
                               </button>
                             </TableCell>
@@ -1356,26 +1502,43 @@ export default function Home() {
                             </TableCell>
                             <TableCell>
                               <span
-                                className={`status ${deliverySummary(m.recipients).tone}`}
+                                className={`status delivery-status ${deliverySummary(m.recipients).tone}`}
                               >
                                 {deliverySummary(m.recipients).label}
                               </span>
                             </TableCell>
                             <TableCell>
-                              <span className="score">
-                                {displayedScore(m)?.toFixed(1) ?? '—'}
-                              </span>
+                              <ScoreMeter
+                                score={displayedScore(m)}
+                                tone={
+                                  classification(m, stats?.threshold ?? 95).tone
+                                }
+                              />
                             </TableCell>
                             <TableCell className="muted">
-                              {new Date(m.created * 1000).toLocaleString(
-                                'fr-FR',
-                                {
-                                  day: '2-digit',
-                                  month: 'short',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                },
-                              )}
+                              <time
+                                className="message-date"
+                                dateTime={new Date(
+                                  m.created * 1000,
+                                ).toISOString()}
+                              >
+                                <strong>
+                                  {new Date(
+                                    m.created * 1000,
+                                  ).toLocaleTimeString('fr-FR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </strong>
+                                <span>
+                                  {new Date(
+                                    m.created * 1000,
+                                  ).toLocaleDateString('fr-FR', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                  })}
+                                </span>
+                              </time>
                             </TableCell>
                           </TableRow>
                         ))}
