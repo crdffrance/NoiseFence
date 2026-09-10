@@ -6,8 +6,10 @@ actuellement autorisé demande explicitement l’envoi du lien depuis la console
 La réception, l’analyse, la consultation du message et l’ouverture du lien ne
 déclenchent aucune demande automatique.
 
-Le lien prouve l’accès à la boîte concernée, pas la présence d’un humain ni
-l’innocuité du message. Le bouton de confirmation n’est pas un CAPTCHA. Une réponse
+Le lien reçu et la reproduction d’un code visuel constituent une confirmation
+explicite. Ce contrôle ne prouve ni la présence d’un humain, ni l’identité du
+titulaire, ni l’innocuité du message : un robot peut lire le code et un lien peut
+être transféré. Une réponse
 ne crée aucune liste blanche, exception pour les messages suivants, modification
 du classement, correction utilisateur ou donnée d’apprentissage.
 
@@ -108,15 +110,38 @@ réduisent les abus sans démontrer le consentement du titulaire de l’adresse 
 `GET /challenge` affiche une page indépendante de la console ; lorsque la fonction
 est désactivée, il retourne 404. Le lien utilise un fragment :
 `https://origine-configurée/challenge#JETON`. La page retire ce fragment de
-l’historique avant toute soumission. Le bouton envoie ensuite
-`{"token":"…"}` dans le corps JSON de `POST /challenge/submit`, sans cookies ni
-référent. Un GET ne libère aucun message.
+l’historique avant toute requête. Le bouton **Afficher le code** envoie
+`{"token":"…"}` à `POST /challenge/puzzle`. La réponse contient un `nonce` et une
+image SVG encodée en base64, rendue localement dans un élément `img`. L’image est
+générée en Rust avec des tracés : aucun texte de réponse, script ou lien externe
+n’y est inséré. La page ne fait aucun appel réseau avant ce clic.
+
+L’expéditeur recopie les six caractères puis clique sur **Valider et confirmer**.
+La page envoie `{"token":"…","nonce":"…","code":"…"}` dans le corps JSON de
+`POST /challenge/submit`, sans cookies ni référent. Les lettres minuscules sont
+acceptées ; I, O, 0 et 1 ne figurent pas dans l’alphabet. Un GET, l’affichage du
+code ou une soumission contenant seulement le jeton ne libèrent aucun message.
+Une alternative de libération manuelle par le destinataire est indiquée pour
+les personnes qui ne peuvent pas utiliser le code visuel ou JavaScript.
+
+Le code expire après dix minutes au maximum, sans dépasser l’expiration du lien.
+Un nouveau code invalide le précédent. Huit images et huit vérifications sont
+autorisées par lien ; les compteurs SQLite survivent aux renouvellements, à la
+maintenance, aux requêtes simultanées et aux redémarrages. Une fois la limite
+d’images atteinte, une nouvelle requête retourne une image inutilisable sans
+invalider la dernière image encore valide. Les jetons inconnus, expirés ou épuisés
+reçoivent aussi une image de substitution, sans création de ligne en base ni
+notification. Les compteurs ne sont pas remis à zéro par l’expiration d’un code.
 
 Le routeur public vérifie l’origine, refuse les paramètres de requête et borne le
-corps à 1024 octets et la concurrence à huit opérations. La même réponse HTTP 200
+corps à 1024 octets et la concurrence à huit opérations partagées entre image et
+réponse. Les origines absentes, multiples ou différentes sont refusées. Le
+chemin d’image retourne 404 si désactivé, 403 pour une origine ou une query refusée,
+400 pour un corps invalide, 429 sous charge et 503 si la création échoue. La même réponse HTTP 200
 générique couvre succès, jeton incorrect, expiré, révoqué ou rejoué, corps invalide,
 origine refusée, désactivation et erreur de stockage. Les erreurs de stockage
-produisent un diagnostic fixe sans contenu privé. Le CSP à empreinte de script est
+produisent un diagnostic fixe sans contenu privé. Le CSP à empreintes de script
+et de style, avec les seules images `data:`, est
 conservé après fusion avec le routeur de la console. La page utilise `no-store`,
 `no-referrer`, `nosniff`, `DENY` et aucune ressource externe ni analyse d’audience.
 
@@ -127,7 +152,9 @@ Le jeton lui-même figure nécessairement dans la notification MIME en file, pui
 proxys et APM ne doivent pas enregistrer les corps POST ou les paramètres d’URL
 arbitraires. Aucun jeton ne doit être ajouté aux diagnostics.
 
-La réponse sélectionne exclusivement l’envoi associé à l’empreinte du jeton. Dans
+La réponse sélectionne exclusivement l’envoi associé à l’empreinte du jeton. Le
+code est lié à cette empreinte et au nonce, puis vérifié côté serveur. Un code
+erroné ou un budget épuisé est traité avant toute lecture du message en file. Dans
 la même transaction, elle revérifie le compte actif, son empreinte de mot de passe
 et de version, le droit courant `console_access`, la destination, la preuve SMTP,
 les octets, les résultats malware et la conservation. La session web de la demande
@@ -135,7 +162,7 @@ peut être fermée : les droits actuels du compte restent obligatoires. Une pert
 d’éligibilité observée révoque définitivement le jeton. Désactiver la fonction
 suspend les réponses ; révoquer les demandes annule définitivement leurs liens.
 
-Une réponse valide consomme le jeton, remet uniquement l’envoi sélectionné en
+Une réponse valide consomme le code et le jeton dans la même transaction, remet uniquement l’envoi sélectionné en
 `pending`, réinitialise `next_attempt`, efface son erreur et renseigne `released_at`
 pour ouvrir une nouvelle période de tentatives SMTP. L’action `quarantine`, le
 Scan, les octets, l’enveloppe, les autres destinataires et l’historique restent
@@ -148,7 +175,12 @@ demandeur avec l’identifiant de cet envoi. Aucun rejeu ne libère un autre env
 Cette fonction purge les métadonnées même
 lorsque la fonction est désactivée ou que le message reste présent en file ou en
 quarantaine. La fonction accepte la connexion d’une transaction existante. Son
-résultat compte les demandes, identités et événements de quota supprimés.
+résultat compte les demandes, identités et événements de quota supprimés, ainsi
+que les codes effacés. Le code n’est jamais stocké en clair : seuls son empreinte,
+le nonce, l’expiration et les compteurs figurent dans `challenge_visual_codes`.
+La consommation et l’épuisement des tentatives effacent l’empreinte et le nonce ;
+l’entretien les efface aussi pour les codes expirés ou les demandes closes. Les
+compteurs restent jusqu’à la suppression de la demande par clé étrangère.
 
 Une demande close ou expirée, avec son empreinte de jeton et ses données associées,
 est supprimée dès 30 jours après sa création, sans ajouter 30 jours à son
@@ -170,6 +202,11 @@ pas une promesse d’effacement de toutes les copies du jeton.
 
 ## Tests locaux
 
+Depuis 0.5.0-dev.3, l’ouverture de Store ajoute la table des codes sans réécrire
+les anciennes demandes. Un lien déjà émis peut afficher un code s’il reste
+éligible. Une ancienne page qui envoie seulement le jeton ne peut plus libérer
+de message ; rouvrir le lien charge le nouveau parcours.
+
 `cargo test --locked --offline --test challenge` utilise des bases SQLite
 temporaires, des preuves synthétiques sans DNS, des requêtes HTTP en mémoire et
 un serveur SMTP uniquement sur la boucle locale. Aucun service de production ni
@@ -179,3 +216,20 @@ locale, exclure ce seul test de protocole :
 ```sh
 cargo test --locked --offline --test challenge -- --skip queued_notification_uses_null_smtp_mail_from_on_loopback_protocol
 ```
+
+Les tests couvrent aussi l’expiration indépendante du code, les renouvellements,
+les quotas entre connexions SQLite, le rollback après échec de stockage et le
+maintien en quarantaine après une réponse invalide. `node --test
+web/tests/challenge-page.test.mjs` exécute le script livré dans un DOM minimal :
+clic explicite, effacement du fragment, corps JSON, erreurs et renouvellement.
+Ces tests ne mesurent pas la résistance du code à un logiciel de reconnaissance.
+
+Pour générer un aperçu local de la page et d’une image synthétique déjà consommée :
+
+```sh
+NOISEFENCE_VISUAL_PREVIEW=var/challenge-preview cargo test --locked --offline --lib generated_picture_answer_verifies_once
+```
+
+Ce répertoire ne contient ni boîte réelle ni lien opérationnel. Un rendu de cette
+image vérifie sa lisibilité ; les contrôles de libération restent ceux des tests
+HTTP et SQLite, indépendants de cet aperçu.

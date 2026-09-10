@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Confirmer votre adresse · NoiseFence</title>
+<style>
+body{margin:0;padding:32px 16px;background:#eff3f8;color:#182c45;font:16px/1.6 system-ui,sans-serif}main{max-width:520px;margin:24px auto;padding:28px;background:white;border-radius:16px;box-shadow:0 8px 30px #182c4510}h1{font-size:26px;line-height:1.2}p{color:#43556b}.brand{font-weight:700;color:#2364ad;font-size:14px}button,input{font:inherit;border-radius:8px;padding:10px 14px;border:1px solid #9aaec4}button{background:#195fa4;color:white;cursor:pointer}button:disabled{opacity:.5;cursor:default}input{display:block;margin:8px 0 16px;max-width:180px;font-family:monospace;font-size:22px;letter-spacing:4px;text-transform:uppercase}img{display:block;max-width:100%;height:auto;margin:18px 0}small{display:block;color:#52657b;font-size:13px}label{font-weight:600}#result{min-height:28px}button:focus-visible,input:focus-visible{outline:3px solid #dfad2c;outline-offset:3px}[hidden]{display:none!important}
+</style></head><body><main>
+<span class="brand">NoiseFence</span><h1>Confirmer votre adresse</h1>
+<p>Un destinataire a demandé une confirmation pour un envoi placé en quarantaine. Continuez uniquement si vous avez envoyé ce message.</p>
+<button id="show" type="button" disabled>Afficher le code</button>
+<form id="confirmation" hidden>
+<img id="picture" alt="Code visuel de six caractères à recopier" width="330" height="88">
+<label for="code">Recopiez les six caractères</label>
+<input id="code" name="code" minlength="6" maxlength="6" required autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="help">
+<small id="help">Lettres et chiffres, sans les caractères I, O, 0 et 1. Code valable au maximum dix minutes.</small>
+<p><button id="confirm" type="submit" disabled>Valider et confirmer</button></p>
+</form>
+<p id="result" role="status" aria-live="polite"></p>
+<small>Si vous ne pouvez pas lire le code, contactez le destinataire : il peut libérer manuellement cet envoi depuis sa console.</small>
+<p><small>Cette confirmation vérifie l’accès à votre boîte. Elle ne prouve pas que vous êtes humain ni que le message est sûr. Les prochains messages restent filtrés.</small></p>
+<noscript>Activez JavaScript pour confirmer avec ce lien privé, ou contactez le destinataire pour une vérification manuelle.</noscript>
+</main><script>
+(() => {
+  let token = location.hash.slice(1);
+  history.replaceState(null, '', location.pathname);
+  let nonce = '';
+  const show = document.getElementById('show');
+  const confirm = document.getElementById('confirm');
+  const form = document.getElementById('confirmation');
+  const input = document.getElementById('code');
+  const picture = document.getElementById('picture');
+  const result = document.getElementById('result');
+  if (!/^[0-9a-f]{64}$/.test(token)) {
+    token = ''; result.textContent = 'Rouvrez le lien privé reçu par e-mail pour confirmer cet envoi.'; return;
+  }
+  const request = (path, body) => fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), credentials:'omit', cache:'no-store', redirect:'error', referrerPolicy:'no-referrer'});
+  show.disabled = false;
+  show.addEventListener('click', async () => {
+    show.disabled = true; confirm.disabled = true; nonce = ''; form.hidden = true; input.value = '';
+    result.textContent = 'Préparation du code…';
+    try {
+      const response = await request('/challenge/puzzle', {token});
+      if (!response.ok) throw new Error('unavailable');
+      const puzzle = await response.json();
+      if (!/^[0-9a-f]{64}$/.test(puzzle.nonce) || typeof puzzle.image !== 'string' || puzzle.image.length > 24000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(puzzle.image)) throw new Error('invalid');
+      nonce = puzzle.nonce; picture.src = 'data:image/svg+xml;base64,' + puzzle.image;
+      form.hidden = false; confirm.disabled = false; input.focus();
+      result.textContent = ''; show.textContent = 'Afficher un nouveau code';
+    } catch (_) {
+      result.textContent = 'Le code ne peut pas être affiché. Réessayez ou contactez le destinataire.';
+    }
+    show.disabled = false;
+  });
+  input.addEventListener('input', () => { input.value = input.value.toUpperCase(); });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const code = input.value.trim().toUpperCase();
+    if (!token || !nonce || !/^[2-9A-HJ-NP-Z]{6}$/.test(code)) { result.textContent = 'Recopiez les six caractères affichés.'; return; }
+    confirm.disabled = true; show.disabled = true;
+    const body = {token, nonce, code}; token = ''; nonce = ''; input.value = ''; picture.removeAttribute('src'); form.hidden = true;
+    try {
+      const response = await request('/challenge/submit', body);
+      if (!response.ok) throw new Error('unavailable');
+      result.textContent = 'Demande traitée. Si le code et le lien étaient valides et le message toujours admissible, l’envoi sélectionné sera libéré. En cas d’erreur de saisie, rouvrez le lien d’origine.';
+    } catch (_) {
+      result.textContent = 'La demande n’a pas pu être envoyée. Rouvrez le lien d’origine pour réessayer.';
+    }
+  });
+})();
+</script></body></html>

@@ -5,6 +5,17 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.3 — Confirmation avec code affiché
+
+- Ajouter un code visuel généré localement en Rust au parcours de confirmation
+  des expéditeurs : le lien seul ne libère plus un message en quarantaine.
+- Lier le code au jeton et au nonce, borner sa durée et conserver les quotas de
+  vérification et de renouvellement dans SQLite. Consommer code, lien et
+  libération dans la même transaction, avec reprise après échec de stockage.
+- Fournir une page française sans dépendance externe, avec clic explicite,
+  contrôle d’origine, CSP, alternative manuelle et tests du script réellement
+  livré. Ce mécanisme facultatif ne prouve ni l’humanité ni la sûreté du message.
+
 ### 0.5.0-dev.2 — Fusion des nouveaux signaux
 
 - Raccorder les observations des heuristiques et de l’inspection HTML/PDF/Office

@@ -104,11 +104,27 @@ sa correction. La parité finale couvre 2 000 prédictions v1 et 1 600 prédicti
 v2 sans désaccord ; chaque audit de population conserve ses 400 messages, dont
 les observations absentes ou invalides. Il ne mesure pas la qualité antispam.
 
+## État du candidat 0.5.0-dev.3
+
+Le challenge comporte maintenant le mécanisme de code affiché : génération locale
+en Rust, saisie explicite, contrôle du code lié au lien, expiration et quotas
+durables. Le code et la libération sont consommés dans la même transaction. Les
+tests HTTP/SQLite couvrent les copies cachées, les autorisations actuelles, les
+rejeux, les échecs de stockage et les tentatives entre plusieurs connexions.
+Le script de la page livrée est testé et son rendu a été contrôlé dans un navigateur
+avec une image synthétique issue du générateur Rust. La fonction reste facultative
+et désactivée par défaut. Ni le lien ni le code ne prouvent l’existence physique
+d’une personne ou la sûreté du message.
+
+Le [relevé de validation](challenge-visual-validation-20260910.json) distingue
+les tests du serveur, ceux du script et l’aperçu visuel. Le parcours, les quotas,
+les réponses génériques et la migration sont décrits dans le
+[guide du challenge](../docs/challenge.md).
+
+## Travail encore nécessaire
+
 L’historique de confiance demeure consultatif : son effet sur la décision par
-destinataire et l’accélération demandée ne sont pas encore implémentés. Le
-challenge vérifie la possession d’une boîte par un jeton ; il ne reproduit pas
-encore le mécanisme de code affiché du document et ne prouve pas l’existence
-physique d’une personne. Ces écarts restent dans le périmètre d’implémentation.
+destinataire et l’accélération demandée ne sont pas encore implémentés.
 
 - Validation d’un vrai CAPEv2 et de sa VM Office isolée : instantané, restauration,
   absence d’accès au serveur de messagerie et au réseau de production, et politique
@@ -120,7 +136,8 @@ physique d’une personne. Ces écarts restent dans le périmètre d’implémen
 - Mesures du traitement complet et du débit sur Linux 4 vCPU/8 Go, puis contrôle
   de la livraison Proton pour les nouvelles actions explicitement activées.
 - Validation de chaque nouveau candidat sur Linux et choix d’activation des
-  nouveaux modules. La CI du candidat 0.5.0-dev.1 a réussi sur AMD64 et ARM64 ;
+  nouveaux modules. Les CI des candidats 0.5.0-dev.1 et 0.5.0-dev.2 ont réussi
+  sur AMD64 et ARM64 ;
   elle ne valide pas par avance les modifications suivantes.
 
 Ces éléments restent dans le périmètre du programme ; le succès des tests locaux

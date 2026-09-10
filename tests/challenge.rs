@@ -41,7 +41,539 @@ fn body(address: &str) -> Request {
 fn response(token: &str) -> ResponseRequest {
     ResponseRequest {
         token: token.into(),
+        nonce: String::new(),
+        code: String::new(),
     }
+}
+// Controlled fixture for authorization/queue tests. The public image issuer runs
+// normally; only this test database replaces its random answer with a known code.
+// No test-only answer, bypass, or plaintext code exists in the production API.
+async fn solved(store: &Store, token: &str) -> ResponseRequest {
+    let puzzle = challenge::visual::issue(
+        store,
+        &policy(),
+        challenge::visual::Request {
+            token: token.into(),
+        },
+    )
+    .await
+    .unwrap();
+    let nonce = puzzle.nonce.clone();
+    let hash = message::digest(token.as_bytes());
+    store.run(move |db| {
+        db.execute(
+            "UPDATE challenge_visual_codes SET answer_hash=?1 WHERE nonce=?2 AND challenge_id IN (SELECT id FROM challenge_requests WHERE token_hash=?3 AND state='pending')",
+            params![message::digest(format!("noisefence-visual-code-1\n{hash}\n{nonce}\nABC234").as_bytes()), nonce, hash],
+        )?;
+        Ok(())
+    }).await.unwrap();
+    ResponseRequest {
+        token: token.into(),
+        nonce: puzzle.nonce,
+        code: "ABC234".into(),
+    }
+}
+
+async fn puzzle(store: &Store, token: &str) -> challenge::visual::Puzzle {
+    challenge::visual::issue(
+        store,
+        &policy(),
+        challenge::visual::Request {
+            token: token.into(),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn visual_code_is_required_bound_to_its_token_and_consumed_atomically() {
+    let f = Fixture::new().await;
+    let token = f.issue().await;
+    let before = f.count("SELECT COUNT(*) FROM messages").await;
+    challenge::submit(&f.store, &policy(), response(&token))
+        .await
+        .unwrap();
+    f.assert_held().await;
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM challenge_visual_codes").await,
+        0
+    );
+    let correct = solved(&f.store, &token).await;
+    // Neither displaying the code nor an incomplete or incorrect response releases mail.
+    f.assert_held().await;
+    for wrong in [
+        response(&token),
+        ResponseRequest {
+            code: "ZZZ999".into(),
+            ..correct.clone()
+        },
+        ResponseRequest {
+            nonce: "0".repeat(64),
+            ..correct.clone()
+        },
+        ResponseRequest {
+            code: "ＡBC234".into(),
+            ..correct.clone()
+        },
+    ] {
+        assert_eq!(
+            challenge::submit(&f.store, &policy(), wrong).await.unwrap(),
+            challenge::Submission::default()
+        );
+        f.assert_held().await;
+    }
+    let bob = f.issue_for(&f.id, "bob", BOB).await.unwrap();
+    let bob_token = f.token(&bob.id).await;
+    let bob_correct = solved(&f.store, &bob_token).await;
+    challenge::submit(
+        &f.store,
+        &policy(),
+        ResponseRequest {
+            token: bob_token.clone(),
+            ..correct.clone()
+        },
+    )
+    .await
+    .unwrap();
+    f.assert_held().await;
+    assert_eq!(
+        f.count("SELECT SUM(attempts) FROM challenge_visual_codes")
+            .await,
+        5
+    );
+
+    let normalized = ResponseRequest {
+        code: " abc234\t".into(),
+        ..correct.clone()
+    };
+    challenge::submit(&f.store, &policy(), normalized)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.states().await,
+        vec![
+            (ALICE.into(), "pending".into()),
+            (BOB.into(), "quarantined".into()),
+            (ALIAS.into(), "quarantined".into())
+        ]
+    );
+    challenge::submit(&f.store, &policy(), correct.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM audit WHERE action='quarantine_release'")
+            .await,
+        1
+    );
+    assert_eq!(f.count("SELECT COUNT(*) FROM challenge_visual_codes WHERE nonce='' AND answer_hash='' AND expires=0").await, 1);
+    challenge::submit(&f.store, &policy(), bob_correct)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM audit WHERE action='quarantine_release'")
+            .await,
+        2
+    );
+    assert_eq!(f.count("SELECT COUNT(*) FROM messages").await, before + 1); // Only Bob's explicit notification.
+    let debug = format!("{:?}", correct);
+    assert!(
+        !debug.contains(&token) && !debug.contains("ABC234") && !debug.contains(&correct.nonce)
+    );
+}
+
+#[tokio::test]
+async fn visual_bad_code_does_not_parse_the_spool_and_correct_code_revalidates_the_message() {
+    let f = Fixture::new().await;
+    let token = f.issue().await;
+    let correct = solved(&f.store, &token).await;
+    let id = f.id.clone();
+    let original = f
+        .store
+        .run(move |db| {
+            let json: String =
+                db.query_row("SELECT scan FROM messages WHERE id=?1", [&id], |r| r.get(0))?;
+            db.execute("UPDATE messages SET scan='invalid-json' WHERE id=?1", [id])?;
+            Ok(json)
+        })
+        .await
+        .unwrap();
+    let wrong = ResponseRequest {
+        code: "ZZZ999".into(),
+        ..correct.clone()
+    };
+    challenge::submit(&f.store, &policy(), wrong).await.unwrap();
+    f.assert_held().await;
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        1
+    );
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM challenge_requests WHERE state='pending'")
+            .await,
+        1
+    );
+    challenge::submit(&f.store, &policy(), correct.clone())
+        .await
+        .unwrap();
+    f.assert_held().await;
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        2
+    );
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM challenge_requests WHERE state='revoked'")
+            .await,
+        1
+    );
+    let id = f.id.clone();
+    f.store
+        .run(move |db| {
+            db.execute(
+                "UPDATE messages SET scan=?2 WHERE id=?1",
+                params![id, original],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    challenge::submit(&f.store, &policy(), correct)
+        .await
+        .unwrap();
+    // Restoring the fixture scan cannot revive an invalidated link.
+    f.assert_held().await;
+}
+
+#[tokio::test]
+async fn visual_rotation_and_expiry_preserve_attempt_budget_across_restarts() {
+    let f = Fixture::new().await;
+    let token = f.issue().await;
+    let old = solved(&f.store, &token).await;
+    let current = solved(&f.store, &token).await;
+    assert_ne!(old.nonce, current.nonce);
+    challenge::submit(&f.store, &policy(), old).await.unwrap();
+    f.assert_held().await;
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        1
+    );
+    assert_eq!(
+        f.count("SELECT issues FROM challenge_visual_codes").await,
+        2
+    );
+    f.sql("UPDATE challenge_visual_codes SET expires=0").await;
+    challenge::submit(&f.store, &policy(), current)
+        .await
+        .unwrap();
+    f.assert_held().await;
+    f.store.cleanup().await.unwrap();
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM challenge_visual_codes WHERE nonce='' AND answer_hash=''")
+            .await,
+        1
+    );
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        1
+    );
+    let reopened = Store::open(f.root.path()).unwrap();
+    let latest = solved(&reopened, &token).await;
+    assert_eq!(
+        f.count("SELECT issues FROM challenge_visual_codes").await,
+        3
+    );
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        1
+    );
+    challenge::submit(&reopened, &policy(), latest)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM audit WHERE action='quarantine_release'")
+            .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn visual_attempt_limit_is_shared_by_workers_and_cannot_be_reset() {
+    let f = Fixture::new().await;
+    let token = f.issue().await;
+    let correct = solved(&f.store, &token).await;
+    let other = Store::open(f.root.path()).unwrap();
+    let wrong = ResponseRequest {
+        code: "ZZZ999".into(),
+        ..correct.clone()
+    };
+    for _ in 0..6 {
+        challenge::submit(&f.store, &policy(), wrong.clone())
+            .await
+            .unwrap();
+    }
+    let cfg = policy();
+    let (a, b, c, d) = tokio::join!(
+        challenge::submit(&f.store, &cfg, wrong.clone()),
+        challenge::submit(&other, &cfg, wrong.clone()),
+        challenge::submit(&f.store, &cfg, wrong.clone()),
+        challenge::submit(&other, &cfg, wrong),
+    );
+    for result in [a, b, c, d] {
+        assert_eq!(result.unwrap(), challenge::Submission::default());
+    }
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        challenge::visual::MAX_ATTEMPTS
+    );
+    let reopened = Store::open(f.root.path()).unwrap();
+    for _ in 0..12 {
+        let _ = puzzle(&reopened, &token).await;
+    }
+    assert_eq!(
+        f.count("SELECT issues FROM challenge_visual_codes").await,
+        1
+    );
+    assert_eq!(f.count("SELECT COUNT(*) FROM challenge_visual_codes WHERE nonce='' AND answer_hash='' AND expires=0").await, 1);
+    challenge::submit(&reopened, &policy(), correct)
+        .await
+        .unwrap();
+    f.assert_held().await;
+}
+
+#[tokio::test]
+async fn visual_issue_budget_does_not_expand_rows_or_revoke_last_valid_picture() {
+    let f = Fixture::new().await;
+    let token = f.issue().await;
+    let mut correct = solved(&f.store, &token).await;
+    for _ in 1..challenge::visual::MAX_ISSUES {
+        correct = solved(&f.store, &token).await;
+    }
+    let reopened = Store::open(f.root.path()).unwrap();
+    let other = Store::open(f.root.path()).unwrap();
+    let (a, b) = tokio::join!(puzzle(&reopened, &token), puzzle(&other, &token));
+    assert_ne!(a.nonce, correct.nonce);
+    assert_ne!(b.nonce, correct.nonce);
+    for n in 0..16 {
+        let _ = puzzle(&f.store, &format!("{n:064x}")).await;
+    }
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM challenge_visual_codes").await,
+        1
+    );
+    assert_eq!(
+        f.count("SELECT issues FROM challenge_visual_codes").await,
+        challenge::visual::MAX_ISSUES
+    );
+    assert_eq!(f.count("SELECT COUNT(*) FROM messages").await, 2);
+    challenge::submit(&reopened, &policy(), correct)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM audit WHERE action='quarantine_release'")
+            .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn visual_expiration_cannot_extend_the_parent_link_and_retention_cascades() {
+    for close in [false, true] {
+        let f = Fixture::new().await;
+        let token = f.issue().await;
+        let time = noisefence::now();
+        f.sql(&format!(
+            "UPDATE challenge_requests SET expires={}",
+            time + 60
+        ))
+        .await;
+        let correct = solved(&f.store, &token).await;
+        assert_eq!(
+            f.count("SELECT expires FROM challenge_visual_codes").await,
+            time + 60
+        );
+        if close {
+            assert!(
+                challenge::revoke(&f.store, actor("alice"), f.id.clone(), body(ALICE))
+                    .await
+                    .unwrap()
+            );
+        } else {
+            f.sql(&format!(
+                "UPDATE challenge_requests SET created=created-120,expires={}",
+                noisefence::now()
+            ))
+            .await;
+        }
+        f.store.cleanup().await.unwrap();
+        challenge::submit(&f.store, &policy(), correct)
+            .await
+            .unwrap();
+        f.assert_held().await;
+        assert_eq!(f.count("SELECT COUNT(*) FROM challenge_visual_codes WHERE nonce='' AND answer_hash='' AND expires=0").await, 1);
+        f.sql(&format!(
+            "UPDATE challenge_requests SET created={}",
+            time - challenge::RETENTION_SECONDS
+        ))
+        .await;
+        f.store.cleanup().await.unwrap();
+        assert_eq!(
+            f.count("SELECT COUNT(*) FROM challenge_visual_codes").await,
+            0
+        );
+        assert_eq!(f.count("SELECT COUNT(*) FROM challenge_requests").await, 0);
+        assert!(f.store.raw_path(&f.id).exists());
+    }
+}
+
+#[tokio::test]
+async fn visual_public_route_enforces_origin_body_limits_and_has_no_delivery_side_effects() {
+    use axum::{
+        body::Body,
+        http::{Request as HttpRequest, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+    let f = Fixture::new().await;
+    let token = f.issue().await;
+    let state = std::sync::Arc::new(std::sync::RwLock::new(policy()));
+    let current = state.clone();
+    let app = challenge::public_router(f.store.clone(), move || current.read().unwrap().clone());
+    let valid = serde_json::json!({"token":token}).to_string();
+    for (method, path, origins, body, expected) in [
+        (
+            "GET",
+            "/challenge/puzzle",
+            vec![],
+            String::new(),
+            StatusCode::METHOD_NOT_ALLOWED,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle",
+            vec![],
+            valid.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle",
+            vec!["https://evil.test"],
+            valid.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle",
+            vec!["https://filter.example.test", "https://filter.example.test"],
+            valid.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle?token=untrusted",
+            vec!["https://filter.example.test"],
+            valid.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle",
+            vec!["https://filter.example.test"],
+            "x".repeat(2048),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle",
+            vec!["https://filter.example.test"],
+            "{}".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/challenge/puzzle",
+            vec!["https://filter.example.test"],
+            serde_json::json!({"token":token,"recipient":BOB}).to_string(),
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let mut request = HttpRequest::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", "application/json");
+        for origin in origins {
+            request = request.header("origin", origin);
+        }
+        let result = app
+            .clone()
+            .oneshot(request.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(result.status(), expected);
+        assert_eq!(
+            f.count("SELECT COUNT(*) FROM challenge_visual_codes").await,
+            0
+        );
+    }
+    for bearer in ["invalid".to_string(), "0".repeat(64), token.clone()] {
+        let reply = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri(challenge::visual::PATH)
+                    .header("origin", "https://filter.example.test")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::json!({"token":bearer}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), StatusCode::OK);
+        for (name, value) in [
+            ("cache-control", "no-store"),
+            ("referrer-policy", "no-referrer"),
+            ("x-content-type-options", "nosniff"),
+        ] {
+            assert_eq!(reply.headers()[name], value);
+        }
+        let bytes = reply.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body.as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            ["image", "nonce"]
+        );
+        assert_eq!(body["nonce"].as_str().unwrap().len(), 64);
+        assert!(!String::from_utf8_lossy(&bytes).contains(&token));
+        f.assert_held().await;
+    }
+    assert_eq!(
+        f.count("SELECT issues FROM challenge_visual_codes").await,
+        1
+    );
+    assert_eq!(f.count("SELECT COUNT(*) FROM messages").await, 2);
+    state.write().unwrap().enabled = false;
+    let reply = app
+        .oneshot(
+            HttpRequest::builder()
+                .method("POST")
+                .uri(challenge::visual::PATH)
+                .header("origin", "https://filter.example.test")
+                .header("content-type", "application/json")
+                .body(Body::from(valid))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reply.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        f.count("SELECT issues FROM challenge_visual_codes").await,
+        1
+    );
 }
 fn proof(raw: &[u8], domain: &str) -> Option<VerifiedSmtpFrom> {
     // Synthetic verifier fixture only; no live SMTP or DNS verification is invoked.
@@ -525,7 +1057,7 @@ async fn correct_response_releases_only_selected_delivery_and_retains_semantics(
     .await;
     let before = std::fs::read(f.store.raw_path(&f.id)).unwrap();
     let started = noisefence::now();
-    let answer = challenge::submit(&f.store, &policy(), response(&token))
+    let answer = challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     assert_eq!(answer, challenge::Submission::default());
@@ -549,7 +1081,7 @@ async fn correct_response_releases_only_selected_delivery_and_retains_semantics(
         Ok(())
     }).await.unwrap();
     assert_eq!(
-        challenge::submit(&f.store, &policy(), response(&token))
+        challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
             .await
             .unwrap(),
         answer
@@ -660,7 +1192,7 @@ async fn revocation_replay_expiry_and_current_privileges_fail_closed() {
         let token = f.issue().await;
         f.sql(mutation).await;
         assert_eq!(
-            challenge::submit(&f.store, &policy(), response(&token))
+            challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
                 .await
                 .unwrap(),
             challenge::Submission::default(),
@@ -698,7 +1230,7 @@ async fn revocation_replay_expiry_and_current_privileges_fail_closed() {
             .unwrap()
     );
     assert!(f.store.claim().await.unwrap().is_none());
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     f.assert_held().await;
@@ -710,19 +1242,19 @@ async fn known_token_losing_grant_is_permanently_revoked_but_session_logout_is_n
     let f = Fixture::new().await;
     let token = f.issue().await;
     f.sql("DELETE FROM grants WHERE username='alice'").await;
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     f.sql("INSERT INTO grants VALUES('alice','alice@example.test')")
         .await;
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     f.assert_held().await;
     let f = Fixture::new().await;
     let token = f.issue().await;
     f.sql("DELETE FROM sessions WHERE username='alice'").await;
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     assert_eq!(
@@ -746,7 +1278,7 @@ async fn missing_changed_and_expired_payloads_never_release() {
             )
             .unwrap();
         }
-        challenge::submit(&f.store, &policy(), response(&token))
+        challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
             .await
             .unwrap();
         f.assert_held().await;
@@ -762,7 +1294,7 @@ async fn missing_changed_and_expired_payloads_never_release() {
     let token = f.token(&receipt.id).await;
     f.sql("UPDATE delivery_policy SET held_until=0").await;
     f.store.cleanup().await.unwrap();
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     assert!(f.states().await.iter().all(|(_, s)| s == "expired"));
@@ -911,7 +1443,7 @@ async fn expiry_boundary_never_releases_and_later_reissue_cannot_revive_old_toke
         noisefence::now()
     ))
     .await;
-    challenge::submit(&f.store, &policy(), response(&old))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &old).await)
         .await
         .unwrap();
     f.assert_held().await;
@@ -921,11 +1453,11 @@ async fn expiry_boundary_never_releases_and_later_reissue_cannot_revive_old_toke
     let receipt = f.issue_for(&f.id, "alice", ALICE).await.unwrap();
     let current = f.token(&receipt.id).await;
     assert_ne!(current, old);
-    challenge::submit(&f.store, &policy(), response(&old))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &old).await)
         .await
         .unwrap();
     f.assert_held().await;
-    challenge::submit(&f.store, &policy(), response(&current))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &current).await)
         .await
         .unwrap();
     assert_eq!(
@@ -994,9 +1526,10 @@ async fn separate_sqlite_connections_cannot_issue_or_consume_twice() {
     assert_eq!(usize::from(a.is_some()) + usize::from(b.is_some()), 1);
     let receipt = a.or(b).unwrap();
     let token = f.token(&receipt.id).await;
+    let solved = solved(&f.store, &token).await;
     let (a, b) = tokio::join!(
-        challenge::submit(&f.store, &cfg, response(&token)),
-        challenge::submit(&other, &cfg, response(&token))
+        challenge::submit(&f.store, &cfg, solved.clone()),
+        challenge::submit(&other, &cfg, solved)
     );
     assert_eq!(a.unwrap(), b.unwrap());
     assert_eq!(
@@ -1037,9 +1570,10 @@ async fn sqlite_failure_rolls_back_queue_hash_audit_and_consumption() {
     );
     f.sql("DROP TRIGGER reject_request").await;
     let token = f.issue().await;
+    let answer = solved(&f.store, &token).await;
     f.sql("CREATE TRIGGER reject_release BEFORE INSERT ON audit WHEN NEW.action='quarantine_release' BEGIN SELECT RAISE(ABORT,'fixture storage failure'); END").await;
     assert!(
-        challenge::submit(&f.store, &policy(), response(&token))
+        challenge::submit(&f.store, &policy(), answer.clone())
             .await
             .is_err()
     );
@@ -1054,8 +1588,17 @@ async fn sqlite_failure_rolls_back_queue_hash_audit_and_consumption() {
             .await,
         0
     );
+    assert_eq!(
+        f.count("SELECT attempts FROM challenge_visual_codes").await,
+        0
+    );
+    assert_eq!(
+        f.count("SELECT COUNT(*) FROM challenge_visual_codes WHERE nonce<>'' AND answer_hash<>''")
+            .await,
+        1
+    );
     f.sql("DROP TRIGGER reject_release").await;
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), answer)
         .await
         .unwrap();
     assert_eq!(
@@ -1096,12 +1639,10 @@ async fn public_http_requires_body_post_origin_and_current_policy_and_is_generic
     ] {
         assert_eq!(page.headers()[name], value);
     }
-    assert!(
-        page.headers()["content-security-policy"]
-            .to_str()
-            .unwrap()
-            .contains("script-src 'sha256-")
-    );
+    let csp = page.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .to_owned();
     let html = String::from_utf8(
         page.into_body()
             .collect()
@@ -1114,10 +1655,32 @@ async fn public_http_requires_body_post_origin_and_current_policy_and_is_generic
     assert!(!html.contains(&token));
     assert!(!html.contains("localStorage"));
     assert!(html.find("history.replaceState").unwrap() < html.find("fetch(").unwrap());
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    for name in ["script", "style"] {
+        let content = html
+            .split_once(&format!("<{name}>"))
+            .unwrap()
+            .1
+            .split_once(&format!("</{name}>"))
+            .unwrap()
+            .0;
+        let hash = base64::engine::general_purpose::STANDARD
+            .encode(sha2::Sha256::digest(content.as_bytes()));
+        assert!(csp.contains(&format!("{name}-src 'sha256-{hash}'")));
+    }
+    assert!(csp.contains("img-src data:") && csp.contains("connect-src 'self'"));
+    assert!(!csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"));
     f.assert_held().await;
-    let good = serde_json::json!({"token":token}).to_string();
+    let proof = solved(&f.store, &token).await;
+    let good = serde_json::json!({"token":token,"nonce":proof.nonce,"code":proof.code}).to_string();
     let expected = serde_json::to_vec(&challenge::Submission::default()).unwrap();
     for (origin, path, json) in [
+        (
+            "https://filter.example.test",
+            "/challenge/submit",
+            serde_json::json!({"token":token}).to_string(),
+        ),
         ("https://evil.example", "/challenge/submit", good.clone()),
         ("", "/challenge/submit", good.clone()),
         (
@@ -1161,6 +1724,22 @@ async fn public_http_requires_body_post_origin_and_current_policy_and_is_generic
         );
         f.assert_held().await;
     }
+    let duplicate_origin = app
+        .clone()
+        .oneshot(
+            HttpRequest::builder()
+                .method("POST")
+                .uri(challenge::SUBMIT_PATH)
+                .header("origin", "https://filter.example.test")
+                .header("origin", "https://filter.example.test")
+                .header("content-type", "application/json")
+                .body(Body::from(good.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(duplicate_origin.status(), StatusCode::OK);
+    f.assert_held().await;
     for enabled in [false, true, true] {
         state.write().unwrap().enabled = enabled;
         if !enabled {
@@ -1547,7 +2126,7 @@ async fn parent_api_preflight_is_authorized_side_effect_free_and_preserves_publi
     assert_eq!(status, StatusCode::OK);
     assert_eq!(result, serde_json::json!({"revoked":true}));
     assert!(f.store.claim().await.unwrap().is_none());
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     f.assert_held().await;
@@ -1624,7 +2203,7 @@ async fn retention_preserves_an_existing_live_request_on_old_mail_and_its_shared
         .await
         .unwrap()
     );
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     assert_eq!(
@@ -1671,7 +2250,7 @@ async fn retention_caps_new_link_at_identity_deadline_without_expiring_it_early(
         })
         .await
         .unwrap();
-    challenge::submit(&f.store, &policy(), response(&token))
+    challenge::submit(&f.store, &policy(), solved(&f.store, &token).await)
         .await
         .unwrap();
     assert_eq!(

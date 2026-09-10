@@ -12,7 +12,7 @@ l’administration conservent leur propre configuration.
 | [Documents et images](content-inspection.md) | `[content_inspection]` | HTML, PDF, images, archives Office et macros ; limites explicites, aucune exécution locale |
 | [Historique de confiance](sender-history.md) | `[sender_history]` | Identités authentifiées, campagnes distinctes et corrections humaines ; portée par destinataire, révocation et expiration |
 | [Admission SMTP](smtp-admission.md) | `[smtp_admission]` | Greylisting durable et temporisation bornée avant acceptation ; observation par défaut |
-| [Vérification ciblée d’expéditeur](challenge.md) | `[challenge]` | Demande explicite depuis une copie en quarantaine, lien à usage unique et libération limitée aux droits correspondants |
+| [Vérification ciblée d’expéditeur](challenge.md) | `[challenge]` | Demande explicite depuis une copie en quarantaine, code visuel et lien à usage unique, quotas durables et libération limitée aux droits correspondants |
 | [Analyse dynamique](sandbox-pipeline.md) | `[sandbox]` et `[sandbox_pipeline]` | Intention durable avec le message, traitement en arrière-plan par un CAPEv2 privé, résultats consultatifs et quarantaine facultative |
 
 ## Démarrer une observation locale

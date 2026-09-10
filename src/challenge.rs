@@ -12,6 +12,8 @@ use std::{
     path::Path,
 };
 
+pub mod visual;
+
 /// Store initializes this additive schema alongside control-schema.sql.
 /// Nothing is enabled or sent by installing the schema.
 pub const SCHEMA_SQL: &str = r#"
@@ -43,6 +45,12 @@ CREATE INDEX IF NOT EXISTS challenge_rate_delivery ON challenge_rate_events(deli
 CREATE INDEX IF NOT EXISTS challenge_rate_mailbox ON challenge_rate_events(mailbox_key,created);
 CREATE INDEX IF NOT EXISTS challenge_rate_user ON challenge_rate_events(requested_by,created);
 CREATE INDEX IF NOT EXISTS challenge_rate_time ON challenge_rate_events(created);
+CREATE TABLE IF NOT EXISTS challenge_visual_codes(
+ challenge_id TEXT PRIMARY KEY REFERENCES challenge_requests(id) ON DELETE CASCADE,
+ nonce TEXT NOT NULL, answer_hash TEXT NOT NULL, expires INTEGER NOT NULL,
+ issues INTEGER NOT NULL CHECK(issues BETWEEN 1 AND 8),
+ attempts INTEGER NOT NULL CHECK(attempts BETWEEN 0 AND 8)
+);
 "#;
 
 pub const PAGE_PATH: &str = "/challenge";
@@ -52,7 +60,8 @@ const MAX_RAW_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Remove retained challenge metadata independently of message/spool retention.
 /// Call from Store::cleanup, also while the feature is disabled. The returned
-/// count includes requests (and their token hashes), identities and rate events.
+/// count includes requests (and their token hashes), identities, rate events and
+/// cleared visual codes. Code counters survive until the parent request is pruned.
 /// Safe inside an existing transaction; callers can wrap all cleanup in one.
 /// A pending, unexpired request and the identity it needs are never removed.
 pub fn prune(db: &Connection, time: i64) -> Result<usize> {
@@ -74,7 +83,10 @@ pub fn prune(db: &Connection, time: i64) -> Result<usize> {
         "DELETE FROM challenge_rate_events WHERE created<=?1",
         [time.saturating_sub(86400)],
     )?;
-    Ok(requests + identities + rates)
+    let codes = db.execute("UPDATE challenge_visual_codes SET nonce='',answer_hash='',expires=0
+        WHERE (expires<=?1 OR challenge_id IN (SELECT id FROM challenge_requests WHERE state<>'pending' OR expires<=?1))
+        AND (nonce<>'' OR answer_hash<>'')", [time])?;
+    Ok(requests + identities + rates + codes)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -137,10 +149,14 @@ pub struct Request {
 }
 
 /// Only accepted in a POST body; never derive Debug/Serialize for bearer material.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseRequest {
     pub token: String,
+    #[serde(default)]
+    pub nonce: String,
+    #[serde(default)]
+    pub code: String,
 }
 impl std::fmt::Debug for ResponseRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -595,7 +611,7 @@ fn notification_mail(policy: &Policy, mailbox: &str, id: &str, token: &str, time
     use base64::Engine;
     let domain = policy.notification_from.rsplit_once('@').unwrap().1;
     let text = format!(
-        "Un destinataire a demandé une confirmation pour un envoi placé en quarantaine.\r\nSi vous avez envoyé ce message, ouvrez ce lien puis cliquez sur Confirmer :\r\n{}{PAGE_PATH}#{}\r\n\r\nCe lien confirme l’accès à cette boîte, pas que vous êtes humain.\r\nIl autorise uniquement cet envoi ; les prochains messages restent filtrés.\r\nIgnorez cette demande si vous n’avez pas envoyé ce message. Ne répondez pas par e-mail.\r\n",
+        "Un destinataire a demandé une confirmation pour un envoi placé en quarantaine.\r\nSi vous avez envoyé ce message, ouvrez ce lien puis recopiez le code affiché pour confirmer :\r\n{}{PAGE_PATH}#{}\r\n\r\nCe lien confirme l’accès à cette boîte, pas que vous êtes humain.\r\nIl autorise uniquement cet envoi ; les prochains messages restent filtrés.\r\nIgnorez cette demande si vous n’avez pas envoyé ce message. Ne répondez pas par e-mail.\r\n",
         policy.public_origin, token
     );
     // French accents without depending on upstream 8BITMIME support.
@@ -654,9 +670,15 @@ pub async fn submit(store: &Store, policy: &Policy, body: ResponseRequest) -> Re
             params![hash,time],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,String>(6)?,r.get::<_,String>(7)?,r.get::<_,String>(8)?))).optional()?;
         let Some((id,delivery,username,stamp,destination,mailbox,raw_hash,message_id,recipient)) = row else { return Ok(false); };
         let access: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM console_access WHERE username=?1 AND delivery_id=?2)",params![username,delivery],|r|r.get(0))?;
-        let current = candidate(&tx,&root,&message_id,&recipient,time)?;
-        let eligible = access && account_stamp(&tx,&username)?.as_deref() == Some(&stamp)
-            && current.is_some_and(|c| c.delivery_id == delivery && c.destination == destination && c.mailbox == mailbox && c.raw_hash == raw_hash);
+        let authorized = access && account_stamp(&tx,&username)?.as_deref() == Some(&stamp);
+        // Check the small durable proof before reading/parsing the queued MIME.
+        // Bad codes and exhausted budgets must not repeatedly scan a large file.
+        if authorized && !visual::verify(&tx, &id, &hash, &body.nonce, &body.code, time)? {
+            tx.commit()?;
+            return Ok(false);
+        }
+        let eligible = authorized && candidate(&tx,&root,&message_id,&recipient,time)?
+            .is_some_and(|c| c.delivery_id == delivery && c.destination == destination && c.mailbox == mailbox && c.raw_hash == raw_hash);
         if !eligible {
             tx.execute("UPDATE challenge_requests SET state='revoked',finished=?2 WHERE id=?1",params![id,time])?;
             tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'challenge_invalidate',?3)",params![time,username,delivery.to_string()])?;
@@ -703,7 +725,16 @@ pub fn page() -> axum::response::Response {
         .0;
     let hash =
         base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
-    headers.insert("content-security-policy",format!("default-src 'none'; script-src 'sha256-{hash}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'").parse().unwrap());
+    let style = PAGE
+        .split_once("<style>")
+        .unwrap()
+        .1
+        .split_once("</style>")
+        .unwrap()
+        .0;
+    let style_hash =
+        base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(style.as_bytes()));
+    headers.insert("content-security-policy",format!("default-src 'none'; script-src 'sha256-{hash}'; style-src 'sha256-{style_hash}'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'").parse().unwrap());
     response
 }
 
@@ -746,7 +777,8 @@ pub fn public_router(
         // No CORS: a JSON POST and exact Origin bind requests to the local page.
         // CLI clients can send the configured Origin explicitly.
         let same_origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-            == Some(&policy.public_origin);
+            == Some(&policy.public_origin)
+            && headers.get_all(header::ORIGIN).iter().count() == 1;
         if policy.enabled
             && policy.validate().is_ok()
             && same_origin
@@ -770,9 +802,62 @@ pub fn public_router(
             .insert("x-content-type-options", "nosniff".parse().unwrap());
         response
     }
+    async fn picture(
+        State(state): State<Public>,
+        uri: axum::http::Uri,
+        headers: axum::http::HeaderMap,
+        body: std::result::Result<
+            axum::Json<visual::Request>,
+            axum::extract::rejection::JsonRejection,
+        >,
+    ) -> axum::response::Response {
+        use axum::{
+            http::{StatusCode, header},
+            response::IntoResponse,
+        };
+        let policy = (state.policy)();
+        let result = async {
+            if !policy.enabled || policy.validate().is_err() {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            if uri.query().is_some()
+                || headers.get_all(header::ORIGIN).iter().count() != 1
+                || headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
+                    != Some(&policy.public_origin)
+            {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+            let Ok(_permit) = state.capacity.try_acquire() else {
+                return StatusCode::TOO_MANY_REQUESTS.into_response();
+            };
+            let Ok(axum::Json(body)) = body else {
+                return StatusCode::BAD_REQUEST.into_response();
+            };
+            match visual::issue(&state.store, &policy, body).await {
+                Ok(puzzle) => axum::Json(puzzle).into_response(),
+                Err(_) => {
+                    tracing::error!("visual challenge unavailable");
+                    StatusCode::SERVICE_UNAVAILABLE.into_response()
+                }
+            }
+        }
+        .await;
+        let mut response = result;
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+        response
+            .headers_mut()
+            .insert("referrer-policy", "no-referrer".parse().unwrap());
+        response
+            .headers_mut()
+            .insert("x-content-type-options", "nosniff".parse().unwrap());
+        response
+    }
     axum::Router::new()
         .route(PAGE_PATH, get(landing))
         .route(SUBMIT_PATH, post(answer))
+        .route(visual::PATH, post(picture))
         .layer(DefaultBodyLimit::max(1024))
         .with_state(Public {
             store,
@@ -781,33 +866,4 @@ pub fn public_router(
         })
 }
 
-const PAGE: &str = r#"<!doctype html>
-<html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>Confirmer votre adresse</title>
-<h1>Confirmer votre adresse</h1>
-<p>Un destinataire a demandé une confirmation pour un envoi placé en quarantaine. Confirmez uniquement si vous avez envoyé ce message.</p>
-<p>Ce lien confirme l’accès à la boîte concernée. Il ne prouve pas que vous êtes humain ni que le message est sans danger.</p>
-<button id="confirm" type="button" disabled>Confirmer</button><p id="result" role="status"></p>
-<noscript>Activez JavaScript pour confirmer votre adresse avec ce lien privé.</noscript>
-<script>
-(() => {
-  let token = location.hash.slice(1);
-  history.replaceState(null, '', location.pathname);
-  const button = document.getElementById('confirm');
-  const result = document.getElementById('result');
-  if (!/^[0-9a-f]{64}$/.test(token)) {
-    token = ''; result.textContent = 'Demande traitée. Si le lien était valide et le message toujours admissible, l’envoi sélectionné sera libéré.'; return;
-  }
-  button.disabled = false;
-  button.addEventListener('click', async () => {
-    button.disabled = true;
-    const body = JSON.stringify({token}); token = '';
-    try {
-      await fetch('/challenge/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body, credentials:'omit', cache:'no-store', redirect:'error', referrerPolicy:'no-referrer'});
-      result.textContent = 'Demande traitée. Si le lien était valide et le message toujours admissible, l’envoi sélectionné sera libéré.';
-    } catch (_) {
-      result.textContent = 'La demande n’a pas pu être envoyée. Rouvrez le lien d’origine pour réessayer.';
-    }
-  }, {once:true});
-})();
-</script></html>"#;
+const PAGE: &str = include_str!("challenge/page.html");
