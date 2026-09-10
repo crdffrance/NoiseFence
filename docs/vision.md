@@ -90,6 +90,14 @@ ne constitue pas une mesure OCR ; le traitement visuel a son budget distinct.
 
 ## Mise à jour et supervision
 
+Depuis `0.5.0-dev.10`, Poppler produit un raster RGB PPM intermédiaire pour les
+PDF. La borne de 2 400 pixels sur le côté le plus long limite ce fichier à moins
+de 18 Mio. Le worker normalise ensuite la page comme auparavant pour Tesseract
+et ZBar. Ce changement évite une compression/décompression PNG ; il ne réduit
+ni la résolution, ni les contrôles et conserve l’isolation de chaque demande.
+Le [comparatif Linux](../research/vision-pdf-validation-20260910.json) mesure
+séparément son effet sur des fixtures synthétiques et garde les limites de preuve.
+
 Depuis `0.5.0-dev.8`, le worker utilise les notifications Linux de fin de processus
 (`pidfd` et `poll`) pour attendre les décodeurs et le job. Les systèmes qui ne les
 fournissent pas conservent l’attente bornée de Python. Le temps déjà écoulé reste

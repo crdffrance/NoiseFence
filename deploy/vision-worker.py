@@ -214,9 +214,11 @@ def analyze(req, directory):
                     if len(response["pages"]) >= limits["max_pages"]:
                         raise Limited("page_limit")
                     prefix = Path(directory) / "pdf-page"
+                    # Default RGB PPM has the same raster without PNG encoding.
+                    # scale-to 2400 bounds it below 18 MiB, including the header.
                     command(["pdftoppm", "-f", str(number), "-l", str(number), "-singlefile",
-                             "-scale-to", "2400", "-png", str(pdf), str(prefix)])
-                    with Image.open(str(prefix) + ".png") as img:
+                             "-scale-to", "2400", str(pdf), str(prefix)])
+                    with Image.open(str(prefix) + ".ppm") as img:
                         page(img, index, number - 1)
                 if count > limits["max_pages"]:
                     raise Limited("page_limit")

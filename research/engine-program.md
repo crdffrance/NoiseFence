@@ -278,3 +278,14 @@ médian augmente de 0,56 à 2,24 secondes : l’accès au traitement est répart
 les clients. Le p95 d’analyse reste supérieur à 500 ms. La CI complète
 du correctif réussit ensuite, y compris ARM64 ; le relevé conserve séparément
 l’observation intermédiaire et la vérification finale.
+## Candidat 0.5.0-dev.10 : coût du rendu PDF
+
+Le profilage synthétique distingue environ 127 ms d’initialisation Tesseract et
+183 ms de reconnaissance, hors démarrage des processus et du worker. Il ne
+justifie pas de partager un décodeur entre messages. Le candidat conserve
+l’isolation existante et évite la compression PNG du raster Poppler intermédiaire.
+Le [relevé](vision-pdf-validation-20260910.json) conserve la première expérience
+non retenue sur les images et la comparaison finale : 32 sorties OCR/QR complètes
+identiques, médiane PDF de 1 236 à 981 ms. La mesure n’inclut pas le SMTP et reste
+au-dessus de 500 ms. Les gates de corpus récent indépendant, de sandbox Office
+réelle et de qualification du traitement complet restent ouverts.

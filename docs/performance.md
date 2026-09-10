@@ -465,3 +465,25 @@ la stabilité de ces résultats sur la fixture, pas la qualité du classement su
 du courrier réel. Les données, limites de ressources, empreintes et ordre des
 lots figurent dans le relevé. Les unités privées et copies de modèles ont été
 retirées après conservation de l’audit ; la production reste inchangée.
+## Rendu PDF du candidat 0.5.0-dev.10
+
+Le [comparatif Linux](../research/vision-pdf-validation-20260910.json) conserve
+huit paires d’appels au superviseur pour une image et huit pour un PDF scanné.
+Le candidat remplace seulement le PNG produit par Poppler par un PPM RGB.
+Les textes, QR codes, index de pages, statuts et erreurs sont identiques sur
+les 32 réponses comparées. Le raster décodé est aussi comparé pixel par pixel.
+
+Sur le PDF synthétique, la médiane passe de 1 236 à 981 ms et le p95 de 1 284 à
+1 018 ms. La variation mesurée sur l’image, dont le traitement est inchangé,
+illustre le bruit de mesure. Une première expérience remplaçant également les
+PNG normalisés n’avait pas montré de gain sur les images ; elle n’est pas retenue.
+
+Ces appels emploient un CPU et 900 Mio dans une unité temporaire Linux sans
+réseau ni accès à l’état de production. Ils excluent SMTP, l’IPC Rust et les
+autres moteurs. Ils ne prouvent ni le débit soutenu ni l’objectif de 500 ms.
+Le protocole public de reproduction reste `scripts/vision_compare.py`, décrit
+dans le guide OCR. `research/profile_tesseract.py` permet de distinguer sur une
+image synthétique l’initialisation et la reconnaissance via l’API C documentée de
+[Tesseract 5.5](https://github.com/tesseract-ocr/tesseract/blob/5.5.0/include/tesseract/capi.h).
+Exécuter ce profilage dans une unité de test avec les mêmes plafonds, jamais
+comme service de traitement des messages. Ses timings ne mesurent pas le worker.

@@ -5,6 +5,15 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.10 — Rendu PDF pour l’OCR
+
+- Éviter la compression PNG intermédiaire du rendu PDF : conserver les mêmes
+  pixels RGB, la résolution, les langues et les limites de traitement. Les
+  images originales conservent leur chemin d’analyse existant.
+- Comparer les rasters et les sorties OCR/QR, vérifier les index de pièces
+  mixtes et publier le profilage de Tesseract avec le comparatif Linux. Le p95
+  d’analyse complet sous 500 ms et la qualité du filtrage restent à démontrer.
+
 ### 0.5.0-dev.9 — Attente bornée de capacité SMTP
 
 - Ajouter `smtp.processing_wait_ms` (0 à 5 000 ms), une attente optionnelle dans

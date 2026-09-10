@@ -102,6 +102,33 @@ class WorkerTest(unittest.TestCase):
         self.assertIn(self.payload, [c["data"] for c in result["pages"][0]["codes"]])
         print(json.dumps({"case": "scanned_pdf", "elapsed_ms": round((time.monotonic()-started)*1000)}))
 
+    def test_pdf_intermediate_matches_former_png_raster_pixel_for_pixel(self):
+        from PIL import Image
+        color_pdf = self.root/"color.pdf"
+        pattern = bytes((i*37)%256 for i in range(97*53*3))
+        Image.frombytes("RGB", (97,53), pattern).save(color_pdf, "PDF", resolution=150)
+        for pdf in [self.root/"synthetic.pdf", color_pdf]:
+            with self.subTest(pdf=pdf.name):
+                for extension, options in [("ppm", []), ("png", ["-png"])]:
+                    worker._file_command(["pdftoppm", "-f", "1", "-l", "1", "-singlefile",
+                        "-scale-to", "2400", *options, str(pdf), str(self.root / ("raster-"+extension))],
+                        self.root, time.monotonic()+4)
+                self.assertLess((self.root/"raster-ppm.ppm").stat().st_size, 18*1024*1024)
+                with Image.open(self.root/"raster-ppm.ppm") as ppm, Image.open(self.root/"raster-png.png") as png:
+                    self.assertEqual(ppm.size, png.size)
+                    self.assertEqual(ppm.mode, png.mode)
+                    self.assertEqual(ppm.tobytes(), png.tobytes())
+
+    def test_mixed_parts_keep_original_part_and_page_indexes(self):
+        req = request(self.image)
+        req["parts"].extend(request(self.root/"synthetic.pdf", "pdf")["parts"])
+        response = self.call(req)
+        self.assertEqual(response["status"], "complete", response)
+        self.assertEqual([(p["part"], p["page"]) for p in response["pages"]], [(0,0), (1,0)])
+        for page in response["pages"]:
+            self.assertIn("NOISEFENCE", page["text"])
+            self.assertIn(self.payload, [c["data"] for c in page["codes"]])
+
     def test_corrupt_and_oversized_input_are_not_clean(self):
         req = request(self.image)
         req["parts"][0]["data"] = base64.b64encode(b"invalid image").decode()
