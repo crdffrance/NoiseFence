@@ -5,6 +5,8 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-09-11
+
 - Repenser la console avec une identité orange, une navigation claire, une page
   de connexion illustrée et un habillage commun aux espaces administrateur et
   utilisateur. Adapter les listes, les réglages et les confirmations aux petits écrans.
