@@ -5,6 +5,16 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.9 — Attente bornée de capacité SMTP
+
+- Ajouter `smtp.processing_wait_ms` (0 à 5 000 ms), une attente optionnelle dans
+  l’ordre des demandes de capacité avant la réponse 354. Conserver la limite de
+  traitements simultanés, l’expiration avec réponse 451 et la persistance avant
+  acceptation. La valeur par défaut 0 conserve le refus temporaire immédiat.
+- Tracer la durée et l’issue de cette admission, exposer son réglage dans l’état
+  administrateur et permettre sa mesure avec le banc SMTP/OCR. Les résultats
+  de débit et de latence de dev.8 ne valident pas par avance ce changement.
+
 ### 0.5.0-dev.8 — Attente efficace des processus OCR
 
 - Attendre la fin des décodeurs et du job OCR par notification `pidfd` sur Linux,

@@ -409,3 +409,30 @@ même unité. Réutiliser le socket OCR de production mesurerait l’ancien work
 Le rapport identifie les sources, modèles et composants employés. Aucun appel
 DNS, fournisseur externe, LLM, TLS ou Proton n’entre dans cette mesure ; aucune
 modification du service de production n’a été nécessaire.
+
+## Attente de capacité avant DATA (candidat 0.5.0-dev.9)
+
+`smtp.processing_wait_ms` permet d’attendre brièvement un traitement disponible
+avant d’émettre `354`. Les demandes de capacité déjà en attente passent avant
+les nouvelles demandes. Cette option accepte 0 à 5 000 millisecondes ; 0, la
+valeur par défaut, conserve la réponse `451` immédiate lorsque la capacité est
+occupée. Le réglage dans le fichier de configuration prend effet au redémarrage.
+
+Une attente expirée produit toujours `451 4.3.2` avant le transfert du corps et
+réinitialise l’enveloppe. Aucun fichier de message n’est créé avant l’obtention
+de la capacité. Les connexions en attente comptent dans les limites globales et
+par IP ; `max_processing` continue de limiter ensemble réception du corps,
+analyse et persistance. Une annulation libère la réservation de capacité.
+L’ordre concerne les demandes encore en attente, pas les futures tentatives
+d’un expéditeur après un refus.
+
+Le journal `SMTP processing admission` conserve `waited_ms`, `limit_ms` et
+`admitted`, sans enveloppe ni contenu. L’état administrateur expose le réglage.
+Le banc accepte `--processing-wait-ms 3000` et l’inscrit dans le rapport et la
+configuration privée. Omettre cette option permet encore de mesurer les anciens
+binaires ; comparer explicitement 0 et la valeur choisie pour un candidat.
+
+Cette option vise la longue attente avec réessais observée dans le relevé dev.8.
+Son effet doit être mesuré à modèles, worker OCR, limites et complétude identiques.
+Elle n’accélère pas les décodeurs et ne prouve pas une baisse du p95 d’analyse.
+Les rafales dépassant sa durée maximale reçoivent encore des refus temporaires.

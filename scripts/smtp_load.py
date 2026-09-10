@@ -143,6 +143,7 @@ async def run(args):
               'machine': {'system': platform.platform(), 'cpu_count': os.cpu_count()},
               'messages': args.messages, 'concurrency': args.concurrency,
               'message_bytes': args.message_bytes, 'processing': args.processing,
+              'processing_wait_ms': getattr(args, 'processing_wait_ms', None),
               'relay_workers': args.relay_workers, 'retry_policy': 'bounded exponential jitter, max 2 seconds',
               'transport': 'loopback plaintext both hops', 'durability': 'unmodified SQLite FULL + spool fsync',
               'exclusions': ['DNS/authentication', 'DQS', 'LLM', 'Proton', 'TLS', 'traffic representativeness'],
@@ -219,6 +220,8 @@ async def run(args):
               f'max_connections=256\nmax_connections_per_ip=256\nmax_message_bytes=2097152\n')
     if args.processing is not None:
         config += f'max_processing={args.processing}\n'
+    if getattr(args, 'processing_wait_ms', None) is not None:
+        config += f'processing_wait_ms={args.processing_wait_ms}\n'
     config += (f'[web]\nlisten="127.0.0.1:{web_port}"\npublic_origin="http://127.0.0.1:3000"\n'
                f'static_dir={quote(root)}\nsecure_cookies=false\n'
                '[filter]\nmode="observe"\nauthentication=false\nmax_analysis_bytes=2097152\n')
@@ -442,6 +445,7 @@ def main():
     parser.add_argument('--concurrency', type=int, default=8)
     parser.add_argument('--message-bytes', type=int, default=1024)
     parser.add_argument('--processing', type=int, default=None, help='Omit to measure releases before this option existed')
+    parser.add_argument('--processing-wait-ms', type=int, help='Optional 0..5000 ms fair pre-DATA admission wait; omit for older releases')
     parser.add_argument('--relay-workers', type=int, default=8)
     for name in ('lexical-model', 'semantic-encoder', 'semantic-combination', 'antivirus-socket', 'signatures-socket', 'vision-socket'):
         parser.add_argument('--'+name, type=Path)
@@ -457,6 +461,8 @@ def main():
     if not (1 <= args.messages <= 5000 and 1 <= args.concurrency <= 128 and 512 <= args.message_bytes <= 1048576
             and 1 <= args.relay_workers <= 64 and (args.processing is None or 1 <= args.processing <= 64)):
         parser.error('Load outside bounds: 1..5000 messages, 1..128 clients, 512B..1MiB, 1..64 workers')
+    if args.processing_wait_ms is not None and not 0 <= args.processing_wait_ms <= 5000:
+        parser.error('Processing admission wait must be 0..5000 ms')
     if bool(args.semantic_encoder) != bool(args.semantic_combination) or (args.semantic_encoder and not args.lexical_model):
         parser.error('Semantic measurement needs encoder, combination and lexical model')
     if args.attachments:

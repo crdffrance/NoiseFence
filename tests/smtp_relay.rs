@@ -726,6 +726,15 @@ fn smtp_processing_capacity_is_bounded_and_backwards_compatible() {
     assert!(cfg.validate().is_err());
     cfg.smtp.max_connections = 128;
     cfg.validate().unwrap();
+    assert_eq!(cfg.smtp.processing_wait_ms, 0);
+    for wait in [0, 1, 5000] {
+        cfg.smtp.processing_wait_ms = wait;
+        cfg.validate().unwrap();
+    }
+    for invalid in [5001, u64::MAX] {
+        cfg.smtp.processing_wait_ms = invalid;
+        assert!(cfg.validate().is_err());
+    }
 }
 
 #[tokio::test]

@@ -47,9 +47,12 @@ pub struct Smtp {
     pub max_connections: usize,
     #[serde(default = "default_per_ip")]
     pub max_connections_per_ip: usize,
-    /// Concurrent DATA uploads, analyses and durable commits; excess senders retry.
+    /// Concurrent DATA uploads, analyses and durable commits.
     #[serde(default = "default_processing")]
     pub max_processing: usize,
+    /// Optional fair wait before 354; zero retains immediate pre-DATA refusal.
+    #[serde(default)]
+    pub processing_wait_ms: u64,
     #[serde(default = "default_timeout")]
     pub command_timeout_seconds: u64,
     #[serde(default = "default_rcpts")]
@@ -363,6 +366,10 @@ impl Config {
             (1..=64).contains(&self.smtp.max_processing)
                 && self.smtp.max_processing <= self.smtp.max_connections,
             "max_processing must be 1..64 and no greater than max_connections"
+        );
+        ensure!(
+            self.smtp.processing_wait_ms <= 5000,
+            "processing_wait_ms must be 0..5000"
         );
         ensure!(
             self.smtp.max_message_bytes >= 1024 && self.smtp.max_message_bytes <= 100 * 1024 * 1024,

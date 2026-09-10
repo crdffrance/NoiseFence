@@ -91,7 +91,7 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         "mailing_available":control.base.mailing.is_some(),"pub_tag_ready":pub_tag_ready,
         "hostname":control.base.hostname,"version":env!("CARGO_PKG_VERSION"),
         "tls_required":true,"max_connections":control.base.smtp.max_connections,
-        "processing":control.base.smtp.max_processing,"relay_workers":control.base.relay.workers,
+        "processing":control.base.smtp.max_processing,"processing_wait_ms":control.base.smtp.processing_wait_ms,"relay_workers":control.base.relay.workers,
         "max_message_bytes":control.base.smtp.max_message_bytes})))
 }
 #[derive(Deserialize)]

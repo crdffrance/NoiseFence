@@ -1,0 +1,321 @@
+{
+  "candidate": "0.5.0-dev.9",
+  "source_parent_commit": "7637f7cc2bca6d818f59593e81bda07fa67501ae",
+  "recorded_at": "2026-09-10T12:33:42.072654+00:00",
+  "schema": 1,
+  "sources_sha256": {
+    "src/config.rs": "86c49c11925ee82cf4e65ea59e013cf1166589d12f056c5f9c0ec4548f88c532",
+    "src/smtp.rs": "598bc59a16ecaa82d3e1d329dd91dc697a9d558a08b683275078c8e5f43ce1e9",
+    "src/smtp/capacity.rs": "0953d533d1eebbaac0f3189940b736e075b49ae03ca86f5817801898fc046db6",
+    "src/api/admin.rs": "72aeecce8960cafda5fc641d7a5f2bed698a7d7f427c432f584884eab9179f3a",
+    "tests/smtp_capacity.rs": "a9a0a1c33a7561997ff10d9f41f7a747fc5059079a152e16650aa8c7cd625eb5",
+    "tests/smtp_relay.rs": "bd362757a956b6c7b2fb95846285624c2e1182a7312443d965bb2ffaaff0169a",
+    "scripts/smtp_load.py": "a74e64f3491f86a3229ec44f56e75d83255f586f1578ddb9d8b6de23e60fefdf"
+  },
+  "tests": {
+    "rust_semantic": {
+      "passed": 465,
+      "failed": 0,
+      "ignored": 1
+    },
+    "processing_wait_unit": {
+      "passed": 4,
+      "scope": [
+        "queued acquisition order",
+        "new arrivals cannot overtake queued waiters",
+        "cancelled assigned reservation",
+        "expiry releases queue position",
+        "closed semaphore",
+        "zero wait legacy behavior"
+      ]
+    },
+    "smtp_integration": {
+      "passed": 3,
+      "scope": [
+        "no 354 or spool allocation before capacity",
+        "durable acceptance after resume",
+        "immediate refusal and timed refusal reset envelope",
+        "interrupted DATA cleanup",
+        "disconnect during wait does not leak processing capacity"
+      ]
+    },
+    "cli_invalid_bounds_rejected_before_output": [
+      -1,
+      5001
+    ],
+    "clippy": {
+      "features": [
+        "semantic"
+      ],
+      "all_targets": true,
+      "warnings_denied": true,
+      "passed": true
+    }
+  },
+  "local_smtp_profiles": {
+    "0": {
+      "run_finished": true,
+      "schema": "noisefence-smtp-load-2",
+      "binary_sha256": "96529d029c820b4ef467be17c6828069b52aacaf7d4ec442135e6bc9b81fe141",
+      "version": "noisefence 0.5.0-dev.9",
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit",
+        "cpu_count": 11
+      },
+      "messages": 16,
+      "concurrency": 4,
+      "message_bytes": 1024,
+      "processing": 1,
+      "processing_wait_ms": 0,
+      "relay_workers": 8,
+      "retry_policy": "bounded exponential jitter, max 2 seconds",
+      "transport": "loopback plaintext both hops",
+      "durability": "unmodified SQLite FULL + spool fsync",
+      "exclusions": [
+        "DNS/authentication",
+        "DQS",
+        "LLM",
+        "Proton",
+        "TLS",
+        "traffic representativeness"
+      ],
+      "components": {
+        "semantic": false,
+        "semantic_parallel": 1,
+        "semantic_timeout_ms": 500,
+        "antivirus": false,
+        "signatures": false,
+        "vision": false,
+        "protection": false,
+        "html_fixture": false,
+        "mailing": false,
+        "heuristics": true,
+        "content_inspection": true,
+        "document_fixture": false
+      },
+      "require_complete": true,
+      "complete_definition": "stored scan.complete plus all requested research modules complete",
+      "cpu_environment": {
+        "RAYON_NUM_THREADS": null,
+        "CANDLE_NUM_THREADS": null,
+        "TOKENIZERS_PARALLELISM": null,
+        "TOKIO_WORKER_THREADS": "4"
+      },
+      "lexical_model_sha256": null,
+      "semantic_combination_sha256": null,
+      "config_sha256": "26ad7308737589fbfcbdf4e1ef9f92208d5a3b5c6f8ff12a5cf9246c01ee7fd3",
+      "research": {
+        "findings": {
+          "heuristics": {},
+          "content_inspection": {}
+        },
+        "heuristic_limits": {},
+        "analysis_ms": {
+          "p50": 0,
+          "p95": 1,
+          "max": 1
+        }
+      },
+      "correctness_passed": true,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "statuses": {
+        "semantic": {
+          "disabled": 16
+        },
+        "antivirus": {
+          "disabled": 16
+        },
+        "signatures": {
+          "disabled": 16
+        },
+        "vision": {
+          "disabled": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {
+        "451": 8
+      },
+      "acceptance_ms": {
+        "p50": 11.768,
+        "p95": 439.542,
+        "max": 439.542
+      },
+      "analysis_ms": {
+        "p50": 1,
+        "p95": 49,
+        "max": 49
+      },
+      "admission_seconds": 0.44,
+      "drained_seconds": 0.546,
+      "accepted_per_second": 36.363,
+      "delivered_per_second": 29.31,
+      "complete_per_second": 29.31,
+      "delivery_states": {
+        "delivered": 16
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "peak_daemon_rss_bytes": null,
+      "peak_daemon_threads": null,
+      "peak_pending_deliveries": 1,
+      "daemon_cpu_seconds": null,
+      "wall_seconds": 0.768,
+      "sink_errors": []
+    },
+    "3000": {
+      "run_finished": true,
+      "schema": "noisefence-smtp-load-2",
+      "binary_sha256": "96529d029c820b4ef467be17c6828069b52aacaf7d4ec442135e6bc9b81fe141",
+      "version": "noisefence 0.5.0-dev.9",
+      "machine": {
+        "system": "macOS-26.6.2-arm64-arm-64bit",
+        "cpu_count": 11
+      },
+      "messages": 16,
+      "concurrency": 4,
+      "message_bytes": 1024,
+      "processing": 1,
+      "processing_wait_ms": 3000,
+      "relay_workers": 8,
+      "retry_policy": "bounded exponential jitter, max 2 seconds",
+      "transport": "loopback plaintext both hops",
+      "durability": "unmodified SQLite FULL + spool fsync",
+      "exclusions": [
+        "DNS/authentication",
+        "DQS",
+        "LLM",
+        "Proton",
+        "TLS",
+        "traffic representativeness"
+      ],
+      "components": {
+        "semantic": false,
+        "semantic_parallel": 1,
+        "semantic_timeout_ms": 500,
+        "antivirus": false,
+        "signatures": false,
+        "vision": false,
+        "protection": false,
+        "html_fixture": false,
+        "mailing": false,
+        "heuristics": true,
+        "content_inspection": true,
+        "document_fixture": false
+      },
+      "require_complete": true,
+      "complete_definition": "stored scan.complete plus all requested research modules complete",
+      "cpu_environment": {
+        "RAYON_NUM_THREADS": null,
+        "CANDLE_NUM_THREADS": null,
+        "TOKENIZERS_PARALLELISM": null,
+        "TOKIO_WORKER_THREADS": "4"
+      },
+      "lexical_model_sha256": null,
+      "semantic_combination_sha256": null,
+      "config_sha256": "929c4c5cf4ea0c65f219645ca0d59ce3dff9f93d534ab71338917217d496d270",
+      "research": {
+        "findings": {
+          "heuristics": {},
+          "content_inspection": {}
+        },
+        "heuristic_limits": {},
+        "analysis_ms": {
+          "p50": 0,
+          "p95": 1,
+          "max": 1
+        }
+      },
+      "correctness_passed": true,
+      "accepted": 16,
+      "delivered": 16,
+      "complete": 16,
+      "primary_complete": 16,
+      "incomplete": 0,
+      "statuses": {
+        "semantic": {
+          "disabled": 16
+        },
+        "antivirus": {
+          "disabled": 16
+        },
+        "signatures": {
+          "disabled": 16
+        },
+        "vision": {
+          "disabled": 16
+        },
+        "llm": {
+          "disabled": 16
+        },
+        "research_execution": {
+          "complete": 16
+        },
+        "heuristics": {
+          "complete": 16
+        },
+        "content_inspection": {
+          "complete": 16
+        }
+      },
+      "missing": 0,
+      "extra": 0,
+      "duplicates": 0,
+      "changed_bodies": 0,
+      "retryable_responses": {},
+      "acceptance_ms": {
+        "p50": 42.898,
+        "p95": 87.17,
+        "max": 87.17
+      },
+      "analysis_ms": {
+        "p50": 0,
+        "p95": 49,
+        "max": 49
+      },
+      "admission_seconds": 0.214,
+      "drained_seconds": 0.317,
+      "accepted_per_second": 74.89,
+      "delivered_per_second": 50.473,
+      "complete_per_second": 50.473,
+      "delivery_states": {
+        "delivered": 16
+      },
+      "integrity": "ok",
+      "requirements_met": true,
+      "peak_daemon_rss_bytes": null,
+      "peak_daemon_threads": null,
+      "peak_pending_deliveries": 1,
+      "daemon_cpu_seconds": null,
+      "wall_seconds": 0.525,
+      "sink_errors": []
+    }
+  },
+  "production_changed": false,
+  "limitations": [
+    "Local macOS software checks and 32 synthetic text messages, with no semantic model, OCR, external scanners, external mail or TLS. This is not the Linux full-model/OCR performance comparison.",
+    "Default waiting time is zero. The option is limited to 5000 ms, holds a bounded SMTP connection, and reserves the same processing capacity through DATA and durable enqueue.",
+    "The eight temporary replies in the disabled profile and zero in the enabled profile validate the small synthetic scenario only; they do not establish a general throughput or delivery latency guarantee.",
+    "Filtering quality, independent recent corpus evaluation and real CAPEv2/Office isolation remain unverified; no model or policy is promoted by this change.",
+    "Full Linux/ARM64 CI and same-artifact OCR comparison remain to run for this candidate."
+  ]
+}

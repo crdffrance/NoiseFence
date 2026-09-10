@@ -12,6 +12,10 @@ max_connections_per_ip = 8
 # DATA + analysis + durable enqueue. Start at 1 with one semantic/OCR worker;
 # raise only after measuring complete analyses, memory and retryable responses.
 max_processing = 1
+# Optional FIFO wait for an analysis slot before 354, bounded to 0..5000 ms.
+# Zero keeps immediate 451 under load. Measure complete analyses and retry tails
+# before enabling a wait (for example 3000) for this server's workload.
+processing_wait_ms = 0
 max_recipients = 100
 command_timeout_seconds = 300
 minimum_free_bytes = 1073741824

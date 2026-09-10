@@ -20,6 +20,8 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 
+mod capacity;
+
 pub trait Transport: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Transport for T {}
 pub type Wire = BufReader<Box<dyn Transport>>;
@@ -409,9 +411,21 @@ async fn session(
                     reply(&mut io, "503 5.5.1 MAIL and RCPT required\r\n").await?;
                     continue;
                 }
-                let permit = match state.processing.clone().try_acquire_owned() {
-                    Ok(p) => p,
-                    Err(_) => {
+                let admission_started = std::time::Instant::now();
+                let permit =
+                    capacity::acquire(state.processing.clone(), cfg.smtp.processing_wait_ms).await;
+                let waited_ms = admission_started.elapsed().as_millis() as u64;
+                if waited_ms > 0 || permit.is_none() {
+                    tracing::info!(
+                        waited_ms,
+                        limit_ms = cfg.smtp.processing_wait_ms,
+                        admitted = permit.is_some(),
+                        "SMTP processing admission"
+                    );
+                }
+                let permit = match permit {
+                    Some(p) => p,
+                    None => {
                         reply(&mut io, "451 4.3.2 Analysis capacity busy; retry later\r\n").await?;
                         from = None;
                         recipients.clear();

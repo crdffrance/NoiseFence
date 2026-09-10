@@ -243,3 +243,20 @@ final est conservé séparément de l’état encore partiel observé au premier
 
 Ces éléments restent dans le périmètre du programme ; le succès des tests locaux
 ne les transforme pas en conditions remplies.
+
+## Candidat 0.5.0-dev.9 : admission sous charge
+
+Le relevé OCR précédent expose une attente de 74 secondes liée aux reprises
+après refus de capacité. Le candidat suivant ajoute une attente configurable
+avant `354`, bornée à cinq secondes et désactivée par défaut. Les demandes encore
+en attente conservent leur ordre d’accès au traitement ; une expiration produit
+toujours un refus temporaire avant acceptation. Les limites de connexions, de
+traitements et de stockage restent appliquées.
+
+Le [relevé logiciel](smtp-capacity-wait-validation-20260910.json) conserve
+465 tests Rust réussis, dont quatre contrôles de réservation/expiration et trois
+tests SMTP réels de cette admission. Deux lots locaux de seize messages vérifient
+le réglage du banc et les livraisons intactes. Ils n’emploient pas les modèles ou
+l’OCR ; leur différence de réessais ne constitue pas la comparaison de performance
+Linux attendue. Le prochain essai doit comparer les deux réglages avec le même
+binaire, les mêmes modèles, le même worker OCR et toutes les analyses complètes.
