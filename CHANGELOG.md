@@ -5,6 +5,20 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.13 — Pool de workers OCR isolés
+
+- Répartir les analyses entre au plus quatre sockets de workers, avec réservation
+  par instance, limite globale, rotation et restitution après annulation ou erreur.
+  Fournir les unités systemd avec utilisateur dynamique et espace temporaire
+  distincts ; conserver le worker historique et la configuration à une instance.
+- Borner à une seconde la réception complète d’une requête OCR, en-tête et corps
+  compris, pour empêcher les fragments successifs de renouveler le délai.
+- Ajouter le profil SMTP contenant une image et un PDF dans chaque message,
+  contrôler les deux pièces/pages/codes et les empreintes d’originaux. Enregistrer
+  le nombre de sockets et le parallélisme configurés dans les mesures.
+- Étendre les contrôles Linux aux traitements concurrents et à l’accès entre
+  instances. Le débit complet du pool et la qualité du filtrage restent à mesurer.
+
 ### 0.5.0-dev.12 — Routes MX absolues
 
 - Reporter le correctif de la version stable 0.4.3 : accepter un point DNS final

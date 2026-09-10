@@ -150,7 +150,10 @@ async def run(args):
               'components': {'semantic': bool(args.semantic_encoder),
                              'semantic_parallel': args.semantic_parallel, 'semantic_timeout_ms': args.semantic_timeout_ms,
                              'antivirus': bool(args.antivirus_socket), 'signatures': bool(args.signatures_socket),
-                             'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False) or attachments, 'mailing':getattr(args,'mailing',False),
+                             'vision': bool(args.vision_socket),
+                             'vision_parallel': getattr(args, 'vision_parallel', 1),
+                             'vision_workers': 1 + len(getattr(args, 'vision_additional_socket', []) or []) if args.vision_socket else 0,
+                             'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False) or attachments, 'mailing':getattr(args,'mailing',False),
                              'heuristics': research, 'content_inspection': research, 'document_fixture': attachments},
               'require_complete': getattr(args, 'require_complete', False),
               'complete_definition': 'stored scan.complete plus all requested research modules complete' if research else 'stored scan.complete',
@@ -235,6 +238,11 @@ async def run(args):
         value = getattr(args, name+'_socket')
         if value:
             config += f'[{name}]\nsocket={quote(value.resolve())}\ntimeout_ms=3000\n'
+            if name == 'vision':
+                config += f'max_parallel={getattr(args, "vision_parallel", 1)}\n'
+                additional = getattr(args, 'vision_additional_socket', []) or []
+                if additional:
+                    config += 'additional_sockets=[' + ','.join(quote(p.resolve()) for p in additional) + ']\n'
     config += (f'[relay]\nworkers={args.relay_workers}\nrequire_tls=false\nallow_loopback_plaintext=true\n'
                f'port={sink_port}\npostmaster="alice@example.test"\n'
                '[[domains]]\nname="example.test"\nnext_hops=["127.0.0.1"]\nrecipients=["alice@example.test"]\n')
@@ -449,6 +457,9 @@ def main(extend_parser=None):
     parser.add_argument('--relay-workers', type=int, default=8)
     for name in ('lexical-model', 'semantic-encoder', 'semantic-combination', 'antivirus-socket', 'signatures-socket', 'vision-socket'):
         parser.add_argument('--'+name, type=Path)
+    parser.add_argument('--vision-additional-socket', type=Path, action='append', default=[],
+                        help='Additional independently confined worker; repeat up to three times')
+    parser.add_argument('--vision-parallel', type=int, default=1, help='OCR client concurrency, 1..4')
     parser.add_argument('--protection',action='store_true',help='Enable local advisory protection; no provider calls')
     parser.add_argument('--mailing',action='store_true',help='Use synthetic newsletters and enable local PUB categorization')
     parser.add_argument('--html',action='store_true',help='Use synthetic HTML links for parser load')
@@ -465,6 +476,12 @@ def main(extend_parser=None):
         parser.error('Load outside bounds: 1..5000 messages, 1..128 clients, 512B..1MiB, 1..64 workers')
     if args.processing_wait_ms is not None and not 0 <= args.processing_wait_ms <= 5000:
         parser.error('Processing admission wait must be 0..5000 ms')
+    sockets = ([args.vision_socket] if args.vision_socket else []) + args.vision_additional_socket
+    if (not 1 <= args.vision_parallel <= 4 or len(sockets) > 4
+            or (not args.vision_socket and (args.vision_additional_socket or args.vision_parallel != 1))
+            or (args.vision_additional_socket and (not args.vision_socket or args.vision_parallel > len(sockets)))
+            or len({p.resolve() for p in sockets}) != len(sockets)):
+        parser.error('OCR pool requires 1..4 distinct sockets and bounded client concurrency')
     if bool(args.semantic_encoder) != bool(args.semantic_combination) or (args.semantic_encoder and not args.lexical_model):
         parser.error('Semantic measurement needs encoder, combination and lexical model')
     if args.attachments:

@@ -350,5 +350,30 @@ avec validation Linux, TLS et persistance. Le report dans la R&D conserve le nom
 absolu pour le DNS et retire un seul point pour les contrôles de boucle et le nom
 TLS. Le [relevé local](mx-root-rnd-validation-20260910.json) conserve les quinze
 tests de routes, traces SMTP et droits des diagnostics réussis, ainsi que Clippy.
-La CI Linux de dev.12 reste à terminer ; les mesures PDF effectuées avec dev.11
-restent liées à leur propre binaire et à leurs paramètres.
+La CI du commit `f7e9ae3` termine ses six jobs avec succès, dont ARM64. Les mesures
+PDF effectuées avec dev.11 restent liées à leur propre binaire et à leurs paramètres.
+
+## Candidat 0.5.0-dev.13 : répartir l’OCR entre instances isolées
+
+Les mesures précédentes identifient le coût du worker OCR séquentiel. Le candidat
+ajoute un pool de deux à quatre instances indépendantes, chacune avec utilisateur
+dynamique et espaces de noms séparés. Le répartiteur Rust réserve une instance
+libre dans la limite globale, restitue les réservations après annulation et
+conserve les erreurs d’échange. Le traitement de chaque worker reste séquentiel
+et les limites des décodeurs sont conservées. La lecture d’une requête partage
+désormais une seule seconde entre l’en-tête et tous les fragments du corps.
+
+Le [relevé](vision-pool-validation-20260910.json) conserve les 476 tests Rust du
+runtime et les neuf tests ciblés, dont un contrôle supplémentaire d’annulation,
+ainsi que 79 tests Python réussis et quatre contrôles spécifiques à Linux omis
+localement. L’essai Linux observe des jobs simultanés sur deux workers réels,
+des utilisateurs et espaces de noms distincts, et des refus d’accès entre
+instances. Les deux requêtes combinant image et PDF sont complètes et leurs
+quatre pages sont vérifiées. Les unités et fichiers du banc ont été retirés.
+
+Le profil SMTP `combined` exige les deux pièces dans chaque message, en complément
+du profil alterné. L’artefact Linux inclut les templates et le test du pool pour
+permettre un essai avec le binaire correspondant. La CI du candidat, les mesures
+SMTP avec modèles/scanners et la comparaison de débit restent à terminer ; cet
+essai de fonctionnement ne remplit pas les validations de qualité ou de latence
+encore ouvertes dans le programme.

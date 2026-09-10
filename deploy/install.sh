@@ -46,17 +46,31 @@ ln -sfn current/noisefence "$base/noisefence"
 ln -sfn current/web "$base/web"
 install -m 0644 deploy/noisefence.service /etc/systemd/system/noisefence.service
 vision_installed=false
+vision_pool_instances=
 if [ -f /etc/systemd/system/noisefence-vision.service ]; then
     vision_installed=true
     install -m 0644 deploy/noisefence-vision.service /etc/systemd/system/
     install -m 0644 deploy/noisefence-vision.socket /etc/systemd/system/
 fi
+if [ -f /etc/systemd/system/noisefence-vision@.service ]; then
+    install -m 0644 deploy/noisefence-vision@.service /etc/systemd/system/
+    install -m 0644 deploy/noisefence-vision@.socket /etc/systemd/system/
+    for instance in 1 2 3 4; do
+        if systemctl is-active --quiet "noisefence-vision@$instance.service"; then
+            vision_pool_instances="$vision_pool_instances $instance"
+        fi
+    done
+fi
 systemctl daemon-reload
 systemctl enable noisefence.service
 if ! (if "$vision_installed"; then systemctl restart noisefence-vision.service || exit 1; fi
+      for instance in $vision_pool_instances; do
+          systemctl restart "noisefence-vision@$instance.service" || exit 1
+      done
       systemctl restart noisefence.service); then
     systemctl stop noisefence.service || { echo 'Could not stop candidate; automatic rollback refused.' >&2; exit 1; }
-    if [ -n "$previous" ] && python3 deploy/can-rollback.py --config /etc/noisefence/config.toml --previous "$base/$previous"; then
+    if [ -n "$previous" ] && python3 deploy/can-rollback.py --config /etc/noisefence/config.toml --previous "$base/$previous" \
+       && "$base/$previous/noisefence" --config /etc/noisefence/config.toml check-config; then
         ln -sfn "$previous" "$base/current.next"
         mv -Tf "$base/current.next" "$base/current"
         if "$vision_installed" && [ -f "$base/current/deploy/noisefence-vision.service" ]; then
@@ -64,6 +78,20 @@ if ! (if "$vision_installed"; then systemctl restart noisefence-vision.service |
             install -m 0644 "$base/current/deploy/noisefence-vision.socket" /etc/systemd/system/
             systemctl daemon-reload
             systemctl restart noisefence-vision.service || true
+        fi
+        if [ -f "$base/current/deploy/noisefence-vision@.service" ]; then
+            install -m 0644 "$base/current/deploy/noisefence-vision@.service" /etc/systemd/system/
+            install -m 0644 "$base/current/deploy/noisefence-vision@.socket" /etc/systemd/system/
+            systemctl daemon-reload
+            for instance in $vision_pool_instances; do
+                systemctl restart "noisefence-vision@$instance.service" || true
+            done
+        else
+            # A prior release without pooling may still accept a legacy config.
+            # Stop unused pool instances rather than leave candidate workers live.
+            for instance in $vision_pool_instances; do
+                systemctl stop "noisefence-vision@$instance.socket" "noisefence-vision@$instance.service" || true
+            done
         fi
         systemctl restart noisefence.service || true
     fi

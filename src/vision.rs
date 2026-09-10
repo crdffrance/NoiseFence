@@ -4,11 +4,16 @@ use anyhow::{Result, ensure};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mail_parser::{MessageParser, MimeHeaders};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, path::PathBuf, time::Instant};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
-    sync::Semaphore,
+    sync::{Semaphore, SemaphorePermit},
 };
 
 pub const PROTOCOL: &str = "noisefence-vision-1";
@@ -19,6 +24,8 @@ const MAX_RESPONSE: usize = 256 * 1024;
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub socket: PathBuf,
+    /// Distinct, independently confined serial workers; at most four in total.
+    pub additional_sockets: Vec<PathBuf>,
     pub timeout_ms: u64,
     pub max_parallel: usize,
     pub max_parts: usize,
@@ -36,6 +43,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             socket: "/run/noisefence-vision/worker.sock".into(),
+            additional_sockets: Vec::new(),
             timeout_ms: 3000,
             max_parallel: 1,
             max_parts: 6,
@@ -63,6 +71,23 @@ impl Settings {
         ensure!(
             (1..=4).contains(&self.max_parallel),
             "vision.max_parallel must be 1..4"
+        );
+        let sockets: Vec<_> = std::iter::once(&self.socket)
+            .chain(&self.additional_sockets)
+            .collect();
+        ensure!(
+            sockets.len() <= 4
+                && sockets.iter().all(|p| p.is_absolute()
+                    && p.as_os_str().len() < 100
+                    && !p
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir)))
+                && sockets.iter().collect::<BTreeSet<_>>().len() == sockets.len(),
+            "vision worker sockets must be unique short absolute paths (at most four)"
+        );
+        ensure!(
+            self.additional_sockets.is_empty() || self.max_parallel <= sockets.len(),
+            "vision.max_parallel must not exceed the number of pooled workers"
         );
         ensure!(
             (1..=8).contains(&self.max_parts),
@@ -394,14 +419,57 @@ fn select(raw: &[u8], settings: &Settings) -> (Vec<Part>, Vec<String>) {
 pub struct Client {
     settings: Settings,
     slots: Semaphore,
+    workers: Vec<Worker>,
+    next_worker: AtomicUsize,
+}
+struct Worker {
+    socket: PathBuf,
+    slots: Semaphore,
+}
+struct Lease<'a> {
+    socket: &'a Path,
+    _global: SemaphorePermit<'a>,
+    _worker: SemaphorePermit<'a>,
 }
 impl Client {
     pub fn new(settings: Settings) -> Result<Self> {
         settings.validate()?;
+        // Preserve the historical single-socket concurrency setting. In a pool,
+        // reserve each serial worker separately so one busy worker cannot queue
+        // requests while another is idle. No retry after an uncertain exchange.
+        let per_worker = if settings.additional_sockets.is_empty() {
+            settings.max_parallel
+        } else {
+            1
+        };
+        let workers = std::iter::once(&settings.socket)
+            .chain(&settings.additional_sockets)
+            .map(|socket| Worker {
+                socket: socket.clone(),
+                slots: Semaphore::new(per_worker),
+            })
+            .collect();
         Ok(Self {
             slots: Semaphore::new(settings.max_parallel),
             settings,
+            workers,
+            next_worker: AtomicUsize::new(0),
         })
+    }
+    fn reserve(&self) -> Option<Lease<'_>> {
+        let global = self.slots.try_acquire().ok()?;
+        let start = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.workers.len();
+        for offset in 0..self.workers.len() {
+            let worker = &self.workers[(start + offset) % self.workers.len()];
+            if let Ok(permit) = worker.slots.try_acquire() {
+                return Some(Lease {
+                    socket: &worker.socket,
+                    _global: global,
+                    _worker: permit,
+                });
+            }
+        }
+        None
     }
     pub async fn inspect(&self, raw: &[u8]) -> Inspection {
         let started = Instant::now();
@@ -421,10 +489,10 @@ impl Client {
             pages: Vec::new(),
         };
         if !parts.is_empty() {
-            if let Ok(_permit) = self.slots.try_acquire() {
+            if let Some(lease) = self.reserve() {
                 match tokio::time::timeout(
                     std::time::Duration::from_millis(self.settings.timeout_ms),
-                    self.exchange(parts),
+                    self.exchange(parts, lease.socket),
                 )
                 .await
                 {
@@ -494,7 +562,7 @@ impl Client {
         inspection.summary.errors.dedup();
         inspection
     }
-    async fn exchange(&self, parts: Vec<Part>) -> Result<Response> {
+    async fn exchange(&self, parts: Vec<Part>, worker_socket: &Path) -> Result<Response> {
         let count = parts.len();
         let request = serde_json::to_vec(&Request {
             protocol: PROTOCOL,
@@ -512,7 +580,7 @@ impl Client {
             parts,
         })?;
         ensure!(request.len() <= MAX_REQUEST, "vision request too large");
-        let mut socket = UnixStream::connect(&self.settings.socket).await?;
+        let mut socket = UnixStream::connect(worker_socket).await?;
         socket.write_u32(request.len() as u32).await?;
         socket.write_all(&request).await?;
         let length = socket.read_u32().await? as usize;

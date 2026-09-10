@@ -43,6 +43,62 @@ sorties et durée sont bornés. Les fichiers temporaires disparaissent après la
 demande. Le renouvellement des paquets de sécurité peut changer l'empreinte du
 backend ; mettre à jour un éventuel verrou après vérification des tests.
 
+## Plusieurs instances sur un serveur
+
+Depuis `0.5.0-dev.13`, `additional_sockets` permet au client Rust de répartir les
+requêtes entre deux à quatre workers. Chaque instance reste séquentielle : les
+processus de décodage de deux messages simultanés appartiennent à des utilisateurs
+distincts et à des espaces temporaires séparés. Les unités fournies appliquent
+`DynamicUser`, `PrivateTmp`, `PrivateNetwork` et les mêmes restrictions de fichiers
+et de ressources que l’instance historique. Ces mécanismes sont décrits dans la
+[documentation systemd](https://github.com/systemd/systemd/blob/main/man/systemd.exec.xml).
+
+Installer deux instances après le binaire de la même version :
+
+```sh
+sudo sh /opt/noisefence/current/deploy/install-vision.sh 2
+```
+
+Dans la section `[vision]`, remplacer la socket et le parallélisme par :
+
+```toml
+socket = "/run/noisefence-vision-1/worker.sock"
+additional_sockets = ["/run/noisefence-vision-2/worker.sock"]
+max_parallel = 2
+```
+
+Valider la configuration et redémarrer NoiseFence après démarrage des instances.
+L’installation laisse l’ancienne instance disponible pendant ce changement.
+Après vérification du pool dans la console, elle peut être arrêtée avec
+`sudo systemctl disable --now noisefence-vision.socket noisefence-vision.service`.
+Le fichier de configuration conserve le choix des sockets ; l’installateur ne
+le remplace pas. Pour revenir à une instance, réactiver d’abord le worker
+historique avec `install-vision.sh` sans argument, puis remettre sa socket,
+vider `additional_sockets` et remettre `max_parallel = 1` avant d’arrêter le pool.
+
+Le client réserve au plus une requête par instance du pool et respecte aussi
+`max_parallel`. Une instance occupée laisse la place à une autre disponible.
+Si toutes les réservations sont prises, l’état OCR est `busy`. Une erreur de
+connexion ou de réponse reste `unavailable` ; elle n’entraîne pas de nouvel envoi
+automatique du même contenu. La réception de l’en-tête et du corps d’une requête
+partage désormais une seule seconde, sans prolongation à chaque fragment.
+
+Chaque instance est plafonnée à un CPU, 900 Mio de RAM et 128 Mio de fichiers
+temporaires : les plafonds s’additionnent. Réserver aussi les ressources du moteur
+SMTP, des modèles et des scanners. Le nombre d’instances doit être mesuré avec
+le trafic et les limites réels ; le pool ne garantit pas une latence donnée.
+
+```sh
+sudo systemctl status noisefence-vision@1.service noisefence-vision@2.service
+sudo journalctl -u noisefence-vision@1 -u noisefence-vision@2 --since '30 min ago'
+```
+
+Le test `sudo /usr/bin/python3 tests/systemd_vision_pool.py` crée deux unités
+temporaires, vérifie utilisateurs et espaces de noms distincts, refus d’accès
+entre instances, chevauchement de jobs et lecture de pièces image/PDF combinées.
+Il utilise du contenu synthétique et supprime ses unités à la fin. Cette preuve
+de fonctionnement reste distincte d’une mesure SMTP avec tous les moteurs actifs.
+
 ## Consulter la lecture
 
 Dans le détail d'un message, la console affiche le résultat OCR, le nombre de

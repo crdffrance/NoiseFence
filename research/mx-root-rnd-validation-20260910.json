@@ -36,6 +36,12 @@
     "Root/empty labels, malformed endpoints and looping gateway/domain routes stay invalid.",
     "SMTP replies and the original route are retained; unknown TLS issuers, recipient ACLs and transactional trace persistence keep their existing checks."
   ],
-  "linux_candidate_validation": "pending after publication; stable 0.4.3 checks are recorded separately and do not qualify the whole R&D candidate",
+  "linux_candidate_validation": {
+    "commit": "f7e9ae3cd079c07902d7ef20fe68cd2176a95e7c",
+    "ci_run": 34497480758,
+    "conclusion": "success, all six jobs including AMD64 and ARM64",
+    "observation_sha256": "340c4a739d18082dde4a7d3fe661174f97498a4d73ffc15fdaf5a59fec6e96e8",
+    "scope": "Full candidate CI, including SMTP/relay tests. Earlier PDF capacity results still apply only to dev.11."
+  },
   "production": "stable0.4.3; no R&D deployment"
 }

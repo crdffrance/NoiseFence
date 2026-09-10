@@ -1,0 +1,38 @@
+[Unit]
+Description=NoiseFence isolated OCR and barcode worker %i
+Requires=noisefence-vision@%i.socket
+After=noisefence-vision@%i.socket
+
+[Service]
+DynamicUser=true
+User=noisefence-vision-%i
+ExecStart=/usr/bin/python3 /opt/noisefence/current/deploy/vision-worker.py --serve
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateNetwork=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+InaccessiblePaths=-/etc/noisefence -/var/lib/noisefence -/run/dbus
+TemporaryFileSystem=/tmp:rw,nosuid,nodev,noexec,size=128M
+MemoryMax=900M
+MemorySwapMax=0
+TasksMax=32
+CPUQuota=100%
+LimitNOFILE=64

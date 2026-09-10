@@ -33,7 +33,7 @@ async def run(args):
     if getattr(args, 'attachments', False):
         raise SystemExit('The OCR fixture cannot be combined with --attachments')
     profile = getattr(args, 'vision_fixture', 'image')
-    if profile not in ('image', 'pdf', 'alternating'):
+    if profile not in ('image', 'pdf', 'alternating', 'combined'):
         raise SystemExit('Unknown OCR fixture profile')
     if profile == 'alternating' and args.messages < 2:
         raise SystemExit('The alternating OCR profile requires at least two messages')
@@ -55,8 +55,9 @@ async def run(args):
             message['X-Load-ID'] = str(index)
             message['Date'] = 'Tue, 08 Sep 2026 08:00:00 +0000'
             message.set_content('Synthetic local image inspection. No external delivery.')
-            maintype, subtype, filename = ('image', 'png', 'synthetic.png') if kind == 'image' else ('application', 'pdf', 'synthetic.pdf')
-            message.add_attachment(inputs[kind], maintype=maintype, subtype=subtype, filename=filename)
+            for part_kind in (('image', 'pdf') if kind == 'combined' else (kind,)):
+                maintype, subtype, filename = ('image', 'png', 'synthetic.png') if part_kind == 'image' else ('application', 'pdf', 'synthetic.pdf')
+                message.add_attachment(inputs[part_kind], maintype=maintype, subtype=subtype, filename=filename)
             message.set_boundary('noisefence-public-vision-load')
             raw = message.as_bytes()
             sizes.add(len(raw))
@@ -83,23 +84,29 @@ async def run(args):
         with sqlite3.connect(f'file:{root}/data/state.sqlite3?mode=ro', uri=True) as db:
             scans = [json.loads(row[0]) for row in db.execute('SELECT scan FROM messages')]
         completed = [s['vision'] for s in scans if s['vision']['status'] == 'complete']
-        decoded = sum(s['qr_codes'] == 1 and s['pages'] == 1 and s['text_chars'] >= 80 for s in completed)
+        def verified(vision, kind):
+            count = 2 if kind == 'combined' else 1
+            return (kind != 'unknown' and vision['status'] == 'complete'
+                    and vision['parts'] == count and vision['qr_codes'] == count
+                    and vision['pages'] == count and vision['text_chars'] >= 80 * count)
+
+        decoded = sum(verified(s['vision'], expected_kinds.get(s.get('raw_sha256'), 'unknown')) for s in scans)
         report = json.loads((root/'summary.json').read_text())
         report['fixture_profile'] = 'public-vision-worker-ocr-qr'
         report['vision_fixture'] = profile
         report['message_bytes_range'] = [min(sizes), max(sizes)]
         used_kinds = ('image', 'pdf') if profile == 'alternating' else (profile,)
-        report['fixture_inputs_sha256'] = {kind: load.digest(inputs[kind]) for kind in used_kinds}
+        input_kinds = ('image', 'pdf') if profile in ('alternating', 'combined') else (profile,)
+        report['fixture_inputs_sha256'] = {kind: load.digest(inputs[kind]) for kind in input_kinds}
+        report['fixture_parts_per_message'] = {kind: 2 if kind == 'combined' else 1 for kind in used_kinds}
         if profile != 'pdf':
             report['fixture_image_sha256'] = load.digest(inputs['image'])
         by_kind = {}
         for kind in (*used_kinds, 'unknown'):
-            observations = [s['vision'] for s in scans if expected_kinds.get(s.get('raw_sha256'),
-                'image' if profile == 'image' else 'unknown') == kind]
-            verified = [s for s in observations if s['status'] == 'complete' and s['qr_codes'] == 1
-                        and s['pages'] == 1 and s['text_chars'] >= 80]
+            observations = [s['vision'] for s in scans if expected_kinds.get(s.get('raw_sha256'), 'unknown') == kind]
+            checked = [s for s in observations if verified(s, kind)]
             by_kind[kind] = {'messages': len(observations), 'complete': sum(s['status'] == 'complete' for s in observations),
-                             'verified': len(verified), 'ocr_elapsed_ms': load.quantiles([s['elapsed_ms'] for s in observations])}
+                             'verified': len(checked), 'ocr_elapsed_ms': load.quantiles([s['elapsed_ms'] for s in observations])}
         report['ocr_by_kind'] = by_kind
         report['probe_sources_sha256'] = {str(p.relative_to(ROOT)): load.digest(p.read_bytes()) for p in (
             ROOT/'scripts/smtp_load.py', ROOT/'scripts/smtp_load_vision.py', ROOT/'tests/vision_worker.py')}
@@ -120,5 +127,5 @@ async def run(args):
 
 if __name__ == '__main__':
     load.run = run
-    load.main(lambda parser: parser.add_argument('--vision-fixture', choices=('image', 'pdf', 'alternating'),
-        default='image', help='Public OCR fixture: image, scanned PDF, or alternating messages; no external delivery'))
+    load.main(lambda parser: parser.add_argument('--vision-fixture', choices=('image', 'pdf', 'alternating', 'combined'),
+        default='image', help='Public OCR fixture: image, PDF, alternating messages, or both attachments in each message'))

@@ -537,3 +537,22 @@ Le débit soutenu et le parallélisme OCR doivent être mesurés en conservant
 la couverture des décodeurs et l’isolation des traitements. Les empreintes,
 versions des moteurs et limites du banc sont conservées dans le relevé ; les
 unités et copies de modèles temporaires ont été supprimées après l’audit.
+
+## Mesurer le pool OCR (candidat 0.5.0-dev.13)
+
+Le banc accepte `--vision-additional-socket /run/worker-2.sock` (répétable) et
+`--vision-parallel 2`. Chaque socket doit joindre une instance indépendante du
+worker du candidat. Le rapport conserve les nombres de sockets et de réservations
+configurés ; il ne déduit pas le nombre de processus réels de ces seuls paramètres.
+
+`--vision-fixture combined` ajoute une image et un PDF au même message. Ce profil
+exige deux pièces sélectionnées, deux pages, deux QR codes et au moins 160 caractères
+extraits, ainsi qu’une attribution à l’empreinte de l’original. Une page
+ou un code manquant fait échouer le profil. Le profil `alternating` continue
+d’envoyer un type de pièce par message, avec des latences séparées par type.
+
+Comparer une et deux instances avec le même binaire, les mêmes modèles et budgets,
+et un `--processing` cohérent avec les réservations OCR. Exiger `--require-complete`,
+conserver tous les refus temporaires et erreurs, et contrôler les corps livrés.
+Les tests de chevauchement de jobs et de sockets ne prouvent pas un gain de débit
+du pipeline complet. Les mesures dev.11 ci-dessus ne qualifient pas le pool dev.13.

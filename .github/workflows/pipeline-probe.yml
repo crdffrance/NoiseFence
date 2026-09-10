@@ -43,7 +43,7 @@ jobs:
           daemon = root/'var/pipeline-probe/noisefence'
           daemon_elf = daemon.read_bytes()[:20]
           assert daemon_elf[:4] == b'\x7fELF' and int.from_bytes(daemon_elf[18:20], 'little') == 62
-          runtime_files = ['config/development.toml', 'scripts/smtp_load.py', 'scripts/smtp_load_vision.py', 'tests/vision_worker.py', 'deploy/vision-worker.py']
+          runtime_files = ['config/development.toml', 'scripts/smtp_load.py', 'scripts/smtp_load_vision.py', 'tests/vision_worker.py', 'deploy/vision-worker.py', 'deploy/noisefence-vision@.service', 'deploy/noisefence-vision@.socket', 'tests/systemd_vision_pool.py']
           for name in runtime_files:
               destination = root/'var/pipeline-probe'/name
               destination.parent.mkdir(parents=True, exist_ok=True)

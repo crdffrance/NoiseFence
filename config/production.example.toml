@@ -55,6 +55,10 @@ max_analysis_bytes = 2097152
 # timeout_ms = 3000
 # max_parallel = 1
 # contribute_to_score = false
+# Optional pool: install-vision.sh 2, then use the two instance sockets instead.
+# socket = "/run/noisefence-vision-1/worker.sock"
+# additional_sockets = ["/run/noisefence-vision-2/worker.sock"]
+# max_parallel = 2
 
 # Optional local semantic combination; requires a binary built with --features semantic.
 # Use the matching calibrated filter.model and an independently validated combination.

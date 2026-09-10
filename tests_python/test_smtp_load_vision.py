@@ -19,7 +19,7 @@ spec.loader.exec_module(probe)
 
 
 class VisionReportTests(unittest.IsolatedAsyncioTestCase):
-    async def exercise(self, complete=True, qr=1, preflight=False, profile='image', unknown=False):
+    async def exercise(self, complete=True, qr=None, pages=None, preflight=False, profile='image', unknown=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)/'run'
             count = 3 if profile == 'alternating' else 1
@@ -47,14 +47,18 @@ class VisionReportTests(unittest.IsolatedAsyncioTestCase):
                         kind = ('image' if index % 2 == 0 else 'pdf') if profile == 'alternating' else profile
                         parsed = BytesParser(policy=default).parsebytes(raw)
                         attachments = list(parsed.iter_attachments())
-                        self.assertEqual(len(attachments), 1)
-                        self.assertEqual(attachments[0].get_content_type(), 'image/png' if kind == 'image' else 'application/pdf')
-                        self.assertEqual(attachments[0].get_payload(decode=True),
-                            b'Synthetic fixture bytes, never decoded in this unit test' if kind == 'image'
-                            else b'%PDF-Synthetic unit fixture, never decoded')
+                        kinds = ('image', 'pdf') if kind == 'combined' else (kind,)
+                        self.assertEqual(len(attachments), len(kinds))
+                        for part, part_kind in zip(attachments, kinds):
+                            self.assertEqual(part.get_content_type(), 'image/png' if part_kind == 'image' else 'application/pdf')
+                            self.assertEqual(part.get_payload(decode=True),
+                                b'Synthetic fixture bytes, never decoded in this unit test' if part_kind == 'image'
+                                else b'%PDF-Synthetic unit fixture, never decoded')
                         db.execute('INSERT INTO messages VALUES (?)', (json.dumps({
                             'raw_sha256': '0'*64 if unknown else probe.load.digest(raw), 'vision': {
-                            'status': 'complete', 'qr_codes': qr, 'pages': 1, 'text_chars': 124,
+                            'status': 'complete', 'parts': len(kinds),
+                            'qr_codes': len(kinds) if qr is None else qr,
+                            'pages': len(kinds) if pages is None else pages, 'text_chars': 124 * len(kinds),
                             'elapsed_ms': 42 if kind == 'image' else 84, 'backend_sha256': 'a'*64}}),))
                 (root/'summary.json').write_text(json.dumps({
                     'run_finished': True, 'requirements_met': complete, 'complete': int(complete),
@@ -132,6 +136,27 @@ class VisionReportTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(report['requirements_met'])
         self.assertEqual(report['ocr_by_kind']['image']['verified'], 2)
         self.assertEqual(report['ocr_by_kind']['pdf']['verified'], 1)
+
+    async def test_combined_requires_both_mime_parts_in_the_same_message(self):
+        failure, report = await self.exercise(profile='combined')
+        self.assertIsNone(failure)
+        self.assertEqual(report['fixture_parts_per_message'], {'combined': 2})
+        self.assertEqual(set(report['fixture_inputs_sha256']), {'image', 'pdf'})
+        self.assertEqual(report['ocr_by_kind']['combined']['verified'], 1)
+
+    async def test_combined_missing_page_or_code_cannot_pass(self):
+        for kwargs in ({'pages': 1}, {'qr': 1}):
+            with self.subTest(**kwargs):
+                failure, report = await self.exercise(profile='combined', **kwargs)
+                self.assertIsInstance(failure, str)
+                self.assertFalse(report['requirements_met'])
+                self.assertEqual(report['ocr_by_kind']['combined']['verified'], 0)
+
+    async def test_unknown_image_digest_is_also_an_error(self):
+        failure, report = await self.exercise(unknown=True)
+        self.assertIsInstance(failure, str)
+        self.assertEqual(report['ocr_by_kind']['unknown']['messages'], 1)
+        self.assertEqual(report['ocr_verified_messages'], 0)
 
 
 if __name__ == '__main__':

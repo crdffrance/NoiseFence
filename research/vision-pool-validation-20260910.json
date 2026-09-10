@@ -1,0 +1,112 @@
+{
+  "schema": "noisefence-vision-pool-validation-1",
+  "version": "0.5.0-dev.13",
+  "parent_commit": "f7e9ae3cd079c07902d7ef20fe68cd2176a95e7c",
+  "scope": "Bounded Rust dispatch to independently confined serial OCR workers; synthetic functionality and isolation evidence, not full-pipeline throughput or filtering quality.",
+  "sources_sha256": {
+    "src/vision.rs": "a9e16cc07a6347a0ba72b392fd71c7ad0cd0a550390e7b75e8941787d9a3b501",
+    "deploy/vision-worker.py": "dd6f924bf9406bf8ea7db6ca015fe5accb37b7bc969158353fdf29ce05c9c600",
+    "deploy/noisefence-vision@.service": "f1503b8474cb00a0098dc40b13a5069d46aa2c908ce59d241ce297dfa902f1db",
+    "deploy/noisefence-vision@.socket": "07b81dcd8ad838e8c59c458480ccf2eed8ee0cf644ba0f2a4dabd3db46dc54e9",
+    "deploy/install-vision.sh": "751a1f5e867f5d499bd99e90fc30d5e118823ce62dad0a8bf1578173c05d1f27",
+    "deploy/install.sh": "12780554e7ea8e4af0f1c953154ccfb4921d1126cbdc576883a4aae09da79155",
+    "scripts/smtp_load.py": "da38fde0f6d34f0846911a4f0fc631e7b273d62a24a240c5d8e04faa20128601",
+    "scripts/smtp_load_vision.py": "074f1954bbbdc6cb0b3da52ab41d7c7ac114d42767681a0b811f25f8e83b9a65",
+    "tests/vision.rs": "c6a8a274611f694b43f7bb3f593ad8ef347f0b3609069f88ea1c48e2731a0310",
+    "tests_python/test_vision_framing.py": "dc5f8c80267163926a1f12555a5b8d25ca89f0ceb80f7b57aeccd4abe5955b64",
+    "tests_python/test_smtp_load_vision.py": "f0415432129f1a24b83ee15105a3d4a721e9fa62b461f5ccb3018ffba979fc34",
+    "tests/systemd_vision_pool.py": "d29fe933114302e5bd08168e10320123a159ef9cf00c51fd0a4e3e5a5905a526",
+    ".github/workflows/check.yml": "461d4a062444cce8d65b5f23f4ce31a1e17c0302038edf1c08cea6e8c26bf8c7",
+    ".github/workflows/pipeline-probe.yml": "2cb2ef5795ad42bfbe69dd3b0fd5fa6aff164047eb4bd60de203223452c3ce07"
+  },
+  "implementation": {
+    "pool": "Primary socket plus up to three distinct absolute additional sockets; per-worker reservation, global maximum, rotating selection, automatic permit release on error/cancellation. Legacy single-socket concurrency remains compatible.",
+    "isolation": "One serial worker per systemd instance, separate dynamic UID and mount/network namespaces; original decoder/job limits retained.",
+    "framing": "Single one-second deadline for header plus payload, independent one-second response-write limit; process supervision unchanged.",
+    "measurement": "combined includes an image AND a PDF in every message and checks parts/pages/QR counts plus text length. Unknown original digests fail every profile. Both configured socket count and concurrency are reported.",
+    "deployment": "Optional 1..4 instance installer; refresh active supported instances during upgrade; check previous config compatibility before rollback."
+  },
+  "validation": {
+    "rust_full_semantic": {
+      "passed": 476,
+      "ignored": 1,
+      "log_sha256": "6287f80ab1ef8869ab85d3909ba0b7cb7ac470e02ba61a994cbf39f264fa2d8b",
+      "scope": "Runtime code tested before adding the extra global-limit/cancellation case."
+    },
+    "rust_focused_semantic": {
+      "passed": 9,
+      "log_sha256": "e581ebec83bd68e6a911c2d9d58fa3903ff4cc6feadabc0776d77be11df54eb7",
+      "scope": "Includes overlap, saturation, free-worker selection, unavailable exchange, global limit and cancellation recovery; initializer style subsequently adjusted for Clippy only."
+    },
+    "python": {
+      "version": "3.12.14",
+      "openssl_cli": "3.6.4",
+      "run": 83,
+      "passed": 79,
+      "skipped": 4,
+      "skip_scope": "Linux pidfd/proc-specific cases",
+      "log_sha256": "cba5c71abea09f135699efc689cafea9fae6b210aca894a6cc5c30033cf534cf"
+    },
+    "clippy": {
+      "status": "passed all targets, semantic, -D warnings",
+      "log_sha256": "b56b9905d29fece692b86952e31f2007014fe940734ced76a655c52cbef55f91"
+    },
+    "format_version_shell_syntax": "passed",
+    "linux_instances": {
+      "source_hashes": {
+        "tests/systemd_vision_pool.py": "26e2e68de1a544471f335192024e1a01d450b47afef4998a0b93778abafec25f",
+        "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0",
+        "deploy/vision-worker.py": "dd6f924bf9406bf8ea7db6ca015fe5accb37b7bc969158353fdf29ce05c9c600",
+        "deploy/noisefence-vision@.service": "f1503b8474cb00a0098dc40b13a5069d46aa2c908ce59d241ce297dfa902f1db",
+        "deploy/noisefence-vision@.socket": "07b81dcd8ad838e8c59c458480ccf2eed8ee0cf644ba0f2a4dabd3db46dc54e9"
+      },
+      "input_archive_sha256": "43c540d788e5aa9cd334969d68b534d332f1275cb8ec84491955171935f4334d",
+      "workers": 2,
+      "warmup_requests_complete": 2,
+      "combined_requests_complete": 2,
+      "exact_combined_pages_checked": 4,
+      "backend_sha256": "94888e19ca54b00f263f3282fb5df02c7493e135da27afdd073fb43bdccec83a",
+      "distinct_users": true,
+      "distinct_mount_and_network_namespaces": true,
+      "cross_instance_file_and_socket_access_denied": true,
+      "simultaneous_job_processes_observed": true,
+      "scope": "Real unchanged worker and templates, no SMTP or models. Mount-namespace helpers drop groups/UID to check access; they do not prove inherited seccomp. Initial warmups checked status and backend; exact page/text/QR checks added to the follow-up CI test.",
+      "initial_harness_counter_correction": "Initial output said pages_verified=6 but exact page/text/QR assertions covered only the four combined pages; this report distinguishes the two warmup requests.",
+      "cleanup": {
+        "test_exit_code": 0,
+        "input_stage_removed": true,
+        "remaining_owned_caches_removed": 2,
+        "active_test_units": 0,
+        "installed_test_templates": 0,
+        "worker_stage_removed": true,
+        "production": "active",
+        "initial_cleanup_failure": "Non-root removal failed on two root-owned Python cache files; exact remaining paths and terminated test units verified before privileged cleanup. Test was not rerun.",
+        "test_log_sha256": "ec0e6de2f02ca4030ec574d556f22ce8dfb1d068fff5522432d09f1189f2e971"
+      }
+    }
+  },
+  "initial_failures": {
+    "python3_9": "83 tests: five errors and nine skips (unsupported environment, tomllib and macOS OpenSSL CLI).",
+    "python3_12_system_openssl": "83 tests: four certificate-command errors and four Linux skips; corrected PATH uses OpenSSL3.6.4.",
+    "clippy": "Test initializer field assignment corrected without runtime changes.",
+    "local_py_compile": "macOS cache location outside writable roots; verified syntax with compile() without writing caches.",
+    "cleanup": "Two root-owned Python caches prevented non-root removal; exact remainder and terminal units verified before privileged cleanup."
+  },
+  "not_proved": [
+    "Published candidate CI, including ARM64 and strengthened warmup assertions.",
+    "Native Linux Rust SMTP pool measurements with matched binary, workers, models and scanners.",
+    "Representative sustained throughput and p95 analysis below500ms.",
+    "Recent independent capture/false-positive calibration.",
+    "Real isolated CAPEv2/Office execution and Proton behavior for new actions."
+  ],
+  "sources": [
+    "https://github.com/systemd/systemd/blob/main/man/systemd.exec.xml",
+    "https://github.com/systemd/systemd/blob/main/man/systemd.socket.xml"
+  ],
+  "production": "Stable0.4.3 remains active; only uniquely named temporary test units used and removed.",
+  "parent_ci": {
+    "commit": "f7e9ae3cd079c07902d7ef20fe68cd2176a95e7c",
+    "run": 34497480758,
+    "conclusion": "success, all six jobs; not validation of this newer candidate"
+  }
+}

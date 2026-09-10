@@ -33,6 +33,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng zbar-tools python3-pil poppler-utils qrencode fonts-dejavu-core
           /usr/bin/python3 tests/vision_worker.py
           sudo /usr/bin/python3 tests/systemd_vision.py
+          sudo /usr/bin/python3 tests/systemd_vision_pool.py
   rust:
     strategy:
       matrix:

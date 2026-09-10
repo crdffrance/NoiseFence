@@ -267,9 +267,14 @@ def job(directory):
     sys.stdout.buffer.write(encoded)
 
 
-def read_exact(conn, size):
+def read_exact(conn, size, deadline=None):
     output = bytearray()
     while len(output) < size:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("frame_timeout")
+            conn.settimeout(remaining)
         chunk = conn.recv(min(size - len(output), 65536))
         if not chunk:
             raise EOFError()
@@ -323,14 +328,18 @@ def serve(path):
     while True:
         conn, _ = listener.accept()
         with conn:
-            conn.settimeout(1)
             try:
-                length = struct.unpack("!I", read_exact(conn, 4))[0]
+                # One wall-clock budget for the whole frame, not a fresh second
+                # for every fragment. A slow client cannot occupy a serial worker
+                # indefinitely and starve the other callers of this instance.
+                deadline = time.monotonic() + 1
+                length = struct.unpack("!I", read_exact(conn, 4, deadline))[0]
                 if not 0 < length <= MAX_REQUEST:
                     continue
-                encoded = supervise(read_exact(conn, length), backend)
+                encoded = supervise(read_exact(conn, length, deadline), backend)
                 if len(encoded) > MAX_RESPONSE:
                     encoded = json.dumps(result("limited", ["output_limit"])).encode()
+                conn.settimeout(1)
                 conn.sendall(struct.pack("!I", len(encoded)) + encoded)
             except (OSError, EOFError, ValueError):
                 # No raw document, payload, text or decoder stderr in the journal.
