@@ -90,16 +90,60 @@ ne constitue pas une mesure OCR ; le traitement visuel a son budget distinct.
 
 ## Mise à jour et supervision
 
+Depuis `0.5.0-dev.8`, le worker utilise les notifications Linux de fin de processus
+(`pidfd` et `poll`) pour attendre les décodeurs et le job. Les systèmes qui ne les
+fournissent pas conservent l’attente bornée de Python. Le temps déjà écoulé reste
+déduit du délai lors d’un repli ; les sorties restent sur fichiers et le superviseur
+arrête le groupe de processus après chaque job. Les algorithmes OCR/QR, langues,
+résolution et plafonds d’analyse restent ceux de la configuration existante.
+La [documentation Python](https://docs.python.org/3/library/subprocess.html#subprocess.Popen.wait)
+décrit les pauses de sondage de l’attente POSIX avec délai ;
+[`pidfd_open`](https://docs.python.org/3/library/os.html#os.pidfd_open) permet
+d’attendre un processus Linux par descripteur.
+
 L'installateur principal redémarre le worker déjà installé pour suivre la nouvelle
 version. Lors d'une première activation, installer le worker avant d'ajouter la
 section `[vision]`. Contrôler `systemctl status noisefence-vision.socket
 noisefence-vision.service`, les états OCR dans la console et les limites mémoire.
 Pour revenir en arrière, restaurer ensemble binaire, worker et configuration.
+L’empreinte du code du worker fait partie de `backend_sha256`. Lorsqu’une empreinte
+est explicitement configurée, appliquer la nouvelle empreinte validée avec le
+worker correspondant ; une incompatibilité reste une analyse indisponible.
 
 Tests réels locaux, sans email ni réseau, sur images synthétiques et PDF :
 
 ```sh
 sudo apt-get install --no-install-recommends qrencode fonts-dejavu-core
 /usr/bin/python3 tests/vision_worker.py
+/usr/bin/python3 -m unittest discover -s tests_python -p test_vision_process.py -v
 sudo /usr/bin/python3 tests/systemd_vision.py
 ```
+
+## Comparer deux versions du worker
+
+Le [relevé dev.8](../research/vision-process-validation-20260910.json) conserve
+les observations brutes, les empreintes et les limites de l’essai. Sur huit
+paires par fixture, les sorties complètes sont identiques ; les médianes sont
+de 644/553 ms pour l’image et de 1 369/1 261 ms pour le PDF, ancien/nouveau worker.
+Le p95 image du candidat reste à 581 ms. Ce sont des appels au superviseur/job
+sur deux fixtures publiques, avec un seul CPU et 900 Mio de mémoire ; SMTP,
+l’IPC Rust et les autres moteurs sont hors de cette mesure.
+
+Préparer une copie vérifiée d’une ancienne version, puis lancer le comparateur
+dans une unité privée limitée en ressources, avec les dépendances OCR installées :
+
+```sh
+python3 scripts/vision_compare.py --baseline-worker /chemin/worker-verifie.py \
+  --candidate-worker deploy/vision-worker.py --output-dir var/vision-comparison \
+  --pairs 8
+```
+
+Les deux fichiers de worker sont du code exécuté : utiliser des versions du dépôt
+vérifiées. Le programme génère lui-même les fixtures et n’accepte pas de courrier
+à analyser. Il alterne les versions, conserve les empreintes du protocole, du
+texte, des codes et des erreurs, et exige le QR attendu. Les empreintes des sources
+des deux workers sont enregistrées séparément. Une sortie différente ou
+incomplète fait échouer la commande et laisse `run_finished=false` dans le rapport.
+Un répertoire de sortie existant est refusé. Le comparateur conserve uniquement
+les empreintes des sorties OCR dans le JSON ; les fixtures restent publiques et
+synthétiques. Il appartient à l’opérateur d’imposer les limites de l’unité de test.

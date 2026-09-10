@@ -5,6 +5,20 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.8 — Attente efficace des processus OCR
+
+- Attendre la fin des décodeurs et du job OCR par notification `pidfd` sur Linux,
+  avec repli borné lorsque ce mécanisme est indisponible. Conserver les délais,
+  plafonds de sortie et arrêts du groupe de processus, avec des tests réels des
+  expirations, erreurs et descripteurs.
+- Fournir un outil de comparaison sur image/PDF synthétiques, en alternant les
+  versions et en exigeant l’égalité des sorties OCR/QR complètes. Refuser d’écraser
+  une mesure existante et conserver un rapport en cas d’échec.
+- Publier 11 tests Linux de processus, cinq tests réels OCR/QR/PDF et 32 appels
+  comparatifs. Dans ce relevé, les médianes passent de 644 à 553 ms pour l’image
+  et de 1 369 à 1 261 ms pour le PDF ; ces petits lots ne prouvent ni la qualité
+  de classement ni une capacité soutenue. La production reste distincte.
+
 ### 0.5.0-dev.7 — Inspection PNG et diagnostics du banc OCR
 
 - Inspecter les lignes PNG avec un tampon fixe de 8 Kio, en contrôlant leur taille

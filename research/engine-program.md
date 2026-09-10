@@ -206,6 +206,15 @@ production.
 
 ## Travail encore nécessaire
 
+Le candidat `0.5.0-dev.8` intègre la piste d’attente par notification Linux dans
+le worker, avec maintien du repli, des délais et de l’arrêt des descendants.
+Le [relevé](vision-process-validation-20260910.json) lie les tests et les 32 appels
+comparatifs aux sources exactes. Onze tests de processus et cinq tests réels
+OCR/QR/PDF passent sous Linux ; les sorties sont identiques sur les deux fixtures.
+Les médianes mesurées avec le comparateur publié baissent d’environ 92 ms pour
+l’image et 108 ms pour le PDF. Ces résultats locaux ne préjugent pas de la CI
+complète du candidat, de la qualité de classement ou d’une activation générale.
+
 - Validation d’un vrai CAPEv2 et de sa VM Office isolée : instantané, restauration,
   absence d’accès au serveur de messagerie et au réseau de production, et politique
   de conservation côté analyseur. Les tests synthétiques ne l’attestent pas.

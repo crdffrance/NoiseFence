@@ -1,0 +1,332 @@
+{
+  "schema": "noisefence-vision-comparison-1",
+  "run_finished": true,
+  "scope": "Alternating supervisor/job calls on public synthetic fixtures; excludes SMTP, Rust IPC and ML. Resource limits belong to the caller. No filtering-quality claim.",
+  "workers_sha256": {
+    "baseline": "26b2ebd9a4c62ee3f56c3e5ee11e59d2e8c08ff9b579d49224661628ba0b5d48",
+    "candidate": "eb212a517267a0c916d945b63bdc04e0302221a53ffc8a39bcc0a4460d2ca34a"
+  },
+  "probe_sources_sha256": {
+    "scripts/vision_compare.py": "af49c8a4c7385f39eefda282a8dc3197cd999584d5c1d3bc9f0daa234bee03ca",
+    "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969"
+  },
+  "pairs_per_case": 8,
+  "records": [
+    {
+      "case": "image",
+      "iteration": 0,
+      "worker": "baseline",
+      "wall_ms": 669.7045910404995,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 0,
+      "worker": "candidate",
+      "wall_ms": 535.4979310068302,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 1,
+      "worker": "candidate",
+      "wall_ms": 565.8650679979473,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 1,
+      "worker": "baseline",
+      "wall_ms": 618.3930920087732,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 2,
+      "worker": "baseline",
+      "wall_ms": 670.1054309960455,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 2,
+      "worker": "candidate",
+      "wall_ms": 547.5796309765428,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 3,
+      "worker": "candidate",
+      "wall_ms": 562.6081189839169,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 3,
+      "worker": "baseline",
+      "wall_ms": 670.6267629633658,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 4,
+      "worker": "baseline",
+      "wall_ms": 617.1864619827829,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 4,
+      "worker": "candidate",
+      "wall_ms": 548.6925769946538,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 5,
+      "worker": "candidate",
+      "wall_ms": 556.4681899850257,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 5,
+      "worker": "baseline",
+      "wall_ms": 670.3860270208679,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 6,
+      "worker": "baseline",
+      "wall_ms": 619.285345019307,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 6,
+      "worker": "candidate",
+      "wall_ms": 535.8932639937848,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 7,
+      "worker": "candidate",
+      "wall_ms": 580.7108200388029,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "image",
+      "iteration": 7,
+      "worker": "baseline",
+      "wall_ms": 616.3753389846534,
+      "response_sha256": "29af685943f90d7dede053d1bffec625d8861d3f88e0aacde59f73171ec3cc6a"
+    },
+    {
+      "case": "pdf",
+      "iteration": 0,
+      "worker": "baseline",
+      "wall_ms": 1321.6887220041826,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 0,
+      "worker": "candidate",
+      "wall_ms": 1229.1215820005164,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 1,
+      "worker": "candidate",
+      "wall_ms": 1210.3623510338366,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 1,
+      "worker": "baseline",
+      "wall_ms": 1368.3197969803587,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 2,
+      "worker": "baseline",
+      "wall_ms": 1369.8706229915842,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 2,
+      "worker": "candidate",
+      "wall_ms": 1283.2503960235044,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 3,
+      "worker": "candidate",
+      "wall_ms": 1227.5334440055303,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 3,
+      "worker": "baseline",
+      "wall_ms": 1375.360500998795,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 4,
+      "worker": "baseline",
+      "wall_ms": 1369.0564560238272,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 4,
+      "worker": "candidate",
+      "wall_ms": 1246.283885964658,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 5,
+      "worker": "candidate",
+      "wall_ms": 1315.5990060186014,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 5,
+      "worker": "baseline",
+      "wall_ms": 1372.0546949771233,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 6,
+      "worker": "baseline",
+      "wall_ms": 1368.3445799979381,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 6,
+      "worker": "candidate",
+      "wall_ms": 1275.7215190213174,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 7,
+      "worker": "candidate",
+      "wall_ms": 1280.6119919987395,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    },
+    {
+      "case": "pdf",
+      "iteration": 7,
+      "worker": "baseline",
+      "wall_ms": 1371.614239003975,
+      "response_sha256": "e329f1e5b1a342e3796f3eaecb98ac74fbdeddb98e9101a8a0e312769cad38cc"
+    }
+  ],
+  "output_comparison_fields": [
+    "protocol",
+    "status",
+    "pages",
+    "errors"
+  ],
+  "fixtures_sha256": {
+    "synthetic.png": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+    "synthetic.pdf": "afd40fd90550f6b1d29ef366b42330771c6f4a313ab75b82f77d233cd4bb7ed1"
+  },
+  "complete_outputs_equal": true,
+  "summary": {
+    "image": {
+      "baseline": {
+        "n": 8,
+        "median_ms": 644.4949680299032,
+        "p95_ms": 670.6267629633658
+      },
+      "candidate": {
+        "n": 8,
+        "median_ms": 552.5803834898397,
+        "p95_ms": 580.7108200388029
+      }
+    },
+    "pdf": {
+      "baseline": {
+        "n": 8,
+        "median_ms": 1369.4635395077057,
+        "p95_ms": 1375.360500998795
+      },
+      "candidate": {
+        "n": 8,
+        "median_ms": 1261.0027024929877,
+        "p95_ms": 1315.5990060186014
+      }
+    }
+  },
+  "quantiles": "Median averages the central pair; p95 uses nearest rank.",
+  "candidate_version": "0.5.0-dev.8",
+  "baseline_revision": "9d2c79f95e2b272b5a6331d8065414f7e4aa2597",
+  "resources": {
+    "cpu_quota_percent": 100,
+    "memory_max_bytes": 943718400,
+    "private_network": true,
+    "production_state_inaccessible": true,
+    "shared_linux_host": true,
+    "nominal_host_vcpu": 4
+  },
+  "validation": {
+    "macos_python_suite": {
+      "run": 73,
+      "passed": 69,
+      "skipped_linux_only": 4
+    },
+    "linux_process_tests": {
+      "run": 11,
+      "passed": 11
+    },
+    "linux_real_ocr_qr_pdf_tests": {
+      "run": 5,
+      "passed": 5
+    },
+    "comparison_controls": {
+      "existing_report_preserved": true,
+      "incomplete_worker_fails_with_report": true
+    },
+    "source_hashes": {
+      "deploy/vision-worker.py": "eb212a517267a0c916d945b63bdc04e0302221a53ffc8a39bcc0a4460d2ca34a",
+      "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969",
+      "tests_python/test_vision_process.py": "7949d86d72bc907e122c1f41e72fee05c2851fe9ab38442466ac8ad1eb431792"
+    },
+    "full_candidate_ci": "pending at publication",
+    "production_activation": false
+  },
+  "preparation_issues": [
+    {
+      "step": "Linux test unit startup",
+      "failure": "200/CHDIR before tests began; task directory mode was masked by umask",
+      "resolution": "Set the intended 0750 task directory mode and rerun the same unchanged test sources successfully"
+    },
+    {
+      "step": "CLI failure-control driver",
+      "failure": "Python quoting syntax error before controls ran",
+      "resolution": "Use a source file and repr() for the generated synthetic worker; controls then passed without rerunning performance measurements"
+    }
+  ],
+  "limitations": [
+    "Two public synthetic fixtures, eight alternating pairs each; not a production population or filtering-quality test.",
+    "Image candidate p95 remains above500ms; these are supervisor/job times, excluding SMTP/Rust/ML.",
+    "Full OCR outputs agree only for these fixtures; resource tests separately cover timeout/failure/descendant cleanup.",
+    "Wall times and memory under shared-host scheduling; no sustained-throughput claim."
+  ]
+}

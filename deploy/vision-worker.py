@@ -9,9 +9,11 @@ import argparse
 import base64
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import resource
+import select
 import signal
 import socket
 import struct
@@ -63,6 +65,55 @@ class Limited(Exception):
     pass
 
 
+def _wait_process(process, timeout):
+    """Wait on Linux process exit notifications; callers own kill/reap on error.
+
+    All worker output is file-backed: this helper deliberately does not drain
+    pipes. Unsupported kernels/platforms retain Popen's bounded wait.
+    """
+    deadline = time.monotonic() + timeout
+    if process.poll() is not None:
+        return process.returncode
+    try:
+        fd = os.pidfd_open(process.pid)
+    except (AttributeError, OSError):
+        return process.wait(timeout=max(0, deadline - time.monotonic()))
+    try:
+        poller = select.poll()
+        poller.register(fd, select.POLLIN)
+        events = poller.poll(math.ceil(max(0, deadline - time.monotonic()) * 1000))
+        if not any(flags & select.POLLIN for _, flags in events):
+            # A timeout, unsupported poll event or racing exit still gets one
+            # bounded wait. Never restart the original timeout budget.
+            return process.wait(timeout=max(0, deadline - time.monotonic()))
+        return process.wait(timeout=0)
+    finally:
+        os.close(fd)
+
+
+def _file_command(args, directory, deadline, maximum=MAX_RESPONSE, acceptable=(0,)):
+    # File-backed output avoids unbounded communicate() allocations. The job's
+    # RLIMIT_FSIZE additionally bounds decoder writes before this size check.
+    with tempfile.TemporaryFile(dir=directory) as out, tempfile.TemporaryFile(dir=directory) as err:
+        with subprocess.Popen(args, env=ENV, stdin=subprocess.DEVNULL,
+                              stdout=out, stderr=err) as process:
+            try:
+                _wait_process(process, max(0.001, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                raise Limited("timeout") from None
+            except BaseException:
+                process.kill()
+                raise
+            if process.returncode not in acceptable:
+                raise Limited("decoder_failed")
+            if out.tell() > maximum or err.tell() > MAX_RESPONSE:
+                raise Limited("output_limit")
+            out.seek(0)
+            return out.read(maximum + 1)
+
+
 def validate_request(req):
     if not isinstance(req, dict) or req.get("protocol") != PROTOCOL:
         raise Limited("invalid_request")
@@ -105,20 +156,7 @@ def analyze(req, directory):
     codes_left = limits["max_codes"]
 
     def command(args, maximum=MAX_RESPONSE, acceptable=(0,)):
-        # File-backed output avoids unbounded communicate() allocations.
-        with tempfile.TemporaryFile(dir=directory) as out, tempfile.TemporaryFile(dir=directory) as err:
-            try:
-                proc = subprocess.run(args, env=ENV, stdin=subprocess.DEVNULL,
-                                      stdout=out, stderr=err,
-                                      timeout=max(0.001, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                raise Limited("timeout") from None
-            if proc.returncode not in acceptable:
-                raise Limited("decoder_failed")
-            if out.tell() > maximum or err.tell() > MAX_RESPONSE:
-                raise Limited("output_limit")
-            out.seek(0)
-            return out.read(maximum + 1)
+        return _file_command(args, directory, deadline, maximum, acceptable)
 
     def page(image, part_index, page_index):
         nonlocal text_left, codes_left
@@ -247,7 +285,7 @@ def supervise(raw, backend):
                                        stdin=input_file, stdout=output, stderr=subprocess.DEVNULL,
                                        start_new_session=True)
             try:
-                process.wait(timeout=4.5)
+                _wait_process(process, 4.5)
             except subprocess.TimeoutExpired:
                 pass
             finally:
