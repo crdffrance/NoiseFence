@@ -182,12 +182,14 @@ pub struct Recipient {
 }
 
 /// An explicit route may carry a port; bare names keep the legacy relay port.
+/// Accept one DNS root dot and return the canonical host for TLS and loop checks.
 /// IPv6 literals and credentials are intentionally not accepted here.
 pub fn endpoint(value: &str, default_port: u16) -> Option<(&str, u16)> {
     let (host, port) = match value.split_once(':') {
         Some((host, port)) => (host, port.parse::<u16>().ok()?),
         None => (value, default_port),
     };
+    let host = host.strip_suffix('.').unwrap_or(host);
     (valid_domain(host) && port > 0).then_some((host, port))
 }
 pub fn valid_domain(s: &str) -> bool {

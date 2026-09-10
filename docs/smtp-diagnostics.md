@@ -8,6 +8,13 @@ Dans la console, ouvrir un message puis consulter **Filtres et indices déclench
 
 Un `250` final signifie que le serveur distant a accepté le transfert. Il ne garantit pas le classement en boîte de réception. Un `451` est temporaire et entraîne un réessai ; un `550` est définitif pour cette tentative/destination. Les codes étendus, par exemple `4.7.1` ou `5.1.1`, et les motifs du serveur restent visibles.
 
+Si une tentative s’arrête à **Résolution DNS** sans code SMTP, aucun serveur
+distant n’a encore répondu. Le motif peut provenir de la validation de la route,
+de la résolution du nom ou de son délai d’expiration. Depuis 0.4.3, les noms MX
+avec un point final sont acceptés, y compris dans les avis d’échec déjà en file.
+Ce point désigne un nom DNS absolu ([RFC 1035, § 5.1](https://www.rfc-editor.org/rfc/rfc1035.html#section-5.1)) ;
+il est conservé pour la résolution et retiré pour la vérification du nom TLS.
+
 ## Journaux du service
 
 ```sh

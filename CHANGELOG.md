@@ -5,6 +5,14 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-10
+
+- Accepter le point final des noms MX pour le relais SMTP, notamment les avis
+  d’échec déjà en file. Conserver la résolution DNS absolue, le nom TLS canonique,
+  la vérification des certificats et les contrôles contre les boucles.
+- Documenter les tentatives arrêtées avant toute réponse SMTP et couvrir les
+  routes avec ou sans port, les noms invalides et la livraison locale des avis.
+
 ## [0.4.2] - 2026-09-10
 
 - Masquer les adresses pouvant être réaffichées dans les réponses SMTP distantes,

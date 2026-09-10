@@ -282,9 +282,13 @@ async fn deliver_host(
     trace.begin("dns");
     let (host, port) = crate::config::endpoint(route, cfg.relay.port)
         .ok_or_else(|| anyhow::anyhow!("invalid upstream endpoint"))?;
+    // Keep the DNS root dot for absolute lookup (no resolver search suffix),
+    // while `host` is canonical for certificate validation and SNI. This also
+    // handles rooted MX names already persisted in queued failure notices.
+    let dns_host = route.split_once(':').map_or(route, |(name, _)| name);
     let addresses = tokio::time::timeout(
         Duration::from_secs(10),
-        tokio::net::lookup_host((host, port)),
+        tokio::net::lookup_host((dns_host, port)),
     )
     .await
     .context("Upstream DNS lookup timed out after 10 seconds")?
