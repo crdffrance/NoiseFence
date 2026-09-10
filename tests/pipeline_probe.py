@@ -54,6 +54,26 @@ with tempfile.TemporaryDirectory(prefix='noisefence-pipeline-test-') as director
     assert case['all_trials']['samples'] == 3 and case['complete_trials_only'] is None
     assert case['statuses']['antivirus:unavailable'] == 3
 
+    # Optional research observations must be covered by a complete-analysis
+    # claim, even though a purely advisory limit does not fail the primary scan.
+    profile.write_text(settings + '\n[heuristics]\nmode="observation"\n[content_inspection]\n')
+    research = run('research.jsonl')
+    assert research.returncode == 0, research.stderr
+    case = json.loads(research.stdout)['cases'][0]
+    assert case['complete'] == case['primary_complete'] == 3
+    assert case['statuses']['heuristics:complete'] == case['statuses']['content_inspection:complete'] == 3
+    profile.write_text(settings + '\n[heuristics]\nmode="observation"\n[heuristics.limits]\nmax_input_bytes=16\n')
+    limited = run('research-limited.jsonl')
+    assert limited.returncode == 0, limited.stderr
+    case = json.loads(limited.stdout)['cases'][0]
+    assert case['primary_complete'] == 3 and case['complete'] == 0 and case['incomplete'] == 3
+    assert case['statuses']['heuristics:limited'] == 3 and case['complete_trials_only'] is None
+    assert b'Private fixture content' not in (root / 'research-limited.jsonl').read_bytes()
+    profile.write_text(settings + '\n[heuristics]\nmode="disabled"\n')
+    disabled = run('research-disabled.jsonl')
+    assert disabled.returncode == 0, disabled.stderr
+    assert json.loads(disabled.stdout)['cases'][0]['complete'] == 3
+
     # Refuse costly analysis before key lookup, model loading or output creation.
     profile.write_text(settings + '''
 [llm]

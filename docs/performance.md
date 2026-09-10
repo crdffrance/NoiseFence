@@ -296,3 +296,50 @@ le banc texte ; le complément et ce rapport sont disponibles dans le dépôt.
 Les réglages du modèle, des antivirus, de l'OCR et du LLM du service restent
 actifs ; DNS et LLM ont été exclus uniquement des essais isolés. Une capacité de
 production soutenue, avec le trafic réel, TLS et Proton, reste à mesurer.
+
+## Mesurer les moteurs locaux de recherche
+
+Depuis `0.5.0-dev.6`, `scripts/smtp_load.py --research` active les heuristiques
+FR/EN et l’inspection du contenu en observation. Le démon, le récepteur SMTP et
+la base sont privés au banc ; aucune livraison externe n’est réalisée. Exemple :
+
+```sh
+python3 scripts/smtp_load.py --binary target/release/noisefence \
+  --output-dir var/load-research-text --messages 200 --concurrency 8 \
+  --processing 4 --research --require-complete
+python3 scripts/smtp_load.py --binary target/release/noisefence \
+  --output-dir var/load-research-documents --messages 100 --concurrency 8 \
+  --processing 4 --message-bytes 8192 --attachments --require-complete
+```
+
+`--html` utilise le HTML du banc texte. `--attachments` active aussi `--research`
+et génère un message MIME avec HTML, PNG et PDF ; il exige au moins 4 096 octets
+et ne se combine pas avec `--html` ou `--mailing`. Les attributs HTML et noms PDF
+actifs servent d’observations attendues ; aucun de ces éléments n’est exécuté.
+Ce profil ne remplace pas le banc OCR/QR de `scripts/smtp_load_vision.py`.
+
+Le schéma `noisefence-smtp-load-2`, utilisé avec `--research`, conserve :
+
+- `primary_complete`, le nombre de scans principaux complets enregistrés ;
+- `complete` et `complete_per_second`, qui exigent aussi que l’exécution locale,
+  les heuristiques et l’inspection du contenu soient toutes complètes ;
+- les états absents, limités ou indisponibles, les identifiants des observations
+  et les limites heuristiques rencontrées, sans extrait des messages.
+
+`--require-complete` rend la commande non réussie si une analyse demandée est
+partielle. Le rapport reste écrit : `correctness_passed` vérifie la livraison et
+les observations contrôlables, tandis que `requirements_met` inclut cette exigence
+de complétude. Sans `--research`, le schéma v1 conserve la définition historique.
+
+La mesure d’analyse seule `examples/pipeline_probe.rs` applique la même définition
+de complétude aux moteurs de recherche activés et expose aussi le statut OCR.
+Elle conserve `primary_complete` pour permettre la comparaison avec les anciens
+relevés. Les mécanismes propres à une session SMTP, comme l’historique par
+destinataire, restent hors de ce parcours d’analyse seule.
+
+Le test `python3 tests/smtp_load_research.py target/release/noisefence var/load-check`
+vérifie huit livraisons documentaires et deux messages de 1 Mio. Ces deux derniers
+sont livrés sans corruption mais dépassent la limite de lecture heuristique : le
+test exige que le banc le signale et ne les compte pas comme analyses complètes.
+Ne pas présenter un débit obtenu avec des contrôles sautés comme une capacité
+d’analyse complète. La CI vérifie ce contrat sur AMD64 et ARM64.

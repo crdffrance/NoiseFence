@@ -129,6 +129,11 @@ async fn main() -> Result<()> {
     let load_started = Instant::now();
     let engine = Engine::new(config.clone())?;
     let load_us = load_started.elapsed().as_micros() as u64;
+    let heuristics_enabled = config
+        .heuristics
+        .as_ref()
+        .is_some_and(|s| s.mode != noisefence::heuristics::Mode::Disabled);
+    let content_enabled = config.content_inspection.is_some();
     writeln!(
         output,
         "{}",
@@ -137,8 +142,10 @@ async fn main() -> Result<()> {
         "concurrency":1, "tokio_workers":4, "interval_ms":args.interval_ms, "authentication":config.filter.authentication,
         "antivirus":config.antivirus.is_some(), "signatures":config.signatures.is_some(),
         "smtp_policy":config.smtp_policy.is_some(), "semantic":config.filter.semantic.is_some(), "reputation":config.filter.spamhaus_key_env.is_some(),
+        "vision":config.vision.is_some(), "heuristics":heuristics_enabled, "content_inspection":content_enabled,
+        "complete_definition":"stored scan.complete plus enabled local research modules complete",
         "paid_llm":paid, "arc_sealing":config.filter.arc_key.is_some(), "sent":false,
-        "scope":"controlled full Engine::process calls; excludes model loading, file reading, SMTP, durable queue, relay and inter-call intervals",
+        "scope":"controlled Engine::process calls; excludes SMTP-session-only workflows, model loading, file reading, SMTP, durable queue, relay and inter-call intervals",
         "not_a_production_quality_or_latency_claim":true})
     )?;
     output.sync_all()?;
@@ -147,6 +154,7 @@ async fn main() -> Result<()> {
         let mut elapsed = Vec::new();
         let mut completed_elapsed = Vec::new();
         let mut complete = 0;
+        let mut primary_complete = 0;
         let mut errors = 0;
         let mut statuses: BTreeMap<String, usize> = BTreeMap::new();
         for iteration in 0..args.warmup + args.iterations {
@@ -165,24 +173,57 @@ async fn main() -> Result<()> {
             let details = match result {
                 Ok((scan, rewritten)) => {
                     drop(rewritten);
-                    if !warmup && scan.complete {
+                    let research_complete = (!(heuristics_enabled || content_enabled)
+                        || scan.research_execution.as_ref().is_some_and(|r| {
+                            r.status == noisefence::research_engines::Status::Complete
+                        }))
+                        && (!heuristics_enabled
+                            || scan.heuristics.as_ref().is_some_and(|r| {
+                                r.status == noisefence::heuristics::Status::Complete
+                            }))
+                        && (!content_enabled
+                            || scan.content_inspection.as_ref().is_some_and(|r| {
+                                r.status == noisefence::content_inspection::Status::Complete
+                            }));
+                    let all_complete = scan.complete && research_complete;
+                    if !warmup && all_complete {
                         complete += 1;
                         completed_elapsed.push(elapsed_us);
                     }
                     if !warmup {
+                        primary_complete += usize::from(scan.complete);
                         for (name, value) in [
                             ("smtp_policy", json!(scan.smtp_policy.status)),
                             ("semantic", json!(scan.semantic.status)),
                             ("antivirus", json!(scan.antivirus.status)),
                             ("signatures", json!(scan.signatures.status)),
                             ("llm", json!(scan.llm.status)),
+                            ("vision", json!(scan.vision.status)),
+                            (
+                                "research_execution",
+                                scan.research_execution
+                                    .as_ref()
+                                    .map_or(json!("absent"), |r| json!(r.status)),
+                            ),
+                            (
+                                "heuristics",
+                                scan.heuristics
+                                    .as_ref()
+                                    .map_or(json!("absent"), |r| json!(r.status)),
+                            ),
+                            (
+                                "content_inspection",
+                                scan.content_inspection
+                                    .as_ref()
+                                    .map_or(json!("absent"), |r| json!(r.status)),
+                            ),
                         ] {
                             *statuses
                                 .entry(format!("{name}:{}", value.as_str().unwrap_or("unknown")))
                                 .or_default() += 1;
                         }
                     }
-                    json!({"complete":scan.complete, "score":scan.score, "model":scan.model,
+                    json!({"complete":all_complete, "primary_complete":scan.complete, "score":scan.score, "model":scan.model,
                         "feature_version":scan.feature_version, "features_complete":scan.features_complete,
                         "engine_elapsed_ms":scan.elapsed_ms, "semantic_ms":scan.semantic.elapsed_ms,
                         "antivirus_ms":scan.antivirus.elapsed_ms, "signatures_ms":scan.signatures.elapsed_ms,
@@ -190,6 +231,12 @@ async fn main() -> Result<()> {
                         "llm_ms":scan.llm.elapsed_ms, "semantic_status":scan.semantic.status,
                         "antivirus_status":scan.antivirus.status, "signatures_status":scan.signatures.status,
                         "llm_status":scan.llm.status,
+                        "vision_status":scan.vision.status, "vision_ms":scan.vision.elapsed_ms,
+                        "research_status":scan.research_execution.as_ref().map(|r| &r.status),
+                        "research_ms":scan.research_execution.as_ref().map(|r| r.elapsed_ms),
+                        "heuristics_status":scan.heuristics.as_ref().map(|r| &r.status),
+                        "heuristic_limit_ids":scan.heuristics.as_ref().map(|r| &r.limits_hit),
+                        "content_status":scan.content_inspection.as_ref().map(|r| &r.status),
                         "reason_ids":scan.reasons.iter().map(|r| &r.id).collect::<Vec<_>>()})
                 }
                 Err(_) => {
@@ -212,7 +259,7 @@ async fn main() -> Result<()> {
         summaries.push(
             json!({"case":case.id,"message_bytes":raw.len(),"message_sha256":message::digest(raw),
             "all_trials":quantiles(elapsed),"complete_trials_only":quantiles(completed_elapsed),
-            "complete":complete,"incomplete":args.iterations-complete-errors,"errors":errors,
+            "complete":complete,"primary_complete":primary_complete,"incomplete":args.iterations-complete-errors,"errors":errors,
             "statuses":statuses}),
         );
     }

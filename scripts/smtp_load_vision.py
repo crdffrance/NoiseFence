@@ -30,12 +30,14 @@ original_run = load.run
 async def run(args):
     if not args.vision_socket:
         raise SystemExit('The OCR load profile requires --vision-socket')
+    if getattr(args, 'attachments', False):
+        raise SystemExit('The OCR image fixture cannot be combined with --attachments')
     with tempfile.TemporaryDirectory(prefix='nf-load-vision-') as temp:
         image, _ = fixtures.fixture(Path(temp))
         image_bytes = image.read_bytes()
         sizes = set()
 
-        def fixture(index, _size):
+        def fixture(index, _size, _html=False, _mailing=False):
             message = EmailMessage(policy=SMTP)
             message['From'] = 'Synthetic <sender@example.test>'
             message['To'] = 'alice@example.test'

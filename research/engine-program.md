@@ -149,8 +149,35 @@ La CI du candidat précédent, `0.5.0-dev.4`, a échoué sur une assertion de te
 mural du test de sandbox ; les tests de recherche, du frontend et du déploiement
 ont réussi. Le candidat suivant remplace cette assertion par une réponse réseau
 retenue jusqu’à la vérification de l’expiration effective. Le délai réseau du
-produit n’a pas été augmenté. La réussite locale ne remplace pas la nouvelle
-validation Linux.
+produit n’a pas été augmenté. La CI complète de `0.5.0-dev.5` a ensuite réussi
+sur Linux AMD64 et ARM64, avec les contrôles Python, frontend, déploiement,
+parité des modèles et livraison SMTP.
+
+Le [relevé Linux](sender-history-linux-validation-20260910.json) ajoute un essai
+ciblé de 23 tests avec l’exécutable optimisé du même commit. Il conserve les
+256 preuves malgré les corrections sans lien, avec un p95 de vérification de
+83 µs dans cette petite base synthétique. La machine possède 4 vCPU et environ
+8 Go ; le processus de mesure était limité à deux CPU et 1 Gio, dans un réseau
+privé. Les deux problèmes de préparation et leur résolution sont enregistrés.
+Cette mesure ne termine pas la qualification de débit du traitement complet.
+Le relevé lie les résultats à ce commit précis ; ils ne valident pas par avance
+les changements de candidats suivants.
+
+## Banc de capacité du candidat 0.5.0-dev.6
+
+Le banc SMTP peut maintenant activer les deux moteurs locaux et envoyer des
+structures HTML, PNG et PDF synthétiques. Il vérifie les observations attendues
+sur les analyses complètes et conserve les états limités ou indisponibles dans
+les compteurs. Le schéma v2 distingue `primary_complete` du nombre `complete`
+incluant la recherche : une analyse principale réussie ne masque plus une
+heuristique tronquée dans une mesure de capacité. Les limites du produit restent
+identiques.
+
+Le [guide de performance](../docs/performance.md) décrit les profils et le test
+d’intégration ; le [relevé logiciel](capacity-probe-validation-20260910.json)
+conserve les vérifications du candidat. Les essais locaux couvrent le texte, le HTML, les documents et le
+cas d’un message de 1 Mio qui dépasse la limite heuristique. Ils ne constituent
+pas encore la mesure de débit Linux du nouveau candidat.
 
 ## Travail encore nécessaire
 
@@ -164,7 +191,7 @@ validation Linux.
 - Mesures du traitement complet et du débit sur Linux 4 vCPU/8 Go, puis contrôle
   de la livraison Proton pour les nouvelles actions explicitement activées.
 - Validation de chaque nouveau candidat sur Linux et choix d’activation des
-  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2 et 0.5.0-dev.3 ont réussi
+  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2, 0.5.0-dev.3 et 0.5.0-dev.5 ont réussi
   sur AMD64 et ARM64 ;
   elles ne valident pas par avance les modifications suivantes.
 

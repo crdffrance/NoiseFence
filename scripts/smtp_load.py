@@ -2,7 +2,9 @@
 """Bounded SMTP load against a private daemon and loopback sink; synthetic mail only."""
 import argparse
 import asyncio
+import base64
 from collections import Counter
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -14,6 +16,7 @@ import socket
 import sqlite3
 import subprocess
 import time
+import zlib
 
 
 def digest(data):
@@ -56,6 +59,54 @@ def fixture(index, size, html=False, mailing=False):
     return header + body, digest(body)
 
 
+@lru_cache(maxsize=1)
+def document_bytes():
+    """Small valid PNG/PDF structures; inspected as bytes, never executed."""
+    def chunk(kind, data):
+        return len(data).to_bytes(4, 'big') + kind + data + zlib.crc32(kind + data).to_bytes(4, 'big')
+    png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', b'\0\0\0\2\0\0\0\2\x08\0\0\0\0')
+           + chunk(b'IDAT', zlib.compress(b'\0\0\xff\0\xff\0')) + chunk(b'IEND', b''))
+    objects = [b'<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>',
+               b'<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
+               b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>',
+               b'<< /S /JavaScript /JS (void 0) >>']
+    pdf = b'%PDF-1.7\n'
+    offsets = []
+    for index, obj in enumerate(objects, 1):
+        offsets.append(len(pdf))
+        pdf += str(index).encode() + b' 0 obj\n' + obj + b'\nendobj\n'
+    xref = len(pdf)
+    pdf += b'xref\n0 5\n0000000000 65535 f \n'
+    pdf += b''.join(f'{offset:010d} 00000 n \n'.encode() for offset in offsets)
+    pdf += f'trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode()
+    return png, pdf
+
+
+def document_fixture(index, size):
+    boundary = f'noisefence-documents-{index}'.encode()
+    headers = (f'From: Synthetic <sender@example.test>\r\nTo: alice@example.test\r\n'
+               f'Subject: Synthetic document inspection {index}\r\nMessage-ID: <load-{index}@example.test>\r\n'
+               f'X-Load-ID: {index}\r\nDate: Thu, 10 Sep 2026 08:00:00 +0000\r\nMIME-Version: 1.0\r\n'
+               f'Content-Type: multipart/mixed; boundary="{boundary.decode()}"\r\n\r\n').encode()
+    begin = (b'--' + boundary + b'\r\nContent-Type: text/html; charset=utf-8\r\n\r\n'
+             b'<html><body><p onclick="return false">Verify your account. Confirmez votre compte.</p>\r\n'
+             b'.Synthetic dot transparency line.\r\n')
+    end = b'</body></html>\r\n'
+    for mime, name, data in [('image/png', 'synthetic.png', document_bytes()[0]),
+                             ('application/pdf', 'synthetic.pdf', document_bytes()[1])]:
+        encoded = base64.b64encode(data)
+        end += (b'--' + boundary + f'\r\nContent-Type: {mime}\r\nContent-Disposition: attachment; filename="{name}"\r\n'
+                'Content-Transfer-Encoding: base64\r\n\r\n'.encode())
+        end += b'\r\n'.join(encoded[i:i+76] for i in range(0, len(encoded), 76)) + b'\r\n'
+    end += b'--' + boundary + b'--\r\n'
+    remaining = size - len(headers) - len(begin) - len(end)
+    if remaining < 0:
+        raise ValueError('Document fixture exceeds requested message size')
+    line = b'Synthetic document inspection padding.\r\n'
+    body = begin + line * (remaining // len(line)) + b'x' * (remaining % len(line)) + end
+    return headers + body, digest(body)
+
+
 async def response(reader):
     while True:
         line = await asyncio.wait_for(reader.readline(), 15)
@@ -84,7 +135,9 @@ async def run(args):
     child = None
     monitor_task = None
     log = None
-    report = {'run_finished': False, 'schema': 'noisefence-smtp-load-1',
+    research = getattr(args, 'research', False)
+    attachments = getattr(args, 'attachments', False)
+    report = {'run_finished': False, 'schema': 'noisefence-smtp-load-2' if research else 'noisefence-smtp-load-1',
               'binary_sha256': digest(binary.read_bytes()),
               'version': subprocess.check_output([str(binary), '--version'], text=True).strip(),
               'machine': {'system': platform.platform(), 'cpu_count': os.cpu_count()},
@@ -96,7 +149,10 @@ async def run(args):
               'components': {'semantic': bool(args.semantic_encoder),
                              'semantic_parallel': args.semantic_parallel, 'semantic_timeout_ms': args.semantic_timeout_ms,
                              'antivirus': bool(args.antivirus_socket), 'signatures': bool(args.signatures_socket),
-                             'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False), 'mailing':getattr(args,'mailing',False)},
+                             'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False) or attachments, 'mailing':getattr(args,'mailing',False),
+                             'heuristics': research, 'content_inspection': research, 'document_fixture': attachments},
+              'require_complete': getattr(args, 'require_complete', False),
+              'complete_definition': 'stored scan.complete plus all requested research modules complete' if research else 'stored scan.complete',
               'cpu_environment': {k: os.environ.get(k) for k in ('RAYON_NUM_THREADS', 'CANDLE_NUM_THREADS', 'TOKENIZERS_PARALLELISM', 'TOKIO_WORKER_THREADS')}}
     for name in ('lexical_model', 'semantic_combination'):
         value = getattr(args, name)
@@ -183,6 +239,8 @@ async def run(args):
         config += '[protection]\n'
     if getattr(args,'mailing',False):
         config += '[mailing]\n'
+    if research:
+        config += '[heuristics]\nmode="observation"\n[content_inspection]\nmax_raw_bytes=2097152\n'
     cfg = root/'config.toml'
     cfg.write_text(config)
     report['config_sha256'] = digest(config.encode())
@@ -208,7 +266,8 @@ async def run(args):
             await asyncio.sleep(.1)
 
     async def sender(index):
-        raw, body_hash = fixture(index, args.message_bytes, getattr(args,"html",False), getattr(args,"mailing",False))
+        raw, body_hash = (document_fixture(index, args.message_bytes) if attachments else
+                          fixture(index, args.message_bytes, getattr(args,"html",False), getattr(args,"mailing",False)))
         # SMTP dot-stuffing only; the receiver must preserve all original body bytes.
         wire = raw.replace(b'\r\n.', b'\r\n..') + b'.\r\n'
         began = time.monotonic()
@@ -302,12 +361,40 @@ async def run(args):
             if args.message_bytes <= 16000:
                 assert all(r.get('verdict')=='newsletter' and r.get('status')=='complete' for r in reports)
             assert not any(scan.get('pub_tagged') or scan['tagged'] for _,scan in scans)
-        complete = sum(scan['complete'] for _, scan in scans)
+        primary_complete = sum(scan['complete'] for _, scan in scans)
+        complete = primary_complete
+        if research:
+            components = ('research_execution', 'heuristics', 'content_inspection')
+            statuses.update({name: dict(Counter((s.get(name) or {}).get('status', 'absent') for _, s in scans))
+                             for name in components})
+            complete = sum(s['complete'] and all((s.get(name) or {}).get('status') == 'complete' for name in components)
+                           for _, s in scans)
+            findings = {name: dict(Counter(f['id'] for _, s in scans for f in (s.get(name) or {}).get('findings', [])))
+                        for name in ('heuristics', 'content_inspection')}
+            report['research'] = {'findings': findings,
+                                  'heuristic_limits': dict(Counter(limit for _, s in scans for limit in (s.get('heuristics') or {}).get('limits_hit', []))),
+                                  'analysis_ms': quantiles([(s.get('research_execution') or {}).get('elapsed_ms', 0) for _, s in scans])}
+            for _, s in scans:
+                execution = s.get('research_execution') or {}
+                assert execution.get('version') == 'local-research-1', 'Missing research execution proof'
+                for name, version in [('heuristics', 'heuristics-1'), ('content_inspection', 'noisefence-content-inspection-1')]:
+                    value = s.get(name)
+                    assert value is None or value.get('version') == version, f'Unexpected {name} version'
+                    if execution.get('status') == 'complete':
+                        assert value is not None, f'Missing completed {name} observation'
+                content = s.get('content_inspection') or {}
+                if attachments and content.get('status') == 'complete':
+                    assert content['stats']['images'] == content['stats']['pdfs'] == content['stats']['html_parts'] == 1
+                    assert {'html_event_handler', 'pdf_active_name'} <= {f['id'] for f in content['findings']}
+                heuristic = s.get('heuristics') or {}
+                if attachments and heuristic.get('status') == 'complete':
+                    assert {'fr.credentials', 'en.credentials'} <= {f['id'] for f in heuristic['findings']}
+                assert not s['tagged'] and not s.get('pub_tagged'), 'Observation mode changed delivered subject'
         checks = (len(accepted) == args.messages == len(scans) == len(received) and not missing and not extra
                   and not duplicates and not changed_bodies and not errors and integrity == 'ok'
                   and {key for key, _ in scans} == {value['queue_id'] for value in accepted.values()})
         report.update(run_finished=True, correctness_passed=checks, accepted=len(accepted), delivered=len(received),
-                      complete=complete, incomplete=len(scans)-complete, statuses=statuses,
+                      complete=complete, primary_complete=primary_complete, incomplete=len(scans)-complete, statuses=statuses,
                       missing=len(missing), extra=len(extra), duplicates=duplicates, changed_bodies=changed_bodies,
                       retryable_responses=dict(retries), acceptance_ms=quantiles(latencies),
                       analysis_ms=quantiles([scan['elapsed_ms'] for _, scan in scans]),
@@ -316,7 +403,8 @@ async def run(args):
                       accepted_per_second=round(len(accepted)/(admission_end-workload_start), 3),
                       delivered_per_second=round(len(received)/(drained-workload_start), 3),
                       complete_per_second=round(complete/(drained-workload_start), 3),
-                      delivery_states=counts, integrity=integrity)
+                      delivery_states=counts, integrity=integrity,
+                      requirements_met=checks and (not getattr(args, 'require_complete', False) or complete == args.messages))
     except Exception as exc:
         report['error'] = type(exc).__name__ + ': ' + str(exc)
     finally:
@@ -342,7 +430,7 @@ async def run(args):
                       wall_seconds=round(time.monotonic()-started, 3), sink_errors=errors)
         (root/'summary.json').write_text(json.dumps(report, indent=2)+'\n')
         print(json.dumps(report, indent=2), flush=True)
-    if not report.get('correctness_passed'):
+    if not report.get('requirements_met'):
         raise SystemExit(1)
 
 
@@ -360,6 +448,9 @@ def main():
     parser.add_argument('--protection',action='store_true',help='Enable local advisory protection; no provider calls')
     parser.add_argument('--mailing',action='store_true',help='Use synthetic newsletters and enable local PUB categorization')
     parser.add_argument('--html',action='store_true',help='Use synthetic HTML links for parser load')
+    parser.add_argument('--research', action='store_true', help='Enable local heuristics and content inspection in observation mode')
+    parser.add_argument('--attachments', action='store_true', help='Use synthetic HTML/PNG/PDF structures; implies --research, minimum 4096 bytes')
+    parser.add_argument('--require-complete', action='store_true', help='Fail if any requested analysis is absent, limited or unavailable')
     parser.add_argument('--semantic-parallel', type=int, default=1)
     parser.add_argument('--semantic-timeout-ms', type=int, default=500)
     args = parser.parse_args()
@@ -368,6 +459,10 @@ def main():
         parser.error('Load outside bounds: 1..5000 messages, 1..128 clients, 512B..1MiB, 1..64 workers')
     if bool(args.semantic_encoder) != bool(args.semantic_combination) or (args.semantic_encoder and not args.lexical_model):
         parser.error('Semantic measurement needs encoder, combination and lexical model')
+    if args.attachments:
+        if args.message_bytes < 4096 or args.html or args.mailing:
+            parser.error('Document fixture needs at least 4096 bytes and cannot be combined with --html or --mailing')
+        args.research = True
     os.umask(0o077)
     asyncio.run(run(args))
 

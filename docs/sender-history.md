@@ -397,3 +397,20 @@ anciens déclencheurs globaux sont conservés pour un retour au binaire
 Les tests couvrent les décisions mixtes, les octets ARC, les droits,
 l’apprentissage humain, les révocations concurrentes, la maintenance et le
 débordement, ainsi que les appels LLM réellement omis sur des messages distincts.
+
+Le [relevé Linux de développement](../research/sender-history-linux-validation-20260910.json)
+conserve les mesures d’un exécutable optimisé, ses empreintes et ses limites.
+L’essai utilise des messages synthétiques, une API LLM locale avec délai imposé,
+un réseau privé et une base temporaire. Les mesures de lecture des révisions et
+du traitement d’analyse sont séparées ; elles ne comprennent pas le débit de la
+file et du relais. Pour reproduire les tests depuis le checkout correspondant :
+
+```sh
+NOISEFENCE_HISTORY_BENCHMARK=engine.json \
+NOISEFENCE_HISTORY_REVISION_BENCHMARK=revisions.json \
+cargo test --release --locked --features semantic --lib history -- --test-threads=1
+```
+
+Le test de rechargement utilise le fichier public `config/development.toml` du
+checkout. Les autres fixtures nécessaires à ces tests sont générées localement
+ou intégrées à l’exécutable. Aucune configuration de production n’est requise.

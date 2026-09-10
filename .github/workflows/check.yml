@@ -69,6 +69,8 @@ jobs:
           python3 scripts/smtp_load.py --binary target/release/noisefence --output-dir var/smtp-load-small --messages 32 --concurrency 8 --processing 4
           python3 scripts/smtp_load.py --binary target/release/noisefence --output-dir var/smtp-load-pub --messages 32 --concurrency 8 --processing 4 --mailing
           python3 scripts/smtp_load.py --binary target/release/noisefence --output-dir var/smtp-load-large --messages 8 --concurrency 2 --message-bytes 1048576 --processing 2
+      - name: Verify research detectors in SMTP and incomplete-analysis accounting
+        run: python3 tests/smtp_load_research.py target/release/noisefence var/smtp-load-research
       - uses: actions/setup-python@v5
         if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
         with:

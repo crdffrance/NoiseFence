@@ -5,6 +5,20 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.6 — Mesures SMTP des moteurs de recherche
+
+- Étendre le banc de charge aux heuristiques FR/EN et à l’inspection HTML/PNG/PDF,
+  avec pièces jointes synthétiques, observations attendues et intégrité du corps.
+- Compter séparément les scans principaux réussis et les analyses incluant tous
+  les modules demandés. Conserver les limites rencontrées et proposer une option
+  qui exige des analyses complètes, sans augmenter les budgets du produit.
+- Appliquer cette distinction à la mesure d’analyse seule, avec les statuts OCR
+  et des moteurs locaux, sans enregistrer le contenu des messages.
+- Vérifier ce contrat par de vraies sessions SMTP en CI et inclure le démon ainsi
+  que les scripts et fixtures publics dans l’artefact Linux de mesure.
+- Corriger les arguments du générateur utilisé par le banc OCR/QR et publier le
+  relevé Linux de l’historique adaptatif du candidat précédent.
+
 ### 0.5.0-dev.5 — Révocations limitées aux destinataires concernés
 
 - Revérifier la confiance adaptative avec des compteurs propres aux destinataires

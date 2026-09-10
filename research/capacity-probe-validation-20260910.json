@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "candidate": "0.5.0-dev.6",
+  "parent_commit": "0bc898f6cddbf3023dfd928a8e9a8fed78e1a44a",
+  "recorded_at": "2026-09-10T10:12:58.401870+00:00",
+  "status": "local_measurement_contract_validation_passed",
+  "production_activated": false,
+  "source_sha256": {
+    "Cargo.toml": "8c5908b4f9070e9076542cdac9738ebb56ff97ae307b4fa361a7919226c9d8ad",
+    "Cargo.lock": "ddddd3aaf4d26e1ca8be1d29adaf5537b3080f8e46a0d8a8dc7d001e77bd3fd8",
+    "scripts/smtp_load.py": "173cb7a30f69baca92ee5a79e84dd5c036c96a36e1dbc573357e9489048f2b31",
+    "scripts/smtp_load_vision.py": "2bc150306081a4f2c09400d9ac553b4dd3d804f99b05314a94039b37635d0296",
+    "examples/pipeline_probe.rs": "8a8efa7c1ae634fd99e87c36eeea8c79337b5cad2a9db4b357883dc4f83ae408",
+    "tests/pipeline_probe.py": "087e50820fe5d3c94e182353e135d969e3a84c701ac7b628a890ade72e4bbce1",
+    "tests/smtp_load_research.py": "91e192188806cd8c589a284828d4715300da23cfef203aeb86b2e47edf9603b6",
+    ".github/workflows/check.yml": "c360a8243211c13f0b531b41605263628cf21bf6513cf7aa2cd072fe09b42834",
+    ".github/workflows/pipeline-probe.yml": "509c57df184b7391791cb6a5f99baca3ad3e13f99f699a0fe950b1e9b0d5b690"
+  },
+  "environment": {
+    "os": "Darwin",
+    "architecture": "arm64",
+    "profile": "debug",
+    "features": [
+      "semantic"
+    ],
+    "compiler": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Homebrew)"
+  },
+  "checks": {
+    "python_unittest_passed": 57,
+    "clippy": "pipeline_probe with semantic; -D warnings passed",
+    "format": "passed",
+    "manifests": "aligned",
+    "native_smtp": [
+      {
+        "case": "documents",
+        "schema": "noisefence-smtp-load-2",
+        "version": "noisefence 0.5.0-dev.6",
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "disabled": 8
+          },
+          "antivirus": {
+            "disabled": 8
+          },
+          "signatures": {
+            "disabled": 8
+          },
+          "vision": {
+            "disabled": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0
+      },
+      {
+        "case": "limited",
+        "schema": "noisefence-smtp-load-2",
+        "version": "noisefence 0.5.0-dev.6",
+        "accepted": 2,
+        "delivered": 2,
+        "complete": 0,
+        "primary_complete": 2,
+        "incomplete": 2,
+        "requirements_met": false,
+        "statuses": {
+          "semantic": {
+            "disabled": 2
+          },
+          "antivirus": {
+            "disabled": 2
+          },
+          "signatures": {
+            "disabled": 2
+          },
+          "vision": {
+            "disabled": 2
+          },
+          "llm": {
+            "disabled": 2
+          },
+          "research_execution": {
+            "complete": 2
+          },
+          "heuristics": {
+            "limited": 2
+          },
+          "content_inspection": {
+            "complete": 2
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0
+      },
+      {
+        "case": "candidate-baseline",
+        "schema": "noisefence-smtp-load-1",
+        "version": "noisefence 0.5.0-dev.6",
+        "accepted": 4,
+        "delivered": 4,
+        "complete": 4,
+        "primary_complete": 4,
+        "incomplete": 0,
+        "requirements_met": true,
+        "statuses": {
+          "semantic": {
+            "disabled": 4
+          },
+          "antivirus": {
+            "disabled": 4
+          },
+          "signatures": {
+            "disabled": 4
+          },
+          "vision": {
+            "disabled": 4
+          },
+          "llm": {
+            "disabled": 4
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0
+      }
+    ],
+    "pipeline_controls": {
+      "status": "passed",
+      "warmup_excluded": true,
+      "failures_retained": true,
+      "private_content_omitted": true,
+      "overwrite_refused": true,
+      "paid_calls_require_flag": true,
+      "duplicate_cases_refused": true,
+      "queue_created": false,
+      "sent": false,
+      "research_complete_and_limited_states_checked": true,
+      "explicitly_disabled_heuristics_not_required": true
+    },
+    "primary_engine_source": "src unchanged from the parent whose six Linux CI jobs passed; no new full Rust-suite claim here"
+  },
+  "native_binary_sha256": "583674a85a1f9b5b1a6de7b830f2a97aca2995e5a87b08a857efeb0bd16821bb",
+  "probe_binary_sha256": "7b6ab8c1d50b1f207542fea8c25a9257d52620c8e038367e0429cb2211f23808",
+  "limitations": [
+    "Synthetic fixtures and small smoke tests verify measurement semantics, not filtering quality or a server throughput target.",
+    "The two one-MiB messages are delivered intact but exceed the configured heuristic reading limits; the complete-analysis requirement fails as expected.",
+    "OCR callback argument compatibility is corrected; an actual OCR load run is still needed for this candidate.",
+    "Current-candidate Linux CI and the new Linux measurement artefact have not run yet.",
+    "Recent independent quality data, live CAPEv2 isolation, full server capacity and production activation remain outside this validation."
+  ]
+}

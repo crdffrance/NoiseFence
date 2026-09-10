@@ -13,11 +13,12 @@ jobs:
           mkdir -p var/pipeline-probe
           docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
             rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
-            sh -c 'cargo build --release --locked --features semantic --example pipeline_probe && python3 tests/pipeline_probe.py target/release/examples/pipeline_probe && cargo test --release --locked --features semantic --lib --no-run --message-format=json > var/pipeline-probe/test-build.jsonl'
+            sh -c 'cargo build --release --locked --features semantic --example pipeline_probe && python3 tests/pipeline_probe.py target/release/examples/pipeline_probe && cargo build --release --locked --features semantic && python3 tests/smtp_load_research.py target/release/noisefence var/probe-smtp-research && cargo test --release --locked --features semantic --lib --no-run --message-format=json > var/pipeline-probe/test-build.jsonl'
       - name: Record the exact engine source and executable
         run: |
           mkdir -p var/pipeline-probe
           cp target/release/examples/pipeline_probe var/pipeline-probe/
+          cp target/release/noisefence var/pipeline-probe/
           python3 - <<'PY'
           import hashlib, json, pathlib, shutil, subprocess
           root = pathlib.Path('.')
@@ -39,11 +40,21 @@ jobs:
           test_elf = test_binary.read_bytes()[:20]
           assert test_elf[:4] == b'\x7fELF' and int.from_bytes(test_elf[18:20], 'little') == 62
           build_log.unlink()
+          daemon = root/'var/pipeline-probe/noisefence'
+          daemon_elf = daemon.read_bytes()[:20]
+          assert daemon_elf[:4] == b'\x7fELF' and int.from_bytes(daemon_elf[18:20], 'little') == 62
+          runtime_files = ['config/development.toml', 'scripts/smtp_load.py', 'scripts/smtp_load_vision.py', 'tests/vision_worker.py', 'deploy/vision-worker.py']
+          for name in runtime_files:
+              destination = root/'var/pipeline-probe'/name
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(root/name,destination)
           metadata = {'commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
               'engine_source_sha256':source.hexdigest(),
               'engine_source_manifest':'noisefence-source-tree-2',
               'engine_source_files':len(inputs),
               'test_binary_sha256':hashlib.sha256(test_binary.read_bytes()).hexdigest(),
+              'daemon_binary_sha256':hashlib.sha256(daemon.read_bytes()).hexdigest(),
+              'runtime_files_sha256':{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in runtime_files},
               'probe_source_sha256':hashlib.sha256((root/'examples/pipeline_probe.rs').read_bytes()).hexdigest(),
               'binary_sha256':hashlib.sha256(executable.read_bytes()).hexdigest(),
               'platform':'linux-amd64', 'profile':'release', 'features':['semantic'],
