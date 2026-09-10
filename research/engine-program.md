@@ -265,6 +265,16 @@ La première CI de dev.9 échoue sur un autre test de sandbox utilisant un plafo
 de 350 ms pour le réseau et les écritures SQLite ensemble. Le correctif de test
 maintient la réponse HTTP incomplète ouverte jusqu’à l’observation de
 `RequestTimeout`, confirme l’écriture de la réponse et conserve le délai réseau
-de 100 ms. Les 29 tests de ce contrat passent ensuite localement ; le résultat
-de la nouvelle CI doit encore être vérifié. Le code d’exécution est inchangé
+de 100 ms. Les 29 tests de ce contrat passent ensuite localement. La nouvelle CI du
+commit `aba71c2` termine avec succès dans ses six jobs, dont ARM64. Le code d’exécution est inchangé
 par ce correctif de test.
+
+Le [comparatif Linux](smtp-capacity-wait-linux-20260910.json) utilise ensuite
+le même binaire dev.9 pour les deux réglages. Les 272 messages sont entièrement
+analysés et livrés intacts ; les résultats de classement comparés sont identiques
+pour chaque original. Dans les lots de 128, les refus temporaires passent de
+146 à zéro, et l’attente maximale d’acceptation de 74,38 à 2,38 secondes. Le délai
+médian augmente de 0,56 à 2,24 secondes : l’accès au traitement est réparti entre
+les clients. Le p95 d’analyse reste supérieur à 500 ms. La CI complète
+du correctif réussit ensuite, y compris ARM64 ; le relevé conserve séparément
+l’observation intermédiaire et la vérification finale.

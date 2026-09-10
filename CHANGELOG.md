@@ -14,6 +14,10 @@ incompatible demande une version mineure et une migration documentée.
 - Tracer la durée et l’issue de cette admission, exposer son réglage dans l’état
   administrateur et permettre sa mesure avec le banc SMTP/OCR. Les résultats
   de débit et de latence de dev.8 ne valident pas par avance ce changement.
+- Comparer le réglage sur Linux avec modèles et OCR : 272 analyses et livraisons
+  intactes. Sur les lots de 128, les refus temporaires passent de 146 à zéro et
+  l’acceptation maximale de 74,38 à 2,38 secondes ; le délai médian augmente avec
+  la répartition des tours. Conserver le p95 d’analyse encore supérieur à 500 ms.
 
 ### 0.5.0-dev.8 — Attente efficace des processus OCR
 

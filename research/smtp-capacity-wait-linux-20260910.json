@@ -1,0 +1,881 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-09-10T12:57:57.159383+00:00",
+  "commit": "1aeb3785470d61a304477bb4ac36aedaf39e05e6",
+  "build": {
+    "commit": "1aeb3785470d61a304477bb4ac36aedaf39e05e6",
+    "engine_source_sha256": "a8c597ee5336b24dd87cea55583b0db54d5b9a6f9384373f8c7263af67606e9b",
+    "engine_source_manifest": "noisefence-source-tree-2",
+    "engine_source_files": 61,
+    "test_binary_sha256": "49795089edbf59da95066d2947c1dd62d98a62167a23d622fd7b76c5696e4563",
+    "daemon_binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+    "runtime_files_sha256": {
+      "config/development.toml": "da7489c8118bfc523677989f605791a2d6bb42370543dbdc59cec7b4ad518163",
+      "scripts/smtp_load.py": "a74e64f3491f86a3229ec44f56e75d83255f586f1578ddb9d8b6de23e60fefdf",
+      "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+      "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969",
+      "deploy/vision-worker.py": "eb212a517267a0c916d945b63bdc04e0302221a53ffc8a39bcc0a4460d2ca34a"
+    },
+    "probe_source_sha256": "8a8efa7c1ae634fd99e87c36eeea8c79337b5cad2a9db4b357883dc4f83ae408",
+    "binary_sha256": "30a25496078822d3f47c17a6408bd21f1e778dc89ad2d9c8cf05fbcf8022f1f8",
+    "platform": "linux-amd64",
+    "profile": "release",
+    "features": [
+      "semantic"
+    ],
+    "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+  },
+  "production_version": "noisefence 0.4.2",
+  "production_service_active": true,
+  "configuration_unchanged": true,
+  "models_unchanged": true,
+  "production_state_inaccessible": true,
+  "private_network": true,
+  "external_messages": 0,
+  "model_sha256": {
+    "model.json": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+    "combination.json": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+    "encoder/config.json": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+    "encoder/tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+    "encoder/model.safetensors": "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
+  },
+  "vision_capabilities": {
+    "capabilities": {
+      "protocol": "noisefence-vision-1",
+      "backend_sha256": "520f9c90dd35c10527a8ad47de346334ce02b9cdc080d7bbd1e2d030391edeff",
+      "components": {
+        "tesseract": "tesseract 5.5.0",
+        "zbarimg": "0.23.93",
+        "pdftoppm": "pdftoppm version 25.03.0",
+        "pdfinfo": "pdfinfo version 25.03.0",
+        "pillow": "11.1.0",
+        "traineddata": {
+          "fra": "ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca",
+          "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+        },
+        "worker_sha256": "eb212a517267a0c916d945b63bdc04e0302221a53ffc8a39bcc0a4460d2ca34a"
+      }
+    },
+    "protected_reads_denied": 4,
+    "ipv4_socket_denied": true
+  },
+  "platform": {
+    "os": "Linux",
+    "kernel": "6.12.100+deb13-cloud-amd64",
+    "architecture": "x86_64",
+    "nominal_vcpu": 4,
+    "ram_mib": 7757
+  },
+  "resources": {
+    "smtp_cpu_quota_percent": 400,
+    "smtp_memory_max_bytes": 3221225472,
+    "vision_cpu_quota_percent": 100,
+    "vision_memory_max_bytes": 943718400,
+    "cpu_weight": 10,
+    "nice": 10
+  },
+  "observed": {
+    "smtp": {
+      "memory_peak_bytes": 1298878464,
+      "cpu_usage_usec": 51165475
+    },
+    "vision": {
+      "memory_peak_bytes": 80457728,
+      "cpu_usage_usec": 149431515
+    },
+    "wall_seconds": 179.4279332999722
+  },
+  "unit_exit_status": 0,
+  "failure": null,
+  "suite": {
+    "run_finished": true,
+    "elapsed_seconds": 177.59011463599745,
+    "cases": {
+      "model-ocr-smoke-0": {
+        "run_finished": true,
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+        "version": "noisefence 0.5.0-dev.9",
+        "machine": {
+          "system": "Linux-6.12.100+deb13-cloud-amd64-x86_64-with-glibc2.41",
+          "cpu_count": 4
+        },
+        "messages": 8,
+        "concurrency": 4,
+        "message_bytes": 27634,
+        "processing": 1,
+        "processing_wait_ms": 0,
+        "relay_workers": 8,
+        "retry_policy": "bounded exponential jitter, max 2 seconds",
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "lexical_model_sha256": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+        "semantic_combination_sha256": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+        "config_sha256": "03268d5a8f8eda9547dd644c2bfc25e3f0c8e47bd8821d518165d3c13e371875",
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 1,
+            "max": 1
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 20
+        },
+        "acceptance_ms": {
+          "p50": 588.756,
+          "p95": 6111.785,
+          "max": 6111.785
+        },
+        "analysis_ms": {
+          "p50": 558,
+          "p95": 687,
+          "max": 687
+        },
+        "admission_seconds": 6.122,
+        "drained_seconds": 6.227,
+        "accepted_per_second": 1.307,
+        "delivered_per_second": 1.285,
+        "complete_per_second": 1.285,
+        "delivery_states": {
+          "delivered": 8
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1215205376,
+        "peak_daemon_threads": 12,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 5.17,
+        "wall_seconds": 10.98,
+        "sink_errors": [],
+        "fixture_profile": "public-vision-worker-ocr-qr",
+        "message_bytes_range": [
+          27634,
+          27634
+        ],
+        "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a74e64f3491f86a3229ec44f56e75d83255f586f1578ddb9d8b6de23e60fefdf",
+          "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+          "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969"
+        },
+        "ocr_verified_messages": 8,
+        "ocr_complete_messages": 8,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 553,
+          "p95": 654,
+          "max": 654
+        },
+        "ocr_backend_sha256": [
+          "520f9c90dd35c10527a8ad47de346334ce02b9cdc080d7bbd1e2d030391edeff"
+        ],
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true,
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-smoke-3000": {
+        "run_finished": true,
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+        "version": "noisefence 0.5.0-dev.9",
+        "machine": {
+          "system": "Linux-6.12.100+deb13-cloud-amd64-x86_64-with-glibc2.41",
+          "cpu_count": 4
+        },
+        "messages": 8,
+        "concurrency": 4,
+        "message_bytes": 27634,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "retry_policy": "bounded exponential jitter, max 2 seconds",
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "lexical_model_sha256": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+        "semantic_combination_sha256": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+        "config_sha256": "18282939ffc54b51d24c4ec86df5c49461f84789baf1aba53d01e92ed9c794d9",
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 1,
+            "p95": 3,
+            "max": 3
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {},
+        "acceptance_ms": {
+          "p50": 2243.699,
+          "p95": 2375.01,
+          "max": 2375.01
+        },
+        "analysis_ms": {
+          "p50": 564,
+          "p95": 654,
+          "max": 654
+        },
+        "admission_seconds": 4.632,
+        "drained_seconds": 4.736,
+        "accepted_per_second": 1.727,
+        "delivered_per_second": 1.689,
+        "complete_per_second": 1.689,
+        "delivery_states": {
+          "delivered": 8
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1206812672,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 4.94,
+        "wall_seconds": 9.26,
+        "sink_errors": [],
+        "fixture_profile": "public-vision-worker-ocr-qr",
+        "message_bytes_range": [
+          27634,
+          27634
+        ],
+        "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a74e64f3491f86a3229ec44f56e75d83255f586f1578ddb9d8b6de23e60fefdf",
+          "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+          "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969"
+        },
+        "ocr_verified_messages": 8,
+        "ocr_complete_messages": 8,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 559,
+          "p95": 619,
+          "max": 619
+        },
+        "ocr_backend_sha256": [
+          "520f9c90dd35c10527a8ad47de346334ce02b9cdc080d7bbd1e2d030391edeff"
+        ],
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true,
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-load-0": {
+        "run_finished": true,
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+        "version": "noisefence 0.5.0-dev.9",
+        "machine": {
+          "system": "Linux-6.12.100+deb13-cloud-amd64-x86_64-with-glibc2.41",
+          "cpu_count": 4
+        },
+        "messages": 128,
+        "concurrency": 4,
+        "message_bytes": 27634,
+        "processing": 1,
+        "processing_wait_ms": 0,
+        "relay_workers": 8,
+        "retry_policy": "bounded exponential jitter, max 2 seconds",
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "lexical_model_sha256": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+        "semantic_combination_sha256": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+        "config_sha256": "5e9001a63f7e02d33166e4ee472f6024dd649781624bc12a4cb6b8db32473a18",
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 1,
+            "max": 2
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 128,
+        "delivered": 128,
+        "complete": 128,
+        "primary_complete": 128,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 128
+          },
+          "antivirus": {
+            "clean": 128
+          },
+          "signatures": {
+            "clean": 128
+          },
+          "vision": {
+            "complete": 128
+          },
+          "llm": {
+            "disabled": 128
+          },
+          "research_execution": {
+            "complete": 128
+          },
+          "heuristics": {
+            "complete": 128
+          },
+          "content_inspection": {
+            "complete": 128
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 146
+        },
+        "acceptance_ms": {
+          "p50": 564.522,
+          "p95": 620.294,
+          "max": 74378.33
+        },
+        "analysis_ms": {
+          "p50": 556,
+          "p95": 595,
+          "max": 642
+        },
+        "admission_seconds": 74.386,
+        "drained_seconds": 74.489,
+        "accepted_per_second": 1.721,
+        "delivered_per_second": 1.718,
+        "complete_per_second": 1.718,
+        "delivery_states": {
+          "delivered": 128
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1255956480,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 15.98,
+        "wall_seconds": 79.061,
+        "sink_errors": [],
+        "fixture_profile": "public-vision-worker-ocr-qr",
+        "message_bytes_range": [
+          27634,
+          27638
+        ],
+        "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a74e64f3491f86a3229ec44f56e75d83255f586f1578ddb9d8b6de23e60fefdf",
+          "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+          "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969"
+        },
+        "ocr_verified_messages": 128,
+        "ocr_complete_messages": 128,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 554,
+          "p95": 593,
+          "max": 617
+        },
+        "ocr_backend_sha256": [
+          "520f9c90dd35c10527a8ad47de346334ce02b9cdc080d7bbd1e2d030391edeff"
+        ],
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true,
+        "private_worker_identity_verified": true
+      },
+      "model-ocr-load-3000": {
+        "run_finished": true,
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+        "version": "noisefence 0.5.0-dev.9",
+        "machine": {
+          "system": "Linux-6.12.100+deb13-cloud-amd64-x86_64-with-glibc2.41",
+          "cpu_count": 4
+        },
+        "messages": 128,
+        "concurrency": 4,
+        "message_bytes": 27634,
+        "processing": 1,
+        "processing_wait_ms": 3000,
+        "relay_workers": 8,
+        "retry_policy": "bounded exponential jitter, max 2 seconds",
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "lexical_model_sha256": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+        "semantic_combination_sha256": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+        "config_sha256": "7a1ba72fe84b8ed48fd01c6022a8b424885b6d612bf4dfcaa28f3bd7d70564b4",
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 1,
+            "max": 6
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 128,
+        "delivered": 128,
+        "complete": 128,
+        "primary_complete": 128,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 128
+          },
+          "antivirus": {
+            "clean": 128
+          },
+          "signatures": {
+            "clean": 128
+          },
+          "vision": {
+            "complete": 128
+          },
+          "llm": {
+            "disabled": 128
+          },
+          "research_execution": {
+            "complete": 128
+          },
+          "heuristics": {
+            "complete": 128
+          },
+          "content_inspection": {
+            "complete": 128
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {},
+        "acceptance_ms": {
+          "p50": 2243.221,
+          "p95": 2328.71,
+          "max": 2382.947
+        },
+        "analysis_ms": {
+          "p50": 554,
+          "p95": 585,
+          "max": 648
+        },
+        "admission_seconds": 72.238,
+        "drained_seconds": 72.343,
+        "accepted_per_second": 1.772,
+        "delivered_per_second": 1.769,
+        "complete_per_second": 1.769,
+        "delivery_states": {
+          "delivered": 128
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1214873600,
+        "peak_daemon_threads": 13,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 15.93,
+        "wall_seconds": 77.042,
+        "sink_errors": [],
+        "fixture_profile": "public-vision-worker-ocr-qr",
+        "message_bytes_range": [
+          27634,
+          27638
+        ],
+        "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "a74e64f3491f86a3229ec44f56e75d83255f586f1578ddb9d8b6de23e60fefdf",
+          "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+          "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969"
+        },
+        "ocr_verified_messages": 128,
+        "ocr_complete_messages": 128,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 551,
+          "p95": 583,
+          "max": 632
+        },
+        "ocr_backend_sha256": [
+          "520f9c90dd35c10527a8ad47de346334ce02b9cdc080d7bbd1e2d030391edeff"
+        ],
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true,
+        "private_worker_identity_verified": true
+      }
+    },
+    "all_profile_expectations_met": true
+  },
+  "confinement_template_sha256": "861e7c5a62894fde4359bcb59d2ec7a75975a93f510934d296401f64a84c2d8a",
+  "controller_sources_sha256": {
+    "prepare-run-capacity.py": "bae19a80bb23dca11a1ce31febfe7ba80316596644ca79ef7d9779e957c83fd9",
+    "run-capacity-suite.py": "56f857a4d02635ef593950165fa772ed440e5aa0938d8051ee13ed3d96e7053e",
+    "worker-entry.py": "e0e1e66ae6807dc28aa84252e130ac20939a05ce4664e63fe86adfc324f292f1"
+  },
+  "limitations": [
+    "Synthetic OCR/QR mail only; shared production host and low scheduling weight, not a production traffic capacity guarantee.",
+    "DNS/authentication, external reputation, LLM, TLS and Proton delivery excluded.",
+    "Models and local scanners enabled. AV and signatures are shared existing services outside measured cgroups; OCR uses a separate exact-source candidate service.",
+    "SMTP and OCR counters sampled every 100 ms; final CPU sample may precede SMTP process exit; model loading excluded from per-message analysis times.",
+    "Shipped OCR confinement reused; explicit private socket replaces socket activation. Protected reads and IPv4 socket denial verified inside worker.",
+    "No filtering-quality or real CAPEv2 claim.",
+    "Two sequential 128-message batches plus two 8-message smoke checks; one repeated image/QR fixture, four clients, not a long mixed-traffic soak. The order was not randomized.",
+    "Queued admission reduces the measured worst-case acceptance delay, while increasing typical and p95 acceptance latency: requests share their turn. This is not a blanket latency improvement.",
+    "Both runs use the same daemon binary, copied model hashes, worker source and measured OCR backend. AV/signature services are shared and do not attest an exact signature database per message.",
+    "Analysis p95 remains above the 500 ms goal (595 ms disabled, 585 ms enabled). A small difference between sequential runs is not proof of faster analysis; the new option changes pre-DATA waiting.",
+    "Initial CI at runtime revision failed on a 350 ms sandbox test wall-clock assertion. The test-only followup holds an incomplete body until RequestTimeout, leaving the product network timeout unchanged. Runtime/probe source equivalence is verified separately; the followup ARM64 job is still pending at observation."
+  ],
+  "candidate_version": "0.5.0-dev.9",
+  "runtime_source_equivalence": {
+    "head": "aba71c2d0ca0d59137c866ac9ff6cd3bd3219fba",
+    "runtime_commit": "1aeb3785470d61a304477bb4ac36aedaf39e05e6",
+    "changed_paths": [
+      "research/engine-program.md",
+      "research/smtp-capacity-wait-validation-20260910.json",
+      "tests/sandbox.rs"
+    ],
+    "runtime_and_probe_sources_unchanged": true
+  },
+  "decision_comparison": {
+    "scope": "Matched exact original bytes; compare score, canonical decision, tags, lexical features, reason IDs/weights and OCR summary; exclude timing and unrelated diagnostics.",
+    "comparisons": {
+      "smoke": {
+        "paired_messages": 8,
+        "differing_fields": {},
+        "all_selected_values_identical": true,
+        "selected_values_sha256": {
+          "0": "813e5f61412e93cfd895f7400ba2a58651609f95387012c3a299d52b0d234876",
+          "3000": "813e5f61412e93cfd895f7400ba2a58651609f95387012c3a299d52b0d234876"
+        }
+      },
+      "load": {
+        "paired_messages": 128,
+        "differing_fields": {},
+        "all_selected_values_identical": true,
+        "selected_values_sha256": {
+          "0": "e5fedef8b629614b92f4a1119c0ce144a7ea4d30511665a925a2d4c25c17b162",
+          "3000": "e5fedef8b629614b92f4a1119c0ce144a7ea4d30511665a925a2d4c25c17b162"
+        }
+      }
+    }
+  },
+  "artifact": {
+    "run_id": 34477765428,
+    "artifact_id": 10152603509,
+    "artifact_digest": "sha256:01f63b60fb7f283e0168d5a426544169b2d35fe08ee25cb533d4bf977dcdc59a",
+    "source_files_verified": 61,
+    "verified": true
+  },
+  "ci_observed": {
+    "run_id": 34478902706,
+    "observed_at": "2026-09-10T13:11:16.699942+00:00",
+    "conclusion": "",
+    "headSha": "aba71c2d0ca0d59137c866ac9ff6cd3bd3219fba",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "name": "deployment",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-latest)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "research",
+        "status": "completed"
+      },
+      {
+        "conclusion": "",
+        "name": "rust (ubuntu-24.04-arm, --features semantic, --release)",
+        "status": "in_progress"
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-latest, --features semantic)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "web",
+        "status": "completed"
+      }
+    ],
+    "status": "in_progress"
+  },
+  "audit": {
+    "files": 21,
+    "sha256": "97d31a17cfb0fea2b5e6d94ba6e7e52a65e0e4d15e8aaf040d04ed36ba1fea66",
+    "source_and_results_verified": true,
+    "model_weights_included": false,
+    "message_bodies_included": false
+  },
+  "cleanup": {
+    "units": {
+      "smtp": "inactive",
+      "vision": "inactive"
+    },
+    "production_active": true,
+    "production_changed": false,
+    "copied_models_removed": true,
+    "private_stage_removed": true
+  },
+  "preparation_failures": [],
+  "comparison_order": [
+    "model-ocr-smoke-0",
+    "model-ocr-smoke-3000",
+    "model-ocr-load-0",
+    "model-ocr-load-3000"
+  ],
+  "ci_final_verification": {
+    "run_id": 34478902706,
+    "verified_at": "2026-09-10T13:16:05.049293+00:00",
+    "conclusion": "success",
+    "headSha": "aba71c2d0ca0d59137c866ac9ff6cd3bd3219fba",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "name": "deployment",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-latest)",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "research",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-24.04-arm, --features semantic, --release)",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-latest, --features semantic)",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "web",
+        "status": "completed",
+        "steps": []
+      }
+    ],
+    "status": "completed"
+  }
+}

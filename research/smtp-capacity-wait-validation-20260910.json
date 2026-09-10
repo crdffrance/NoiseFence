@@ -342,6 +342,51 @@
     },
     "clippy_default_sandbox_passed": true,
     "runtime_source_unchanged": true,
-    "full_new_ci": "pending"
+    "full_new_ci_at_initial_recording": "pending"
+  },
+  "ci_final_verification": {
+    "run_id": 34478902706,
+    "verified_at": "2026-09-10T13:16:05.049293+00:00",
+    "conclusion": "success",
+    "headSha": "aba71c2d0ca0d59137c866ac9ff6cd3bd3219fba",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "name": "deployment",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-latest)",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "research",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-24.04-arm, --features semantic, --release)",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "rust (ubuntu-latest, --features semantic)",
+        "status": "completed",
+        "steps": []
+      },
+      {
+        "conclusion": "success",
+        "name": "web",
+        "status": "completed",
+        "steps": []
+      }
+    ],
+    "status": "completed"
   }
 }

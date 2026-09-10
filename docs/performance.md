@@ -436,3 +436,32 @@ Cette option vise la longue attente avec réessais observée dans le relevé dev
 Son effet doit être mesuré à modèles, worker OCR, limites et complétude identiques.
 Elle n’accélère pas les décodeurs et ne prouve pas une baisse du p95 d’analyse.
 Les rafales dépassant sa durée maximale reçoivent encore des refus temporaires.
+
+Le [comparatif Linux de dev.9](../research/smtp-capacity-wait-linux-20260910.json)
+emploie le même binaire, les mêmes modèles, le même worker OCR et quatre clients.
+Les deux lots de 128 messages donnent :
+
+| Mesure | Attente désactivée | Attente maximale configurée à 3 s |
+| --- | --- | --- |
+| Messages entièrement analysés et livrés intacts | 128/128 | 128/128 |
+| Refus temporaires avant DATA | 146 | 0 |
+| Acceptation médiane | 0,56 s | 2,24 s |
+| Acceptation p95 | 0,62 s | 2,33 s |
+| Acceptation maximale, reprises comprises | 74,38 s | 2,38 s |
+| Analyse p95 | 595 ms | 585 ms |
+| Analyses complètes et livraisons par seconde | 1,72 | 1,77 |
+
+L’attente répartit l’accès au traitement : elle supprime les attentes extrêmes
+de ce lot, en augmentant les délais médian et p95 des autres messages. Il ne
+faut donc pas la présenter comme une accélération générale. Le p95 d’analyse
+reste au-dessus de 500 ms ; les dix millisecondes d’écart entre ces essais
+successifs ne prouvent pas une accélération des décodeurs.
+
+Avec les deux essais courts initiaux, les 272 messages sont entièrement analysés
+et livrés sans changement de corps ni doublon. Une comparaison sur les originaux
+identiques retrouve les mêmes scores, décisions, caractéristiques lexicales,
+identifiants/poids de raisons et résumés OCR entre les deux réglages. Cela prouve
+la stabilité de ces résultats sur la fixture, pas la qualité du classement sur
+du courrier réel. Les données, limites de ressources, empreintes et ordre des
+lots figurent dans le relevé. Les unités privées et copies de modèles ont été
+retirées après conservation de l’audit ; la production reste inchangée.
