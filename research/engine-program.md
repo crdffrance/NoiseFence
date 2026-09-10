@@ -260,3 +260,11 @@ le réglage du banc et les livraisons intactes. Ils n’emploient pas les modèl
 l’OCR ; leur différence de réessais ne constitue pas la comparaison de performance
 Linux attendue. Le prochain essai doit comparer les deux réglages avec le même
 binaire, les mêmes modèles, le même worker OCR et toutes les analyses complètes.
+
+La première CI de dev.9 échoue sur un autre test de sandbox utilisant un plafond
+de 350 ms pour le réseau et les écritures SQLite ensemble. Le correctif de test
+maintient la réponse HTTP incomplète ouverte jusqu’à l’observation de
+`RequestTimeout`, confirme l’écriture de la réponse et conserve le délai réseau
+de 100 ms. Les 29 tests de ce contrat passent ensuite localement ; le résultat
+de la nouvelle CI doit encore être vérifié. Le code d’exécution est inchangé
+par ce correctif de test.

@@ -16,7 +16,8 @@
     "rust_semantic": {
       "passed": 465,
       "failed": 0,
-      "ignored": 1
+      "ignored": 1,
+      "scope_note": "Full local run before the CI fixture stabilization; the changed sandbox suite was rerun separately afterward."
     },
     "processing_wait_unit": {
       "passed": 4,
@@ -317,5 +318,30 @@
     "The eight temporary replies in the disabled profile and zero in the enabled profile validate the small synthetic scenario only; they do not establish a general throughput or delivery latency guarantee.",
     "Filtering quality, independent recent corpus evaluation and real CAPEv2/Office isolation remain unverified; no model or policy is promoted by this change.",
     "Full Linux/ARM64 CI and same-artifact OCR comparison remain to run for this candidate."
-  ]
+  ],
+  "ci_initial_failure": {
+    "run_id": 34477591892,
+    "commit": "1aeb3785470d61a304477bb4ac36aedaf39e05e6",
+    "job_id": 102872172152,
+    "job": "rust (ubuntu-latest)",
+    "test": "malformed_chunked_stalled_and_redirect_responses_are_bounded",
+    "assertion": "start.elapsed() < Duration::from_millis(350)",
+    "sanitized_log_sha256": "a69f5a35a0197ee5fc3d376395d73c19002cc5e3506b043b995d3b3471c89573"
+  },
+  "test_fixture_followup": {
+    "file": "tests/sandbox.rs",
+    "source_sha256": "c66220ccb6ec26faf8873fb0b047adc49b2c464a4fc0ed108d0fe4b202327967",
+    "network_request_timeout_ms_unchanged": 100,
+    "outer_hang_guard_seconds": 5,
+    "incomplete_body_held_until_timeout_observed": true,
+    "response_write_confirmed": true,
+    "default_sandbox_suite": {
+      "passed": 29,
+      "failed": 0,
+      "ignored": 0
+    },
+    "clippy_default_sandbox_passed": true,
+    "runtime_source_unchanged": true,
+    "full_new_ci": "pending"
+  }
 }

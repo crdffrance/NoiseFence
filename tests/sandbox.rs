@@ -916,6 +916,8 @@ async fn malformed_chunked_stalled_and_redirect_responses_are_bounded() {
         drop(db);
         let client = Client::new(settings).unwrap();
         let redirect = redirect.clone();
+        let (response_sent, response_ready) = tokio::sync::oneshot::channel();
+        let (release, held) = tokio::sync::oneshot::channel();
         let fake = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut request = Vec::new();
@@ -931,13 +933,24 @@ async fn malformed_chunked_stalled_and_redirect_responses_are_bounded() {
                 _ => "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}".into(),
             };
             stream.write_all(response.as_bytes()).await.unwrap();
+            let _ = response_sent.send(());
             if variant == 1 {
-                tokio::time::sleep(Duration::from_millis(400)).await;
+                // Keep the incomplete body open until the client has recorded
+                // RequestTimeout. EOF or a 400 ms fixture sleep must not be the
+                // mechanism that ends the request.
+                held.await.unwrap();
             }
         });
-        let start = std::time::Instant::now();
-        client.tick().await.unwrap();
-        assert!(start.elapsed() < Duration::from_millis(350));
+        // Network request timeout remains 100 ms. This outer guard detects a
+        // hung test, allowing scheduling and durable SQLite writes their time.
+        tokio::time::timeout(Duration::from_secs(5), client.tick())
+            .await
+            .expect("sandbox tick did not terminate")
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), response_ready)
+            .await
+            .expect("fake peer did not write its response")
+            .unwrap();
         let result = client.get(&job.job_id).await.unwrap().unwrap();
         assert_eq!(
             result.detail,
@@ -950,10 +963,13 @@ async fn malformed_chunked_stalled_and_redirect_responses_are_bounded() {
         );
         assert_eq!(result.outcome, Outcome::Inconclusive);
         if variant == 1 {
-            fake.abort();
-        } else {
-            fake.await.unwrap();
+            assert!(
+                !fake.is_finished(),
+                "stalled peer must still hold the body open"
+            );
+            release.send(()).unwrap();
         }
+        fake.await.unwrap();
     }
     assert!(
         tokio::time::timeout(Duration::from_millis(20), sentinel.accept())
