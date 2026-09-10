@@ -215,6 +215,17 @@ Les médianes mesurées avec le comparateur publié baissent d’environ 92 ms p
 l’image et 108 ms pour le PDF. Ces résultats locaux ne préjugent pas de la CI
 complète du candidat, de la qualité de classement ou d’une activation générale.
 
+Le [rejeu SMTP du même candidat](vision-smtp-validation-20260910.json) ajoute
+136 messages entièrement analysés et livrés intacts avec les modèles et les
+scanners locaux. L’OCR utilise une unité privée du candidat dont l’empreinte
+est vérifiée dans chaque résultat. Le lot de 128 termine en 74,48 secondes,
+avec un p95 d’analyse de 603 ms et 146 réponses temporaires avant DATA. Une
+acceptation attend jusqu’à 74,36 secondes, reprises comprises. Ces valeurs
+conservent l’écart à l’objectif de 500 ms et les limites de l’admission sous
+rafale. Le binaire Linux est construit et vérifié. Après l’enregistrement initial
+du relevé, les six jobs CI, dont ARM64, ont terminé avec succès ; leur résultat
+final est conservé séparément de l’état encore partiel observé au premier relevé.
+
 - Validation d’un vrai CAPEv2 et de sa VM Office isolée : instantané, restauration,
   absence d’accès au serveur de messagerie et au réseau de production, et politique
   de conservation côté analyseur. Les tests synthétiques ne l’attestent pas.

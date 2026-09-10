@@ -367,3 +367,45 @@ sont livrés sans corruption mais dépassent la limite de lecture heuristique : 
 test exige que le banc le signale et ne les compte pas comme analyses complètes.
 Ne pas présenter un débit obtenu avec des contrôles sautés comme une capacité
 d’analyse complète. La CI vérifie ce contrat sur AMD64 et ARM64.
+
+## Worker OCR du candidat 0.5.0-dev.8
+
+Le [relevé SMTP du 10 septembre](../research/vision-smtp-validation-20260910.json)
+porte sur le binaire Linux et le worker du commit `1a370b7`. Les 136 messages
+synthétiques des deux lots sont entièrement analysés et livrés intacts, sans
+doublon. Les modèles lexical et sémantique, les scanners locaux, les heuristiques,
+l’inspection PNG et l’OCR/QR sont actifs. Le worker utilise un socket privé ; son
+empreinte complète correspond à celle reçue dans chaque analyse.
+
+| Lot | Analyse p50 / p95 | Analyse complète et livraison | Réponses 451 avant DATA | Acceptation maximale, reprises comprises |
+| --- | --- | --- | --- | --- |
+| 8 messages, 4 clients | 552 / 637 ms | 8/8, 1,08/s | 22 | 7,33 s |
+| 128 messages, 4 clients | 558 / 603 ms | 128/128, 1,72/s | 146 | 74,36 s |
+
+Le deuxième lot dure 74,48 secondes. Son p95 d’acceptation est de 615 ms, mais
+ce percentile masque les quelques attentes très longues : le maximum et les
+réessais font partie du résultat. Le plafond reste un traitement simultané pour
+conserver tous les contrôles. Le p95 d’analyse dépasse encore l’objectif de
+500 ms ; cette mesure ne prouve pas un débit soutenu sur des messages variés.
+
+Le serveur partagé dispose de 4 vCPU et 7 757 Mio de RAM. L’unité SMTP est limitée
+à quatre CPU et 3 Gio, l’unité OCR à un CPU et 900 Mio, avec une priorité faible.
+Leurs pics mémoire observés sont respectivement d’environ 1 229 et 77 Mio.
+Les scanners antivirus et de signatures sont hors de ces deux groupes de
+mesure. Le worker reprend le confinement du service livré ; quatre lectures
+protégées et la création d’un socket IPv4 sont effectivement refusées dans son
+contexte. Ces vérifications ne constituent pas un audit complet d’isolation.
+
+Pour reproduire ce profil, employer `scripts/smtp_load_vision.py` avec
+`--messages 128 --concurrency 4 --processing 1 --relay-workers 8 --research
+--require-complete`, les modèles locaux et les sockets des scanners. Exécuter
+le worker du candidat dans une unité privée avec les restrictions de
+`deploy/noisefence-vision.service`. Le mode `--serve --socket` permet un socket
+de test dont seuls le worker et le banc possèdent les droits d’accès ; le
+déploiement normal utilise l’activation par socket systemd.
+
+Comparer `ocr_backend_sha256` à la sortie `--capabilities` du worker dans cette
+même unité. Réutiliser le socket OCR de production mesurerait l’ancien worker.
+Le rapport identifie les sources, modèles et composants employés. Aucun appel
+DNS, fournisseur externe, LLM, TLS ou Proton n’entre dans cette mesure ; aucune
+modification du service de production n’a été nécessaire.

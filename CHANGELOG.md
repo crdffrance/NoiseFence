@@ -18,6 +18,10 @@ incompatible demande une version mineure et une migration documentée.
   comparatifs. Dans ce relevé, les médianes passent de 644 à 553 ms pour l’image
   et de 1 369 à 1 261 ms pour le PDF ; ces petits lots ne prouvent ni la qualité
   de classement ni une capacité soutenue. La production reste distincte.
+- Vérifier 136 analyses et livraisons SMTP synthétiques avec le worker du candidat,
+  les modèles et les scanners locaux. Le lot de 128 atteint un p95 d’analyse de
+  603 ms ; conserver les réessais avant DATA et l’attente maximale de 74 secondes,
+  ainsi que les empreintes du worker et les limites de cette mesure isolée.
 
 ### 0.5.0-dev.7 — Inspection PNG et diagnostics du banc OCR
 
