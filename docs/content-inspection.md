@@ -40,7 +40,7 @@ Do not convert a worker panic into a complete report.
 
 ## Report and privacy
 
-The current `version` is `noisefence-content-inspection-2`. The JSON contains:
+The current `version` is `noisefence-content-inspection-3`. The JSON contains:
 
 | Field | Meaning |
 | --- | --- |
@@ -55,8 +55,11 @@ The current `version` is `noisefence-content-inspection-2`. The JSON contains:
 Revision 2 (0.5.0-dev.7) changes PNG completeness: an ordinary highly compressible
 image can complete when its exact declared scanline size fits both absolute
 unpacked-byte budgets. Revision 1 incorrectly applied the generic ratio limit.
-Historical reports remain readable. The native fusion binding and Python trainer
-require revision 2 for new structural observations; revision-1 structural models
+Revision 3 (0.5.0-dev.11) adds bounded JPEG image-XObject inspection in PDFs,
+including agreement with their declared dimensions, precision and component
+count. The xref generation range remains unchanged. Historical reports remain
+readable. The native fusion binding and Python trainer require revision 3 for
+new structural observations; revision-1 and revision-2 structural models
 must be re-exported, trained and validated before use with this detector. Their
 digests must not be edited to bypass the mismatch. Fusion without a structural
 binding and the frozen feature catalogs are unchanged.
@@ -204,8 +207,15 @@ True limitations:
 * Indirect stream lengths stop parsing with `pdf_unsupported_structure`. This
   deliberately covers a common valid-PDF case as incomplete rather than guessing
   binary boundaries. Later physical objects then remain uninspected.
-* Non-Flate filters, filter chains and object-stream decode parameters are
-  incomplete. Encrypted PDFs and embedded file payloads are incomplete.
+* A single DCT/DCTDecode filter is supported for image XObjects with direct
+  width, height and bits-per-component and DeviceGray/RGB/CMYK color space.
+  JPEG segment/entropy framing must consume the exact declared stream and its
+  SOF values must match the image dictionary. Decode parameters may be absent,
+  null, or a dictionary containing only ColorTransform 0/1 (including a single
+  array entry). Other contexts, color spaces, filter chains and decode parameters
+  remain incomplete. JPEG pixel/coefficient validity is not checked here.
+* Other non-Flate filters and object-stream decode parameters are incomplete.
+  Encrypted PDFs and embedded file payloads are incomplete.
 * Ordinary content/image/font streams are not decompressed or semantically
   validated. Cross-reference streams are not decoded; xref tables receive basic
   framing/range checks, without complete reference resolution, page-tree

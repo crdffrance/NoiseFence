@@ -10,7 +10,7 @@ use std::{
     io::{Cursor, Read, Seek, SeekFrom},
 };
 
-pub const REPORT_VERSION: &str = "noisefence-content-inspection-2";
+pub const REPORT_VERSION: &str = "noisefence-content-inspection-3";
 const MIB: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -965,6 +965,14 @@ impl Inspection<'_> {
         }
     }
     fn jpeg(&mut self, b: &[u8], index: usize) -> ParseResult<(usize, u32)> {
+        self.jpeg_inner(b, index, None)
+    }
+    fn jpeg_inner(
+        &mut self,
+        b: &[u8],
+        index: usize,
+        declared: Option<[usize; 4]>,
+    ) -> ParseResult<(usize, u32)> {
         if !b.starts_with(b"\xff\xd8") {
             return Err(Fault::Malformed);
         }
@@ -1011,7 +1019,21 @@ impl Inspection<'_> {
                 if n == 0 || n > 4 || data.len() != 6 + 3 * n || ![8, 12].contains(&data[0]) {
                     return Err(Fault::Malformed);
                 }
-                self.dimensions(be16(data, 3)? as u32, be16(data, 1)? as u32, index)?;
+                let w = u32::from(be16(data, 3)?);
+                let h = u32::from(be16(data, 1)?);
+                if let Some(expected) = declared {
+                    if w == 0 || h == 0 || expected != [w as usize, h as usize, data[0] as usize, n]
+                    {
+                        return Err(Fault::Malformed);
+                    }
+                    // PDF image dimensions are observations of embedded images,
+                    // not dimensions of the containing PDF MIME part.
+                    if u64::from(w) * u64::from(h) > self.s.max_image_pixels {
+                        self.finding(FindingId::ImageDimensions, Some(index));
+                    }
+                } else {
+                    self.dimensions(w, h, index)?;
+                }
                 frame = true;
             }
             if marker == 0xda {
@@ -1128,6 +1150,8 @@ impl Inspection<'_> {
 enum PdfValue {
     Name(Vec<u8>),
     Int(i64),
+    Bool(bool),
+    Null,
     Scalar,
     Reference,
     Array(Vec<PdfValue>),
@@ -1150,6 +1174,9 @@ impl PdfValue {
     }
     fn name_is(&self, s: &[u8]) -> bool {
         matches!(self, Self::Name(n) if n == s)
+    }
+    fn filter_is(&self, s: &[u8]) -> bool {
+        self.name_is(s) || matches!(self, Self::Array(a) if a.len() == 1 && a[0].name_is(s))
     }
 }
 struct PdfParser<'a> {
@@ -1322,8 +1349,11 @@ impl<'a> PdfParser<'a> {
             }
             _ => {
                 let token = self.word()?;
-                if matches!(token, b"true" | b"false" | b"null") {
-                    return Ok(PdfValue::Scalar);
+                match token {
+                    b"true" => return Ok(PdfValue::Bool(true)),
+                    b"false" => return Ok(PdfValue::Bool(false)),
+                    b"null" => return Ok(PdfValue::Null),
+                    _ => (),
                 }
                 let s = std::str::from_utf8(token).map_err(|_| Fault::Malformed)?;
                 let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
@@ -1526,8 +1556,21 @@ impl Inspection<'_> {
                             self.incomplete(FindingId::PdfExternalReference, Some(index), false);
                         }
                         let filter = v.get(b"Filter");
-                        let flate = filter.is_some_and(|v| v.name_is(b"FlateDecode") || v.name_is(b"Fl") || matches!(v,PdfValue::Array(a) if a.len()==1 && (a[0].name_is(b"FlateDecode") || a[0].name_is(b"Fl"))));
-                        if filter.is_some() && !flate {
+                        let flate = filter
+                            .is_some_and(|v| v.filter_is(b"FlateDecode") || v.filter_is(b"Fl"));
+                        let dct = filter
+                            .is_some_and(|v| v.filter_is(b"DCTDecode") || v.filter_is(b"DCT"));
+                        if dct {
+                            match self.pdf_jpeg(stream, &v, index) {
+                                Ok(()) => (),
+                                Err(Fault::Unsupported) => self.incomplete(
+                                    FindingId::PdfUnsupportedFilter,
+                                    Some(index),
+                                    false,
+                                ),
+                                Err(e) => return Err(e),
+                            }
+                        } else if filter.is_some_and(|v| !matches!(v, PdfValue::Null)) && !flate {
                             self.incomplete(FindingId::PdfUnsupportedFilter, Some(index), false);
                         } else if object_stream {
                             if v.get(b"DecodeParms").is_some() {
@@ -1565,6 +1608,55 @@ impl Inspection<'_> {
             }
         }
         if objects == 0 || !trailer || !startxref {
+            return Err(Fault::Malformed);
+        }
+        Ok(())
+    }
+    /// Inspect JPEG framing in a declared image XObject. This never treats a
+    /// compressed object/content stream as an image or decodes image pixels.
+    fn pdf_jpeg(&mut self, data: &[u8], dict: &PdfValue, index: usize) -> ParseResult<()> {
+        if !dict.get(b"Subtype").is_some_and(|v| v.name_is(b"Image"))
+            || dict.get(b"Type").is_some_and(|v| !v.name_is(b"XObject"))
+            || dict
+                .get(b"ImageMask")
+                .is_some_and(|v| !matches!(v, PdfValue::Bool(false)))
+        {
+            return Err(Fault::Unsupported);
+        }
+        let components = match dict.get(b"ColorSpace") {
+            Some(v) if v.name_is(b"DeviceGray") => 1,
+            Some(v) if v.name_is(b"DeviceRGB") => 3,
+            Some(v) if v.name_is(b"DeviceCMYK") => 4,
+            _ => return Err(Fault::Unsupported),
+        };
+        if let Some(params) = dict.get(b"DecodeParms") {
+            let params = match params {
+                PdfValue::Array(a) if a.len() == 1 => &a[0],
+                v => v,
+            };
+            match params {
+                PdfValue::Null => (),
+                PdfValue::Dict(items)
+                    if items.iter().all(|(key, value)| {
+                        key == b"ColorTransform" && matches!(value, PdfValue::Int(0 | 1))
+                    }) => {}
+                _ => return Err(Fault::Unsupported),
+            }
+        }
+        let declared = [
+            dict.get(b"Width")
+                .and_then(PdfValue::number)
+                .ok_or(Fault::Unsupported)?,
+            dict.get(b"Height")
+                .and_then(PdfValue::number)
+                .ok_or(Fault::Unsupported)?,
+            dict.get(b"BitsPerComponent")
+                .and_then(PdfValue::number)
+                .ok_or(Fault::Unsupported)?,
+            components,
+        ];
+        let (end, _) = self.jpeg_inner(data, index, Some(declared))?;
+        if end != data.len() {
             return Err(Fault::Malformed);
         }
         Ok(())

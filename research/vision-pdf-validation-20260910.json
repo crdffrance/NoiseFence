@@ -6,7 +6,7 @@
   "candidate_sources_sha256": {
     "deploy/vision-worker.py": "cc649322f0b3d358a9b3bc35183c36ea03065e487e1a8295f20232d12a39554b",
     "tests/vision_worker.py": "e17d020eaa5870d19b55360474aad3044707cacc66e4a2dce9d225c861da821a",
-    "tests_python/test_vision_process.py": "7949d86d72bc907e122c1f41e72fee05c2851fe9ab38442466ac8ad1eb431792",
+    "tests_python/test_vision_process.py": "39fd59283c0bc626a2704ba6eeecb13419e8318e30254dd2146708d695849d46",
     "scripts/vision_compare.py": "af49c8a4c7385f39eefda282a8dc3197cd999584d5c1d3bc9f0daa234bee03ca",
     "research/profile_tesseract.py": "2798d6ce6cf59f67d95ed0ba125f575ab7b4d24902655d49e0dc67fb71733a68"
   },
@@ -738,20 +738,50 @@
     "note": "Shared Linux 4 vCPU host. Resource settings do not certify a full VM isolation audit."
   },
   "cleanup": {
-    "all_four_owned_stages_removed": true,
     "production_changed": false,
-    "external_messages_sent": 0
+    "external_messages_sent": 0,
+    "all_five_owned_stages_removed": true
   },
   "ci": {
-    "status": "not_yet_dispatched",
-    "note": "Publishing this candidate triggers its own checks. Earlier CI success does not validate the new worker."
+    "runtime_run": "34484307835",
+    "runtime_commit": "7a9430eecc87fa67c0a7ca5f4521a038130fc89f",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "deployment",
+        "conclusion": "success"
+      },
+      {
+        "name": "rust (ubuntu-latest, --features semantic)",
+        "conclusion": "success"
+      },
+      {
+        "name": "research",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "conclusion": "success"
+      },
+      {
+        "name": "rust (ubuntu-latest)",
+        "conclusion": "success"
+      },
+      {
+        "name": "rust (ubuntu-24.04-arm, --features semantic, --release)",
+        "conclusion": "success"
+      }
+    ],
+    "note": "Final success for the published PDF worker candidate; this does not validate later detector/probe changes."
   },
   "limitations": [
     "Eight pairs per fixture; nearest-rank p95 is the sample maximum.",
     "Complete worker results compared exactly; no real-mail false-positive or capture measurement.",
     "PDF worker latency still exceeds 500 ms; full SMTP candidate performance is not yet measured.",
     "The C API probe creates fresh handles in one process, unlike CLI workers; it is a phase investigation only.",
-    "No production binary, worker, model, DNS or configuration changed."
+    "No production binary, worker, model, DNS or configuration changed.",
+    "Later full-SMTP testing found that Pillow-generated fixture PDFs had generation 65536 in the object-zero xref entry. The worker comparison proves decoder output parity on those fixtures, not PDF structural conformance. The dev.11 test generator corrects only that fixed-width field to 65535."
   ],
   "reproduction": {
     "worker_comparison": "python3 scripts/vision_compare.py --baseline-worker /absolute/path/to/baseline-worker.py --candidate-worker deploy/vision-worker.py --output-dir /private/test/output --pairs 8",
@@ -766,5 +796,23 @@
     "https://github.com/tesseract-ocr/tesseract/blob/5.5.0/include/tesseract/capi.h",
     "https://github.com/tesseract-ocr/tesseract/blob/5.5.0/src/api/baseapi.cpp",
     "https://github.com/DanBloomberg/leptonica/blob/1.84.1/src/allheaders.h"
-  ]
+  ],
+  "published_runtime_commit": "7a9430eecc87fa67c0a7ca5f4521a038130fc89f",
+  "prior_ci_failure": {
+    "run": "34481625141",
+    "commit": "b30f675592d429b1b4f736c831b3df22ec6cbbb2",
+    "job": "102885565527",
+    "outcome": "failure",
+    "test": "test_supervisor_kills_descendants_after_leader_exit_and_timeout",
+    "reason": "ProcessLookupError ESRCH while reading /proc/PID/stat after child termination. Previous test handled ENOENT only.",
+    "sanitized_log_sha256": "fb03e2ca0d0792f2b092dc9e4e9f381e2b4dd433b96c105767282587bedf2cb9"
+  },
+  "process_test_correction": {
+    "runtime_unchanged": true,
+    "source_sha256": "39fd59283c0bc626a2704ba6eeecb13419e8318e30254dd2146708d695849d46",
+    "linux_passed": 11,
+    "linux_skipped": 0,
+    "log_sha256": "f155671a4359f305815202e326be7ca38458f7f6cda51a9b087600c2e03d76fa",
+    "behavior": "Treat ENOENT and ESRCH during the termination observation as disappeared. Other errors still fail; timeout and process-group assertions stay unchanged."
+  }
 }

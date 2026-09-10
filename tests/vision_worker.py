@@ -33,8 +33,27 @@ def fixture(directory):
         img.paste(code, (40, 150))
     path = directory / "synthetic.png"
     img.save(path)
-    img.save(directory / "synthetic.pdf", "PDF", resolution=150)
+    save_pdf_fixture(img, directory / "synthetic.pdf")
     return path, payload
+
+
+def save_pdf_fixture(image, path):
+    """Write only generated test material, with a standards-range free entry.
+
+    Pillow 11.1 emits generation 65536 for object zero. Correct that fixed-width
+    xref field to 65535, without changing object offsets, streams or page pixels.
+    This helper is never used to repair or accept an incoming user document.
+    """
+    image.save(path, "PDF", resolution=150)
+    raw = path.read_bytes()
+    offset = int(raw.rsplit(b"startxref\n", 1)[1].splitlines()[0])
+    header, section, entry = raw[offset:].splitlines()[:3]
+    assert header == b"xref" and section.startswith(b"0 ")
+    assert entry in (b"0000000000 65535 f ", b"0000000000 65536 f ")
+    start = offset + len(header) + len(section) + 2
+    if b"65536" in entry:
+        raw = raw[:start] + entry.replace(b"65536", b"65535") + raw[start+len(entry):]
+        path.write_bytes(raw)
 
 
 def request(path, kind="image", **limits):
@@ -106,7 +125,7 @@ class WorkerTest(unittest.TestCase):
         from PIL import Image
         color_pdf = self.root/"color.pdf"
         pattern = bytes((i*37)%256 for i in range(97*53*3))
-        Image.frombytes("RGB", (97,53), pattern).save(color_pdf, "PDF", resolution=150)
+        save_pdf_fixture(Image.frombytes("RGB", (97,53), pattern), color_pdf)
         for pdf in [self.root/"synthetic.pdf", color_pdf]:
             with self.subTest(pdf=pdf.name):
                 for extension, options in [("ppm", []), ("png", ["-png"])]:

@@ -238,7 +238,9 @@ class ProcessTests(unittest.TestCase):
                     while True:
                         try:
                             state = Path(f'/proc/{descendants[0]}/stat').read_text().rsplit(') ', 1)[1].split()[0]
-                        except FileNotFoundError:
+                        except (FileNotFoundError, ProcessLookupError):
+                            # Linux can return ESRCH from read() when the task
+                            # disappears after /proc/PID/stat was opened.
                             break
                         if state == 'Z':
                             break  # terminated; its new parent owns reaping

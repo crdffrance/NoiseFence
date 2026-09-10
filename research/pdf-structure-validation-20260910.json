@@ -1,0 +1,510 @@
+{
+  "schema": "noisefence-pdf-structure-validation-1",
+  "version": "0.5.0-dev.11",
+  "parent_runtime_commit": "7a9430eecc87fa67c0a7ca5f4521a038130fc89f",
+  "scope": "New JPEG/PDF structural checks, report-version binding and SMTP measurement profiles. Local synthetic correctness evidence; the corrected candidate has not yet passed Linux full-SMTP qualification.",
+  "sources_sha256": {
+    "src/content_inspection.rs": "9630b608bf7bebcdbc099243adb3ce9fb4efa0f958566ce2791e1026112cd713",
+    "research/train_fusion.py": "8fb807044bfc33ad7da47d8f7fb279c7034468524dc1cc76d7c61211786c0699",
+    "tests/content_inspection/cases.rs": "872a5eff2af05dcee0c5fb832c560d0da05a10df376edda9045ddb21385cbbbd",
+    "tests/local_fusion.rs": "1add59f483d3f379796502b7b179913ce14db14b3c5ed3e30bd47b14810b0d38",
+    "tests_python/test_fusion.py": "23aeb051ea4726868c52218b31b98e35a2701b90090999dc0cbc2352067bf4d1",
+    "tests/vision_worker.py": "03113d7ca4e7d44b41e77a6055879a4ade447267e01e057ccc38482b07f568b0",
+    "scripts/smtp_load.py": "fc7076e096d2e7b48d6d95eda8ee95f2bc03f7c571134d2c1b8d30f5332d0128",
+    "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+    "tests_python/test_smtp_load_vision.py": "44ab6becfb63ea49b507b1318012b4d7301c549f3e06a49244802314da33aa14",
+    "tests_python/test_vision_process.py": "39fd59283c0bc626a2704ba6eeecb13419e8318e30254dd2146708d695849d46"
+  },
+  "initial_linux_wiring": {
+    "core_commit": "1aeb3785470d61a304477bb4ac36aedaf39e05e6",
+    "worker_commit": "7a9430eecc87fa67c0a7ca5f4521a038130fc89f",
+    "probe_sources_sha256": {
+      "deploy/vision-worker.py": "cc649322f0b3d358a9b3bc35183c36ea03065e487e1a8295f20232d12a39554b",
+      "scripts/smtp_load.py": "fc7076e096d2e7b48d6d95eda8ee95f2bc03f7c571134d2c1b8d30f5332d0128",
+      "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+      "tests/vision_worker.py": "e17d020eaa5870d19b55360474aad3044707cacc66e4a2dce9d225c861da821a",
+      "driver.py": "a951363694cf7bd20106556d42e718c9adff94edda8f9d447e20d023bdf5c5f5",
+      "noisefence": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197"
+    },
+    "finished": false,
+    "cases": {
+      "image": {
+        "exit": 0,
+        "summary": {
+          "run_finished": true,
+          "schema": "noisefence-smtp-load-2",
+          "binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+          "version": "noisefence 0.5.0-dev.9",
+          "machine": {
+            "system": "Linux-6.12.100+deb13-cloud-amd64-x86_64-with-glibc2.41",
+            "cpu_count": 4
+          },
+          "messages": 4,
+          "concurrency": 2,
+          "message_bytes": 27634,
+          "processing": 1,
+          "processing_wait_ms": 3000,
+          "relay_workers": 8,
+          "retry_policy": "bounded exponential jitter, max 2 seconds",
+          "transport": "loopback plaintext both hops",
+          "durability": "unmodified SQLite FULL + spool fsync",
+          "exclusions": [
+            "DNS/authentication",
+            "DQS",
+            "LLM",
+            "Proton",
+            "TLS",
+            "traffic representativeness"
+          ],
+          "components": {
+            "semantic": false,
+            "semantic_parallel": 1,
+            "semantic_timeout_ms": 500,
+            "antivirus": false,
+            "signatures": false,
+            "vision": true,
+            "protection": false,
+            "html_fixture": false,
+            "mailing": false,
+            "heuristics": true,
+            "content_inspection": true,
+            "document_fixture": false
+          },
+          "require_complete": true,
+          "complete_definition": "stored scan.complete plus all requested research modules complete",
+          "cpu_environment": {
+            "RAYON_NUM_THREADS": "1",
+            "CANDLE_NUM_THREADS": null,
+            "TOKENIZERS_PARALLELISM": null,
+            "TOKIO_WORKER_THREADS": "2"
+          },
+          "lexical_model_sha256": null,
+          "semantic_combination_sha256": null,
+          "config_sha256": "60d2e79a169529e36cba806d1efd9809d5d51007e6454cb05ad36e4ec45a4422",
+          "research": {
+            "findings": {
+              "heuristics": {},
+              "content_inspection": {}
+            },
+            "heuristic_limits": {},
+            "analysis_ms": {
+              "p50": 1,
+              "p95": 1,
+              "max": 1
+            }
+          },
+          "correctness_passed": true,
+          "accepted": 4,
+          "delivered": 4,
+          "complete": 4,
+          "primary_complete": 4,
+          "incomplete": 0,
+          "statuses": {
+            "semantic": {
+              "disabled": 4
+            },
+            "antivirus": {
+              "disabled": 4
+            },
+            "signatures": {
+              "disabled": 4
+            },
+            "vision": {
+              "complete": 4
+            },
+            "llm": {
+              "disabled": 4
+            },
+            "research_execution": {
+              "complete": 4
+            },
+            "heuristics": {
+              "complete": 4
+            },
+            "content_inspection": {
+              "complete": 4
+            }
+          },
+          "missing": 0,
+          "extra": 0,
+          "duplicates": 0,
+          "changed_bodies": 0,
+          "retryable_responses": {},
+          "acceptance_ms": {
+            "p50": 1168.016,
+            "p95": 1302.863,
+            "max": 1302.863
+          },
+          "analysis_ms": {
+            "p50": 603,
+            "p95": 682,
+            "max": 682
+          },
+          "admission_seconds": 2.479,
+          "drained_seconds": 2.583,
+          "accepted_per_second": 1.614,
+          "delivered_per_second": 1.548,
+          "complete_per_second": 1.548,
+          "delivery_states": {
+            "delivered": 4
+          },
+          "integrity": "ok",
+          "requirements_met": true,
+          "peak_daemon_rss_bytes": 58503168,
+          "peak_daemon_threads": 5,
+          "peak_pending_deliveries": 0,
+          "daemon_cpu_seconds": 0.16,
+          "wall_seconds": 2.793,
+          "sink_errors": [],
+          "fixture_profile": "public-vision-worker-ocr-qr",
+          "vision_fixture": "image",
+          "message_bytes_range": [
+            27634,
+            27634
+          ],
+          "fixture_inputs_sha256": {
+            "image": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0"
+          },
+          "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+          "ocr_by_kind": {
+            "image": {
+              "messages": 4,
+              "complete": 4,
+              "verified": 4,
+              "ocr_elapsed_ms": {
+                "p50": 601,
+                "p95": 662,
+                "max": 662
+              }
+            },
+            "unknown": {
+              "messages": 0,
+              "complete": 0,
+              "verified": 0,
+              "ocr_elapsed_ms": {
+                "p50": null,
+                "p95": null,
+                "max": null
+              }
+            }
+          },
+          "probe_sources_sha256": {
+            "scripts/smtp_load.py": "fc7076e096d2e7b48d6d95eda8ee95f2bc03f7c571134d2c1b8d30f5332d0128",
+            "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+            "tests/vision_worker.py": "e17d020eaa5870d19b55360474aad3044707cacc66e4a2dce9d225c861da821a"
+          },
+          "ocr_verified_messages": 4,
+          "ocr_complete_messages": 4,
+          "ocr_requirements_met": true,
+          "ocr_elapsed_ms": {
+            "p50": 601,
+            "p95": 662,
+            "max": 662
+          },
+          "ocr_backend_sha256": [
+            "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+          ]
+        }
+      },
+      "pdf": {
+        "exit": 1,
+        "summary": {
+          "run_finished": true,
+          "schema": "noisefence-smtp-load-2",
+          "binary_sha256": "36fda92b026752bc41597dde2a3396ba61f79ad0c74c29d5c76fbcadb5933197",
+          "version": "noisefence 0.5.0-dev.9",
+          "machine": {
+            "system": "Linux-6.12.100+deb13-cloud-amd64-x86_64-with-glibc2.41",
+            "cpu_count": 4
+          },
+          "messages": 4,
+          "concurrency": 2,
+          "message_bytes": 59366,
+          "processing": 1,
+          "processing_wait_ms": 3000,
+          "relay_workers": 8,
+          "retry_policy": "bounded exponential jitter, max 2 seconds",
+          "transport": "loopback plaintext both hops",
+          "durability": "unmodified SQLite FULL + spool fsync",
+          "exclusions": [
+            "DNS/authentication",
+            "DQS",
+            "LLM",
+            "Proton",
+            "TLS",
+            "traffic representativeness"
+          ],
+          "components": {
+            "semantic": false,
+            "semantic_parallel": 1,
+            "semantic_timeout_ms": 500,
+            "antivirus": false,
+            "signatures": false,
+            "vision": true,
+            "protection": false,
+            "html_fixture": false,
+            "mailing": false,
+            "heuristics": true,
+            "content_inspection": true,
+            "document_fixture": false
+          },
+          "require_complete": true,
+          "complete_definition": "stored scan.complete plus all requested research modules complete",
+          "cpu_environment": {
+            "RAYON_NUM_THREADS": "1",
+            "CANDLE_NUM_THREADS": null,
+            "TOKENIZERS_PARALLELISM": null,
+            "TOKIO_WORKER_THREADS": "2"
+          },
+          "lexical_model_sha256": null,
+          "semantic_combination_sha256": null,
+          "config_sha256": "9d6edf0effbcfab8b2f19ab9ef2391d92efd0e47777710073fe976522a4a3cd2",
+          "research": {
+            "findings": {
+              "heuristics": {},
+              "content_inspection": {
+                "pdf_unsupported_filter": 4,
+                "pdf_malformed": 4
+              }
+            },
+            "heuristic_limits": {},
+            "analysis_ms": {
+              "p50": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "correctness_passed": true,
+          "accepted": 4,
+          "delivered": 4,
+          "complete": 0,
+          "primary_complete": 4,
+          "incomplete": 4,
+          "statuses": {
+            "semantic": {
+              "disabled": 4
+            },
+            "antivirus": {
+              "disabled": 4
+            },
+            "signatures": {
+              "disabled": 4
+            },
+            "vision": {
+              "complete": 4
+            },
+            "llm": {
+              "disabled": 4
+            },
+            "research_execution": {
+              "complete": 4
+            },
+            "heuristics": {
+              "complete": 4
+            },
+            "content_inspection": {
+              "incomplete": 4
+            }
+          },
+          "missing": 0,
+          "extra": 0,
+          "duplicates": 0,
+          "changed_bodies": 0,
+          "retryable_responses": {},
+          "acceptance_ms": {
+            "p50": 2006.425,
+            "p95": 2142.195,
+            "max": 2142.195
+          },
+          "analysis_ms": {
+            "p50": 1010,
+            "p95": 1100,
+            "max": 1100
+          },
+          "admission_seconds": 4.155,
+          "drained_seconds": 4.26,
+          "accepted_per_second": 0.963,
+          "delivered_per_second": 0.939,
+          "complete_per_second": 0.0,
+          "delivery_states": {
+            "delivered": 4
+          },
+          "integrity": "ok",
+          "requirements_met": false,
+          "peak_daemon_rss_bytes": 59363328,
+          "peak_daemon_threads": 6,
+          "peak_pending_deliveries": 1,
+          "daemon_cpu_seconds": 0.18,
+          "wall_seconds": 4.464,
+          "sink_errors": [],
+          "fixture_profile": "public-vision-worker-ocr-qr",
+          "vision_fixture": "pdf",
+          "message_bytes_range": [
+            59366,
+            59366
+          ],
+          "fixture_inputs_sha256": {
+            "pdf": "05d90b1ed27a35a3cd3f577719f33ec82f880f671fd92e95b04f70a6424577f6"
+          },
+          "ocr_by_kind": {
+            "pdf": {
+              "messages": 4,
+              "complete": 4,
+              "verified": 4,
+              "ocr_elapsed_ms": {
+                "p50": 1009,
+                "p95": 1081,
+                "max": 1081
+              }
+            },
+            "unknown": {
+              "messages": 0,
+              "complete": 0,
+              "verified": 0,
+              "ocr_elapsed_ms": {
+                "p50": null,
+                "p95": null,
+                "max": null
+              }
+            }
+          },
+          "probe_sources_sha256": {
+            "scripts/smtp_load.py": "fc7076e096d2e7b48d6d95eda8ee95f2bc03f7c571134d2c1b8d30f5332d0128",
+            "scripts/smtp_load_vision.py": "e1ade2db4c0ce07597cadc57d0ac4615b52fc57b5fe1b532df49586eb9df2d37",
+            "tests/vision_worker.py": "e17d020eaa5870d19b55360474aad3044707cacc66e4a2dce9d225c861da821a"
+          },
+          "ocr_verified_messages": 4,
+          "ocr_complete_messages": 4,
+          "ocr_requirements_met": true,
+          "ocr_elapsed_ms": {
+            "p50": 1009,
+            "p95": 1081,
+            "max": 1081
+          },
+          "ocr_backend_sha256": [
+            "30611c6740426b5987c4923dee1d442599b19a589e7667f91740cb1b421885b5"
+          ]
+        }
+      }
+    },
+    "explanation": "Image:4 complete/intact deliveries. PDF:4 intact deliveries and successful OCR but zero fully complete research analyses; pdf_unsupported_filter and pdf_malformed. Stopped before alternating profile. The synthetic Pillow xref entry had generation65536; native DCT image support was absent. This is a failure retained as evidence, not corrected-candidate throughput.",
+    "isolated_stage_removed": true,
+    "production_changes": false,
+    "models_or_external_checks": false
+  },
+  "implementation": {
+    "image_context": "Single DCT/DCTDecode in an Image XObject; direct dimensions/precision and DeviceGray/RGB/CMYK; null or supported ColorTransform parameters only.",
+    "inspection": "Bounded JPEG framing, exact stream extent and SOF/dictionary agreement. No coefficient or pixel decode. Other DCT contexts/parameters remain incomplete.",
+    "xref": "Generation above65535 remains malformed. Correction applies only to freshly generated test PDFs.",
+    "report_version": "noisefence-content-inspection-3",
+    "model_binding": "Native and Python reject revisions1and2 even with recomputed matching settings digests. No model promotion.",
+    "smtp_profiles": [
+      "image (default)",
+      "pdf",
+      "alternating, at least two messages"
+    ],
+    "attribution": "Original raw SHA256, independent of database ordering; unknown PDF/mixed attribution fails with retained diagnostics."
+  },
+  "validation": {
+    "rust": {
+      "passed": 470,
+      "ignored": 1,
+      "ignored_scope": "Live ClamAV unavailable locally",
+      "log_sha256": "982ecc076236e34891900583f3bb8f32deaad7a710aec476b31b2771f7e51d14",
+      "note": "Full semantic suite precedes a Clippy-only removal of an explicit unit expression. Final source passes Clippy and is rebuilt for the actual CLI probe."
+    },
+    "content_tests": {
+      "passed": 55,
+      "new_groups": 5
+    },
+    "python": {
+      "python": "3.12.14",
+      "openssl": "Homebrew OpenSSL3.6.4",
+      "pinned_dependencies": "research/requirements.txt",
+      "run": 77,
+      "passed": 73,
+      "skipped": 4,
+      "skip_scope": "Linux pidfd/proc-specific tests; test-only ESRCH fix separately passed11tests onLinux",
+      "log_sha256": "f688ac4a2f7ec35f5482652d51da2205ba66588a9ca773ae74707f09875f1e7b"
+    },
+    "initial_python_environment_failure": {
+      "run": 77,
+      "errors": 5,
+      "skipped": 9,
+      "reason": "Initial macOS systemPython3.9 lacks tomllib and its LibreSSL failed certificate verification commands; rerun with supportedPython/OpenSSL and pinned dependencies succeeded.",
+      "log_sha256": "f7c34dd0e6e3b8901bb51c3198d8b7a25fe51a83df4a24dd0271c7142539d987"
+    },
+    "clippy": {
+      "final": "passed --all-targets --features semantic -Dwarnings",
+      "initial": "unused_unit warning corrected without behavior change",
+      "log_sha256": "c91393d5b50727e646e3cd231782b0ff17854d32d446124597450d591f30a30a"
+    },
+    "actual_cli": {
+      "binary_sha256": "171ecdfaff7f997165141572506364cc50f598c29bc294bad1d7002fc8751003",
+      "source_sha256": "9630b608bf7bebcdbc099243adb3ce9fb4efa0f958566ce2791e1026112cd713",
+      "cases": {
+        "valid": {
+          "status": "complete",
+          "findings": [],
+          "version": "noisefence-content-inspection-3"
+        },
+        "wrong-generation": {
+          "status": "incomplete",
+          "findings": [
+            "pdf_malformed"
+          ],
+          "version": "noisefence-content-inspection-3"
+        },
+        "wrong-color-components": {
+          "status": "incomplete",
+          "findings": [
+            "pdf_malformed"
+          ],
+          "version": "noisefence-content-inspection-3"
+        }
+      },
+      "scope": "Final rebuilt local CLI on synthetic valid/malformed PDFs; no OCR, SMTP or external checks."
+    },
+    "actual_cli_initial_environment_failure": "Sandbox denied macOS System Configuration resolver initialization; same offline configuration succeeded with OS access. No message or DNS request was sent.",
+    "fixture_header": "Generated free entry65535 and unchanged startxref offset checked.",
+    "cli_preflight": "Alternating1message rejected before creating output or launching daemon."
+  },
+  "fuzz": {
+    "target": "research_detectors",
+    "runs": 99557,
+    "seconds": 61,
+    "peak_rss_mb": 96,
+    "new_units_added": 2454,
+    "initial_seed_files": 2913,
+    "added_pdf_jpeg_seeds": 6,
+    "seed": 11092026,
+    "artifacts": 0,
+    "exit": 0,
+    "coverage": "831755 inline8bit counters/PCs; not an achieved coverage percentage",
+    "address_sanitizer": false,
+    "limits": {
+      "max_len": 65536,
+      "timeout_s": 5,
+      "rss_limit_mb": 1024,
+      "malloc_limit_mb": 128
+    },
+    "log_sha256": "66503a4e456d200aef6925d5650541bb4f5ac43d855f2bb3b01340a20b4566c2",
+    "binary_sha256": "5ad04f6ea478b64da6498c9632ab1f6747918f39a07432042f1ce8477c836553",
+    "note": "Coverage-only local Clang instrumentation. Missing sanitizer crash/stack hooks are reported in the log. This is not a security certification or Linux fuzz campaign."
+  },
+  "ci": {
+    "candidate_status": "not_yet_published",
+    "parent_runtime_run": "34484307835",
+    "parent_runtime_conclusion": "success, all6jobs; not evidence for this candidate"
+  },
+  "outstanding": [
+    "Corrected release binary with real OCR and models onLinux: PDF/alternating SMTP completeness and longer capacity.",
+    "Recent independent calibration and capture/false-positive evaluation.",
+    "Real isolated CAPEv2/Office execution validation.",
+    "Proton delivery behavior for newly enabled actions."
+  ],
+  "sources": [
+    "https://opensource.adobe.com/dc-acrobat-sdk-docs/standards/pdfstandards/pdf/PDF32000_2008.pdf",
+    "https://github.com/python-pillow/Pillow/blob/11.1.0/src/PIL/PdfParser.py"
+  ]
+}

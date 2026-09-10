@@ -487,3 +487,21 @@ image synthétique l’initialisation et la reconnaissance via l’API C documen
 [Tesseract 5.5](https://github.com/tesseract-ocr/tesseract/blob/5.5.0/include/tesseract/capi.h).
 Exécuter ce profilage dans une unité de test avec les mêmes plafonds, jamais
 comme service de traitement des messages. Ses timings ne mesurent pas le worker.
+## Profils OCR image et PDF du candidat 0.5.0-dev.11
+
+Le banc `scripts/smtp_load_vision.py` accepte `--vision-fixture image` (défaut),
+`pdf` ou `alternating`. Ce dernier alterne un message image et un message PDF
+scanné et exige au moins deux messages. Les pièces restent synthétiques ; le
+texte OCR et le QR attendus sont contrôlés comme pour le profil image.
+
+`ocr_by_kind` sépare effectifs, complétude, vérification et latences par type.
+L’attribution utilise l’empreinte de l’original conservée par le moteur, pas
+l’ordre d’arrivée en base. Un PDF sans correspondance rend le test en échec.
+Les compteurs restent enregistrés si une autre analyse échoue ; employer
+`--require-complete` pour exiger toutes les analyses du profil.
+
+Le premier raccordement Linux a livré quatre images et quatre PDF : l’OCR était
+complet, mais les quatre inspections PDF étaient incomplètes. Le
+[relevé](../research/pdf-structure-validation-20260910.json) conserve cet échec,
+le correctif du générateur synthétique et les tests du contrôle JPEG/PDF.
+Il ne présente pas cet essai comme une capacité validée du candidat corrigé.

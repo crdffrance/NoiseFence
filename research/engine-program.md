@@ -287,5 +287,32 @@ l’isolation existante et évite la compression PNG du raster Poppler interméd
 Le [relevé](vision-pdf-validation-20260910.json) conserve la première expérience
 non retenue sur les images et la comparaison finale : 32 sorties OCR/QR complètes
 identiques, médiane PDF de 1 236 à 981 ms. La mesure n’inclut pas le SMTP et reste
-au-dessus de 500 ms. Les gates de corpus récent indépendant, de sandbox Office
-réelle et de qualification du traitement complet restent ouverts.
+au-dessus de 500 ms. Les validations de corpus récent indépendant, de sandbox Office
+réelle et de qualification du traitement complet restent ouvertes.
+
+La CI du commit documentaire précédent `b30f675` expose une course du test de
+nettoyage des descendants : Linux renvoie `ESRCH` quand le processus disparaît
+entre l’ouverture et la lecture de son fichier `/proc`. Le test reconnaît désormais
+cette disparition, comme `ENOENT`, sans masquer les autres erreurs ni changer
+les contrôles de groupe de processus et de délai. Les onze tests passent dans
+l’unité Linux isolée après correction ; le worker est identique à celui du
+comparatif PDF. Le relevé conserve l’échec initial et les vérifications séparées.
+## Candidat 0.5.0-dev.11 : inspection PDF et mesure SMTP
+
+La CI de dev.10 (`7a9430e`) a terminé ses six jobs avec succès, dont ARM64.
+Le raccordement du nouveau profil PDF au SMTP révèle ensuite deux causes de
+couverture incomplète : une génération xref hors plage dans la fixture produite
+par Pillow et l’absence de prise en charge structurelle des images JPEG intégrées.
+L’OCR réussi ne masque pas ces limites dans le relevé du banc.
+
+Le candidat suivant corrige la fixture et ajoute l’inspection des image-XObjects
+DCT : dimensions, précision, composantes, cadrage et fin de flux. Il conserve la
+distinction entre noms PDF actifs et données JPEG opaques. La révision 3 invalide
+les anciennes liaisons de modèle côté Rust et Python. Les profils SMTP image/PDF
+séparent les mesures par empreinte de message ; une analyse incomplète reste
+enregistrée et fait échouer un profil exigeant la complétude.
+
+Le [relevé logiciel](pdf-structure-validation-20260910.json) conserve le premier
+échec Linux, les tests Rust/Python et l’analyse locale du vrai moteur sur un PDF
+généré valide et deux variantes malformées. La qualification Linux/SMTP du nouveau
+binaire et les autres validations du programme restent à terminer.

@@ -5,6 +5,20 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.11 — Inspection des PDF contenant des images JPEG
+
+- Inspecter les images XObject à filtre DCT avec limites, contrôle du cadrage
+  JPEG et concordance des dimensions, composantes et précision. Conserver les
+  résultats incomplets pour les structures non prises en charge ou malformées.
+- Passer le rapport structurel à la révision 3 et refuser les anciennes liaisons
+  de modèle, même avec une empreinte recalculée ; les observations historiques
+  restent lisibles.
+- Ajouter les profils SMTP PDF et alternant images/PDF avec attribution par
+  empreinte d’original, résultats séparés et conservation des échecs d’analyse.
+  Corriger uniquement l’entrée xref hors plage du PDF généré par Pillow pour les
+  tests, sans changer les contrôles des documents reçus.
+- Corriger la course du test Linux de terminaison des descendants (`ESRCH`).
+
 ### 0.5.0-dev.10 — Rendu PDF pour l’OCR
 
 - Éviter la compression PNG intermédiaire du rendu PDF : conserver les mêmes

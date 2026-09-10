@@ -28,7 +28,7 @@ class FusionTests(unittest.TestCase):
     def binding(self):
         # Valid bounded settings; no detector is executed by Python fixtures.
         limits = {key: 1 for key, _ in self.f.STRUCTURE_LIMITS}
-        version = 'noisefence-content-inspection-2'
+        version = 'noisefence-content-inspection-3'
         digest = hashlib.sha256(json.dumps([version, limits], separators=(',', ':')).encode()).hexdigest()
         return {'version': 'noisefence-local-evidence-1',
                 'heuristics': {'version': 'heuristics-1', 'pattern_version': 'heuristics-fr-en-1',
@@ -249,13 +249,14 @@ class FusionTests(unittest.TestCase):
                 f.validate_local_binding(binding)
 
     def test_previous_structure_revision_is_rejected_even_with_matching_digest(self):
-        binding = self.binding()
-        structure = binding['structure']
-        structure['version'] = 'noisefence-content-inspection-1'
-        structure['settings_digest'] = hashlib.sha256(json.dumps(
-            [structure['version'], structure['limits']], separators=(',', ':')).encode()).hexdigest()
-        with self.assertRaises(ValueError):
-            self.f.validate_local_binding(binding)
+        for version in ('noisefence-content-inspection-1', 'noisefence-content-inspection-2'):
+            binding = self.binding()
+            structure = binding['structure']
+            structure['version'] = version
+            structure['settings_digest'] = hashlib.sha256(json.dumps(
+                [structure['version'], structure['limits']], separators=(',', ':')).encode()).hexdigest()
+            with self.assertRaises(ValueError):
+                self.f.validate_local_binding(binding)
 
     def test_v2_missing_binding_dimensions_and_incomplete_local_evidence_fail_closed(self):
         f = self.f

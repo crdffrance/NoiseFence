@@ -579,6 +579,144 @@ fn pdf_missing_eof_and_trailing_polyglot_are_incomplete() {
     let b = pdf(&[b"<< /Type /Catalog >>"]);
     incomplete(&scan("application/pdf", &b[..b.len() - 6]));
 }
+
+const JPEG_XOBJECT: &str =
+    "/Type /XObject /Subtype /Image /Width 2 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray";
+
+#[test]
+fn pdf_jpeg_xobjects_validate_framing_without_reading_payload_as_pdf_names() {
+    let comment = b"/JavaScript /JS /OpenAction (PRIVATE_JPEG_COMMENT)";
+    let mut image = vec![0xff, 0xd8, 0xff, 0xfe];
+    image.extend(((comment.len() + 2) as u16).to_be_bytes());
+    image.extend(comment);
+    image.extend(&jpeg()[2..]);
+    for filter in ["/DCTDecode", "[/DCTDecode]", "/DCT"] {
+        for params in [
+            "",
+            "/DecodeParms null",
+            "/DecodeParms << /ColorTransform 0 >>",
+            "/DecodeParms [<< /ColorTransform 1 >>]",
+        ] {
+            let object = stream(&format!("{JPEG_XOBJECT} /Filter {filter} {params}"), &image);
+            let r = scan("application/pdf", &pdf(&[b"<< /Type /Catalog >>", &object]));
+            assert_eq!(r.status, Status::Complete, "{filter} {params}: {r:#?}");
+            assert!(!has(&r, FindingId::PdfActiveName));
+            assert!(
+                !serde_json::to_string(&r)
+                    .unwrap()
+                    .contains("PRIVATE_JPEG_COMMENT")
+            );
+        }
+    }
+    let object = stream(&format!("{JPEG_XOBJECT} /Filter /DCTDecode"), &image);
+    let r = scan(
+        "application/pdf",
+        &pdf(&[&object, b"<< /S /Java#53cript /JS (ACTIVE) >>"]),
+    );
+    assert_eq!(r.status, Status::Complete, "{r:#?}");
+    assert!(has(&r, FindingId::PdfActiveName));
+}
+
+#[test]
+fn pdf_jpeg_cannot_hide_object_streams_or_unsupported_decoding() {
+    for dict in [
+        format!(
+            "{} /Filter /DCTDecode",
+            JPEG_XOBJECT.replace("/XObject", "/ObjStm")
+        ),
+        format!(
+            "{} /Filter /DCTDecode",
+            JPEG_XOBJECT.replace("/Image", "/Form")
+        ),
+        "/Filter /DCTDecode".into(),
+        format!("{JPEG_XOBJECT} /Filter [/ASCII85Decode /DCTDecode]"),
+        format!("{JPEG_XOBJECT} /Filter /DCTDecode /ImageMask true"),
+        format!("{JPEG_XOBJECT} /Filter /DCTDecode /DecodeParms (null)"),
+        format!("{JPEG_XOBJECT} /Filter /DCTDecode /DecodeParms << /ColorTransform 2 >>"),
+        format!("{JPEG_XOBJECT} /Filter /DCTDecode /DecodeParms << /Unknown 1 >>"),
+        format!(
+            "{} /Filter /DCTDecode",
+            JPEG_XOBJECT.replace("/DeviceGray", "[/ICCBased 9 0 R]")
+        ),
+        format!(
+            "{} /Filter /DCTDecode",
+            JPEG_XOBJECT.replace("/Width 2", "/Width 9 0 R")
+        ),
+    ] {
+        let object = stream(&dict, &jpeg());
+        let r = scan("application/pdf", &pdf(&[&object]));
+        incomplete(&r);
+        assert!(has(&r, FindingId::PdfUnsupportedFilter), "{dict}: {r:#?}");
+    }
+}
+
+#[test]
+fn pdf_jpeg_requires_exact_declared_dimensions_components_and_stream_extent() {
+    for dict in [
+        JPEG_XOBJECT.replace("/Width 2", "/Width 3"),
+        JPEG_XOBJECT.replace("/Height 1", "/Height 0"),
+        JPEG_XOBJECT.replace("/BitsPerComponent 8", "/BitsPerComponent 12"),
+        JPEG_XOBJECT.replace("/DeviceGray", "/DeviceRGB"),
+    ] {
+        let object = stream(&format!("{dict} /Filter /DCTDecode"), &jpeg());
+        let r = scan("application/pdf", &pdf(&[&object]));
+        incomplete(&r);
+        assert!(has(&r, FindingId::PdfMalformed));
+    }
+    let mut trailing = jpeg();
+    trailing.extend(b"\nendstream\nendobj\n/JS (HIDDEN)");
+    for data in [
+        jpeg()[..jpeg().len() - 2].to_vec(),
+        trailing,
+        b"not jpeg".to_vec(),
+    ] {
+        let object = stream(&format!("{JPEG_XOBJECT} /Filter /DCTDecode"), &data);
+        let r = scan("application/pdf", &pdf(&[&object]));
+        incomplete(&r);
+        assert!(has(&r, FindingId::PdfMalformed));
+    }
+}
+
+#[test]
+fn pdf_jpeg_preserves_pdf_metadata_scope_and_shared_structure_budget() {
+    let object = stream(
+        &format!("{JPEG_XOBJECT} /Filter /DCTDecode /ImageMask false"),
+        &jpeg(),
+    );
+    let raw = message("application/pdf", &pdf(&[&object]));
+    let r = analyze(
+        &raw,
+        &Settings {
+            max_image_pixels: 1,
+            ..Settings::default()
+        },
+    );
+    assert_eq!(r.status, Status::Complete, "{r:#?}");
+    assert!(has(&r, FindingId::ImageDimensions));
+    assert_eq!((r.stats.images, r.stats.pdfs), (0, 1));
+    assert!(r.parts[0].width.is_none() && r.parts[0].height.is_none());
+    assert_eq!(r.stats.unpacked_bytes, 0);
+    let r = analyze(
+        &raw,
+        &Settings {
+            max_structure_nodes: 12,
+            ..Settings::default()
+        },
+    );
+    incomplete(&r);
+    assert!(has(&r, FindingId::StructureLimit));
+    assert!(r.stats.structure_nodes <= 12);
+}
+
+#[test]
+fn pdf_generation_above_65535_remains_malformed() {
+    let mut data = pdf(&[b"<< /Type /Catalog >>"]);
+    let offset = data.windows(7).position(|v| v == b"65535 f").unwrap();
+    data[offset..offset + 5].copy_from_slice(b"65536");
+    let r = scan("application/pdf", &data);
+    incomplete(&r);
+    assert!(has(&r, FindingId::PdfMalformed));
+}
 #[test]
 fn office_zip_checks_deflate_and_xml_entities() {
     let types = b"<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'><Override PartName='/word/document.xml' ContentType='application/vnd.ms-word.document.macro&#69;nabled.main+xml'/></Types>";

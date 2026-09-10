@@ -437,7 +437,7 @@ async def run(args):
         raise SystemExit(1)
 
 
-def main():
+def main(extend_parser=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True, help='New private directory; never an existing spool')
@@ -457,6 +457,8 @@ def main():
     parser.add_argument('--require-complete', action='store_true', help='Fail if any requested analysis is absent, limited or unavailable')
     parser.add_argument('--semantic-parallel', type=int, default=1)
     parser.add_argument('--semantic-timeout-ms', type=int, default=500)
+    if extend_parser is not None:
+        extend_parser(parser)
     args = parser.parse_args()
     if not (1 <= args.messages <= 5000 and 1 <= args.concurrency <= 128 and 512 <= args.message_bytes <= 1048576
             and 1 <= args.relay_workers <= 64 and (args.processing is None or 1 <= args.processing <= 64)):

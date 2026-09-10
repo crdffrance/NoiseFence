@@ -203,23 +203,28 @@ fn catalogue_and_digests_bind_exact_configuration_without_serializing_patterns()
 
 #[test]
 fn previous_structure_revision_cannot_be_reused_with_current_fusion() {
-    let (c, mut scan, _) = fixture();
-    let current = Binding::from_config(&c).unwrap();
-    let mut old = current.clone();
-    let structure = old.structure.as_mut().unwrap();
-    structure.version = "noisefence-content-inspection-1".into();
-    structure.settings_digest = noisefence::message::digest(
-        &serde_json::to_vec(&(&structure.version, &structure.limits)).unwrap(),
-    );
-    scan.content_inspection.as_mut().unwrap().version = structure.version.clone();
-    assert_ne!(old, current);
-    assert!(old.validate().is_err());
-    // Historical reports remain readable, but are not current detector output.
-    let decoded: noisefence::engine::Scan =
-        serde_json::from_slice(&serde_json::to_vec(&scan).unwrap()).unwrap();
-    let captured = LocalEvidence::capture(&current, &decoded);
-    assert_eq!(captured.structure.state, State::Invalid);
-    assert!(!captured.tag_eligible());
+    for version in [
+        "noisefence-content-inspection-1",
+        "noisefence-content-inspection-2",
+    ] {
+        let (c, mut scan, _) = fixture();
+        let current = Binding::from_config(&c).unwrap();
+        let mut old = current.clone();
+        let structure = old.structure.as_mut().unwrap();
+        structure.version = version.into();
+        structure.settings_digest = noisefence::message::digest(
+            &serde_json::to_vec(&(&structure.version, &structure.limits)).unwrap(),
+        );
+        scan.content_inspection.as_mut().unwrap().version = structure.version.clone();
+        assert_ne!(old, current);
+        assert!(old.validate().is_err());
+        // Historical reports remain readable, but are not current detector output.
+        let decoded: noisefence::engine::Scan =
+            serde_json::from_slice(&serde_json::to_vec(&scan).unwrap()).unwrap();
+        let captured = LocalEvidence::capture(&current, &decoded);
+        assert_eq!(captured.structure.state, State::Invalid);
+        assert!(!captured.tag_eligible());
+    }
 }
 
 #[test]
