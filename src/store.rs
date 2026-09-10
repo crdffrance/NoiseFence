@@ -119,6 +119,9 @@ impl Store {
         }
         let migration = db.transaction()?;
         migration.execute_batch(include_str!("control-schema.sql"))?;
+        crate::sender_history::install(&migration)?;
+        crate::sandbox_pipeline::install(&migration)?;
+        migration.execute_batch(crate::challenge::SCHEMA_SQL)?;
         migration.execute_batch("PRAGMA user_version=2")?;
         migration.commit()?;
         Ok(Self {
@@ -244,6 +247,14 @@ impl Store {
         scan: Scan,
         raw: Vec<u8>,
     ) -> Result<()> {
+        let mut sandbox_plan = scan.sandbox_pipeline_plan.clone();
+        if let Some(plan) = &mut sandbox_plan {
+            plan.bind_queued(&raw)?;
+        }
+        let mut challenge_identity = scan.challenge_identity.clone();
+        if let Some(proof) = &mut challenge_identity {
+            proof.bind_queued(&raw);
+        }
         let action = scan
             .action
             .as_ref()
@@ -289,6 +300,18 @@ impl Store {
             for r in recipients {
                 tx.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt,status) VALUES(?1,?2,?3,?4,?5,?6)",params![id,r.address,r.destination,serde_json::to_string(&r.hosts)?,now(),status])?;
                 tx.execute("INSERT INTO delivery_policy(delivery_id,action,held_until) VALUES(?1,?2,?3)",params![tx.last_insert_rowid(),name,(action == crate::actions::Action::Quarantine).then(||now()+i64::from(held_days)*86400)])?;
+            }
+            if let Some(receipt) = &scan.sender_history_receipt {
+                crate::sender_history::record_prepared(&tx, &id, &scan, receipt)?;
+            }
+            if let Some(projection) = &scan.sender_history_projection {
+                crate::sender_history::record_projection(&tx, &id, &scan, projection)?;
+            }
+            if let Some(proof) = &challenge_identity {
+                proof.record(&tx, &id, &scan)?;
+            }
+            if let Some(plan) = &sandbox_plan {
+                crate::sandbox_pipeline::record(&tx, &id, &scan, plan)?;
             }
             tx.commit()?;Ok(())
         }).await;
@@ -391,19 +414,23 @@ impl Store {
     pub async fn cleanup(&self) -> Result<()> {
         self.run(|db| {
             let tx = db.transaction()?;
+            crate::sandbox_pipeline::prune_primary(&tx, now())?;
             tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire',CAST(d.id AS TEXT) FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1",[now()])?;
             tx.execute("UPDATE deliveries SET status='expired' WHERE status='quarantined' AND id IN (SELECT delivery_id FROM delivery_policy WHERE held_until<=?1)",[now()])?;
             tx.commit()?; Ok(())
         }).await?;
-        let ids=self.run(|db| { let mut q=db.prepare("SELECT id FROM messages m WHERE raw_present=1 AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND d.status IN ('pending','sending','failed','quarantined'))")?;Ok(q.query_map([],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?) }).await?;
+        let ids=self.run(|db| { let sql = format!("SELECT id FROM messages m WHERE raw_present=1 AND NOT {} AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND d.status IN ('pending','sending','failed','quarantined'))", crate::sandbox_pipeline::NEEDS_RAW_SQL); let mut q=db.prepare(&sql)?;Ok(q.query_map([],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?) }).await?;
         for id in ids {
             // Commit tombstone first; a crash leaves an orphan file, removed by recovery.
             let key = id.clone();
-            self.run(move |db| {
-                db.execute("UPDATE messages SET raw_present=0 WHERE id=?1", [key])?;
-                Ok(())
+            let removed = self.run(move |db| {
+                let sql = format!("UPDATE messages AS m SET raw_present=0 WHERE id=?1 AND raw_present=1 AND NOT {} AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND d.status IN ('pending','sending','failed','quarantined'))", crate::sandbox_pipeline::NEEDS_RAW_SQL);
+                Ok(db.execute(&sql, [key])? == 1)
             })
             .await?;
+            if !removed {
+                continue;
+            }
             match fs::remove_file(self.raw_path(&id)) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -411,6 +438,9 @@ impl Store {
             }
         }
         self.run(|db| {
+            crate::smtp_admission::Admission::new(Default::default())?.prune(db, now())?;
+            crate::sender_history::prune(db)?;
+            crate::challenge::prune(db, now())?;
             db.execute("DELETE FROM sessions WHERE expires<?1", [now()])?;
             db.execute(
                 "DELETE FROM messages WHERE created<?1 AND raw_present=0",

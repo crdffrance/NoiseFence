@@ -228,6 +228,14 @@ impl Artifacts {
             "authentication":config.filter.authentication,
             "confirmation": (crate::confirmation::VERSION, config.filter.require_corroboration),
             "decision_policy": crate::decision::VERSION,
+            "research_engines":crate::research_engines::VERSION,
+            "heuristics":config.heuristics.as_ref().map(|settings|
+                crate::message::digest(serde_json::to_string(settings).unwrap().as_bytes())),
+            "content_inspection":config.content_inspection,
+            "sandbox_pipeline":config.sandbox_pipeline,
+            "sandbox_policy":config.sandbox.as_ref().map(|s|s.policy_sha256()),
+            "sender_history":config.sender_history.as_ref().map(|settings|
+                crate::message::digest(serde_json::to_string(settings).unwrap().as_bytes())),
             "reputation_enabled":config.filter.spamhaus_key_env.is_some(), "reputation":REPUTATION_VERSION,
             "antivirus":av(&config.antivirus),"signatures":av(&config.signatures),
             "vision":config.vision.as_ref().map(|c| serde_json::json!({

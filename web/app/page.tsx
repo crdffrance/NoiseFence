@@ -10,6 +10,7 @@ import {
   type MessageDiagnostics,
 } from './diagnostics-formatters';
 import { RuleDetails } from './rule-details';
+import ChallengeActions from './challenge-actions';
 import {
   MailingDetails,
   type MailingReport,
@@ -167,6 +168,7 @@ type Mail = {
   };
 };
 type Stats = {
+  challenge_enabled?: boolean;
   received: number;
   flagged: number;
   publicity: number;
@@ -1085,6 +1087,15 @@ export default function Home() {
                                 Supprimer
                               </Button>
                             </div>
+                            {stats?.challenge_enabled && (
+                              <ChallengeActions
+                                key={`${selected.id}:${r.address}:${user.csrf}`}
+                                messageId={selected.id}
+                                recipient={r.address}
+                                csrf={user.csrf}
+                                disabled={busy}
+                              />
+                            )}
                           </>
                         )}
                       </div>

@@ -5,6 +5,23 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.1 — Moteurs complémentaires
+
+- Ajouter des heuristiques FR/EN compilées, l’inspection bornée HTML/PDF/images/Office
+  et leurs diagnostics versionnés, sans contribution automatique des observations.
+- Ajouter l’historique de confiance authentifiée par destinataire, les corrections
+  humaines, l’expiration et la révocation ; aucun contournement des contrôles malware.
+- Ajouter le greylisting durable et la temporisation bornée, avec domination du mode
+  global Observation et capacité partagée entre les révisions de configuration.
+- Ajouter une vérification ciblée des expéditeurs pour la quarantaine et un connecteur
+  CAPEv2 facultatif avec file durable, récupération après interruption et conservation
+  bornée. Les résultats dynamiques ne libèrent jamais automatiquement les messages.
+- Afficher les observations, limitations et résultats différés dans la console sous
+  contrôle des droits ; conserver les preuves privées hors des diagnostics publics.
+- Fournir l’export local de développement et une cible de fuzzing des nouveaux
+  décodeurs. Documenter les mesures historiques et l’absence de validation d’une VM
+  réelle ou d’amélioration démontrée du taux de capture.
+
 ## [0.4.2] - 2026-09-10
 
 - Masquer les adresses pouvant être réaffichées dans les réponses SMTP distantes,

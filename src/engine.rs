@@ -59,6 +59,18 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    /// Opaque proof from the live SMTP verification. Never deserialize it from
+    /// stored scans or message headers, nor expose it in console diagnostics.
+    #[serde(skip)]
+    pub challenge_identity: Option<crate::challenge::VerifiedSmtpFrom>,
+    #[serde(skip)]
+    pub sender_history_receipt: Option<crate::sender_history::Receipt>,
+    #[serde(skip)]
+    pub sender_history_projection: Option<crate::sender_history::Projection>,
+    #[serde(skip)]
+    pub sandbox_pipeline_plan: Option<crate::sandbox_pipeline::Plan>,
+    #[serde(default)]
+    pub sandbox_pipeline: Option<crate::sandbox_pipeline::Report>,
     /// Exact decision settings at analysis time; absent on historical messages.
     #[serde(default)]
     pub analysis_policy: Option<crate::diagnostics::AnalysisPolicy>,
@@ -102,6 +114,12 @@ pub struct Scan {
     pub vision: crate::vision::Summary,
     #[serde(default)]
     pub protection: Option<crate::protection::Report>,
+    #[serde(default)]
+    pub heuristics: Option<crate::heuristics::Report>,
+    #[serde(default)]
+    pub content_inspection: Option<crate::content_inspection::Report>,
+    #[serde(default)]
+    pub research_execution: Option<crate::research_engines::Execution>,
     #[serde(default)]
     pub mailing: Option<crate::mailing::Report>,
     /// Absent on historical rows: never infer checks from their missing reasons.
@@ -492,6 +510,10 @@ pub struct Engine {
     llm: Option<Arc<crate::llm::Client>>,
     vision: Option<Arc<crate::vision::Client>>,
     protection: Option<Arc<crate::protection::Runtime>>,
+    research_engines: Option<Arc<crate::research_engines::Runtime>>,
+    pub(crate) smtp_admission: Option<Arc<crate::smtp_admission::Admission>>,
+    pub(crate) admission_checks: Arc<tokio::sync::Semaphore>,
+    sender_history: Option<Arc<crate::sender_history::History>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
@@ -619,6 +641,44 @@ impl Engine {
                 None => crate::vision::Client::new(settings).map(Arc::new),
             })
             .transpose()?;
+        let research_engines = if config.heuristics.is_some()
+            || config.content_inspection.is_some()
+            || config.sandbox_pipeline.is_some()
+        {
+            match template.and_then(|t| t.research_engines.clone()) {
+                Some(runtime) => Some(runtime),
+                None => Some(Arc::new(crate::research_engines::Runtime::new(&config)?)),
+            }
+        } else {
+            None
+        };
+        let smtp_admission = config
+            .smtp_admission
+            .as_ref()
+            .map(|settings| {
+                let mut settings = settings.clone();
+                if config.filter.mode == crate::config::Mode::Observe {
+                    settings.mode = crate::smtp_admission::Mode::Observe;
+                }
+                match template.and_then(|t| t.smtp_admission.clone()) {
+                    Some(runtime) => Ok(Arc::new(runtime.with_mode(settings.mode))),
+                    None => crate::smtp_admission::Admission::new(settings).map(Arc::new),
+                }
+            })
+            .transpose()?;
+        let admission_checks = template
+            .map(|t| t.admission_checks.clone())
+            .unwrap_or_else(|| Arc::new(tokio::sync::Semaphore::new(4)));
+        let sender_history = config.sender_history.as_ref().map(|settings| {
+            template
+                .and_then(|t| t.sender_history.clone())
+                .unwrap_or_else(|| {
+                    Arc::new(crate::sender_history::History::new(
+                        &config.data_dir,
+                        settings.clone(),
+                    ))
+                })
+        });
         #[cfg(feature = "semantic")]
         let semantic_hash = semantic.as_ref().map(|s| s.sha256().to_owned());
         #[cfg(not(feature = "semantic"))]
@@ -643,12 +703,19 @@ impl Engine {
             llm,
             vision,
             protection,
+            research_engines,
+            smtp_admission,
+            admission_checks,
+            sender_history,
             #[cfg(feature = "semantic")]
             semantic,
         })
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
         let mut scan = self.extract(raw);
+        if let Some(runtime) = &self.research_engines {
+            runtime.offline(raw).apply(&mut scan);
+        }
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
                 raw,
@@ -975,15 +1042,34 @@ impl Engine {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.process_with_source(
-            raw,
-            ip,
-            helo,
-            sender,
-            id,
-            (crate::evidence::Source::SmtpSession, &scopes),
-        )
-        .await
+        let (mut scan, bytes) = self
+            .process_with_source(
+                raw,
+                ip,
+                helo,
+                sender,
+                id,
+                (crate::evidence::Source::SmtpSession, &scopes),
+            )
+            .await?;
+        if let Some(history) = &self.sender_history {
+            let started = Instant::now();
+            scan.sender_history_projection = Some(history.inspect(raw, &scan, recipients).await);
+            scan.sender_history_receipt = crate::sender_history::prepare_receipt(raw, &scan);
+            scan.elapsed_ms = scan
+                .elapsed_ms
+                .saturating_add(started.elapsed().as_millis() as u64);
+        }
+        if let Some(runtime) = &self.research_engines {
+            let started = Instant::now();
+            let (report, plan) = runtime.prepare_sandbox(raw, &scan).await?;
+            scan.sandbox_pipeline = report;
+            scan.sandbox_pipeline_plan = plan;
+            scan.elapsed_ms = scan
+                .elapsed_ms
+                .saturating_add(started.elapsed().as_millis() as u64);
+        }
+        Ok((scan, bytes))
     }
     async fn process_with_source(
         &self,
@@ -996,6 +1082,9 @@ impl Engine {
     ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        if let Some(runtime) = &self.research_engines {
+            runtime.inspect(raw).await.apply(&mut scan);
+        }
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
                 raw,
@@ -1231,6 +1320,13 @@ impl Engine {
                         .authenticator
                         .verify_dmarc(DmarcParameters::new(&authenticated, &dkim, domain, &spf))
                         .await;
+                    if context.0 == crate::evidence::Source::SmtpSession
+                        && self.config.challenge.as_ref().is_some_and(|p| p.enabled)
+                        && !sender.is_empty()
+                    {
+                        scan.challenge_identity =
+                            crate::challenge::VerifiedSmtpFrom::from_dmarc(raw, &dmarc);
+                    }
                     {
                         let auth = &mut scan.evidence.as_mut().unwrap().authentication;
                         auth.dmarc_spf = Some(dmarc.spf_result().into());

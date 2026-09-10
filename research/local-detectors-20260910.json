@@ -1,0 +1,171 @@
+{
+  "schema": "noisefence-local-detectors-development-1",
+  "date": "2026-09-10",
+  "application": "0.5.0-dev.1",
+  "purpose": "Historical development observations and local cost; not classifier quality evaluation",
+  "machine": {
+    "os": "Darwin",
+    "architecture": "arm64",
+    "reference_4vcpu_8gb": false,
+    "background_load_controlled": false
+  },
+  "manifest_sha256": "d6e3bb8dd66edd5b0183231e3cc2a1755ac6801c04ea5abd2d51941190639920",
+  "sources_sha256": {
+    "src/heuristics.rs": "e6fdde03f694ced8a748dc682b6c9bb93a0c15505733beb9e85209bd033af986",
+    "src/content_inspection.rs": "166f37699604149ba837b178b608a34e7a11a195e47d5f71424eb55b99fa3598",
+    "src/research_engines.rs": "edc473bbb7c308ece701ccac637a7b0f0ce3ac009256aee9b61a6e54ae387f5d",
+    "Cargo.lock": "9d280f77e2d8b13ade25893a814b37b3d50814d61babc34922ef9cdfb044fb7c"
+  },
+  "settings": {
+    "application": "0.5.0-dev.1",
+    "contains_bodies": false,
+    "content_settings": {
+      "max_archive_entries": 256,
+      "max_compression_ratio": 100,
+      "max_findings": 128,
+      "max_header_bytes": 32768,
+      "max_html_bytes": 262144,
+      "max_image_pixels": 16000000,
+      "max_images": 20,
+      "max_mime_depth": 8,
+      "max_nesting": 32,
+      "max_part_bytes": 4194304,
+      "max_parts": 64,
+      "max_raw_bytes": 2097152,
+      "max_structure_nodes": 50000,
+      "max_total_decoded_bytes": 8388608,
+      "max_total_unpacked_bytes": 8388608,
+      "max_unpacked_bytes": 4194304
+    },
+    "external_test_opened": false,
+    "heuristics_sha256": "6045d143e2d6b526b00cd43995a7698d81e2f2aafc16b6b93ea99be6503c9044",
+    "purpose": "development_observations",
+    "schema": "noisefence-detectors-1",
+    "type": "header"
+  },
+  "classifications_changed": false,
+  "independent_quality_evaluation": false,
+  "limitations": [
+    "The public Apache corpus is old and used only for development.",
+    "Findings are advisory and are not spam predictions; hit rates are not recall or false-positive rate.",
+    "No sender history, greylisting, external lookup, sandbox, model, queue, relay or base feature extraction is timed.",
+    "No held-out recent evaluation dataset was opened.",
+    "Repeated parser warnings in the first exploratory run; RUST_LOG=error on the normalized development run."
+  ],
+  "archive_fast_path": {
+    "run": {
+      "considered": 6046,
+      "exact_duplicates": 0,
+      "exported": 6046,
+      "independent_quality_evaluation": false,
+      "oversize": 0,
+      "p95_us": 76,
+      "reserved_test_excluded": 0,
+      "scope": "local optional detectors; excludes base extraction, DNS, history, sandbox, queue and model loading"
+    },
+    "by_historical_label": {
+      "ham": {
+        "messages": 4150,
+        "heuristic_observation_messages": 1,
+        "heuristic_statuses": {
+          "invalid_message": 3813,
+          "complete": 335,
+          "limited": 2
+        },
+        "content_statuses": {
+          "incomplete": 3919,
+          "complete": 231
+        },
+        "content_observation_messages": 3920,
+        "rules": {
+          "en.prize": 1
+        }
+      },
+      "spam": {
+        "messages": 1896,
+        "heuristic_observation_messages": 0,
+        "heuristic_statuses": {
+          "invalid_message": 1640,
+          "complete": 249,
+          "limited": 7
+        },
+        "content_statuses": {
+          "incomplete": 1775,
+          "complete": 121
+        },
+        "content_observation_messages": 1776,
+        "rules": {}
+      }
+    },
+    "detector_latency_us": {
+      "p50": 1,
+      "p95": 78,
+      "p99": 1018,
+      "max": 2119
+    },
+    "observations_sha256": "0402d49ee50195a00a16b867362cdfb0490bb5a06b5a169fc9be06f2e5113119",
+    "description": "Unstripped historical mbox From_ separators: mostly invalid MIME; not representative analysis latency"
+  },
+  "run": {
+    "considered": 6046,
+    "exact_duplicates": 0,
+    "exported": 6046,
+    "independent_quality_evaluation": false,
+    "oversize": 0,
+    "p95_us": 377,
+    "reserved_test_excluded": 0,
+    "scope": "local optional detectors; excludes base extraction, DNS, history, sandbox, queue and model loading"
+  },
+  "observations_sha256": "6964ccda967584d566b1e2efe563558c6e52ad465c956570fc39a490ea637d95",
+  "normalization": {
+    "mbox_from_envelopes_removed": 5453,
+    "crlf_canonicalization": true,
+    "smtp_code_changed": false,
+    "development_copies_only": true
+  },
+  "detector_latency_us": {
+    "p50": 39,
+    "p95": 377,
+    "p99": 1037,
+    "max": 3376
+  },
+  "by_historical_label": {
+    "ham": {
+      "messages": 4150,
+      "heuristic_observation_messages": 4,
+      "heuristic_statuses": {
+        "complete": 4141,
+        "limited": 8,
+        "invalid_message": 1
+      },
+      "content_statuses": {
+        "complete": 3879,
+        "incomplete": 271
+      },
+      "content_observation_messages": 272,
+      "rules": {
+        "en.prize": 1,
+        "identity.security_desk": 3
+      }
+    },
+    "spam": {
+      "messages": 1896,
+      "heuristic_observation_messages": 10,
+      "heuristic_statuses": {
+        "complete": 1827,
+        "limited": 61,
+        "invalid_message": 8
+      },
+      "content_statuses": {
+        "incomplete": 912,
+        "complete": 984
+      },
+      "content_observation_messages": 937,
+      "rules": {
+        "en.guaranteed_returns": 5,
+        "en.payment_change": 1,
+        "en.prize": 4
+      }
+    }
+  }
+}

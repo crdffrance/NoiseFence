@@ -41,6 +41,17 @@ export type SmtpLog = {
   events: SmtpEvent[];
 };
 export type DiagnosticRecipient = {
+  sender_history?: {
+    version: string;
+    status: string;
+    mode: string;
+    distinct_campaigns: number;
+    distinct_days: number;
+    learned_candidate: boolean;
+    manual_match: string;
+    contradicted: boolean;
+    candidate_credit: boolean;
+  } | null;
   delivery_id: number;
   address: string;
   destination: string;
@@ -56,6 +67,53 @@ export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
+    sandbox_pipeline?: {
+      version: string;
+      status: string;
+      disposition: string;
+      selected: number;
+      skipped: number;
+      details: string[];
+    } | null;
+    research_execution?: {
+      version: string;
+      status: string;
+      elapsed_ms: number;
+    } | null;
+    heuristics?: {
+      version: string;
+      pattern_version: string;
+      settings_digest: string;
+      mode: string;
+      status: string;
+      candidate_weight: number;
+      contribution: number;
+      limits_hit: string[];
+      findings: {
+        id: string;
+        label: string;
+        family: string;
+        scopes: string[];
+        matches: number;
+        candidate_weight: number;
+      }[];
+    } | null;
+    content_inspection?: {
+      version: string;
+      status: string;
+      advisory: boolean;
+      truncated: boolean;
+      stats: { images: number; pdfs: number; office_documents: number };
+      parts: {
+        index: number;
+        kind: string;
+        bytes: number;
+        width: number | null;
+        height: number | null;
+        complete: boolean;
+      }[];
+      findings: { id: string; part: number | null }[];
+    } | null;
     elapsed_ms: number;
     feature_version: number;
     features_complete: boolean | null;
@@ -70,6 +128,20 @@ export type MessageDiagnostics = {
     } | null;
   };
   recipients: DiagnosticRecipient[];
+  sandbox_results?: {
+    part: number;
+    state: string;
+    detail: string | null;
+    result: {
+      status: string;
+      outcome: string;
+      detail: string | null;
+      findings: { id: string; severity: number; confidence: number }[];
+      findings_truncated: boolean;
+      engine_version: string | null;
+      isolation_verified: boolean;
+    } | null;
+  }[];
 };
 export type DiagnosticReason = { id: string; detail: string; weight: number };
 

@@ -139,6 +139,11 @@ Les utilisateurs corrigent leurs propres messages. Les retours contradictoires e
 Le [guide des diagnostics SMTP et des filtres](docs/smtp-diagnostics.md) explique
 les réponses du serveur distant, les réessais et les contributions enregistrées.
 
+Les [moteurs complémentaires en recherche](docs/research-engines.md) ajoutent des
+heuristiques configurables, l’inspection structurelle des documents, un historique
+de confiance par destinataire et des mécanismes optionnels d’admission et d’analyse
+dynamique. Leur activation et leurs limites sont documentées séparément.
+
 Les [observations de chaque contrôle](docs/decision-evidence.md) distinguent les
 résultats, erreurs et contrôles non exécutés, conservent les catégories de
 réputation et identifient les modèles chargés. La [fusion native facultative](research/fusion.md) combine ces observations et

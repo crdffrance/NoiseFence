@@ -65,6 +65,9 @@ pub struct LearningExample {
     /// consumers must require a supported schema and an observed SMTP session.
     pub evidence: Option<crate::evidence::Evidence>,
     pub protection: Option<crate::protection::Report>,
+    pub heuristics: Option<crate::heuristics::Report>,
+    pub content_inspection: Option<crate::content_inspection::Report>,
+    pub research_execution: Option<crate::research_engines::Execution>,
     pub mailing: Option<crate::mailing::Report>,
 }
 #[derive(Default, Debug, Serialize)]
@@ -247,6 +250,9 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                         semantic,
                         evidence,
                         protection: scan.protection,
+                        heuristics: scan.heuristics,
+                        content_inspection: scan.content_inspection,
+                        research_execution: scan.research_execution,
                         mailing: scan.mailing,
                     };
                     serde_json::to_writer(&mut writer, &example)?;

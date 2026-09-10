@@ -34,6 +34,7 @@ pub struct App {
     control: Option<Arc<crate::control::Controller>>,
     limiter: Arc<Mutex<HashMap<String, (i64, u32)>>>,
     hashing: Arc<tokio::sync::Semaphore>,
+    challenge_capacity: Arc<tokio::sync::Semaphore>,
     dummy_hash: Arc<String>,
 }
 #[derive(Debug)]
@@ -366,6 +367,146 @@ async fn quarantine(
         crate::quarantine::Change::Conflict => Err(Error(StatusCode::CONFLICT, "Ce destinataire n’est plus en quarantaine ou sa conservation a expiré. Rechargez les messages.".into())),
     }
 }
+
+async fn request_challenge(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<crate::challenge::Request>,
+) -> ApiResult<Json<crate::challenge::Receipt>> {
+    origin(&app, &h)?;
+    let user = authenticated(&app, &h).await?;
+    csrf(&user, &h)?;
+    let unavailable = || {
+        Error(StatusCode::CONFLICT,
+        "Confirmation indisponible pour ce destinataire : vérifiez la quarantaine, l’authentification et les limites d’envoi.".into())
+    };
+    let _permit = app
+        .challenge_capacity
+        .try_acquire()
+        .map_err(|_| unavailable())?;
+    let config = app.effective();
+    let policy = config.challenge.as_ref().ok_or_else(unavailable)?;
+    let actor = crate::challenge::Actor {
+        username: user.username.clone(),
+        session_hash: message::digest(token(&h).unwrap().as_bytes()),
+    };
+    let prepared = crate::challenge::prepare(&app.store, policy, actor, id, body)
+        .await?
+        .ok_or_else(unavailable)?;
+    // Only the stored, verified author can be routed. The browser supplies no
+    // target mailbox, domain, SMTP host or bearer token.
+    let hosts = if let Some(route) = config.recipient(prepared.mailbox()) {
+        route.hosts
+    } else {
+        let resolver =
+            mail_auth::MessageAuthenticator::new_system_conf().map_err(anyhow::Error::from)?;
+        let lookup =
+            resolver.mx_lookup(
+                prepared.domain(),
+                None::<
+                    &mail_auth::common::cache::NoCache<
+                        Box<str>,
+                        mail_auth::RecordSet<mail_auth::MX>,
+                    >,
+                >,
+            );
+        match tokio::time::timeout(Duration::from_secs(5), lookup).await {
+            Ok(Ok(records)) => {
+                let mut records = records.rrset.to_vec();
+                records.sort_by_key(|record| record.preference);
+                if records
+                    .iter()
+                    .any(|record| record.exchanges.iter().any(|host| host.as_ref() == "."))
+                {
+                    return Err(unavailable());
+                }
+                let hosts: Vec<String> = records
+                    .into_iter()
+                    .flat_map(|record| record.exchanges)
+                    .map(|host| host.trim_end_matches('.').to_owned())
+                    .filter(|host| crate::config::valid_domain(host))
+                    .take(16)
+                    .collect();
+                if hosts.is_empty() {
+                    return Err(unavailable());
+                }
+                hosts
+            }
+            Ok(Err(mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(
+                mail_auth::hickory_resolver::proto::op::ResponseCode::NoError,
+            )))) => {
+                vec![prepared.domain().to_owned()]
+            }
+            _ => return Err(unavailable()),
+        }
+    };
+    let actor = crate::challenge::Actor {
+        username: user.username,
+        session_hash: message::digest(token(&h).unwrap().as_bytes()),
+    };
+    // The module rechecks the session, grants, mailbox proof and quotas in the
+    // same transaction that durably enqueues the explicitly requested mail.
+    let current = app.effective();
+    let policy = current.challenge.as_ref().ok_or_else(unavailable)?;
+    crate::challenge::request(&app.store, policy, actor, prepared, hosts)
+        .await?
+        .map(Json)
+        .ok_or_else(unavailable)
+}
+
+async fn prepare_challenge(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<crate::challenge::Request>,
+) -> ApiResult<Json<Value>> {
+    origin(&app, &h)?;
+    let user = authenticated(&app, &h).await?;
+    csrf(&user, &h)?;
+    let _permit = app.challenge_capacity.try_acquire().map_err(|_| {
+        Error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Vérification occupée.".into(),
+        )
+    })?;
+    let config = app.effective();
+    let policy = config
+        .challenge
+        .as_ref()
+        .ok_or_else(|| Error(StatusCode::NOT_FOUND, "Confirmation désactivée.".into()))?;
+    let actor = crate::challenge::Actor {
+        username: user.username,
+        session_hash: message::digest(token(&h).unwrap().as_bytes()),
+    };
+    let prepared = crate::challenge::prepare(&app.store, policy, actor, id, body)
+        .await?
+        .ok_or_else(|| {
+            Error(
+                StatusCode::CONFLICT,
+                "Ce message ne permet pas une confirmation par son auteur authentifié.".into(),
+            )
+        })?;
+    Ok(Json(json!({"mailbox":prepared.mailbox()})))
+}
+
+async fn revoke_challenge(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<crate::challenge::Request>,
+) -> ApiResult<Json<Value>> {
+    origin(&app, &h)?;
+    let user = authenticated(&app, &h).await?;
+    csrf(&user, &h)?;
+    let actor = crate::challenge::Actor {
+        username: user.username,
+        session_hash: message::digest(token(&h).unwrap().as_bytes()),
+    };
+    Ok(Json(
+        json!({"revoked":crate::challenge::revoke(&app.store, actor, id, body).await?}),
+    ))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Feedback {
@@ -421,6 +562,7 @@ async fn stats(
     let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
+    result["challenge_enabled"] = json!(config.challenge.as_ref().is_some_and(|p| p.enabled));
     result["decision_source"] = json!(if config
         .fusion
         .as_ref()
@@ -573,6 +715,7 @@ pub fn router_controlled(
         control,
         limiter: Arc::new(Mutex::new(HashMap::new())),
         hashing: Arc::new(tokio::sync::Semaphore::new(4)),
+        challenge_capacity: Arc::new(tokio::sync::Semaphore::new(4)),
         dummy_hash: Arc::new(hash_password(&random_token())?),
     };
     let api = Router::new()
@@ -583,10 +726,17 @@ pub fn router_controlled(
         .route("/messages/{id}/diagnostics", get(diagnostics))
         .route("/messages/{id}/feedback", post(feedback))
         .route("/messages/{id}/quarantine", post(quarantine))
+        .route("/messages/{id}/challenge", post(request_challenge))
+        .route("/messages/{id}/challenge/prepare", post(prepare_challenge))
+        .route("/messages/{id}/challenge/revoke", post(revoke_challenge))
         .route("/stats", get(stats))
         .route("/password", post(password))
         .route("/metrics", get(metrics))
         .merge(admin::routes());
+    let public_app = app.clone();
+    let public_challenge = crate::challenge::public_router(app.store.clone(), move || {
+        public_app.effective().challenge.clone().unwrap_or_default()
+    });
     Ok(Router::new()
         .nest("/api/v1", api)
         .route("/healthz", get(health))
@@ -595,7 +745,8 @@ pub fn router_controlled(
         )
         .layer(DefaultBodyLimit::max(128 * 1024))
         .layer(middleware::from_fn(security_headers))
-        .with_state(app))
+        .with_state(app)
+        .merge(public_challenge))
 }
 pub async fn create_user(
     store: &Store,

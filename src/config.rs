@@ -17,6 +17,15 @@ pub struct Config {
     pub actions: Option<crate::actions::Policy>,
     pub fusion: Option<crate::fusion::runtime::Settings>,
     pub smtp_policy: Option<crate::smtp_policy::PolicyConfig>,
+    /// Optional research detectors and admission controls. Absent tables keep
+    /// the behavior of existing installations and saved console revisions.
+    pub heuristics: Option<crate::heuristics::Settings>,
+    pub content_inspection: Option<crate::content_inspection::Settings>,
+    pub smtp_admission: Option<crate::smtp_admission::Settings>,
+    pub sender_history: Option<crate::sender_history::Settings>,
+    pub challenge: Option<crate::challenge::Policy>,
+    pub sandbox: Option<crate::sandbox::Settings>,
+    pub sandbox_pipeline: Option<crate::sandbox_pipeline::Settings>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
     pub signatures: Option<crate::antivirus::AntivirusConfig>,
     pub llm: Option<crate::llm::LlmConfig>,
@@ -238,6 +247,56 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(settings) = &self.heuristics {
+            settings.validate()?;
+            ensure!(
+                settings.mode != crate::heuristics::Mode::Contribute
+                    || self.filter.mode == Mode::Observe,
+                "experimental heuristic contribution requires filter.mode=observe until full-pipeline calibration is validated"
+            );
+        }
+        if let Some(settings) = &self.content_inspection {
+            settings.validate()?;
+        }
+        if let Some(settings) = &self.smtp_admission {
+            settings.validate()?;
+        }
+        if let Some(settings) = &self.sender_history {
+            settings.validate()?;
+        }
+        if let Some(policy) = &self.challenge {
+            policy.validate()?;
+            if policy.enabled {
+                ensure!(
+                    policy.public_origin == self.web.public_origin,
+                    "challenge origin must match the console HTTPS origin"
+                );
+                let sender_domain = policy.notification_from.rsplit_once('@').map(|(_, d)| d);
+                ensure!(
+                    self.domains
+                        .iter()
+                        .any(|d| Some(d.name.as_str()) == sender_domain),
+                    "challenge notification sender must belong to a configured domain"
+                );
+            }
+        }
+        if let Some(settings) = &self.sandbox {
+            settings.validate()?;
+        }
+        if let Some(settings) = &self.sandbox_pipeline {
+            settings.validate()?;
+            if settings.enabled {
+                let backend = self
+                    .sandbox
+                    .as_ref()
+                    .context("sandbox pipeline requires a backend")?;
+                settings.clone().bind_backend(backend)?;
+                ensure!(
+                    !settings.quarantine_selected || self.filter.mode != Mode::Observe,
+                    "sandbox quarantine requires an explicit non-observation policy"
+                );
+            }
+        }
         if let Some(protection) = &self.protection {
             protection.validate()?;
         }

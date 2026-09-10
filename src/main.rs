@@ -101,6 +101,17 @@ enum Command {
         #[arg(long, default_value_t = 3)]
         feature_version: u32,
     },
+    /// Export local research detectors on development mail; excludes reserved tests and does no network I/O.
+    ResearchDetectors {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 100_000)]
+        limit: usize,
+    },
     Train {
         input: PathBuf,
         #[arg(long)]
@@ -213,6 +224,21 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::ResearchDetectors {
+            manifest,
+            root,
+            output,
+            limit,
+        } => {
+            let config = Config::load(&cli.config)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::research::export_detectors(
+                    &config, manifest, root, output, *limit
+                )?)?
+            );
+            return Ok(());
+        }
         Command::AuditConfirmation { database } => {
             println!(
                 "{}",
@@ -682,6 +708,8 @@ async fn main() -> Result<()> {
             let listener = tokio::net::TcpListener::bind(config.smtp.listen).await?;
             let web = tokio::net::TcpListener::bind(config.web.listen).await?;
             let (stop, rx) = tokio::sync::watch::channel(false);
+            let sandbox = noisefence::sandbox_service::Service::new(&config)?;
+            let mut sandbox = tokio::spawn(sandbox.run(store.clone(), rx.clone()));
             tracing::info!(smtp=%listener.local_addr()?,web=%web.local_addr()?,mode=?config.filter.mode,processing=config.smtp.max_processing,relay_workers=config.relay.workers,"gateway started");
             let state = noisefence::smtp::State {
                 config: config.clone(),
@@ -716,10 +744,11 @@ async fn main() -> Result<()> {
                 r=&mut smtp=>{r??;anyhow::bail!("SMTP stopped unexpectedly");},
                 r=&mut relay=>{r??;anyhow::bail!("relay stopped unexpectedly");},
                 r=&mut api=>{r??;anyhow::bail!("API stopped unexpectedly");}
+                r=&mut sandbox=>{r??;anyhow::bail!("sandbox worker stopped unexpectedly");}
             }
             stop.send(true)?;
             let _ = tokio::time::timeout(std::time::Duration::from_secs(35), async {
-                let _ = tokio::join!(smtp, relay, api);
+                let _ = tokio::join!(smtp, relay, api, sandbox);
             })
             .await;
         }

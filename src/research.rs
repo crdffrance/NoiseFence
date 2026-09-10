@@ -7,6 +7,141 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Export optional detector observations on an explicitly authorized development
+/// manifest. Reserved external-test records are excluded BEFORE opening their
+/// paths. No Engine, DNS resolver, model, cloud client, or production store opens.
+pub fn export_detectors(
+    config: &crate::config::Config,
+    manifest: &Path,
+    root: &Path,
+    output: &Path,
+    limit: usize,
+) -> Result<serde_json::Value> {
+    use std::{
+        collections::HashSet, fs::OpenOptions, io::Read, os::unix::fs::OpenOptionsExt,
+        time::Instant,
+    };
+    ensure!(
+        (1..=100_000).contains(&limit),
+        "invalid detector export limit"
+    );
+    ensure!(
+        config.heuristics.is_some() || config.content_inspection.is_some(),
+        "configure at least one local research detector"
+    );
+    let runtime = crate::research_engines::Runtime::new(config)?;
+    let root = root.canonicalize()?;
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    struct Partial(PathBuf);
+    impl Drop for Partial {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let partial = Partial(parent.join(format!(".detectors-{}.partial", uuid::Uuid::new_v4())));
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&partial.0)?;
+    let mut out = BufWriter::new(file);
+    writeln!(
+        out,
+        "{}",
+        serde_json::json!({"type":"header","schema":"noisefence-detectors-1",
+        "application":env!("CARGO_PKG_VERSION"),"purpose":"development_observations",
+        "external_test_opened":false,"contains_bodies":false,
+        "heuristics_sha256":config.heuristics.as_ref().map(|s| crate::message::digest(serde_json::to_string(s).unwrap().as_bytes())),
+        "content_settings":config.content_inspection})
+    )?;
+    let mut reader = BufReader::new(File::open(manifest)?);
+    let mut line = Vec::new();
+    let mut seen = HashSet::new();
+    let (mut considered, mut exported, mut reserved, mut large, mut duplicates) = (0, 0, 0, 0, 0);
+    let mut timings = Vec::new();
+    loop {
+        line.clear();
+        if reader.by_ref().take(16_385).read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        ensure!(line.len() <= 16_384, "detector manifest line too large");
+        considered += 1;
+        ensure!(
+            considered <= limit,
+            "detector manifest exceeds explicit row limit"
+        );
+        let record: Record = serde_json::from_slice(&line)?;
+        if record.external_test {
+            reserved += 1;
+            continue;
+        }
+        ensure!(
+            !record.source.is_empty()
+                && record.source.len() <= 100
+                && record
+                    .source
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b)),
+            "invalid corpus source identifier"
+        );
+        let path = root.join(&record.path).canonicalize()?;
+        ensure!(path.starts_with(&root), "manifest path escapes corpus root");
+        ensure!(
+            std::fs::metadata(&path)?.is_file(),
+            "corpus entry must be a regular file"
+        );
+        let mut raw = Vec::new();
+        File::open(&path)?
+            .take(config.filter.max_analysis_bytes as u64 + 1)
+            .read_to_end(&mut raw)?;
+        if raw.len() > config.filter.max_analysis_bytes {
+            large += 1;
+            continue;
+        }
+        let hash = crate::message::digest(&raw);
+        if !seen.insert(hash.clone()) {
+            duplicates += 1;
+            continue;
+        }
+        let started = Instant::now();
+        let report = runtime.offline(&raw);
+        let elapsed_us = started.elapsed().as_micros() as u64;
+        timings.push(elapsed_us);
+        let campaign = crate::features::campaign_text(&raw);
+        writeln!(
+            out,
+            "{}",
+            serde_json::json!({"type":"row","source":record.source,
+            "spam":record.spam,"year":record.year,"raw_sha256":hash,
+            "campaign":campaign.as_ref().map(|c| crate::message::digest(c.as_bytes())),
+            "simhash":campaign.as_deref().map(crate::features::simhash),
+            "elapsed_us":elapsed_us,"execution":report.execution,
+            "heuristics":report.heuristics,"content_inspection":report.content})
+        )?;
+        exported += 1;
+    }
+    timings.sort_unstable();
+    let result = serde_json::json!({"considered":considered,"exported":exported,
+        "reserved_test_excluded":reserved,"oversize":large,"exact_duplicates":duplicates,
+        "p95_us":(!timings.is_empty()).then(||timings[((timings.len()-1)*95)/100]),
+        "scope":"local optional detectors; excludes base extraction, DNS, history, sandbox, queue and model loading",
+        "independent_quality_evaluation":false});
+    writeln!(
+        out,
+        "{}",
+        serde_json::json!({"type":"footer","report":result})
+    )?;
+    out.flush()?;
+    out.get_ref().sync_all()?;
+    std::fs::hard_link(&partial.0, output)?;
+    std::fs::remove_file(&partial.0)?;
+    File::open(parent)?.sync_all()?;
+    Ok(result)
+}
+
 #[derive(Deserialize)]
 struct Record {
     path: PathBuf,

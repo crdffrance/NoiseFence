@@ -1,6 +1,6 @@
 [package]
 name = "noisefence"
-version = "0.4.2"
+version = "0.5.0-dev.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
@@ -20,6 +20,11 @@ axum = "0.8"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+crc32fast = "1.5"
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+cfb = "0.14"
+quick-xml = "0.42"
 idna = "1"
 psl = "2.1"
 scraper = { version = "0.27", default-features = false }

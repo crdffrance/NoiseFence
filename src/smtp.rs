@@ -126,6 +126,9 @@ pub async fn serve_controlled(
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let tls = tls_acceptor(&state.config)?;
+    if let Some(admission) = state.engine.smtp_admission.clone() {
+        state.store.run(move |db| admission.initialize(db)).await?;
+    }
     let slots = Arc::new(Semaphore::new(state.config.smtp.max_connections));
     let peers = Arc::new(Mutex::new(HashMap::<IpAddr, usize>::new()));
     let mut tasks = JoinSet::new();
@@ -207,6 +210,7 @@ async fn session(
     let mut from: Option<String> = None;
     let mut recipients: Vec<Recipient> = Vec::new();
     let mut errors = 0;
+    let mut admission_delay = crate::smtp_admission::DelayBudget::default();
     for _ in 0..1000 {
         let cfg = state.config.clone();
         let bytes = match line(&mut io, 512, cfg.smtp.command_timeout_seconds).await {
@@ -359,6 +363,35 @@ async fn session(
                     address
                 };
                 if let Some(recipient) = cfg.recipient(lookup) {
+                    if let Some(admission) = &state.engine.smtp_admission {
+                        let decision =
+                            match state.engine.admission_checks.clone().try_acquire_owned() {
+                                Ok(permit) => {
+                                    let checker = admission.clone();
+                                    let sender = from.as_ref().unwrap().clone();
+                                    let address = recipient.address.clone();
+                                    // Keep the permit inside the blocking writer closure: a
+                                    // timeout must not accumulate queued admission writes.
+                                    let check = state.store.run(move |db| {
+                                        let _permit = permit;
+                                        checker.check(db, peer, &sender, &address, crate::now())
+                                    });
+                                    match tokio::time::timeout(Duration::from_millis(500), check)
+                                        .await
+                                    {
+                                        Ok(Ok(decision)) => decision,
+                                        _ => admission.unavailable(),
+                                    }
+                                }
+                                Err(_) => admission.unavailable(),
+                            };
+                        let delayed = admission.delay(&decision, &mut admission_delay).await;
+                        tracing::info!(peer=%peer.ip(),decision=?decision,delay=?delayed,"SMTP admission checked");
+                        if let Some(response) = decision.smtp_reply() {
+                            reply(&mut io, response).await?;
+                            continue;
+                        }
+                    }
                     if !recipients.iter().any(|r| r.address == recipient.address) {
                         recipients.push(recipient);
                     }

@@ -420,6 +420,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a347dcabdae9c31b0825fd6a8bed285ec9c2acb89c47827126d52fa4f59cece3"
+dependencies = [
+ "fnv",
+ "uuid",
+ "web-time",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1964,7 +1975,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "noisefence"
-version = "0.4.2"
+version = "0.5.0-dev.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1973,7 +1984,10 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
+ "cfb",
  "clap",
+ "crc32fast",
+ "flate2",
  "hex",
  "http-body-util",
  "idna",
@@ -1981,6 +1995,7 @@ dependencies = [
  "mail-auth",
  "mail-parser",
  "psl",
+ "quick-xml",
  "rand 0.8.8",
  "rcgen",
  "regex",
@@ -2004,6 +2019,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "webpki-roots",
+ "zip",
 ]
 
 [[package]]
@@ -2353,6 +2369,15 @@ name = "pulp-wasm-simd-flag"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d8f70e07b9c3962945a74e59ca1c511bba65b6419468acc217c457d93f3c740"
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "quote"
@@ -3808,6 +3833,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "web_atoms"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4131,6 +4166,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
 dependencies = [
  "crc32fast",
+ "flate2",
  "indexmap",
  "memchr",
  "typed-path",
