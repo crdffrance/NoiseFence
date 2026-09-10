@@ -53,7 +53,7 @@ export function ProviderQuotas({
       {value != null && (
         <>
           <button
-            className="secondary"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs hover:bg-accent focus-visible:outline-2"
             type="button"
             onClick={() => onChange({ minute: 0, day: 0 })}
           >
@@ -66,7 +66,7 @@ export function ProviderQuotas({
                 <label className="field">
                   {label}
                   <input
-                    className="input"
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 shadow-xs focus-visible:outline-2 disabled:opacity-50"
                     type="number"
                     min={1}
                     max={4294967295}

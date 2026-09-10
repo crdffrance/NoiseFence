@@ -50,7 +50,7 @@ pub fn quota_usage(root: &Path, provider: Provider) -> Result<QuotaUsage> {
         cooldown_until: None,
     };
     let path = root.join("protection/reputation.sqlite3");
-    if !path.exists() {
+    if !path.try_exists()? {
         return Ok(usage);
     }
     let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
