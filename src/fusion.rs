@@ -12,10 +12,13 @@ use std::{collections::BTreeMap, io::Read, path::Path, sync::OnceLock};
 
 pub const SCHEMA: &str = "noisefence-fusion-model-1";
 pub const FEATURE_SCHEMA: &str = "noisefence-fusion-features-1";
+pub const SCHEMA_V2: &str = "noisefence-fusion-model-2";
 pub mod io;
+pub mod local;
 pub mod population;
 pub mod runtime;
 pub const PROTOCOL: &[u8] = include_bytes!("../research/fusion-protocol.json");
+pub const PROTOCOL_V2: &[u8] = include_bytes!("../research/fusion-protocol-2.json");
 const STATES: [State; 7] = [
     State::Disabled,
     State::NotRun,
@@ -74,6 +77,71 @@ pub fn specs() -> &'static [Feature] {
 }
 pub fn protocol_sha256() -> String {
     crate::message::digest(PROTOCOL)
+}
+
+/// V1 remains frozen. V2 appends local detector observations; its model must
+/// also bind the ordered rule catalogue and detector settings used to obtain them.
+pub fn specs_for(version: u8) -> Result<&'static [Feature]> {
+    match version {
+        1 => Ok(specs()),
+        2 => {
+            static V2: OnceLock<Vec<Feature>> = OnceLock::new();
+            Ok(V2.get_or_init(|| {
+                #[derive(Deserialize)]
+                struct Protocol {
+                    features: Vec<Feature>,
+                }
+                serde_json::from_slice::<Protocol>(PROTOCOL_V2)
+                    .expect("embedded fusion v2 protocol")
+                    .features
+            }))
+        }
+        _ => anyhow::bail!("unsupported fusion feature version"),
+    }
+}
+pub fn protocol_hash_for(version: u8) -> Result<String> {
+    Ok(crate::message::digest(match version {
+        1 => PROTOCOL,
+        2 => PROTOCOL_V2,
+        _ => anyhow::bail!("unsupported fusion feature version"),
+    }))
+}
+pub fn features_for(e: &Evidence, version: u8) -> Result<Vec<f64>> {
+    specs_for(version)?;
+    let mut values = features(e)?;
+    if version == 2 {
+        let local = e
+            .local
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("missing local detector evidence"))?;
+        values.extend(local::features(local)?);
+    }
+    ensure!(
+        values.len() == specs_for(version)?.len(),
+        "fusion dimensions differ"
+    );
+    Ok(values)
+}
+pub fn profile_for(e: &Evidence, version: u8) -> Result<String> {
+    specs_for(version)?;
+    let base = availability_profile(e);
+    Ok(if version == 2 {
+        let local = e
+            .local
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("missing local detector evidence"))?;
+        format!("{base}/{}", local.availability_profile())
+    } else {
+        base
+    })
+}
+pub fn eligible_for(e: &Evidence, version: u8) -> bool {
+    tag_eligible(e)
+        && match version {
+            1 => true,
+            2 => e.local.as_ref().is_some_and(local::LocalEvidence::eligible),
+            _ => false,
+        }
 }
 
 pub fn availability_profile(e: &Evidence) -> String {
@@ -297,7 +365,9 @@ fn scanner(
 
 /// Encodes observations only; scores, labels, text and timing cannot enter this vector.
 pub fn features(e: &Evidence) -> Result<Vec<f64>> {
-    e.validate()?;
+    // Frozen v1 ignores additive local observations. V2 validates its projection
+    // separately, so an invalid local row can remain visible in population audits.
+    e.validate_base()?;
     validate_artifacts(&e.artifacts)?;
     ensure!(
         e.source != Source::ContentOnly,
@@ -680,6 +750,8 @@ pub struct Model {
     pub version: String,
     pub protocol_sha256: String,
     pub artifacts: Artifacts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_binding: Option<local::Binding>,
     pub weights: Vec<f64>,
     pub bias: f64,
     pub cutoff: f64,
@@ -710,6 +782,13 @@ pub struct Prediction {
     pub contributions: Vec<Contribution>,
 }
 impl Model {
+    pub fn feature_version(&self) -> Result<u8> {
+        match self.schema.as_str() {
+            SCHEMA => Ok(1),
+            SCHEMA_V2 => Ok(2),
+            _ => anyhow::bail!("unsupported fusion model schema"),
+        }
+    }
     pub fn load(path: &Path) -> Result<Self> {
         Ok(Self::load_bound(path)?.0)
     }
@@ -725,12 +804,16 @@ impl Model {
     }
     pub fn validate(&self) -> Result<()> {
         validate_artifacts(&self.artifacts)?;
+        let version = self.feature_version()?;
         ensure!(
-            self.schema == SCHEMA
-                && self.protocol_sha256 == protocol_sha256()
-                && self.purpose == "research",
+            self.protocol_sha256 == protocol_hash_for(version)? && self.purpose == "research",
             "unsupported fusion contract or purpose"
         );
+        match (version, &self.local_binding) {
+            (1, None) => {}
+            (2, Some(binding)) => binding.validate()?,
+            _ => anyhow::bail!("fusion local detector binding does not match feature version"),
+        }
         ensure!(
             !self.version.is_empty()
                 && self.version.len() <= 128
@@ -741,7 +824,7 @@ impl Model {
             "invalid fusion version"
         );
         ensure!(
-            self.weights.len() == specs().len(),
+            self.weights.len() == specs_for(version)?.len(),
             "fusion dimensions differ"
         );
         ensure!(
@@ -789,11 +872,18 @@ impl Model {
     }
     pub fn predict(&self, evidence: &Evidence) -> Result<Prediction> {
         self.validate()?;
+        let version = self.feature_version()?;
         ensure!(
             self.artifacts == evidence.artifacts,
             "fusion detector artifacts do not match the observations"
         );
-        let values = features(evidence)?;
+        if version == 2 {
+            ensure!(
+                evidence.local.as_ref().map(|l| &l.binding) == self.local_binding.as_ref(),
+                "fusion local detector binding differs from observations"
+            );
+        }
+        let values = features_for(evidence, version)?;
         let logit = values
             .iter()
             .zip(&self.weights)
@@ -807,7 +897,7 @@ impl Model {
             let p = calibrated.exp();
             p / (1.0 + p)
         };
-        let mut contributions: Vec<_> = specs()
+        let mut contributions: Vec<_> = specs_for(version)?
             .iter()
             .zip(values)
             .zip(&self.weights)
@@ -827,9 +917,9 @@ impl Model {
         contributions.truncate(6);
         let profile_supported = self
             .supported_profiles
-            .binary_search(&availability_profile(evidence))
+            .binary_search(&profile_for(evidence, version)?)
             .is_ok();
-        let tag_eligible = tag_eligible(evidence);
+        let tag_eligible = eligible_for(evidence, version);
         Ok(Prediction {
             version: self.version.clone(),
             logit,

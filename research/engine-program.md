@@ -15,8 +15,8 @@ de NoiseFence.
 | Signatures de spam communautaires/locales | scanner de signatures, campagnes issues de retours | prouver l’isolation, la révocation et la distinction avec un malware |
 | Corrélation IP/PTR/A/AAAA | `smtp_policy` | tests DNS, signaux corrélés plafonnés, observation |
 | Apprentissage bayésien | Bernoulli NB et comparaison logistique | reproduction/export natif ; conserver les résultats défavorables du candidat |
-| Listes de confiance manuelles et apprises | exceptions étroites de liens | identités authentifiées, portée destinataire, expiration et révocation |
-| Historique expéditeur/destinataire | pas de confiance fondée sur les échanges | apprentissage humain avec diversité, protection contre l’empoisonnement |
+| Listes de confiance manuelles et apprises | exceptions étroites de liens | identités authentifiées, portée destinataire, expiration, révocation et accélération effective mesurée |
+| Historique expéditeur/destinataire | pas de confiance fondée sur les échanges | apprentissage humain avec diversité, protection contre l’empoisonnement et effet réel sur le résultat par destinataire |
 | URLs trompeuses | HTML5, IDNA/PSL, OCR/QR, flux et réputation | régressions sans ouverture des liens ni double comptage |
 | SPF/DKIM | `mail-auth`, original SMTP | tests d’authentification et d’en-têtes falsifiés |
 | Domaine expéditeur capable de recevoir | MX, repli A/AAAA, Null MX | tests de routes et DNS indisponible ; sans tentative de livraison de vérification |
@@ -91,6 +91,25 @@ des copies préparées. Aucun jeu récent réservé au test indépendant n’a �
 
 ## Preuves encore manquantes avant activation générale
 
+Le candidat 0.5.0-dev.2 ajoute la [fusion v2](fusion.md) : les observations locales,
+y compris les propriétés des images et des PDF, disposent d’un chemin complet
+vers l’entraînement, la prédiction native et la décision SMTP après promotion.
+Les modèles restent liés à leurs versions et paramètres ; une observation
+manquante ou incomplète ne devient pas une conclusion légitime. Les expériences
+restent distinctes de la production 0.4.2.
+
+Le [rapport logiciel](fusion-local-validation-20260910.json) conserve les tests,
+les empreintes des sources, le premier essai rejeté pour problème d’échelle et
+sa correction. La parité finale couvre 2 000 prédictions v1 et 1 600 prédictions
+v2 sans désaccord ; chaque audit de population conserve ses 400 messages, dont
+les observations absentes ou invalides. Il ne mesure pas la qualité antispam.
+
+L’historique de confiance demeure consultatif : son effet sur la décision par
+destinataire et l’accélération demandée ne sont pas encore implémentés. Le
+challenge vérifie la possession d’une boîte par un jeton ; il ne reproduit pas
+encore le mécanisme de code affiché du document et ne prouve pas l’existence
+physique d’une personne. Ces écarts restent dans le périmètre d’implémentation.
+
 - Validation d’un vrai CAPEv2 et de sa VM Office isolée : instantané, restauration,
   absence d’accès au serveur de messagerie et au réseau de production, et politique
   de conservation côté analyseur. Les tests synthétiques ne l’attestent pas.
@@ -100,7 +119,9 @@ des copies préparées. Aucun jeu récent réservé au test indépendant n’a �
   automatique validée ni un modèle promu.
 - Mesures du traitement complet et du débit sur Linux 4 vCPU/8 Go, puis contrôle
   de la livraison Proton pour les nouvelles actions explicitement activées.
-- Validation de publication Linux et choix d’activation des nouveaux modules.
+- Validation de chaque nouveau candidat sur Linux et choix d’activation des
+  nouveaux modules. La CI du candidat 0.5.0-dev.1 a réussi sur AMD64 et ARM64 ;
+  elle ne valide pas par avance les modifications suivantes.
 
 Ces éléments restent dans le périmètre du programme ; le succès des tests locaux
 ne les transforme pas en conditions remplies.

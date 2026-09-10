@@ -90,6 +90,7 @@ jobs:
         run: |
           cargo build --locked --features semantic --example fusion_fixture
           python3 research/verify_fusion.py var/fusion-parity --binary target/release/noisefence
+          python3 research/verify_fusion.py var/fusion-parity-v2 --binary target/release/noisefence --feature-version 2
   web:
     runs-on: ubuntu-latest
     defaults:

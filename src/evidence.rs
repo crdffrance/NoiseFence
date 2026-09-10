@@ -310,6 +310,10 @@ pub struct Evidence {
     /// Absent on historical rows and when the local vision check did not run.
     #[serde(default)]
     pub vision: Option<crate::vision::Summary>,
+    /// Optional on historical evidence. Only the engine may supply the pinned
+    /// runtime binding; absence must not be inferred as disabled detectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<crate::fusion::local::LocalEvidence>,
     pub llm: LlmObservation,
 }
 
@@ -352,6 +356,7 @@ impl Evidence {
             smtp_policy_state: State::configured(config.smtp_policy.is_some()),
             smtp_policy: Default::default(),
             vision: None,
+            local: None,
             llm: LlmObservation {
                 state: State::configured(llm_enabled),
                 outcome: (!llm_enabled).then_some(llm::LlmStatus::Disabled),
@@ -374,6 +379,9 @@ impl Evidence {
     }
 
     pub fn refresh(&mut self, scan: &engine::Scan) {
+        if let Some(local) = &mut self.local {
+            local.refresh(scan);
+        }
         self.analysis_complete = scan.complete;
         if scan.vision.status != crate::vision::Status::Disabled {
             self.vision = Some(scan.vision.clone());
@@ -430,6 +438,15 @@ impl Evidence {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if let Some(local) = &self.local {
+            local.validate()?;
+        }
+        self.validate_base()
+    }
+
+    /// Frozen v1 checks ignore the additive local block. V2 validates that
+    /// block separately; general evidence consumers use full validate().
+    pub(crate) fn validate_base(&self) -> Result<()> {
         if let Some(vision) = &self.vision {
             vision.validate()?;
         }

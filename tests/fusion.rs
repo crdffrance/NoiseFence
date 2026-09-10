@@ -27,6 +27,7 @@ fn model(e: &Evidence) -> Model {
         .position(|f| f.name == "lexical.logit_clipped_32")
         .unwrap()] = 2.0;
     Model {
+        local_binding: None,
         schema: fusion::SCHEMA.into(),
         version: "test-fusion-1".into(),
         protocol_sha256: fusion::protocol_sha256(),

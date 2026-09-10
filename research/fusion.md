@@ -18,6 +18,29 @@ Chaque contrôle conserve son état, y compris absence, indisponibilité et
 saturation. Les valeurs déclarées par le LLM sont des caractéristiques, pas des
 étiquettes ni des probabilités déjà calibrées.
 
+Depuis le candidat 0.5.0-dev.2, le [protocole v2](fusion-protocol-2.json) conserve
+ces 218 entrées et ajoute 109 caractéristiques des moteurs locaux : états des
+heuristiques et de l’inspection structurelle, 64 emplacements de règles,
+indicateurs HTML/PDF/Office, compteurs et agrégats des images/PDF. Ceux-ci
+incluent les formats PNG/JPEG/GIF/PDF, dimensions et pixels maximaux, volumes,
+petites images, animations et dimensions absentes. Les compteurs sont plafonnés
+à 256, les dimensions à 16 384, les pixels à 100 millions et les volumes à 16 Mio.
+Les dimensions et les volumes sont normalisés par `ln(1 + valeur) / ln(1 + plafond)`
+pour représenter plusieurs ordres de grandeur sans produire des coefficients
+démesurés sur de petites images. Les nombres de pièces conservent leur échelle
+linéaire plafonnée.
+Les emplacements correspondent au catalogue d’identifiants triés contenu dans
+`local_binding`. Les versions des détecteurs, les paramètres et les limites sont
+liés au modèle par leurs empreintes. Le catalogue et les expressions régulières
+sont préparés au chargement ; la projection par message réutilise les rapports.
+
+Les coefficients appris peuvent utiliser ces entrées dans la décision Fusion
+après promotion. Les heuristiques restent en mode `observation` : leur poids
+manuel n’est pas ajouté aux entrées apprises. Une exécution absente, saturée,
+incomplète ou invalide conserve son état distinct et ne permet aucune décision
+v2 active. Les valeurs partielles sont neutralisées. Le protocole v1 et sa
+prédiction restent disponibles pour leurs cohortes d’artefacts correspondantes.
+
 Le score historique, les poids manuels, le score qui sélectionne les appels LLM,
 les labels, les textes d'explication, les identités et les durées sont exclus du
 vecteur. Le score historique reste disponible uniquement pour la comparaison de
@@ -40,6 +63,28 @@ Après annotation autorisée dans la console, exporter les données :
 noisefence --config /etc/noisefence/config.toml export-learning /chemin/prive/learning.jsonl
 noisefence fusion-export /chemin/prive/learning.jsonl --output /chemin/prive/vectors.jsonl
 ```
+
+Pour une expérience v2, activer les moteurs locaux souhaités dans la
+configuration d’observation avant de recueillir les données, puis utiliser :
+
+```sh
+noisefence fusion-export /chemin/prive/learning.jsonl --feature-version 2 --output /chemin/prive/vectors-v2.jsonl
+```
+
+Le manifeste doit reprendre l’empreinte du protocole v2. Le programme
+`train_fusion.py` sélectionne uniquement un protocole embarqué connu et compare
+sur les mêmes lots les caractéristiques initiales, l’ajout des heuristiques,
+l’ajout de la structure et l’ensemble complet. `fusion-predict` et
+`fusion-population-predict` choisissent le protocole inscrit dans le modèle.
+L’export v2 compte les anciennes lignes dépourvues de projection locale dans
+`missing_evidence` ; la prédiction de population les conserve comme non
+évaluables. Une cohorte mêlant plusieurs catalogues ou paramètres est refusée.
+
+La chaîne synthétique de vérification peut être reproduite avec
+`research/verify_fusion.py <répertoire-neuf> --feature-version 2` après compilation
+du binaire et de l’exemple `fusion_fixture`. Elle vérifie la parité numérique et
+les décisions entre Rust et Python. Ses données et attestations de test ne
+constituent aucune preuve de qualité ni une validation de production.
 
 La seconde commande est entièrement hors ligne et ne charge pas la configuration
 du serveur. Elle conserve seulement le contexte provenant de la réception SMTP.

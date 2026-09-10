@@ -1,0 +1,133 @@
+{
+  "schema": "noisefence-fusion-local-software-validation-1",
+  "candidate_version": "0.5.0-dev.2",
+  "base_commit": "550243a0755e90ad9ae5ef2e8bf07834281970a1",
+  "host": "aarch64-apple-darwin",
+  "rustc": "1.98.0",
+  "synthetic": true,
+  "feature_versions": {
+    "1": 218,
+    "2": 327
+  },
+  "source_sha256": {
+    "src/fusion.rs": "9cb304d207c59d52210f0740e750be1c584d4ff61821cb6c24241f50645e2575",
+    "src/fusion/local.rs": "0f285692776c162876c898ef903069bd035cf0020582222b2f4ea4a9c9ac70b1",
+    "src/fusion/runtime.rs": "4a65e05ffe1c51eb534d6cc7fcae91dfc4fa7e0f3d77f9cc0d9d01266726ab36",
+    "src/fusion/io.rs": "502324a0320717a74a3ed01e8b46f427d750c80a05a073ea97100fd18d31c110",
+    "src/fusion/population.rs": "079664ffb7ec21c21c285bae9b86d85f04f9aeeb953789e2062e30956a43b734",
+    "src/evidence.rs": "4269fee46f1a9de966e8fe6d444edc8a478a2376d68cf907174151ca6e7627ea",
+    "src/engine.rs": "3bef045c628ff02bc000206b9c5e41e05df800b91673ffdaa6e10f2213a32170",
+    "research/fusion-protocol.json": "8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce",
+    "research/fusion-protocol-2.json": "01d3cefd82f9275b07f407a8d56cf56f8552070e92f78995350664cf05ba1ad6",
+    "research/train_fusion.py": "3297ae1364f9997f17f886ed722aadef1903ec04858e7f9ca8a06ec5aad5a222",
+    "research/evaluate_population.py": "f719e7080a02b44929386dcbe838672cdb0969f38cd1718edf84fd46006a9203",
+    "research/verify_fusion.py": "e06ba490ef09ed84f29746457881563aee08fee4e3b88f49140eaf1f407001d7",
+    "research/verify_population.py": "96152422c012f2879aaf2f398c0d98a7b462bdce9975793d56188c1bb3c6c113",
+    "examples/fusion_fixture.rs": "212b8bcf81f3552049d34bb289b1cd12bc1efd568dd370bdb1bdc91ef50d41cf",
+    "tests/fusion_v2.rs": "930714f264cd02a91a7435dbf6c3e7615b3675d5ff41eb6fb2828bdfa62323d7",
+    "tests/local_fusion.rs": "8925ff296e53571ee35ec76b49ec59fcf95c74b7bd226b31977616b9e1d726f9",
+    "tests/population_prediction.rs": "521e109af661ead6b26510ad30baaaa89a1f1d820ff0b78e54a377c58cf99148",
+    "tests/smtp_relay.rs": "9c2406892b7319645cb636a904d7fa1d3d377fe22cd6a52c65eccc62fc6b6402",
+    "tests_python/test_fusion.py": "01e6edb38429e6bc8edd83e0598cebbe7488755535214ec959bea295880f7f5a",
+    "Cargo.lock": "e562240fd45d1349b53c8c7f28f6fd3d581d5c874bce72868a23cbdf264ffc9e"
+  },
+  "checks": {
+    "rust_full_before_log_scaling": {
+      "passed": 412,
+      "ignored_live_clamav": 1
+    },
+    "rust_relevant_after_log_scaling": {
+      "passed": 43
+    },
+    "python_full_final": {
+      "passed": 57
+    },
+    "clippy_all_targets_semantic": true,
+    "formatting": true,
+    "version_alignment": true
+  },
+  "parity": {
+    "1": {
+      "synthetic": true,
+      "predictions_checked": 2000,
+      "variants": 5,
+      "application": "0.5.0-dev.2",
+      "protocol_sha256": "8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce",
+      "max_logit_error": 8.881784197001252e-15,
+      "max_probability_error": 2.3314683517128287e-15,
+      "decision_disagreements": 0,
+      "production_eligible": false,
+      "mail_sent": false,
+      "population": {
+        "schema": "noisefence-population-software-validation-1",
+        "synthetic": true,
+        "population_rows": 400,
+        "predictions_checked": 2000,
+        "unassessable_per_variant": 4,
+        "unknown_truth_per_variant": 1,
+        "decision_disagreements": 0,
+        "reuse_refused": true,
+        "production_eligible": false,
+        "mail_sent": false,
+        "external_analysis_calls": 0
+      }
+    },
+    "2": {
+      "synthetic": true,
+      "predictions_checked": 1600,
+      "variants": 4,
+      "application": "0.5.0-dev.2",
+      "protocol_sha256": "01d3cefd82f9275b07f407a8d56cf56f8552070e92f78995350664cf05ba1ad6",
+      "max_logit_error": 8.881784197001252e-15,
+      "max_probability_error": 1.7763568394002505e-15,
+      "decision_disagreements": 0,
+      "production_eligible": false,
+      "mail_sent": false,
+      "population": {
+        "schema": "noisefence-population-software-validation-1",
+        "synthetic": true,
+        "population_rows": 400,
+        "predictions_checked": 1600,
+        "unassessable_per_variant": 7,
+        "unknown_truth_per_variant": 1,
+        "decision_disagreements": 0,
+        "reuse_refused": true,
+        "production_eligible": false,
+        "mail_sent": false,
+        "external_analysis_calls": 0
+      }
+    }
+  },
+  "first_linear_scaling_attempt": {
+    "outcome": "rejected_by_native_coefficient_bound",
+    "diagnostic": {
+      "diagnostic_only": true,
+      "input_protocol_sha256": "62e38a857637b4e29ac933d26054751ad9080a1dab3259fa0f5deb8c76dfd165",
+      "single_C": 1,
+      "max_absolute_unscaled_weight": 12343580.20209177,
+      "coordinate_index": 321,
+      "raw_coordinate_std": 3.21595145330274e-08,
+      "eligible_training": 66,
+      "rows": 80,
+      "native_bound": 1000000.0,
+      "not_a_quality_measurement": true
+    },
+    "correction": "Dimensions and byte volumes use log1p(value)/log1p(cap); native coefficient bound stays 1000000."
+  },
+  "smtp": {
+    "real_loopback_server": true,
+    "v2_saved_decision_changes_with_test_promotion": true,
+    "observe_preserves_active_decision": true,
+    "original_bodies_preserved": true,
+    "external_messages_sent": 0
+  },
+  "independent_recent_quality_validated": false,
+  "reference_server_throughput_validated": false,
+  "production_eligible": false,
+  "limitations": [
+    "All generated labels, detector observations and promotion counts used in tests are synthetic.",
+    "Software parity and passing tests do not establish recall, false-positive rate or calibration on current SMTP traffic.",
+    "The full Rust suite preceded the five local log-scale changes; affected tests were rerun afterward.",
+    "Real CAPEv2 isolation, recipient-history decision effects and trusted-sender acceleration remain outside this completed implementation increment."
+  ]
+}

@@ -252,3 +252,88 @@ fn content_only_diagnostics_do_not_run_configured_checks_and_bind_loaded_model_b
     );
     evidence.validate().unwrap();
 }
+
+#[test]
+fn optional_local_evidence_preserves_historical_v1_and_refreshes_only_pinned_binding() {
+    use noisefence::{
+        evidence::{Artifacts, Evidence},
+        fusion::{
+            self,
+            local::{Binding, LocalEvidence},
+        },
+        heuristics, research_engines,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(dir.path())).clone();
+    config.heuristics = Some(heuristics::Settings::default());
+    let mut e = Evidence::new(&config, Artifacts::new(&config, None, None, false), false);
+    e.source = Source::SmtpSession;
+    e.validate().unwrap();
+    let old_json = serde_json::to_value(&e).unwrap();
+    assert!(old_json.get("local").is_none());
+    let mut old: Evidence = serde_json::from_value(old_json.clone()).unwrap();
+    assert!(old.local.is_none());
+    let v1 = fusion::features(&old).unwrap();
+    let mut scan = noisefence::engine::Scan::default();
+    research_engines::Runtime::new(&config)
+        .unwrap()
+        .offline(common::MESSAGE)
+        .apply(&mut scan);
+    old.refresh(&scan);
+    assert!(
+        old.local.is_none(),
+        "refresh must not backfill historical bindings"
+    );
+    assert_eq!(fusion::features(&old).unwrap(), v1);
+    let binding = Binding::from_config(&config).unwrap();
+    e.local = Some(LocalEvidence::capture(&binding, &scan));
+    e.refresh(&scan);
+    e.validate().unwrap();
+    assert_eq!(e.local.as_ref().unwrap().binding, binding);
+    assert_eq!(fusion::features(&e).unwrap(), v1);
+    let mut changed_config = config.clone();
+    changed_config.heuristics.as_mut().unwrap().rules[0]
+        .pattern
+        .push_str("different");
+    research_engines::Runtime::new(&changed_config)
+        .unwrap()
+        .offline(common::MESSAGE)
+        .apply(&mut scan);
+    e.refresh(&scan);
+    assert_eq!(e.local.as_ref().unwrap().binding, binding);
+    assert!(!e.local.as_ref().unwrap().tag_eligible());
+    assert_eq!(fusion::features(&e).unwrap(), v1);
+    e.local.as_mut().unwrap().heuristics.rule_hits[0] = true;
+    assert!(
+        e.validate().is_err(),
+        "incomplete local payload cannot remain positive"
+    );
+    assert_eq!(
+        fusion::features(&e).unwrap(),
+        v1,
+        "v1 ignores validity of the additive local block"
+    );
+    assert!(
+        fusion::features_for(&e, 2).is_err(),
+        "v2 must validate its local payload"
+    );
+}
+
+#[test]
+fn engine_captures_local_observations_before_evidence_and_keeps_content_only_source() {
+    use noisefence::{content_inspection, fusion::local::State as LocalState, heuristics};
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(dir.path())).clone();
+    config.heuristics = Some(heuristics::Settings::default());
+    config.content_inspection = Some(content_inspection::Settings::default());
+    let engine = Engine::new(Arc::new(config)).unwrap();
+    let scan = engine.offline(common::MESSAGE);
+    let e = scan.evidence.unwrap();
+    assert_eq!(e.source, Source::ContentOnly);
+    e.validate().unwrap();
+    let local = e.local.as_ref().expect("engine capture");
+    assert_eq!(local.heuristics.state, LocalState::Complete);
+    assert_eq!(local.structure.state, LocalState::Complete);
+    assert_eq!(local.values().unwrap().len(), 109);
+    assert!(!noisefence::fusion::eligible_for(&e, 2));
+}

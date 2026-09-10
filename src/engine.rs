@@ -502,6 +502,7 @@ pub struct Engine {
     pub authenticator: MessageAuthenticator,
     model: Option<Model>,
     evidence_artifacts: crate::evidence::Artifacts,
+    local_binding: crate::fusion::local::Binding,
     fusion: Option<crate::fusion::runtime::Runtime>,
     arc_key: Option<String>,
     dqs_key: Option<String>,
@@ -685,10 +686,17 @@ impl Engine {
         let semantic_hash = None;
         let evidence_artifacts =
             crate::evidence::Artifacts::new(&config, model_hash, semantic_hash, llm.is_some());
+        let local_binding = crate::fusion::local::Binding::from_config(&config)?;
         let fusion = config
             .fusion
             .as_ref()
-            .map(|s| crate::fusion::runtime::Runtime::load(s, &evidence_artifacts))
+            .map(|s| {
+                crate::fusion::runtime::Runtime::load_with_local(
+                    s,
+                    &evidence_artifacts,
+                    &local_binding,
+                )
+            })
             .transpose()?;
         Ok(Self {
             fusion,
@@ -697,6 +705,7 @@ impl Engine {
             authenticator: MessageAuthenticator::new_system_conf()?,
             model,
             evidence_artifacts,
+            local_binding,
             arc_key,
             dqs_key,
             dqs_cache: Mutex::new(HashMap::new()),
@@ -745,6 +754,10 @@ impl Engine {
             self.llm.is_some(),
         );
         evidence.source = source;
+        evidence.local = Some(crate::fusion::local::LocalEvidence::capture(
+            &self.local_binding,
+            scan,
+        ));
         scan.evidence = Some(evidence);
     }
     fn refresh_evidence(scan: &mut Scan) {

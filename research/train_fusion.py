@@ -5,7 +5,7 @@ Inputs are the Rust fusion-export contract and explicit human annotations. No
 content, DNS, cloud inference or executable model serialization is used here.
 """
 import argparse
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, namedtuple
 import hashlib
 import json
 import math
@@ -29,6 +29,48 @@ FAMILIES = ('lexical', 'semantic', 'authentication', 'smtp_policy',
             'reputation', 'antivirus', 'signatures', 'llm')
 VARIANTS = {'content': FAMILIES[:2], 'identity': FAMILIES[:4],
             'reputation': FAMILIES[:5], 'scanners': FAMILIES[:7], 'full': FAMILIES}
+# Frozen, repository-owned protocols only. A manifest cannot choose a path or
+# change process-global feature configuration while another experiment runs.
+KNOWN_PROTOCOLS = (
+    ('8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce', 'fusion-protocol.json', 1),
+    ('01d3cefd82f9275b07f407a8d56cf56f8552070e92f78995350664cf05ba1ad6', 'fusion-protocol-2.json', 2),
+)
+LOCAL_STATES = ('missing', 'disabled', 'complete', 'busy', 'partial', 'invalid', 'unavailable')
+# Same fixed order/caps as the native media projection. Raw counts remain
+# integers; log scaling avoids enormous unscaled coefficients for tiny media.
+MEDIA_LOG_FEATURES = (
+    ('structure.image_max_width_log16384', 16_384),
+    ('structure.image_max_height_log16384', 16_384),
+    ('structure.image_max_pixels_log100000000', 100_000_000),
+    ('structure.image_bytes_log16777216', 16_777_216),
+    ('structure.pdf_bytes_log16777216', 16_777_216),
+)
+# Order matches content_inspection::Settings serialization, not JSON input order.
+STRUCTURE_LIMITS = (
+    ('max_raw_bytes', 16 * 1024 * 1024), ('max_parts', 256), ('max_mime_depth', 16),
+    ('max_header_bytes', 64 * 1024), ('max_part_bytes', 8 * 1024 * 1024),
+    ('max_total_decoded_bytes', 16 * 1024 * 1024), ('max_html_bytes', 512 * 1024),
+    ('max_archive_entries', 1024), ('max_unpacked_bytes', 8 * 1024 * 1024),
+    ('max_total_unpacked_bytes', 32 * 1024 * 1024), ('max_compression_ratio', 200),
+    ('max_structure_nodes', 100_000), ('max_nesting', 64), ('max_findings', 512),
+    ('max_image_pixels', 100_000_000), ('max_images', 256),
+)
+Feature = namedtuple('Feature', 'name family minimum maximum')
+
+
+class Protocol(namedtuple('Protocol', 'sha256 version features variants')):
+    __slots__ = ()
+
+    @property
+    def model_schema(self):
+        return 'noisefence-fusion-model-' + str(self.version)
+
+    @property
+    def variant_names(self):
+        return tuple(name for name, _ in self.variants)
+
+
+ExperimentContext = namedtuple('ExperimentContext', 'protocol local_binding')
 GRID = (.1, 1., 10.)
 TARGET_FPR = .001
 MAX_ROWS = 50_000
@@ -68,6 +110,152 @@ def bound_bytes(path, maximum):
         raw = source.read(maximum + 1)
     require(len(raw) <= maximum, 'Oversized input')
     return raw
+
+
+def protocol_for_hash(digest):
+    entry = next((entry for entry in KNOWN_PROTOCOLS if entry[0] == digest), None)
+    require(entry is not None, 'Unknown fusion protocol hash')
+    expected, filename, version = entry
+    raw = bound_bytes(Path(__file__).with_name(filename), 128 * 1024)
+    require(hashlib.sha256(raw).hexdigest() == expected, 'Bundled fusion protocol changed')
+    data = decode(raw)
+    require(data['schema'] == 'noisefence-fusion-features-' + str(version)
+            and data['evidence_schema'] == 'noisefence-evidence-1', 'Invalid bundled protocol schema')
+    features = tuple(Feature(**feature) for feature in data['features'])
+    if version == 1:
+        variants = tuple(VARIANTS.items())
+    else:
+        base = protocol_for_hash(KNOWN_PROTOCOLS[0][0])
+        require(len(features) > 218 and features[:218] == base.features
+                and {f.family for f in features[218:]} == {'heuristics', 'structure'},
+                'V2 must append the fixed local catalog to the frozen 218 features')
+        variants = (('baseline', FAMILIES), ('heuristics', FAMILIES + ('heuristics',)),
+                    ('structure', FAMILIES + ('structure',)), ('full', FAMILIES + ('heuristics', 'structure')))
+    return Protocol(expected, version, features, variants)
+
+
+def validate_local_binding(binding):
+    require(isinstance(binding, dict) and set(binding) == {'version', 'heuristics', 'structure'}
+            and binding['version'] == 'noisefence-local-evidence-1', 'Invalid local binding')
+    heuristic = binding['heuristics']
+    if heuristic is not None:
+        require(isinstance(heuristic, dict) and set(heuristic) == {
+                'version', 'pattern_version', 'settings_digest', 'enabled', 'rule_ids'}
+                and heuristic['version'] == 'heuristics-1' and heuristic['pattern_version'] == 'heuristics-fr-en-1'
+                and is_hex(heuristic['settings_digest']) and type(heuristic['enabled']) is bool
+                and isinstance(heuristic['rule_ids'], list) and len(heuristic['rule_ids']) <= 64
+                and all(token(r) and len(r) <= 64 for r in heuristic['rule_ids'])
+                and heuristic['rule_ids'] == sorted(set(heuristic['rule_ids'])), 'Invalid heuristic binding/catalog')
+    structure = binding['structure']
+    if structure is not None:
+        require(isinstance(structure, dict) and set(structure) == {'version', 'settings_digest', 'limits'}
+                and structure['version'] == 'noisefence-content-inspection-1'
+                and is_hex(structure['settings_digest']), 'Invalid structure binding')
+        limits = structure['limits']
+        require(isinstance(limits, dict) and set(limits) == {k for k, _ in STRUCTURE_LIMITS}
+                and all(type(limits[k]) is int and 1 <= limits[k] <= ceiling for k, ceiling in STRUCTURE_LIMITS)
+                and limits['max_part_bytes'] <= limits['max_total_decoded_bytes']
+                and limits['max_unpacked_bytes'] <= limits['max_total_unpacked_bytes'], 'Invalid structure limits')
+        ordered = {key: limits[key] for key, _ in STRUCTURE_LIMITS}
+        raw = json.dumps([structure['version'], ordered], separators=(',', ':'), ensure_ascii=False).encode()
+        require(hashlib.sha256(raw).hexdigest() == structure['settings_digest'], 'Structure binding digest mismatch')
+
+
+def vector_context(header, protocol):
+    fields = {'type', 'schema', 'protocol_sha256', 'artifacts'}
+    if protocol.version == 2:
+        fields.add('local_binding')
+    require(isinstance(header, dict) and set(header) == fields
+            and header['type'] == 'header' and header['schema'] == 'noisefence-fusion-vectors-1'
+            and header['protocol_sha256'] == protocol.sha256, 'Invalid Rust vector protocol')
+    binding = header.get('local_binding')
+    if protocol.version == 2:
+        validate_local_binding(binding)
+    return ExperimentContext(protocol, binding)
+
+
+def log_scaled_integer(value, cap):
+    if not numeric(value) or not 0 <= value <= 1:
+        return False
+    raw = math.expm1(value * math.log1p(cap))
+    # Inverting ln1p can amplify float rounding near the cap. Keep an absolute
+    # floor plus a few ULPs, rather than accepting a relative fraction of a count.
+    tolerance = max(1e-7, 32 * math.ulp(raw))
+    return math.isclose(raw, round(raw), rel_tol=0., abs_tol=tolerance)
+
+
+def validate_local_vector(row, context):
+    if context.protocol.version != 2:
+        return
+    values = {feature.name: value for feature, value in zip(context.protocol.features, row['values'])}
+    states = {}
+    for family in ('heuristics', 'structure'):
+        flags = [values[family + '.state.' + state] for state in LOCAL_STATES]
+        require(all(v in (0, 1) for v in flags) and sum(flags) == 1, 'Invalid local availability vector')
+        states[family] = LOCAL_STATES[flags.index(1)]
+    profile = row['availability_profile'].split('/')
+    require(len(profile) == 14 and profile[-2:] == [states['heuristics'], states['structure']],
+            'Availability profile differs from encoded local states')
+    heuristic = context.local_binding['heuristics']
+    enabled = heuristic is not None and heuristic['enabled']
+    require(enabled != (states['heuristics'] == 'disabled')
+            and (context.local_binding['structure'] is not None) != (states['structure'] == 'disabled'),
+            'Local availability contradicts binding')
+    hits = [values[f'heuristics.rule_{i:02}.hit'] for i in range(64)]
+    used = len(heuristic['rule_ids']) if heuristic is not None else 0
+    require(all(v in (0, 1) for v in hits) and not any(hits[used:])
+            and (states['heuristics'] == 'complete' or not any(hits)), 'Invalid local heuristic vector')
+    finding_names = ('html_active_element', 'html_event_handler', 'html_active_url', 'pdf_active_name',
+                     'office_vba_project', 'office_xlm_macros', 'office_external_relationship',
+                     'office_embedded_object', 'type_mismatch', 'image_dimensions', 'image_count',
+                     'html_refresh', 'html_embedded_content', 'pdf_external_reference', 'office_macro_enabled')
+    scaled_counts = [(feature.name, int(feature.name.rsplit('_div', 1)[1]))
+                     for feature in context.protocol.features
+                     if feature.family == 'structure' and '_div' in feature.name]
+    structure = [values[f.name] for f in context.protocol.features if f.family == 'structure'
+                 and not f.name.startswith('structure.state.')]
+    require(all(values['structure.' + name] in (0, 1) for name in finding_names)
+            and all(math.isclose(values[name] * scale, round(values[name] * scale), rel_tol=0., abs_tol=1e-7)
+                    for name, scale in scaled_counts)
+            and all(log_scaled_integer(values[name], cap) for name, cap in MEDIA_LOG_FEATURES)
+            and (states['structure'] == 'complete' or not any(structure)), 'Invalid local structure vector')
+    require(not row['tag_eligible'] or all(s in ('disabled', 'complete') for s in states.values()),
+            'Incomplete local checks cannot authorize tagging')
+
+
+def validate_model(model, context=None):
+    require(isinstance(model, dict), 'Invalid fusion model')
+    protocol = protocol_for_hash(model.get('protocol_sha256'))
+    fields = {'schema', 'version', 'purpose', 'protocol_sha256', 'artifacts', 'weights', 'bias',
+              'calibration', 'cutoff', 'supported_profiles', 'manifest_sha256'}
+    if protocol.version == 2:
+        fields.add('local_binding')
+    require(set(model) == fields and model['schema'] == protocol.model_schema
+            and model['purpose'] == 'research' and token(model['version'])
+            and is_hex(model['manifest_sha256']), 'Invalid fusion model contract')
+    if protocol.version == 2:
+        validate_local_binding(model['local_binding'])
+    if context is not None:
+        require(protocol == context.protocol and model.get('local_binding') == context.local_binding,
+                'Frozen local detector binding changed')
+    cal = model['calibration']
+    require(isinstance(model['weights'], list) and len(model['weights']) == len(protocol.features)
+            and isinstance(cal, dict) and set(cal) == {'slope', 'intercept', 'messages', 'positive_fraction'},
+            'Invalid fusion model dimensions/calibration')
+    require(all(numeric(v) and abs(v) <= 1e6 for v in
+                [model['bias'], model['cutoff'], cal['slope'], cal['intercept'], *model['weights']])
+            and cal['slope'] >= 0 and type(cal['messages']) is int and 2 <= cal['messages'] <= 100_000
+            and numeric(cal['positive_fraction']) and 0 < cal['positive_fraction'] < 1,
+            'Invalid fusion coefficients/calibration')
+    profiles = model['supported_profiles']
+    require(isinstance(profiles, list) and 0 < len(profiles) <= 128
+            and all(isinstance(p, str) and 0 < len(p) <= 256
+                    and all(c in 'abcdefghijklmnopqrstuvwxyz/_' for c in p) for p in profiles)
+            and profiles == sorted(set(profiles)), 'Invalid fusion availability profiles')
+    if protocol.version == 2:
+        require(all(len(p.split('/')) == 14 and all(s in LOCAL_STATES for s in p.split('/')[-2:])
+                    for p in profiles), 'Invalid v2 local availability profiles')
+    return protocol
 
 
 def pinned_path(root, entry):
@@ -164,12 +352,18 @@ def audit_groups(rows, history):
 
 
 def load_experiment(manifest_path):
+    # Preserve the public five-element v1 return contract.
+    return load_experiment_context(manifest_path)[:5]
+
+
+def load_experiment_context(manifest_path):
     raw = bound_bytes(manifest_path, 64 * 1024)
     manifest = decode(raw)
     require(set(manifest) == {'schema', 'version', 'purpose', 'protocol_sha256', 'vectors',
                              'annotations', 'base_history', 'sampling'}, 'Unsupported manifest fields')
     require(manifest['schema'] == 'noisefence-fusion-experiment-1' and manifest['purpose'] == 'research'
-            and manifest['protocol_sha256'] == PROTOCOL_HASH and token(manifest['version']), 'Invalid experiment contract')
+            and token(manifest['version']), 'Invalid experiment contract')
+    protocol = protocol_for_hash(manifest['protocol_sha256'])
     sampling = manifest['sampling']
     require(isinstance(sampling, dict) and set(sampling) == {'kind', 'description', 'authorization', 'start_at', 'end_at'}
             and sampling['kind'] in ('corrections', 'synthetic', 'representative')
@@ -181,9 +375,7 @@ def load_experiment(manifest_path):
     data = list(lines(paths['vectors']))
     require(len(data) >= 3, 'Empty vector export')
     header, footer = data[0], data[-1]
-    require(set(header) == {'type', 'schema', 'protocol_sha256', 'artifacts'}
-            and header['type'] == 'header' and header['schema'] == 'noisefence-fusion-vectors-1'
-            and header['protocol_sha256'] == PROTOCOL_HASH, 'Invalid Rust vector protocol')
+    context = vector_context(header, protocol)
     artifacts = header['artifacts']
     optional_hashes = ('lexical_model_sha256', 'semantic_model_sha256', 'llm_prompt_sha256',
                        'antivirus_database_sha256', 'signatures_database_sha256')
@@ -213,8 +405,8 @@ def load_experiment(manifest_path):
                 and annotation['split'] in SPLITS and is_hex(annotation['campaign'])
                 and token(annotation['language']) and token(annotation['kind']), 'Invalid human annotation')
         annotations[annotation['id']] = annotation
-    minimum = np.array([f['minimum'] for f in PROTOCOL['features']])
-    maximum = np.array([f['maximum'] for f in PROTOCOL['features']])
+    minimum = np.array([f.minimum for f in protocol.features])
+    maximum = np.array([f.maximum for f in protocol.features])
     rows, ids = [], set()
     for row in data[1:-1]:
         require(set(row) == {'type', 'id', 'fingerprint', 'simhash', 'observed_at', 'labelled_at', 'source',
@@ -232,6 +424,7 @@ def load_experiment(manifest_path):
                 and all(numeric(v) for v in row['values']), 'Invalid native feature vector')
         vector = np.array(row['values'])
         require(np.all(vector >= minimum) and np.all(vector <= maximum), 'Feature outside native bounds')
+        validate_local_vector(row, context)
         annotation = annotations.get(row['id'])
         require(annotation is not None and (annotation['label'] == 'uncertain'
                 or row['spam'] == (annotation['label'] != 'legit')), 'Annotation conflicts with human feedback')
@@ -256,7 +449,7 @@ def load_experiment(manifest_path):
     # a manifest hash for different contents.
     for key, path in paths.items():
         require(pinned_path(root, manifest[key]) == path, 'Input changed during loading')
-    return manifest, hashlib.sha256(raw).hexdigest(), artifacts, rows, {'export': counts, 'grouping': grouping}
+    return manifest, hashlib.sha256(raw).hexdigest(), artifacts, rows, {'export': counts, 'grouping': grouping}, context
 
 
 def wilson(success, total):
@@ -338,7 +531,16 @@ def calibration_metrics(labels, probabilities):
             'log_loss': float(-np.mean(labels*np.log(p)+(1-labels)*np.log1p(-p))), 'bins': bins}
 
 
-def model_predictions(model, rows):
+def model_predictions(model, rows, context=None):
+    protocol = validate_model(model, context)
+    require(all(isinstance(r['values'], list) and len(r['values']) == len(protocol.features)
+                and all(numeric(value) and feature.minimum <= value <= feature.maximum
+                        for value, feature in zip(r['values'], protocol.features)) for r in rows),
+            'Invalid native feature vector for model protocol')
+    if protocol.version == 2:
+        local_context = context or ExperimentContext(protocol, model['local_binding'])
+        for row in rows:
+            validate_local_vector(row, local_context)
     matrix = np.array([r['values'] for r in rows], dtype=float)
     logits = matrix @ np.array(model['weights']) + model['bias']
     cal = model['calibration']
@@ -357,7 +559,8 @@ def private_json(path, value):
 
 
 def fit(manifest_path, output):
-    manifest, manifest_hash, artifacts, rows, audit = load_experiment(manifest_path)
+    manifest, manifest_hash, artifacts, rows, audit, context = load_experiment_context(manifest_path)
+    protocol = context.protocol
     require(not output.exists(), 'Output already exists; keep frozen experiments immutable')
     output.mkdir(parents=True, mode=0o700)
     parts = {split: [r for r in rows if r['split'] == split] for split in SPLITS}
@@ -372,8 +575,8 @@ def fit(manifest_path, output):
     eligible['development'] = np.array([r['tag_eligible'] and r['availability_profile'] in training_profiles
                                         for r in parts['development']])
     choices, hashes = {}, {}
-    for variant, families in VARIANTS.items():
-        mask = np.array([f['family'] in families for f in PROTOCOL['features']])
+    for variant, families in protocol.variants:
+        mask = np.array([f.family in families for f in protocol.features])
         scaler = StandardScaler().fit(matrices['train'][:, mask])
         train = scaler.transform(matrices['train'][:, mask])
         candidates = []
@@ -392,14 +595,17 @@ def fit(manifest_path, output):
         selected = max(candidates, key=lambda v: (v[0]['recall'], -v[0]['fpr'], -v[1]))
         _, c, weights, bias = selected
         logits = {s: matrices[s] @ weights + bias for s in SPLITS[:-1]}
-        model = {'schema': 'noisefence-fusion-model-1', 'version': manifest['version']+'-'+variant,
-                 'purpose': 'research', 'protocol_sha256': PROTOCOL_HASH, 'artifacts': artifacts,
+        model = {'schema': protocol.model_schema, 'version': manifest['version']+'-'+variant,
+                 'purpose': 'research', 'protocol_sha256': protocol.sha256, 'artifacts': artifacts,
                  'weights': weights.tolist(), 'bias': bias,
                  'calibration': calibrate(logits['calibration'], labels['calibration']),
                  'cutoff': choose_cutoff(labels['threshold'], logits['threshold'], eligible['threshold']),
                  'supported_profiles': profiles, 'manifest_sha256': manifest_hash}
+        if protocol.version == 2:
+            model['local_binding'] = context.local_binding
         require(token(model['version']) and all(math.isfinite(v) and abs(v) <= 1e6 for v in [bias, model['cutoff'], *weights]),
                 'Model exceeds native contract bounds')
+        validate_model(model, context)
         private_json(output / (variant+'.json'), model)
         hashes[variant] = hashlib.sha256((output / (variant+'.json')).read_bytes()).hexdigest()
         choices[variant] = {'selected_C': c, 'development_grid': [{'C': v[1], 'metrics': v[0]} for v in candidates],
@@ -407,7 +613,7 @@ def fit(manifest_path, output):
     # This receipt is written only after every frozen model succeeds. Evaluation
     # verifies it and reuses those coefficients; it never refits a variant.
     receipt = {'schema': 'noisefence-fusion-fit-1', 'manifest_sha256': manifest_hash, 'models_sha256': hashes,
-               'protocol_sha256': PROTOCOL_HASH, 'choices': choices, 'audit': audit,
+               'protocol_sha256': protocol.sha256, 'choices': choices, 'audit': audit,
                'fit_counts': {s: dict(Counter('unwanted' if r['spam'] else 'legit' for r in parts[s])) for s in SPLITS[:-1]},
                'availability_counts': {s: dict(Counter(r['availability_profile'] for r in parts[s])) for s in SPLITS[:-1]},
                'test_evaluated': False, 'production_eligible': False}
@@ -416,20 +622,22 @@ def fit(manifest_path, output):
 
 
 def evaluate(manifest_path, output):
-    manifest, manifest_hash, artifacts, rows, audit = load_experiment(manifest_path)
+    manifest, manifest_hash, artifacts, rows, audit, context = load_experiment_context(manifest_path)
+    protocol = context.protocol
     require(not (output / 'test.json').exists(), 'Test already consumed for this frozen experiment')
     receipt = decode(bound_bytes(output / 'fit.json', 2 * 1024 * 1024))
     require(receipt['schema'] == 'noisefence-fusion-fit-1' and receipt['manifest_sha256'] == manifest_hash
-            and receipt['protocol_sha256'] == PROTOCOL_HASH, 'Frozen experiment mismatch')
+            and receipt['protocol_sha256'] == protocol.sha256
+            and set(receipt['models_sha256']) == set(protocol.variant_names), 'Frozen experiment mismatch')
     test = [r for r in rows if r['split'] == 'test']
     labels = np.array([r['spam'] for r in test], bool)
     results = {}
-    for variant in VARIANTS:
+    for variant in protocol.variant_names:
         raw = bound_bytes(output / (variant+'.json'), 128 * 1024)
         require(hashlib.sha256(raw).hexdigest() == receipt['models_sha256'][variant], 'Frozen model changed')
         model = decode(raw)
         require(model['manifest_sha256'] == manifest_hash and model['artifacts'] == artifacts, 'Frozen detector cohort changed')
-        _, probabilities, predictions = model_predictions(model, test)
+        _, probabilities, predictions = model_predictions(model, test, context)
         strata = {}
         for field in ('language', 'kind', 'label', 'availability_profile'):
             strata[field] = {value: metrics(labels[mask], predictions[mask]) for value in sorted({r[field] for r in test})

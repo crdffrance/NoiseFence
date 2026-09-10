@@ -1,6 +1,6 @@
 //! Predict every retained population row, without treating absent evidence as ham.
 //! Offline only: a hypothetical candidate decision is not a delivery outcome.
-use super::{Model, availability_profile, runtime::Decision, valid_hash};
+use super::{Model, runtime::Decision, valid_hash};
 use crate::{
     evidence::{Evidence, Source},
     population::{Report, SCHEMA},
@@ -186,6 +186,7 @@ fn validate(row: &Row, header: &Header, count: &mut Report) -> Result<()> {
 /// bound to the exact parsed bytes; the footer binds all input bytes (not a path).
 pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<PredictionReport> {
     let (model, model_sha256) = Model::load_bound(model_path)?;
+    let feature_version = model.feature_version()?;
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -242,7 +243,7 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
                 write(
                     &mut writer,
                     serde_json::json!({"type":"header","schema":PREDICTIONS_SCHEMA,
-                    "source":h,"protocol_sha256":super::protocol_sha256(),"model_sha256":model_sha256,
+                    "source":h,"protocol_sha256":model.protocol_sha256,"model_sha256":model_sha256,
                     "manifest_sha256":model.manifest_sha256,"hypothetical":true,"production_eligible":false}),
                 )?;
                 header = Some(h);
@@ -262,6 +263,20 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
                         report.artifact_mismatch += 1;
                         ("artifact_mismatch", None)
                     }
+                    Some(e) if feature_version == 2 && e.local.is_none() => {
+                        ("missing_local_evidence", None)
+                    }
+                    Some(e)
+                        if feature_version == 2
+                            && e.local.as_ref().map(|l| &l.binding)
+                                != model.local_binding.as_ref() =>
+                    {
+                        report.artifact_mismatch += 1;
+                        ("artifact_mismatch", None)
+                    }
+                    Some(e) if feature_version == 2 && super::features_for(e, 2).is_err() => {
+                        ("invalid_local_evidence", None)
+                    }
                     Some(e) => {
                         // Use original detector completeness, not a previous fusion
                         // candidate's stored decision/completeness or old threshold.
@@ -280,7 +295,7 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
                     "raw_sha256":row.raw_sha256,"fingerprint":row.fingerprint,"simhash":row.simhash,
                     "complete":row.complete,"features_complete":row.features_complete,"decision":row.decision,
                     "tagged":row.tagged,"label":row.label,"evidence_status":row.evidence_status,
-                    "availability_profile":row.evidence.as_ref().map(availability_profile),
+                    "availability_profile":row.evidence.as_ref().and_then(|e| super::profile_for(e, feature_version).ok()),
                     "assessment":status,"prediction":prediction}),
                 )?;
             }

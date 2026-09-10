@@ -154,3 +154,68 @@ fn malformed_or_partial_populations_never_publish_a_result() {
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 }
+
+#[test]
+fn v2_population_keeps_missing_invalid_and_mismatched_local_observations() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config: Config = toml::from_str(include_str!("../config/development.toml")).unwrap();
+    config.heuristics = Some(Default::default());
+    config.content_inspection = Some(Default::default());
+    let (model, e) = fixture::local_model(
+        &config,
+        b"From: fixture@example.test\r\nSubject: Software test\r\n\r\nBonjour\r\n",
+    );
+    let model_path = dir.path().join("model.json");
+    fs::write(&model_path, serde_json::to_vec(&model).unwrap()).unwrap();
+    let mut missing = e.clone();
+    missing.local = None;
+    let mut invalid = e.clone();
+    invalid.local.as_mut().unwrap().structure.counts[0] = 257;
+    let mut mismatch = e.clone();
+    mismatch
+        .local
+        .as_mut()
+        .unwrap()
+        .binding
+        .heuristics
+        .as_mut()
+        .unwrap()
+        .settings_digest = "b".repeat(64);
+    let input = dir.path().join("population.jsonl");
+    snapshot(
+        &input,
+        &[
+            row(0, Some(e)),
+            row(1, Some(missing)),
+            row(2, Some(invalid)),
+            row(3, Some(mismatch)),
+        ],
+    );
+    let output = dir.path().join("predictions.jsonl");
+    let result = fusion::population::predict(&input, &model_path, &output).unwrap();
+    assert_eq!(
+        (
+            result.rows,
+            result.assessed,
+            result.unassessable,
+            result.artifact_mismatch
+        ),
+        (4, 1, 3, 1)
+    );
+    let records: Vec<Value> = fs::read_to_string(&output)
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(records[0]["protocol_sha256"], model.protocol_sha256);
+    for (index, reason) in [
+        (2, "missing_local_evidence"),
+        (3, "invalid_local_evidence"),
+        (4, "artifact_mismatch"),
+    ] {
+        assert_eq!(records[index]["assessment"], reason);
+        assert!(records[index]["prediction"].is_null());
+        assert_eq!(records[index]["label"]["unwanted"], true);
+    }
+    assert!(records[2]["availability_profile"].is_null());
+}

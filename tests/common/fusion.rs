@@ -19,6 +19,7 @@ pub fn fixture(config: &Config) -> (Model, Evidence) {
     evidence.authentication.arc = Some(AuthResult::None);
     evidence.authentication.arc_can_seal = Some(true);
     let model = Model {
+        local_binding: None,
         schema: fusion::SCHEMA.into(),
         version: "SOFTWARE-TEST-ONLY".into(),
         protocol_sha256: fusion::protocol_sha256(),
@@ -78,4 +79,47 @@ pub fn install(config: &mut Config, mode: Mode) -> (Model, Validation) {
         validation_report: Some(report),
     });
     (model, validation)
+}
+
+pub fn local_evidence(config: &Config, raw: &[u8]) -> Evidence {
+    let (_, mut e) = fixture(config);
+    let mut scan = noisefence::features::extract(raw, config.filter.max_analysis_bytes);
+    scan.research_execution = Some(noisefence::research_engines::Execution {
+        version: noisefence::research_engines::VERSION.into(),
+        status: noisefence::research_engines::Status::Complete,
+        elapsed_ms: 0,
+    });
+    scan.heuristics = config.heuristics.clone().map(|s| {
+        noisefence::heuristics::Runtime::new(s)
+            .unwrap()
+            .inspect(raw)
+    });
+    scan.content_inspection = config
+        .content_inspection
+        .as_ref()
+        .map(|s| noisefence::content_inspection::analyze(raw, s));
+    let binding = fusion::local::Binding::from_config(config).unwrap();
+    e.local = Some(fusion::local::LocalEvidence::capture(&binding, &scan));
+    e
+}
+
+pub fn local_model(config: &Config, raw: &[u8]) -> (Model, Evidence) {
+    let (mut model, _) = fixture(config);
+    let evidence = local_evidence(config, raw);
+    model.schema = fusion::SCHEMA_V2.into();
+    model.protocol_sha256 = fusion::protocol_hash_for(2).unwrap();
+    model.local_binding = evidence.local.as_ref().map(|l| l.binding.clone());
+    model.weights = vec![0.0; fusion::specs_for(2).unwrap().len()];
+    for name in ["heuristics.rule_00.hit", "structure.html_active_element"] {
+        let i = fusion::specs_for(2)
+            .unwrap()
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap();
+        model.weights[i] = 1.0;
+    }
+    model.bias = -1.5;
+    model.cutoff = 0.0;
+    model.supported_profiles = vec![fusion::profile_for(&evidence, 2).unwrap()];
+    (model, evidence)
 }

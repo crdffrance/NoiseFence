@@ -156,6 +156,9 @@ enum Command {
         input: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// 1 keeps the original contract; 2 includes local heuristics and structure.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
+        feature_version: u8,
     },
     /// Evaluate a research fusion model offline; never activates or delivers mail.
     FusionPredict {
@@ -259,10 +262,19 @@ async fn main() -> Result<()> {
             );
             return Ok(());
         }
-        Command::FusionExport { input, output } => {
+        Command::FusionExport {
+            input,
+            output,
+            feature_version,
+        } => {
             println!(
                 "{}",
-                serde_json::to_string(&noisefence::fusion::io::convert(input, output, None)?)?
+                serde_json::to_string(&noisefence::fusion::io::convert_version(
+                    input,
+                    output,
+                    None,
+                    *feature_version
+                )?)?
             );
             return Ok(());
         }

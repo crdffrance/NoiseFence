@@ -15,6 +15,8 @@ def pin(path):
 
 
 def verify(experiment, binary, output):
+    _, _, _, _, _, context = f.load_experiment_context(experiment/'manifest.json')
+    protocol = context.protocol
     output.mkdir(parents=True, mode=0o700)
     originals = list(f.lines(experiment/'observations.jsonl'))
     rows, annotations = [], []
@@ -50,6 +52,15 @@ def verify(experiment, binary, output):
         if i == 10:
             label.update(status='unlabelled', unwanted=None, labelled_at=None, authorized_votes=0)
             annotation['basis'] = 'reviewed'
+        if protocol.version == 2:
+            if i == 11:
+                evidence.pop('local')
+            if i == 12:
+                evidence['local']['structure']['counts'][0] = 257
+            if i == 13:
+                evidence['local']['binding']['heuristics']['settings_digest'] = 'e'*64
+            if i == 14:
+                evidence['local']['heuristics'].update(state='partial', rule_hits=[False]*64)
         if i == 20:
             row.update(fingerprint=rows[0]['fingerprint'], simhash=rows[0]['simhash'])
             annotation['campaign'] = annotations[0]['campaign']
@@ -76,7 +87,7 @@ def verify(experiment, binary, output):
     candidate = experiment/'candidate'
     manifest = {'schema':population.SCHEMA, 'population':pin(output/'population.jsonl'),
                 'annotations':pin(output/'annotations.jsonl'), 'experiment':pin(experiment/'manifest.json'),
-                'fit':pin(candidate/'fit.json'), 'models':{v:pin(candidate/(v+'.json')) for v in f.VARIANTS},
+                'fit':pin(candidate/'fit.json'), 'models':{v:pin(candidate/(v+'.json')) for v in protocol.variant_names},
                 'binary':pin(binary), 'sampling':{'kind':'synthetic', 'description':'Complete synthetic snapshot',
                 'authorization':'Software fixtures only', 'start_at':1788739200,'end_at':1788739600},
                 'review':{'reference':'Synthetic software test; no quality claim', 'reviewed_at':1788740000,
@@ -85,18 +96,22 @@ def verify(experiment, binary, output):
     f.private_json(path, manifest)
     report = population.evaluate(path, output/'evaluation')
     checked = 0
-    for variant in f.VARIANTS:
+    unassessable = 7 if protocol.version == 2 else 4
+    for variant in protocol.variant_names:
         result = report['variants'][variant]
         m = result['metrics']
-        f.require(m['population'] == 400 and m['unassessable'] == 4 and m['unknown_truth'] == 1,
+        f.require(m['population'] == 400 and m['unassessable'] == unassessable and m['unknown_truth'] == 1,
                   'Population omissions escaped the denominators')
         f.require(not result['target_supported_on_this_population'], 'Synthetic data authorized a quality claim')
         previous = {r['id']:r['prediction'] for r in f.lines(experiment/(variant+'-native.jsonl')) if r['type'] == 'row'}
         current = [r for r in f.lines(output/'evaluation'/(variant+'.predictions.jsonl')) if r['type'] == 'row']
         for i, row in enumerate(current):
-            if i in (2,3,4,5):
+            if i in (2,3,4,5) or protocol.version == 2 and i in (11,12,13):
                 f.require(row['prediction'] is None, 'Missing evidence became a negative prediction')
-            elif i == 6:
+                if protocol.version == 2 and i in (11,12,13):
+                    f.require(row['assessment'] == {11:'missing_local_evidence', 12:'invalid_local_evidence',
+                              13:'artifact_mismatch'}[i], 'Local evidence loss was misclassified')
+            elif i == 6 or protocol.version == 2 and i == 14:
                 f.require(row['prediction']['would_tag'] is False, 'Incomplete analysis escaped fail-open')
             else:
                 f.require(row['prediction'] == previous[originals[i]['id']], 'Population and ordinary native prediction differ')
@@ -109,7 +124,7 @@ def verify(experiment, binary, output):
         raise AssertionError('Population test could be silently reused')
     result = {'schema':'noisefence-population-software-validation-1', 'synthetic':True,
               'population_rows':len(rows), 'predictions_checked':checked,
-              'unassessable_per_variant':4, 'unknown_truth_per_variant':1,
+              'unassessable_per_variant':unassessable, 'unknown_truth_per_variant':1,
               'decision_disagreements':0, 'reuse_refused':True, 'production_eligible':False,
               'mail_sent':False, 'external_analysis_calls':0}
     f.private_json(output/'software-validation.json', result)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate five frozen candidates on every row of a private SMTP population.
+"""Evaluate protocol-selected frozen candidates on every row of an SMTP population.
 
 No fitting, content access, network requests, activation or mail delivery. Native
 Rust predictions are bound to the population and model bytes. Unknown evidence
@@ -169,14 +169,16 @@ def target_supported(result, rows, sampling, review):
     return True
 
 
-def checked_predictions(path, population_hash, model_hash, manifest_hash):
+def checked_predictions(path, population_hash, model_hash, manifest_hash, protocol=None):
+    if protocol is None:
+        protocol = f.protocol_for_hash(f.PROTOCOL_HASH)
     data = list(f.lines(path, max_line=16 * 1024 * 1024))
     f.require(len(data) >= 2, 'Missing native population prediction envelope')
     header, footer = data[0], data[-1]
     f.require(set(header) == {'type', 'schema', 'source', 'protocol_sha256', 'model_sha256',
               'manifest_sha256', 'hypothetical', 'production_eligible'}
               and header['type'] == 'header' and header['schema'] == PREDICTIONS
-              and header['protocol_sha256'] == f.PROTOCOL_HASH and header['model_sha256'] == model_hash
+              and header['protocol_sha256'] == protocol.sha256 and header['model_sha256'] == model_hash
               and header['manifest_sha256'] == manifest_hash and header['hypothetical'] is True
               and header['production_eligible'] is False, 'Native prediction model binding mismatch')
     f.require(set(footer) == {'type', 'schema', 'population_sha256', 'source_counts', 'counts'}
@@ -197,7 +199,12 @@ def checked_predictions(path, population_hash, model_hash, manifest_hash):
         seen.add(r['id'])
         p = r['prediction']
         if p is None:
-            f.require(r['assessment'] in ('missing_or_invalid_evidence', 'artifact_mismatch'), 'Unknown assessment status')
+            statuses = ('missing_or_invalid_evidence', 'artifact_mismatch')
+            if protocol.version == 2:
+                statuses += ('missing_local_evidence', 'invalid_local_evidence')
+            f.require(r['assessment'] in statuses, 'Unknown assessment status')
+            if r['assessment'] == 'missing_local_evidence':
+                f.require(r['availability_profile'] is None, 'Missing local evidence cannot supply a profile')
             actual['unassessable'] += 1
             actual['artifact_mismatch'] += r['assessment'] == 'artifact_mismatch'
         else:
@@ -222,11 +229,16 @@ def evaluate(manifest_path, output):
     manifest = f.decode(raw)
     f.require(set(manifest) == {'schema', 'population', 'annotations', 'experiment', 'fit', 'models', 'binary',
               'sampling', 'review'} and manifest['schema'] == SCHEMA, 'Invalid population evaluation manifest')
-    f.require(isinstance(manifest['models'], dict) and set(manifest['models']) == set(f.VARIANTS), 'Freeze all five variants')
     root = manifest_path.parent
     pins = {key: manifest[key] for key in ('population', 'annotations', 'experiment', 'fit', 'binary')}
-    pins.update({name: manifest['models'][name] for name in f.VARIANTS})
     paths = {key: f.pinned_path(root, pin) for key, pin in pins.items()}
+    original, experiment_hash, artifacts, selected_rows, audit, context = f.load_experiment_context(paths['experiment'])
+    del selected_rows
+    protocol = context.protocol
+    f.require(isinstance(manifest['models'], dict) and set(manifest['models']) == set(protocol.variant_names),
+              'Freeze exactly the variants selected by the experiment protocol')
+    pins.update({name: manifest['models'][name] for name in protocol.variant_names})
+    paths.update({name: f.pinned_path(root, pins[name]) for name in protocol.variant_names})
 
     def recheck():
         f.require(f.bound_bytes(manifest_path, 64 * 1024) == raw, 'Population manifest changed')
@@ -235,14 +247,13 @@ def evaluate(manifest_path, output):
         for key in ('vectors', 'annotations', 'base_history'):
             f.pinned_path(paths['experiment'].parent, original[key])
 
-    original, experiment_hash, artifacts, selected_rows, audit = f.load_experiment(paths['experiment'])
-    del selected_rows
     receipt = f.decode(f.bound_bytes(paths['fit'], 2 * 1024 * 1024))
     f.require(receipt['schema'] == 'noisefence-fusion-fit-1' and receipt['manifest_sha256'] == experiment_hash
-              and receipt['protocol_sha256'] == f.PROTOCOL_HASH and set(receipt['models_sha256']) == set(f.VARIANTS),
+              and receipt['protocol_sha256'] == protocol.sha256 and set(receipt['models_sha256']) == set(protocol.variant_names),
               'Frozen fit receipt mismatch')
-    for variant in f.VARIANTS:
+    for variant in protocol.variant_names:
         model = f.decode(f.bound_bytes(paths[variant], 128 * 1024))
+        f.validate_model(model, context)
         f.require(pins[variant]['sha256'] == receipt['models_sha256'][variant]
                   and model['manifest_sha256'] == experiment_hash and model['artifacts'] == artifacts,
                   'Frozen model changed')
@@ -278,7 +289,7 @@ def evaluate(manifest_path, output):
     output.mkdir(parents=True, mode=0o700)
     f.private_json(output/'started.json', f.decode(consumed.read_bytes()))
     results, first = {}, None
-    for variant in f.VARIANTS:
+    for variant in protocol.variant_names:
         recheck()
         prediction_path = output / (variant + '.predictions.jsonl')
         # Never invoke a shell; the executable itself is a reviewed, pinned input.
@@ -286,7 +297,7 @@ def evaluate(manifest_path, output):
                         '--model', str(paths[variant]), '--output', str(prediction_path)],
                        check=True, stdout=subprocess.DEVNULL, timeout=300)
         header, native_rows, footer = checked_predictions(prediction_path, pins['population']['sha256'],
-                                                         pins[variant]['sha256'], experiment_hash)
+                                                         pins[variant]['sha256'], experiment_hash, protocol)
         source = header['source']
         f.require(source['since'] == sampling['start_at'] and source['until'] == sampling['end_at']
                   and source['captured_at'] <= review['reviewed_at'], 'Reviewed sampling interval differs from snapshot')

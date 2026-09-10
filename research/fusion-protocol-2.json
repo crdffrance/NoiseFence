@@ -1,0 +1,1986 @@
+{
+  "schema": "noisefence-fusion-features-2",
+  "evidence_schema": "noisefence-evidence-1",
+  "features": [
+    {
+      "name": "lexical.state.disabled",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.state.not_run",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.state.complete",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.state.unavailable",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.state.busy",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.state.skipped",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.state.limited",
+      "family": "lexical",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "lexical.logit_clipped_32",
+      "family": "lexical",
+      "minimum": -1,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.disabled",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.not_run",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.complete",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.unavailable",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.busy",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.skipped",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.state.limited",
+      "family": "semantic",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "semantic.logit_clipped_32",
+      "family": "semantic",
+      "minimum": -1,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.disabled",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.not_run",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.complete",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.unavailable",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.busy",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.skipped",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.state.limited",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.disabled",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.not_run",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.complete",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.unavailable",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.busy",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.skipped",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.state.limited",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.disabled",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.not_run",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.complete",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.unavailable",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.busy",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.skipped",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc.state.limited",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.disabled",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.not_run",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.complete",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.unavailable",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.busy",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.skipped",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.state.limited",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.pass",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.soft_fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.neutral",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.none",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.temp_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.spf.perm_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.pass",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.soft_fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.neutral",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.none",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.temp_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.perm_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.pass",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.soft_fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.neutral",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.none",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.temp_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_spf.perm_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.pass",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.soft_fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.neutral",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.none",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.temp_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dmarc_dkim.perm_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.pass",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.soft_fail",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.neutral",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.none",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.temp_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.perm_error",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.dkim.unsigned",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "auth.arc.can_seal",
+      "family": "authentication",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.disabled",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.not_run",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.complete",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.unavailable",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.busy",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.skipped",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.state.limited",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.disabled",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.not_run",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.complete",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.unavailable",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.busy",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.skipped",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.state.limited",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_2",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_3",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_4",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_9",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_10",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_11",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.ip.code_30",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.stopped_after_positive",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_disabled_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_not_run_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_complete_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_unavailable_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_busy_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_skipped_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.queries_limited_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.code_2",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.code_4",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.code_5",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.envelope_from.code_6",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_disabled_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_not_run_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_complete_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_unavailable_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_busy_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_skipped_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.queries_limited_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.code_2",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.code_4",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.code_5",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.helo.code_6",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_disabled_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_not_run_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_complete_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_unavailable_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_busy_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_skipped_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.queries_limited_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.code_2",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.code_4",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.code_5",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.header_from.code_6",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_disabled_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_not_run_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_complete_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_unavailable_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_busy_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_skipped_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.queries_limited_div12",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_2",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_4",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_5",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_6",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_102",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_103",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_104",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_105",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "reputation.body.code_106",
+      "family": "reputation",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.disabled",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.not_run",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.complete",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.unavailable",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.busy",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.skipped",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.state.limited",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_literal_match",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_literal_mismatch",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_invalid",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_local_identity",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_verified",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_no_address",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.helo_address_mismatch",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.ptr_missing",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.ptr_verified",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.ptr_unconfirmed",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.sender_null",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.sender_no_mail_route",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.sender_implicit_mx",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.sender_null_mx",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "smtp_policy.sender_mx_present",
+      "family": "smtp_policy",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.disabled",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.not_run",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.complete",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.unavailable",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.busy",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.skipped",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.state.limited",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.clean",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.malware",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.suspicious",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.unscannable",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "antivirus.unavailable",
+      "family": "antivirus",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.disabled",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.not_run",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.complete",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.unavailable",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.busy",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.skipped",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.state.limited",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.clean",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.malware",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.suspicious",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.unscannable",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "signatures.unavailable",
+      "family": "signatures",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.disabled",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.not_run",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.complete",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.unavailable",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.busy",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.skipped",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.state.limited",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.disabled",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.not_needed",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.busy",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.budget_limited",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.pricing_expired",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.unavailable",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.outcome.complete",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.category.legitimate",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.category.spam",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.category.phishing",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.category.ambiguous",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.reported_probability",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "llm.reported_confidence",
+      "family": "llm",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.missing",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.disabled",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.complete",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.busy",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.partial",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.invalid",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.state.unavailable",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_00.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_01.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_02.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_03.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_04.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_05.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_06.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_07.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_08.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_09.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_10.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_11.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_12.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_13.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_14.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_15.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_16.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_17.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_18.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_19.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_20.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_21.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_22.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_23.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_24.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_25.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_26.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_27.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_28.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_29.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_30.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_31.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_32.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_33.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_34.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_35.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_36.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_37.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_38.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_39.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_40.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_41.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_42.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_43.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_44.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_45.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_46.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_47.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_48.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_49.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_50.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_51.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_52.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_53.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_54.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_55.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_56.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_57.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_58.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_59.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_60.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_61.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_62.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "heuristics.rule_63.hit",
+      "family": "heuristics",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.missing",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.disabled",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.complete",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.busy",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.partial",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.invalid",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.state.unavailable",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.html_active_element",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.html_event_handler",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.html_active_url",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.pdf_active_name",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.office_vba_project",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.office_xlm_macros",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.office_external_relationship",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.office_embedded_object",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.type_mismatch",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.html_parts_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.images_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.pdfs_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.office_documents_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.image_dimensions",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.image_count",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.html_refresh",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.html_embedded_content",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.pdf_external_reference",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.office_macro_enabled",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.png_parts_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.jpeg_parts_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.gif_parts_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.pdf_parts_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.image_max_width_log16384",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.image_max_height_log16384",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.image_max_pixels_log100000000",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.image_bytes_log16777216",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.pdf_bytes_log16777216",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.tiny_images_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.animated_images_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "structure.missing_dimensions_div256",
+      "family": "structure",
+      "minimum": 0,
+      "maximum": 1
+    }
+  ],
+  "rules": {
+    "content_logits": "clip to [-32,32], then divide by 32; missing is zero with an explicit state",
+    "dns_domain_query_counts": "per role and state, divided by 12",
+    "abused_legitimate_domains": "codes 102..106 are body-only features",
+    "dkim_results": "presence by result, not number of signatures; complete empty list sets unsigned",
+    "missing_values": "zero-valued measurements retain explicit availability states",
+    "excluded": [
+      "source",
+      "legacy_score",
+      "analysis_complete",
+      "llm.requested_at_score",
+      "manual_weights",
+      "durations",
+      "identities",
+      "text",
+      "labels"
+    ]
+  }
+}

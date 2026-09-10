@@ -213,6 +213,21 @@ pub struct Runtime {
     validation: Option<Validation>,
 }
 impl Runtime {
+    pub fn load_with_local(
+        settings: &Settings,
+        artifacts: &Artifacts,
+        binding: &super::local::Binding,
+    ) -> Result<Self> {
+        let runtime = Self::load(settings, artifacts)?;
+        if runtime.model.feature_version()? == 2 {
+            binding.validate()?;
+            ensure!(
+                runtime.model.local_binding.as_ref() == Some(binding),
+                "fusion model does not match loaded local detectors"
+            );
+        }
+        Ok(runtime)
+    }
     pub fn load(settings: &Settings, artifacts: &Artifacts) -> Result<Self> {
         settings.validate()?;
         let (model, sha256) = Model::load_bound(&settings.model)?;

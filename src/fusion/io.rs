@@ -1,5 +1,5 @@
 //! Offline, bounded conversion of trusted learning exports. No bodies or DNS.
-use super::{Model, availability_profile, features, tag_eligible};
+use super::Model;
 use crate::evidence::{Artifacts, Evidence, Source};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -11,8 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-// Deliberate allow-list: content vectors and any other additive learning fields
-// are ignored. They cannot influence a fusion feature or become output text.
+// Deliberate allow-list: only typed Evidence feeds the selected native protocol.
+// Sibling content vectors, free-form reports and text never enter these features.
 #[derive(Deserialize)]
 struct Input {
     schema: String,
@@ -50,6 +50,27 @@ fn json_line(writer: &mut impl Write, value: impl Serialize) -> Result<()> {
 /// invalid observations abort atomically; omitted old/diagnostic rows are counted.
 /// Predictions use the same original evidence as training, not a Python encoder.
 pub fn convert(input: &Path, output: &Path, model: Option<&Model>) -> Result<Report> {
+    convert_version(
+        input,
+        output,
+        model,
+        model.map(Model::feature_version).transpose()?.unwrap_or(1),
+    )
+}
+pub fn convert_version(
+    input: &Path,
+    output: &Path,
+    model: Option<&Model>,
+    version: u8,
+) -> Result<Report> {
+    let protocol_hash = super::protocol_hash_for(version)?;
+    if let Some(model) = model {
+        model.validate()?;
+        ensure!(
+            model.feature_version()? == version,
+            "prediction feature version differs from model"
+        );
+    }
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -67,6 +88,7 @@ pub fn convert(input: &Path, output: &Path, model: Option<&Model>) -> Result<Rep
     let mut total = 0;
     let mut ids = HashSet::new();
     let mut artifacts: Option<Artifacts> = None;
+    let mut local_binding: Option<super::local::Binding> = None;
     loop {
         let mut line = Vec::new();
         let count = (&mut reader)
@@ -108,30 +130,42 @@ pub fn convert(input: &Path, output: &Path, model: Option<&Model>) -> Result<Rep
             report.non_smtp_evidence += 1;
             continue;
         }
-        let vector = features(&evidence)
+        if version == 2 && evidence.local.is_none() {
+            report.missing_evidence += 1;
+            continue;
+        }
+        let vector = super::features_for(&evidence, version)
             .with_context(|| format!("invalid observations at row {}", report.considered))?;
         if let Some(artifacts) = &artifacts {
             ensure!(
                 artifacts == &evidence.artifacts,
                 "mixed detector cohorts: export one artifact cohort at a time"
             );
+            if version == 2 {
+                ensure!(
+                    local_binding.as_ref() == evidence.local.as_ref().map(|l| &l.binding),
+                    "mixed local detector cohorts"
+                );
+            }
         } else {
             artifacts = Some(evidence.artifacts.clone());
-            json_line(
-                &mut writer,
-                serde_json::json!({
-                    "type":"header", "schema": if model.is_some() {"noisefence-fusion-predictions-1"} else {"noisefence-fusion-vectors-1"},
-                    "protocol_sha256":super::protocol_sha256(), "artifacts":artifacts
-                }),
-            )?;
+            let mut header = serde_json::json!({
+                "type":"header", "schema": if model.is_some() {"noisefence-fusion-predictions-1"} else {"noisefence-fusion-vectors-1"},
+                "protocol_sha256":protocol_hash, "artifacts":artifacts
+            });
+            if version == 2 {
+                local_binding = evidence.local.as_ref().map(|l| l.binding.clone());
+                header["local_binding"] = serde_json::to_value(&local_binding)?;
+            }
+            json_line(&mut writer, header)?;
         }
-        if !tag_eligible(&evidence) {
+        if !super::eligible_for(&evidence, version) {
             report.ineligible_to_tag += 1;
         }
         let mut output = serde_json::json!({"type":"row", "id":row.id,
             "fingerprint":row.fingerprint,"simhash":row.simhash,"observed_at":row.observed_at,
             "labelled_at":row.labelled_at,"source":row.source,"spam":row.spam,
-            "availability_profile":availability_profile(&evidence),"tag_eligible":tag_eligible(&evidence),
+            "availability_profile":super::profile_for(&evidence, version)?,"tag_eligible":super::eligible_for(&evidence, version),
             "legacy_score":evidence.legacy_score});
         if let Some(model) = model {
             output["prediction"] = serde_json::to_value(model.predict(&evidence)?)?;

@@ -11,10 +11,95 @@ use noisefence::{
 };
 use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt};
 
+// Small generated MIME parts exercise the decoder-to-model path, including
+// metadata coordinates. No attachment is executed or fetched.
+fn media_fixture(html: &str, seed: &[u8]) -> Vec<u8> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let mut raw = b"From: fixture@example.test\r\nSubject: Software test\r\nContent-Type: multipart/mixed; boundary=software_fixture\r\n\r\n".to_vec();
+    let mut part = |mime: &str, bytes: &[u8]| {
+        raw.extend(format!("--software_fixture\r\nContent-Type: {mime}\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n", STANDARD.encode(bytes)).as_bytes());
+    };
+    part("text/html; charset=utf-8", html.as_bytes());
+    if seed[16].is_multiple_of(2) {
+        let w = 1 + u32::from(seed[17] % 4);
+        let h = 1 + u32::from(seed[18] % 3);
+        let mut ihdr = w.to_be_bytes().to_vec();
+        ihdr.extend(h.to_be_bytes());
+        ihdr.extend([8, 0, 0, 0, 0]);
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(&vec![0; ((w + 1) * h) as usize]).unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        for (kind, data) in [
+            (b"IHDR", ihdr),
+            (b"IDAT", encoder.finish().unwrap()),
+            (b"IEND", vec![]),
+        ] {
+            png.extend((data.len() as u32).to_be_bytes());
+            let mut content = kind.to_vec();
+            content.extend(data);
+            png.extend(&content);
+            png.extend(crc32fast::hash(&content).to_be_bytes());
+        }
+        part("image/png", &png);
+    }
+    if seed[19].is_multiple_of(2) {
+        part(
+            "image/gif",
+            &STANDARD
+                .decode("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")
+                .unwrap(),
+        );
+    }
+    if seed[20].is_multiple_of(2) {
+        part(
+            "image/jpeg",
+            &[
+                0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 1, 0, 2, 1, 1, 0x11, 0, 0xff, 0xda, 0, 8, 1,
+                1, 0, 0, 63, 0, 0x42, 0xff, 0, 0xff, 0xd9,
+            ],
+        );
+    }
+    if seed[21].is_multiple_of(2) {
+        let mut pdf = b"%PDF-1.7\n".to_vec();
+        let object = pdf.len();
+        pdf.extend(b"1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+        let xref = pdf.len();
+        pdf.extend(format!("xref\n0 2\n0000000000 65535 f \n{object:010} 00000 n \ntrailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
+        part("application/pdf", &pdf);
+    }
+    raw.extend(b"--software_fixture--\r\n");
+    raw
+}
+
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    ensure!(args.len() == 2, "usage: fusion_fixture output.jsonl");
+    ensure!(
+        args.len() == 2 || (args.len() == 4 && args[2] == "--feature-version" && args[3] == "2"),
+        "usage: fusion_fixture output.jsonl [--feature-version 2]"
+    );
+    let v2 = args.len() == 4;
     let mut config: Config = toml::from_str(include_str!("../config/development.toml"))?;
+    if v2 {
+        config.heuristics = Some(noisefence::heuristics::Settings {
+            rules: vec![noisefence::heuristics::Rule {
+                id: "synthetic".into(),
+                label: "Software parity only".into(),
+                family: "content".into(),
+                scopes: vec![noisefence::heuristics::Scope::Body],
+                pattern: "software-danger".into(),
+                candidate_weight: 0.0,
+            }],
+            ..Default::default()
+        });
+        config.content_inspection = Some(Default::default());
+    }
+    let binding = noisefence::fusion::local::Binding::from_config(&config)?;
+    let heuristics = config
+        .heuristics
+        .clone()
+        .map(noisefence::heuristics::Runtime::new)
+        .transpose()?;
     config.filter.authentication = true;
     config.filter.spamhaus_key_env = Some("SYNTHETIC_NO_DNS_QUERY".into());
     config.smtp_policy = Some(toml::from_str("")?);
@@ -62,6 +147,47 @@ fn main() -> Result<()> {
         // All detector families vary. These are fabricated measurements and
         // labels for exercising software, never an efficacy or latency sample.
         let suspicious = |index: usize| h[index] < if spam { 180 } else { 70 };
+        if v2 {
+            let html = format!(
+                "<p>{}</p>{}",
+                if suspicious(14) {
+                    "software-danger"
+                } else {
+                    "Bonjour"
+                },
+                if suspicious(15) {
+                    "<script>void(0)</script>"
+                } else {
+                    ""
+                }
+            );
+            let raw = media_fixture(&html, &h);
+            let mut scan = noisefence::engine::Scan {
+                research_execution: Some(noisefence::research_engines::Execution {
+                    version: noisefence::research_engines::VERSION.into(),
+                    status: noisefence::research_engines::Status::Complete,
+                    elapsed_ms: 0,
+                }),
+                heuristics: heuristics.as_ref().map(|h| h.inspect(&raw)),
+                content_inspection: config
+                    .content_inspection
+                    .as_ref()
+                    .map(|s| noisefence::content_inspection::analyze(&raw, s)),
+                ..Default::default()
+            };
+            if i % 29 == 0 {
+                scan.heuristics = None;
+                scan.content_inspection = None;
+                scan.research_execution = Some(noisefence::research_engines::Execution {
+                    version: noisefence::research_engines::VERSION.into(),
+                    status: noisefence::research_engines::Status::Busy,
+                    elapsed_ms: 0,
+                });
+            }
+            e.local = Some(noisefence::fusion::local::LocalEvidence::capture(
+                &binding, &scan,
+            ));
+        }
         e.authentication.state = State::Complete;
         e.authentication.spf_state = State::Complete;
         e.authentication.spf = Some(if suspicious(2) {

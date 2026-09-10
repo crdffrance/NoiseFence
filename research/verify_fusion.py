@@ -21,13 +21,19 @@ def main():
     parser.add_argument('output', type=Path)
     parser.add_argument('--binary', type=Path, default=Path('target/debug/noisefence'))
     parser.add_argument('--fixture', type=Path, default=Path('target/debug/examples/fusion_fixture'))
+    parser.add_argument('--feature-version', type=int, choices=(1, 2), default=1)
     args = parser.parse_args()
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     original, vectors = args.output/'observations.jsonl', args.output/'vectors.jsonl'
-    subprocess.run([str(args.fixture.resolve()), str(original)], check=True, capture_output=True)
-    subprocess.run([str(args.binary.resolve()), 'fusion-export', str(original), '--output', str(vectors)],
+    version_args = ['--feature-version', str(args.feature_version)] if args.feature_version == 2 else []
+    subprocess.run([str(args.fixture.resolve()), str(original), *version_args], check=True, capture_output=True)
+    subprocess.run([str(args.binary.resolve()), 'fusion-export', str(original), '--output', str(vectors), *version_args],
                    check=True, capture_output=True)
+    vector_header = next(fusion.lines(vectors))
+    protocol = fusion.protocol_for_hash(vector_header.get('protocol_sha256'))
+    fusion.require(protocol.version == args.feature_version, 'Native export selected a different feature version')
+    context = fusion.vector_context(vector_header, protocol)
     annotations = args.output/'annotations.jsonl'
     artifacts = None
     with annotations.open('w') as writer:
@@ -45,7 +51,7 @@ def main():
                                             'simhash': hashlib.sha256(b'base fixture simhash').hexdigest()[:16]}]})
     manifest = args.output/'manifest.json'
     fusion.private_json(manifest, {'schema': 'noisefence-fusion-experiment-1', 'version': 'synthetic-parity',
-                                  'purpose': 'research', 'protocol_sha256': fusion.PROTOCOL_HASH,
+                                  'purpose': 'research', 'protocol_sha256': protocol.sha256,
                                   'vectors': pin(vectors), 'annotations': pin(annotations), 'base_history': pin(history),
                                   'sampling': {'kind': 'synthetic', 'description': 'Fabricated observations for software verification only',
                                                'authorization': 'No real message, delivery, detector query or model training corpus',
@@ -55,14 +61,14 @@ def main():
     _, _, _, rows, _ = fusion.load_experiment(manifest)
     maximum_logit_error = maximum_probability_error = 0.
     checked = 0
-    for variant in fusion.VARIANTS:
+    for variant in protocol.variant_names:
         predictions = args.output/(variant+'-native.jsonl')
         model_path = candidate/(variant+'.json')
         subprocess.run([str(args.binary.resolve()), 'fusion-predict', str(original), '--model', str(model_path),
                         '--output', str(predictions)], check=True, capture_output=True)
         native = {r['id']: r['prediction'] for r in fusion.lines(predictions) if r['type'] == 'row'}
         model = fusion.decode(model_path.read_bytes())
-        logits, probabilities, decisions = fusion.model_predictions(model, rows)
+        logits, probabilities, decisions = fusion.model_predictions(model, rows, context)
         for index, row in enumerate(rows):
             p = native[row['id']]
             maximum_logit_error = max(maximum_logit_error, abs(p['logit']-logits[index]))
@@ -74,8 +80,8 @@ def main():
     result = fusion.evaluate(manifest, candidate)
     fusion.require(not result['production_eligible'] and not result['target_supported_on_this_test'],
                    'Synthetic data incorrectly authorized production')
-    report = {'synthetic': True, 'predictions_checked': checked, 'variants': len(fusion.VARIANTS),
-              'application': artifacts['application'], 'protocol_sha256': fusion.PROTOCOL_HASH,
+    report = {'synthetic': True, 'predictions_checked': checked, 'variants': len(protocol.variants),
+              'application': artifacts['application'], 'protocol_sha256': protocol.sha256,
               'max_logit_error': maximum_logit_error, 'max_probability_error': maximum_probability_error,
               'decision_disagreements': 0, 'production_eligible': False, 'mail_sent': False}
     fusion.private_json(args.output/'parity.json', report)

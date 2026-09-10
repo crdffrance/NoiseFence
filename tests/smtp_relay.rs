@@ -831,3 +831,117 @@ async fn smtp_accepts_spam_and_pub_durably_into_quarantine_without_rewriting_sub
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn smtp_v2_learns_local_signals_and_persists_the_effect_only_after_test_promotion() {
+    use noisefence::{
+        config::Mode as FilterMode,
+        fusion::runtime::{Mode, Outcome, Settings},
+        message,
+    };
+    for mode in [Mode::Observe, Mode::Decision] {
+        let root = tempfile::tempdir().unwrap();
+        let mut cfg = (*common::config(root.path())).clone();
+        cfg.filter.mode = FilterMode::Tag;
+        cfg.filter.require_corroboration = false;
+        cfg.filter.arc_domain = Some("example.org".into());
+        cfg.filter.arc_selector = Some("test".into());
+        cfg.filter.arc_key = Some(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/public-test-key.txt"),
+        );
+        cfg.heuristics = Some(noisefence::heuristics::Settings {
+            rules: vec![noisefence::heuristics::Rule {
+                id: "software_fixture".into(),
+                label: "Synthetic test only".into(),
+                family: "content".into(),
+                scopes: vec![noisefence::heuristics::Scope::Subject],
+                pattern: "Rendez-vous".into(),
+                candidate_weight: 0.0,
+            }],
+            ..Default::default()
+        });
+        cfg.content_inspection = Some(Default::default());
+        let raw = String::from_utf8(common::MESSAGE.to_vec()).unwrap().replace(
+            "\r\n\r\nBonjour, le rendez-vous est confirme.\r\n",
+            "\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Bonjour</p><script>void(0)</script>\r\n").into_bytes();
+        let (model, _) = fusion_fixture::local_model(&cfg, &raw);
+        let bytes = serde_json::to_vec(&model).unwrap();
+        let report = fusion_fixture::validation(&model, &message::digest(&bytes));
+        let model_path = root.path().join("synthetic-v2.json");
+        let validation_path = root.path().join("synthetic-v2-promotion.json");
+        std::fs::write(&model_path, bytes).unwrap();
+        std::fs::write(&validation_path, serde_json::to_vec(&report).unwrap()).unwrap();
+        cfg.fusion = Some(Settings {
+            model: model_path,
+            mode,
+            validation_report: Some(validation_path),
+        });
+        let store = Store::open(root.path()).unwrap();
+        let (addr, stop, task) = server(Arc::new(cfg), store.clone()).await;
+        let mut io = client(addr).await;
+        assert_eq!(command(&mut io, "EHLO example.org\r\n").await, 250);
+        for (sample, both) in [(common::MESSAGE, false), (raw.as_slice(), true)] {
+            assert_eq!(
+                command(&mut io, "MAIL FROM:<sender@example.org>\r\n").await,
+                250
+            );
+            assert_eq!(
+                command(&mut io, "RCPT TO:<alice@example.test>\r\n").await,
+                250
+            );
+            assert_eq!(command(&mut io, "DATA\r\n").await, 354);
+            io.write_all(sample).await.unwrap();
+            io.write_all(b".\r\n").await.unwrap();
+            io.flush().await.unwrap();
+            assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+            let job = store.claim().await.unwrap().unwrap();
+            let id = job.message_id.clone();
+            let scan: noisefence::engine::Scan = store
+                .run(move |db| {
+                    let row: String =
+                        db.query_row("SELECT scan FROM messages WHERE id=?1", [id], |r| r.get(0))?;
+                    Ok(serde_json::from_str(&row)?)
+                })
+                .await
+                .unwrap();
+            assert!(scan.complete, "{:?}", scan.fusion);
+            let prediction = scan.fusion.prediction.as_ref().unwrap();
+            assert_eq!(prediction.above_threshold, both);
+            assert!(prediction.tag_eligible && prediction.profile_supported);
+            assert_eq!(scan.tagged, both && mode == Mode::Decision);
+            assert_eq!(
+                scan.decision.as_ref().unwrap().outcome,
+                if both && mode == Mode::Decision {
+                    Outcome::Unwanted
+                } else {
+                    Outcome::Legitimate
+                }
+            );
+            assert!(!scan.reasons.iter().any(|r| r.id == "heuristics_experiment"));
+            let queued = std::fs::read(store.raw_path(&job.message_id)).unwrap();
+            assert_eq!(
+                message::fields(sample).unwrap().1,
+                message::fields(&queued).unwrap().1
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&queued).contains("Subject: [SPAM]"),
+                scan.tagged
+            );
+            assert_eq!(
+                scan.evidence
+                    .as_ref()
+                    .unwrap()
+                    .local
+                    .as_ref()
+                    .unwrap()
+                    .binding,
+                model.local_binding.clone().unwrap()
+            );
+        }
+        assert_eq!(command(&mut io, "QUIT\r\n").await, 221);
+        drop(io);
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+}

@@ -5,6 +5,18 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.2 — Fusion des nouveaux signaux
+
+- Raccorder les observations des heuristiques et de l’inspection HTML/PDF/Office
+  à un protocole appris v2 de 327 caractéristiques, avec catalogue de règles,
+  versions et paramètres liés au modèle ; conserver le protocole v1.
+- Étendre l’export natif, l’apprentissage, les comparaisons par familles et la
+  prédiction de population. Conserver les observations absentes ou incomplètes
+  dans les compteurs et refuser les configurations incompatibles.
+- Vérifier l’effet des coefficients v2 sur la décision enregistrée et le marquage
+  SMTP dans un test local, ainsi que la parité Rust/Python. Les essais synthétiques
+  ne prouvent pas une amélioration de capture et n’activent pas un modèle réel.
+
 ### 0.5.0-dev.1 — Moteurs complémentaires
 
 - Ajouter des heuristiques FR/EN compilées, l’inspection bornée HTML/PDF/images/Office

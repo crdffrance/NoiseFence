@@ -88,3 +88,9 @@ Les correspondances de règles sont des observations, pas des prédictions de
 spam. Ce corpus ancien ne prouve ni le rappel ni le taux de faux positifs sur
 le trafic actuel. Le [programme complet](../research/engine-program.md) conserve
 les preuves manquantes et les conditions de validation.
+
+Le candidat 0.5.0-dev.2 permet d’entraîner la [fusion v2](../research/fusion.md)
+avec ces observations locales, depuis les données conservées lors de la réception
+SMTP. Le protocole lie le modèle au catalogue et à la configuration des moteurs.
+Les observations de développement exportées ci-dessus ne remplacent pas les
+preuves SMTP ni les retours humains nécessaires à cette expérience.
