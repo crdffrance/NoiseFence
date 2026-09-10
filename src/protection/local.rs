@@ -57,7 +57,7 @@ impl Feed {
             Status::Complete
         }
     }
-    fn contains(&self, url: &str) -> bool {
+    pub(super) fn contains(&self, url: &str) -> bool {
         self.status() == Status::Complete && self.urls.contains(&message::digest(url.as_bytes()))
     }
 }
@@ -267,12 +267,18 @@ pub fn local_checks(
         }
     };
     for part in parsed.text_bodies().take(16) {
+        if !matches!(part.body, mail_parser::PartType::Text(_)) {
+            continue;
+        }
         if let Some(text) = part.text_contents() {
             add_urls(text, "text");
         }
     }
     add_urls(visual, "ocr_qr");
     for part in parsed.html_bodies().take(16) {
+        if !matches!(part.body, mail_parser::PartType::Html(_)) {
+            continue;
+        }
         let Some(html) = part.text_contents() else {
             continue;
         };
@@ -305,7 +311,13 @@ pub fn local_checks(
                 report.local_status = Status::Limited;
                 break;
             }
-            found.entry(destination.clone()).or_default().insert("html");
+            found.entry(destination.clone()).or_default().insert(
+                if anchor.value().name() == "form" {
+                    "form"
+                } else {
+                    "html"
+                },
+            );
             if !policy.links {
                 continue;
             }
@@ -349,6 +361,14 @@ pub fn local_checks(
     let mut found: Vec<_> = found.into_iter().collect();
     found.sort_by_key(|(url, sources)| (!feed.contains(url), !sources.contains("ocr_qr")));
     for (url, sources) in found {
+        // Forms and remote images are never submitted/fetched by this feature.
+        if policy.follow_urls && sources.iter().any(|source| *source != "form") {
+            if targets.urls.len() < 8 {
+                targets.urls.push(url.clone());
+            } else {
+                targets.urls_truncated = true;
+            }
+        }
         let parsed = reqwest::Url::parse(&url).unwrap();
         let host = parsed.host_str().unwrap();
         if let Some(host) = domain(host) {

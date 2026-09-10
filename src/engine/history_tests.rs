@@ -553,6 +553,54 @@ async fn adverse_observations_prevent_adaptation_even_without_numerical_weight()
 }
 
 #[tokio::test]
+async fn incomplete_url_resolution_prevents_trust_shortcuts() {
+    let f = Fixture::new().await;
+    let (mut scan, _) = f.analyze(401, &[ALICE]).await;
+    let projection = scan.sender_history_projection.clone().unwrap();
+    scan.reasons
+        .retain(|r| r.id != sender_history::adaptive::REASON);
+    let mut config = (*f.engine.config).clone();
+    config.protection = Some(crate::protection::Settings::default());
+    config.protection.as_mut().unwrap().policy.follow_urls = true;
+    scan.protection = Some(crate::protection::Report::default());
+    assert!(sender_history::adaptive::selected(&scan, &config, &projection, false).is_empty());
+    scan.protection.as_mut().unwrap().url_resolution = Some(crate::protection::redirects::Report {
+        version: "url-resolution-1".into(),
+        settings_sha256: "test-settings".into(),
+        chains: vec![],
+        omitted: 0,
+        elapsed_ms: 0,
+    });
+    assert_eq!(
+        sender_history::adaptive::selected(&scan, &config, &projection, false),
+        vec![0]
+    );
+    scan.protection
+        .as_mut()
+        .unwrap()
+        .url_resolution
+        .as_mut()
+        .unwrap()
+        .omitted = 1;
+    assert!(sender_history::adaptive::selected(&scan, &config, &projection, false).is_empty());
+    let resolution = scan
+        .protection
+        .as_mut()
+        .unwrap()
+        .url_resolution
+        .as_mut()
+        .unwrap();
+    resolution.omitted = 0;
+    resolution.chains.push(crate::protection::redirects::Chain {
+        source_sha256: "synthetic-url".into(),
+        hops: vec![],
+        complete: false,
+        detail: Some(crate::protection::redirects::Detail::Deadline),
+    });
+    assert!(sender_history::adaptive::selected(&scan, &config, &projection, false).is_empty());
+}
+
+#[tokio::test]
 async fn snapshot_deadlines_follow_the_recipient_and_future_votes() {
     for related in [false, true] {
         let f = Fixture::new().await;

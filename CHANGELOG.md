@@ -5,6 +5,22 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.15 — Suivi borné des redirections URL
+
+- Ajouter un suivi HTTP/HTTPS configurable depuis la console, avec redirections
+  HTTP, Refresh et meta HTML, contrôle DNS/IP à chaque saut, certificats TLS
+  vérifiés, limites de temps, de taille et de concurrence.
+- Vérifier les URLs visitées dans la base locale de phishing et les domaines
+  découverts auprès des connecteurs configurés ; donner priorité aux dernières
+  destinations et rendre visibles les consultations omises.
+- Afficher le parcours, les codes HTTP et les interruptions dans les diagnostics,
+  sans conserver les chemins, paramètres ou pages. Distinguer l’arrivée HTTP
+  d’un verdict de sûreté et empêcher les raccourcis de confiance sur un parcours
+  incomplet. Conserver les observations consultatives et le suivi désactivé
+  pour les configurations existantes.
+- Exclure les actions de formulaires des visites et corriger leur extraction
+  depuis les corps HTML présentés aussi comme texte par le parseur MIME.
+
 ### 0.5.0-dev.14 — Retour arrière du service et des workers
 
 - Restaurer l’unité systemd du serveur avec le binaire précédent lorsque le

@@ -154,6 +154,17 @@ crdf_per_day = 200
 virustotal_per_minute = 4
 virustotal_per_day = 500
 
+# Optional active HTTP visits, disabled by default. See docs/url-resolution.md.
+# Once console settings exist, enable the toggle there instead of changing policy here.
+# [protection.policy]
+# follow_urls = true
+# [protection.url_resolution]
+# timeout_ms = 1200
+# max_urls = 4
+# max_redirects = 5
+# max_parallel = 2
+# blocked_ips = [] # Add public NAT/management IPs not assigned to a local interface.
+
 # PUB is independent of the spam score; observe never changes delivered subjects.
 # After installation, enable this module in the saved console settings if needed.
 [mailing]

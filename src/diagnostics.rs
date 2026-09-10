@@ -46,6 +46,7 @@ pub struct Analysis {
     pub content_inspection: Option<crate::content_inspection::Report>,
     pub research_execution: Option<crate::research_engines::Execution>,
     pub sandbox_pipeline: Option<crate::sandbox_pipeline::Report>,
+    pub protection: Option<crate::protection::Report>,
 }
 impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
@@ -67,6 +68,7 @@ impl From<Scan> for Analysis {
             content_inspection: scan.content_inspection,
             research_execution: scan.research_execution,
             sandbox_pipeline: scan.sandbox_pipeline,
+            protection: scan.protection,
         }
     }
 }

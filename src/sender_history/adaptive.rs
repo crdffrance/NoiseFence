@@ -130,6 +130,17 @@ fn eligible(scan: &Scan, config: &Config) -> bool {
         return false;
     }
     if let Some(p) = &scan.protection {
+        if config
+            .protection
+            .as_ref()
+            .is_some_and(|c| c.policy.follow_urls)
+            && !p
+                .url_resolution
+                .as_ref()
+                .is_some_and(|r| r.omitted == 0 && r.chains.iter().all(|c| c.complete))
+        {
+            return false;
+        }
         let ready = |s: &Provider| matches!(s, Provider::Disabled | Provider::Complete);
         if !ready(&p.local_status)
             || !ready(&p.feed_status)

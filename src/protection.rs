@@ -2,6 +2,7 @@
 mod campaign;
 mod local;
 mod providers;
+pub mod redirects;
 use anyhow::{Result, ensure};
 pub use local::{Feed, canonical_url, local_checks};
 pub use providers::{Provider, key_present, save_key};
@@ -18,6 +19,8 @@ pub struct Policy {
     pub campaigns: bool,
     pub crdf: bool,
     pub virustotal: bool,
+    /// Active HTTP requests; separate from passive link inspection.
+    pub follow_urls: bool,
     pub protected_names: Vec<Identity>,
     /// Exact domains only; neither setting bypasses authentication or malware checks.
     pub reply_exceptions: Vec<String>,
@@ -31,6 +34,7 @@ impl Default for Policy {
             campaigns: true,
             crdf: false,
             virustotal: false,
+            follow_urls: false,
             protected_names: vec![],
             reply_exceptions: vec![],
             link_exceptions: vec![],
@@ -80,6 +84,7 @@ pub struct Settings {
     pub crdf_per_day: u32,
     pub virustotal_per_minute: u32,
     pub virustotal_per_day: u32,
+    pub url_resolution: redirects::Settings,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -91,12 +96,14 @@ impl Default for Settings {
             crdf_per_day: 200,
             virustotal_per_minute: 4,
             virustotal_per_day: 500,
+            url_resolution: Default::default(),
         }
     }
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
         self.policy.validate()?;
+        self.url_resolution.validate()?;
         ensure!(
             (100..=2000).contains(&self.timeout_ms) && (1..=8).contains(&self.max_parallel),
             "Invalid protection capacity/deadline"
@@ -146,6 +153,8 @@ pub struct ProviderReport {
     pub unknown: usize,
     pub cache_hits: usize,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub omitted: usize,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Report {
@@ -163,6 +172,8 @@ pub struct Report {
     /// Families rather than votes: CRDF, VT and QR evidence for one URL are not independent.
     pub families: Vec<String>,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub url_resolution: Option<redirects::Report>,
 }
 impl Report {
     pub fn add(&mut self, id: &str, family: &str, indicator: &str, source: &str, detail: &str) {
@@ -196,18 +207,23 @@ impl Report {
 #[derive(Default)]
 pub struct Targets {
     pub domains: BTreeSet<String>,
+    pub destination_domains: BTreeSet<String>,
     pub hashes: BTreeSet<String>,
+    pub urls: Vec<String>,
+    pub urls_truncated: bool,
 }
 
 pub struct Runtime {
     providers: Arc<providers::Client>,
     root: std::path::PathBuf,
     feed: std::sync::Mutex<(Instant, Arc<Feed>)>,
+    redirects: redirects::Resolver,
 }
 impl Runtime {
     pub fn new(config: &Settings, root: &Path) -> Result<Self> {
         config.validate()?;
         Ok(Self {
+            redirects: redirects::Resolver::new(config.url_resolution.clone())?,
             providers: Arc::new(providers::Client::new(config, root)?),
             root: root.into(),
             feed: std::sync::Mutex::new((Instant::now(), Arc::new(Feed::load(root)))),
@@ -237,7 +253,7 @@ impl Runtime {
     pub async fn observe(
         &self,
         scan: &mut crate::engine::Scan,
-        targets: Targets,
+        mut targets: Targets,
         policy: &Policy,
         scopes: &[String],
     ) {
@@ -245,6 +261,42 @@ impl Runtime {
         let Some(report) = &mut scan.protection else {
             return;
         };
+        // Follow first, so the existing provider budgets also cover discovered
+        // destinations. Complete URLs stay local; providers receive host names.
+        if policy.follow_urls {
+            let (resolution, visited) = self
+                .redirects
+                .inspect(&targets.urls, targets.urls_truncated)
+                .await;
+            let feed = self.feed.lock().unwrap().1.clone();
+            let last_hops: BTreeSet<_> = resolution
+                .chains
+                .iter()
+                .filter_map(|chain| chain.hops.last().map(|hop| &hop.url_sha256))
+                .collect();
+            for url in &visited {
+                if let Ok(parsed) = reqwest::Url::parse(url)
+                    && let Some(host) = parsed.host_str()
+                {
+                    if local::public_domain(host) {
+                        targets.domains.insert(host.into());
+                        if last_hops.contains(&crate::message::digest(url.as_bytes())) {
+                            targets.destination_domains.insert(host.into());
+                        }
+                    }
+                    if policy.links && feed.contains(url) {
+                        report.add(
+                            "known_phishing_url",
+                            "link_reputation",
+                            host,
+                            "redirect",
+                            "Destination de redirection présente dans la base locale de phishing",
+                        );
+                    }
+                }
+            }
+            report.url_resolution = Some(resolution);
+        }
         let (crdf, vt, campaign) = tokio::join!(
             self.providers
                 .inspect(Provider::Crdf, policy.crdf, &targets),
