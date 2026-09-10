@@ -13,6 +13,8 @@ incompatible demande une version mineure et une migration documentée.
 - Afficher les limites actives, les compteurs persistants, leurs échéances et les
   pauses fournisseur. Conserver le cache, les délais, la concurrence bornée et les
   plafonds de travail par message, même avec une clé illimitée.
+- Corriger les consultations CRDF : construire une racine HTTPS depuis le domaine,
+  les domaines nus étant refusés par l’API. Aucun chemin ni paramètre du mail transmis.
 - Versionner et contrôler les modifications via l’API d’administration existante.
   Aucun changement du score, des modèles, du routage ou du schéma de stockage.
   Avant retour à un binaire antérieur, restaurer une révision sans champs de quota.

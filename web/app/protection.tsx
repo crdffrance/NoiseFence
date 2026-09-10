@@ -272,10 +272,11 @@ export function ProtectionSettings({
               </div>
               <h3>Services de réputation</h3>
               <p className="small muted">
-                Consultation de rapports existants : domaines pour CRDF ;
-                domaines et empreintes SHA-256 des pièces jointes pour
-                VirusTotal. Aucun corps de message, fichier ou lien complet
-                envoyé. Utilisez des clés dont la licence autorise cet usage.
+                Consultation de rapports existants : domaines pour CRDF (racine
+                HTTPS construite, sans chemin ni paramètre du mail) ; domaines
+                et empreintes SHA-256 des pièces jointes pour VirusTotal. Aucun
+                corps de message, fichier ou lien complet envoyé. Utilisez des
+                clés dont la licence autorise cet usage.
               </p>
               <p className="small muted">
                 Les quotas sont partagés par tout le serveur. Les modifier ne

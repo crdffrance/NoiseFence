@@ -80,7 +80,10 @@ sans les nouveaux champs de quota ; aucun changement du schéma SQLite n’est r
 ## CRDF et VirusTotal
 
 CRDF utilise **POST `search_urls.json`**, droit `lookup`, clé dans `X-API-Key`.
-Seuls des domaines sont envoyés. La méthode ne soumet pas d’URL à l’analyse et
+Seuls des domaines sont communiqués, sous la forme d’une racine synthétique
+`https://domaine/` acceptée par cette API. Aucun chemin, paramètre ou fragment
+du message n’est transmis. Les domaines nus étaient refusés comme URL invalides ;
+ce format est corrigé depuis 0.4.5. La méthode ne soumet pas d’URL à l’analyse et
 n’appelle pas `submit_url`, `ai_score` ou les API de modification. Une absence de
 résultat reste « inconnu ». Une correspondance portant seulement sur un chemin
 ou une requête reste suspecte au niveau du domaine, sans condamner tout un

@@ -294,7 +294,7 @@ impl Client {
                 .http
                 .post(endpoint)
                 .header("X-API-Key", key)
-                .json(&serde_json::json!({"method":"search_urls","urls":[indicator]})),
+                .json(&serde_json::json!({"method":"search_urls","urls":[crdf_url(indicator)]})),
             Provider::Virustotal => self.http.get(endpoint).header("x-apikey", key),
         }
     }
@@ -307,8 +307,12 @@ impl Client {
         quota: Quota,
     ) -> Lookup {
         let credential = crate::message::digest(format!("{}:{key}", provider.name()).as_bytes());
+        let cache_indicator = match provider {
+            Provider::Crdf => crdf_url(indicator),
+            Provider::Virustotal => indicator.to_owned(),
+        };
         let cache_key =
-            crate::message::digest(format!("{credential}:{file}:{indicator}").as_bytes());
+            crate::message::digest(format!("{credential}:{file}:{cache_indicator}").as_bytes());
         match self
             .reserve(provider, cache_key.clone(), credential.clone(), quota)
             .await
@@ -476,6 +480,11 @@ impl Client {
         (report, hits)
     }
 }
+// CRDF validates URL syntax even for a domain lookup. Never send message paths,
+// parameters or fragments: this synthetic root contains only the public host.
+fn crdf_url(domain: &str) -> String {
+    format!("https://{domain}/")
+}
 fn parse_crdf(body: &serde_json::Value, indicator: &str) -> Result<Verdict> {
     ensure!(
         body.get("error").and_then(|v| v.as_bool()) == Some(false),
@@ -487,7 +496,8 @@ fn parse_crdf(body: &serde_json::Value, indicator: &str) -> Result<Verdict> {
     ensure!(entries.len() == 1, "CRDF count mismatch");
     let entry = &entries[0];
     ensure!(
-        entry["url"].as_str() == Some(indicator) && entry["error"].as_bool() == Some(false),
+        entry["url"].as_str() == Some(crdf_url(indicator).as_str())
+            && entry["error"].as_bool() == Some(false),
         "CRDF mismatch"
     );
     match entry["in_database"].as_bool() {
@@ -571,10 +581,12 @@ mod tests {
             )
             .is_err()
         );
-        assert_eq!(parse_crdf(&json!({"error":false,"data":[{"url":"evil.com","error":false,"in_database":false}]}),"evil.com").unwrap(),Verdict::Unknown);
-        let mut body = json!({"error":false,"data":[{"url":"evil.com","error":false,"in_database":true,"data":{"isBlacklisted":"1","category":"Malicious:URL"}}]});
+        assert_eq!(parse_crdf(&json!({"error":false,"data":[{"url":"https://evil.com/","error":false,"in_database":false}]}),"evil.com").unwrap(),Verdict::Unknown);
+        let mut body = json!({"error":false,"data":[{"url":"https://evil.com/","error":false,"in_database":true,"data":{"isBlacklisted":"1","category":"Malicious:URL"}}]});
         assert_eq!(parse_crdf(&body, "evil.com").unwrap(), Verdict::Malicious);
         assert!(parse_crdf(&body, "other.com").is_err());
+        assert!(parse_crdf(&json!({"error":false,"data":[{"url":"evil.com","error":true,"message":"Invalid URL.","in_database":false}]}),"evil.com").is_err());
+        assert!(parse_crdf(&json!({"error":false,"data":[{"url":"https://evil.com/private?token=redacted","error":false,"in_database":false}]}),"evil.com").is_err());
         body["data"][0]["data"]["url"] = json!("https://evil.com/a-single-page");
         assert_eq!(parse_crdf(&body, "evil.com").unwrap(), Verdict::Suspicious);
         body["data"][0]["data"]["isBlacklisted"] = json!("invalid");
@@ -928,7 +940,7 @@ mod transport_tests {
             "synthetic-key-for-transport-1234",
         )
         .unwrap();
-        let (url,task)=server("200 OK",serde_json::json!({"error":false,"data":[{"url":"example.com","error":false,"in_database":false}]}).to_string(),0).await;
+        let (url,task)=server("200 OK",serde_json::json!({"error":false,"data":[{"url":"https://example.com/","error":false,"in_database":false}]}).to_string(),0).await;
         client.endpoint_override = Some(url);
         let mut targets = Targets::default();
         targets.domains.insert("example.com".into());
@@ -953,7 +965,7 @@ mod transport_tests {
             serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(
             body,
-            serde_json::json!({"method":"search_urls","urls":["example.com"]})
+            serde_json::json!({"method":"search_urls","urls":["https://example.com/"]})
         );
         let (cached, _) = client
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
@@ -990,7 +1002,7 @@ mod transport_tests {
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
             .await;
         assert_eq!(blocked.status, Status::Quota);
-        let (url,task) = server("200 OK",serde_json::json!({"error":false,"data":[{"url":"example.com","error":false,"in_database":false}]}).to_string(),0).await;
+        let (url,task) = server("200 OK",serde_json::json!({"error":false,"data":[{"url":"https://example.com/","error":false,"in_database":false}]}).to_string(),0).await;
         client.endpoint_override = Some(url);
         let policy = Policy {
             crdf_quota: Some(Quota { minute: 0, day: 0 }),
@@ -1033,7 +1045,7 @@ mod transport_tests {
             "synthetic-key-for-transport-1234",
         )
         .unwrap();
-        let (url, task) = server("200 OK", serde_json::json!({"error":false,"data":[{"url":"z-final.example.com","error":false,"in_database":false}]}).to_string(), 0).await;
+        let (url, task) = server("200 OK", serde_json::json!({"error":false,"data":[{"url":"https://z-final.example.com/","error":false,"in_database":false}]}).to_string(), 0).await;
         client.endpoint_override = Some(url);
         let mut targets = Targets::default();
         for i in 0..13 {
@@ -1053,7 +1065,10 @@ mod transport_tests {
         let request = task.await.unwrap();
         let body: serde_json::Value =
             serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
-        assert_eq!(body["urls"], serde_json::json!(["z-final.example.com"]));
+        assert_eq!(
+            body["urls"],
+            serde_json::json!(["https://z-final.example.com/"])
+        );
     }
     #[tokio::test]
     async fn quota_timeout_and_oversized_responses_never_produce_a_hit() {
