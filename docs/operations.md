@@ -31,13 +31,15 @@ pas, le SMTP reste arrêté et l’installateur signale la récupération manuel
 L’installateur conserve un code de sortie en échec même si le retour arrière
 réussit : la mise à niveau demandée n’a pas abouti.
 
-Le scénario `sudo /usr/bin/python3 tests/systemd_install.py target/release/noisefence --disposable-host`
+Depuis une copie du dépôt, le scénario `sudo /usr/bin/python3 tests/systemd_install.py target/release/noisefence --disposable-host`
 est réservé à une VM jetable et refuse toute installation ou compte NoiseFence
 existant. Il utilise le vrai installateur, systemd, le démon et deux workers OCR,
 avec une file synthétique sur disque. Les deux bundles du scénario emploient le
 même binaire natif ; les erreurs d’unité et de manifeste sont injectées. Ce test
 ne qualifie donc pas la compatibilité binaire entre deux releases différentes,
 ni une migration de données, ni la disponibilité continue pendant une mise à niveau.
+Le [relevé Linux](../research/installer-pool-validation-20260910.json) décrit les
+six scénarios réussis, leurs empreintes et l’échec initial du garde-fou corrigé.
 
 Le [guide de première installation](getting-started.md) détaille le téléchargement,
 la préparation de la configuration, la création de l’administrateur et les contrôles.

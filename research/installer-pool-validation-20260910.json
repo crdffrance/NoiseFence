@@ -1,0 +1,139 @@
+{
+  "schema": "noisefence-installer-pool-validation-1",
+  "version": "0.5.0-dev.14",
+  "commit": "ffac99c7dd4263fc74d10e7833a0b2fb75f29d84",
+  "scope": "Disposable Linux VM; real installer, systemd, native daemon, persistent SQLite/spool and two real OCR workers. Same native binary in baseline and candidate fixtures; injected unit and storage-manifest failures.",
+  "sources_sha256": {
+    "deploy/install.sh": "7d79d908d92efcc5b3adfdc6893c2d6af5e8249a89f6f3ba6917cd2be2d12dd1",
+    "deploy/install-vision.sh": "751a1f5e867f5d499bd99e90fc30d5e118823ce62dad0a8bf1578173c05d1f27",
+    "deploy/can-rollback.py": "ff0a4fda1b49c239eaa74cb266c412c8a1cc03f2a8218616e715293c5e65e290",
+    "deploy/noisefence.service": "b376ddf3627d3a05023a3bc192c1941b44377a848f034eaaeef6a125df34e019",
+    "deploy/noisefence-vision.service": "861e7c5a62894fde4359bcb59d2ec7a75975a93f510934d296401f64a84c2d8a",
+    "deploy/noisefence-vision.socket": "e6a15dbd9d9703e3ac6b09f98974851b3b85e0b4fd208e06c651b275f995ba18",
+    "deploy/noisefence-vision@.service": "f1503b8474cb00a0098dc40b13a5069d46aa2c908ce59d241ce297dfa902f1db",
+    "deploy/noisefence-vision@.socket": "07b81dcd8ad838e8c59c458480ccf2eed8ee0cf644ba0f2a4dabd3db46dc54e9",
+    "deploy/vision-worker.py": "dd6f924bf9406bf8ea7db6ca015fe5accb37b7bc969158353fdf29ce05c9c600",
+    "tests/systemd_install.py": "6214c56585d05b7c7ad3ff5c9c8795c528545cee56c377bbbe51656e80d1cecf",
+    ".github/workflows/check.yml": "b05fa347155d2432c355acb4182e06408ac99873ef9f0449c18391c9bfb4affc",
+    "config/development.toml": "da7489c8118bfc523677989f605791a2d6bb42370543dbdc59cec7b4ad518163"
+  },
+  "linux": {
+    "cases": [
+      {
+        "case": "initial_install_and_optional_two_worker_install",
+        "passed": true
+      },
+      {
+        "case": "upgrade",
+        "passed": true,
+        "installer_exit": 0,
+        "smtp_healthy": true,
+        "queue_and_config_preserved": true
+      },
+      {
+        "case": "daemon_unit_failure",
+        "passed": true,
+        "installer_exit": 1,
+        "smtp_healthy": true,
+        "queue_and_config_preserved": true
+      },
+      {
+        "case": "worker_start_failure",
+        "passed": true,
+        "installer_exit": 1,
+        "smtp_healthy": true,
+        "queue_and_config_preserved": true
+      },
+      {
+        "case": "incompatible_storage",
+        "passed": true,
+        "installer_exit": 1,
+        "smtp_healthy": false,
+        "queue_and_config_preserved": true
+      },
+      {
+        "case": "rollback_worker_failure",
+        "passed": true,
+        "installer_exit": 1,
+        "smtp_healthy": false,
+        "queue_and_config_preserved": true
+      }
+    ],
+    "binary_sha256": "b90a8c0b8de1967fe5e9b5f4073186a80fcd52d3205e684e7cf8d90e4fff0947",
+    "backend_sha256": "2008f0aa7b040bba39e9bb2949f0332a431df51517239017b3fadc554c07e473",
+    "cleaned_up": true,
+    "external_messages": 0,
+    "scope": "Real installer/systemd/native daemon/SQLite/OCR; same native binary in both fixture releases; no cross-version ABI or antispam quality claim.",
+    "commit": "ffac99c7dd4263fc74d10e7833a0b2fb75f29d84",
+    "run_id": 34509340706,
+    "job_id": 102979288084,
+    "job_log_sha256": "7ebf7727ba361ff55cab81af0d47bf945c945a65035c5f40d6f9145aa394dd4e"
+  },
+  "checks": {
+    "candidate_run": 34509340706,
+    "url": "https://github.com/crdffrance/NoiseFence/actions/runs/34509340706",
+    "native_amd64_job": "success, including the six installer scenarios",
+    "global_status": "success, all six jobs including AMD64/ARM64",
+    "parent_documentation_run": {
+      "id": 34505269916,
+      "commit": "885b85868b2d78bbbf9f381f10df5de8b9acd4d8",
+      "conclusion": "success, all six jobs; not proof of the new installer"
+    },
+    "jobs": {
+      "research": "success",
+      "rust (ubuntu-latest)": "success",
+      "rust (ubuntu-24.04-arm, --features semantic, --release)": "success",
+      "web": "success",
+      "deployment": "success",
+      "rust (ubuntu-latest, --features semantic)": "success"
+    },
+    "final_run_metadata_sha256": "cbf00f4b46b8ff652f4caa54a3463db6ed0d9664fbd24b425c49becdbfc1ce8d"
+  },
+  "assertions": {
+    "accepted_synthetic_messages": 1,
+    "message_expected_delivery_state": "pending; relay TCP port bound without listening until cleanup",
+    "preserved": "Stored scan, message/delivery identity, raw-present state, spool SHA256, SQLite integrity and configuration SHA256 across every transition.",
+    "healthy_transitions": "Health endpoint responds; both OCR services active with new PIDs; inactive legacy worker remains inactive; installed service/socket definitions match the selected release.",
+    "ocr": "Direct image requests to both real workers after initial installation and the three healthy transitions, checking backend SHA256, one page, expected text and QR payload. The queued SMTP sentinel itself is a text message.",
+    "failed_recovery": "Incompatible previous storage manifest keeps the candidate selected and SMTP stopped; failed required rollback worker keeps SMTP stopped after selecting the baseline.",
+    "cleanup": "Owned services stopped, enables and unit files removed, accounts removed, owned installation/data/configuration and empty runtime directories removed."
+  },
+  "initial_failure": {
+    "commit": "abf076dec570311d17714eaac3a967c7d1ac725a",
+    "run_id": 34507823949,
+    "conclusion": "failure",
+    "phase": "Disposable-host guard, before any NoiseFence installation",
+    "cause": "systemctl returned1 for an unmatched unit pattern with empty output.",
+    "fix": "Read the successful complete unit-file inventory and reject matching NoiseFence names locally. Actual manager errors still abort.",
+    "other_jobs": {
+      "research": "success",
+      "web": "success",
+      "deployment": "success",
+      "rust_semantic_amd64": "cancelled",
+      "rust_semantic_arm64": "cancelled"
+    },
+    "log_sha256": "0cf902e636c488e3c2e08b2e9bae4be0fd49ce495bd74956bc38d983fadd41ed"
+  },
+  "read_only_guard_check": {
+    "linux_inventory_exit_code": 0,
+    "existing_installation_detected": true,
+    "installer_executed": false,
+    "receipt_sha256": "bca97c7a3aaa97098a0e2506acdbcff099be227952ea1e474250d9976cd32172"
+  },
+  "local_validation": {
+    "shell_syntax": "passed",
+    "python_harness_syntax": "passed",
+    "version_alignment": "passed",
+    "python_tests_run": 83,
+    "python_tests_passed": 79,
+    "python_tests_skipped": 4,
+    "python_log_sha256": "d0284458602fe179ad1959ec0dce7522ddb43c132e6acc82ad21814f4d1e482c"
+  },
+  "limitations": [
+    "Both fixture releases use the same native executable; no cross-version binary/ABI compatibility or actual data migration is claimed.",
+    "Checks service-start command failures. Continuous availability, late asynchronous crashes and all possible filesystem/interruption failures are outside these six scenarios.",
+    "No production installer execution, Proton delivery, Office VM execution, throughput or filtering-quality evaluation.",
+    "Minimal static test page and health endpoint; full frontend and account/session behavior are covered separately, not by this installer scenario."
+  ],
+  "production": "Stable0.4.3 unchanged; the real installer ran only in the fresh CI VM. The separate guard check used a read-only Linux unit inventory."
+}

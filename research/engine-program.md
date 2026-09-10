@@ -423,3 +423,15 @@ une erreur du gestionnaire reste bloquante. Ce résultat ne valide aucun des six
 scénarios. Les jobs recherche, frontend et déploiement ont réussi ; les deux
 autres jobs Rust ont été annulés par la matrice après cet échec. Le nouveau
 passage doit fournir les preuves d’installation et de restauration attendues.
+
+Le job natif AMD64 du commit `ffac99c` a ensuite réussi les six scénarios. Le
+[relevé](installer-pool-validation-20260910.json) conserve l’échec initial,
+les empreintes du binaire et des scripts, les résultats de chaque transition
+et le nettoyage. Les six jobs de la CI de ce commit ont terminé avec succès,
+y compris le moteur sémantique sur ARM64. Un message accepté reste en file,
+intact, pendant tous les
+essais ; la configuration reste identique. Les trois transitions saines
+vérifient aussi le serveur HTTP, les nouveaux PID des deux workers et leurs
+réponses OCR/QR. Les scénarios de stockage incompatible et d’échec du worker
+restauré maintiennent le SMTP arrêté. Ces preuves n’étendent pas ce banc à
+la compatibilité entre deux binaires différents ou à la qualité antispam.
