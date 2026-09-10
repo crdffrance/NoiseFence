@@ -40,6 +40,25 @@ async fn queue(store: &Store, cfg: &noisefence::config::Config) -> (String, Job,
     let id = uuid::Uuid::new_v4().to_string();
     let mut scan = extract(common::MESSAGE, 10000);
     scan.analysis_policy = Some(AnalysisPolicy::capture(cfg));
+    scan.protection = Some(noisefence::protection::Report {
+        url_resolution: Some(noisefence::protection::redirects::Report {
+            version: "url-resolution-1".into(),
+            settings_sha256: "synthetic-settings".into(),
+            chains: vec![noisefence::protection::redirects::Chain {
+                source_sha256: "synthetic-source".into(),
+                hops: vec![noisefence::protection::redirects::Hop {
+                    url_sha256: "synthetic-destination".into(),
+                    site: "example.org".into(),
+                    code: 200,
+                }],
+                complete: true,
+                detail: None,
+            }],
+            omitted: 0,
+            elapsed_ms: 10,
+        }),
+        ..Default::default()
+    });
     store
         .enqueue(
             id.clone(),
@@ -114,6 +133,10 @@ async fn diagnostics_enforce_recipient_grants_and_authentication() {
     assert!(!alice.to_string().contains("bob@example.test"));
     assert!(!alice.to_string().contains("\"features\":"));
     assert!(!alice.to_string().contains("rendez-vous est confirme"));
+    assert_eq!(
+        alice["analysis"]["protection"]["url_resolution"]["chains"][0]["hops"][0]["code"],
+        200
+    );
     for user in ["domain", "admin"] {
         let visible = store
             .diagnostics(user.into(), id.clone())

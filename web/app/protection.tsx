@@ -3,6 +3,10 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
+import {
+  UrlResolutionDetails,
+  type UrlResolutionReport,
+} from './url-resolution';
 
 export type ProtectionPolicy = {
   identity: boolean;
@@ -10,6 +14,7 @@ export type ProtectionPolicy = {
   campaigns: boolean;
   crdf: boolean;
   virustotal: boolean;
+  follow_urls: boolean;
   protected_names: { name: string; domain: string }[];
   reply_exceptions: string[];
   link_exceptions: string[];
@@ -26,6 +31,7 @@ const defaults: ProtectionPolicy = {
   campaigns: true,
   crdf: false,
   virustotal: false,
+  follow_urls: false,
   protected_names: [],
   reply_exceptions: [],
   link_exceptions: [],
@@ -138,6 +144,11 @@ export function ProtectionSettings({
                       'campaigns',
                       'Campagnes répétées',
                       'Corrections d’administrateurs du même domaine, avec recherche de contradictions.',
+                    ],
+                    [
+                      'follow_urls',
+                      'Suivre les redirections des liens',
+                      'Requêtes HTTP actives, puis vérification des destinations. Peut comptabiliser une visite ou consommer un lien à usage unique. Aucun formulaire ni JavaScript exécuté.',
                     ],
                   ] as const
                 ).map(([key, title, description]) => (
@@ -328,6 +339,7 @@ const statuses: Record<string, string> = {
   stale: 'données trop anciennes',
 };
 type ProviderReport = {
+  omitted?: number;
   status: string;
   checked: number;
   malicious: number;
@@ -337,6 +349,7 @@ type ProviderReport = {
   elapsed_ms: number;
 };
 export type ProtectionReport = {
+  url_resolution?: UrlResolutionReport | null;
   version: string;
   observation_only: boolean;
   local_status: string;
@@ -405,6 +418,11 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
               consultation du fournisseur.
             </p>
           )}
+          {!!r.omitted && (
+            <p className="muted small">
+              {r.omitted} indicateur(s) non consulté(s) : limite par message.
+            </p>
+          )}
           {r.status === 'quota' && (
             <p className="muted small">
               Quota atteint ou pause imposée par le fournisseur : certaines
@@ -428,6 +446,7 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
           )}
         </div>
       ))}
+      <UrlResolutionDetails report={report.url_resolution} />
       {report.findings.length ? (
         <ul className="reasons">
           {report.findings.map((f, i) => (
@@ -451,6 +470,8 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
                             crdf: 'CRDF',
                             virustotal: 'VirusTotal',
                             local_feedback: 'Corrections locales',
+                            redirect: 'Redirection HTTP / HTML',
+                            form: 'Formulaire (analyse passive)',
                           }) as Record<string, string>
                         )[s] || s,
                     )

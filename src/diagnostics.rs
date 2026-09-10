@@ -42,6 +42,7 @@ pub struct Analysis {
     pub semantic_contribution: Option<f64>,
     pub rule_weight_total: f64,
     pub evidence: Option<crate::evidence::Evidence>,
+    pub protection: Option<crate::protection::Report>,
 }
 impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
@@ -59,6 +60,7 @@ impl From<Scan> for Analysis {
                 .map(|r| r.weight)
                 .sum(),
             evidence: scan.evidence,
+            protection: scan.protection,
         }
     }
 }

@@ -39,7 +39,7 @@ origine et un jeton CSRF. Chaque sauvegarde de clé est auditée sans sa valeur.
 Le remplacement prend effet aux prochains appels, sans redémarrage. Désactiver
 le connecteur dans la console pour arrêter les consultations.
 
-Les paramètres `identity`, `links`, `campaigns`, `crdf`, `virustotal`, les noms
+Les paramètres `identity`, `links`, `campaigns`, `crdf`, `virustotal`, `follow_urls`, les noms
 protégés et les exceptions de réponse/suivi sont versionnés dans la console.
 Les exceptions portent sur un hôte exact et une seule heuristique : elles ne
 contournent jamais SPF/DKIM/DMARC, la réputation, l’antivirus ou le modèle.
@@ -68,10 +68,13 @@ passerelle d’organisation, utiliser une licence autorisant explicitement ces
 consultations ; une simple clé gratuite n’est pas suffisante. Les données des
 fournisseurs ne sont pas redistribuées avec le logiciel GPL.
 
-Les appels TLS vérifiés vont uniquement aux deux API fixes. Aucune redirection
-HTTP n’est suivie. Les réponses sont limitées à 256 Kio. Huit domaines et huit
-empreintes au maximum sont extraits, avec douze consultations au maximum par
-fournisseur et message. Le délai est commun à toutes les consultations d’un
+Les appels aux fournisseurs utilisent TLS vérifié et les deux API fixes, sans
+suivre leurs redirections HTTP. Les réponses sont limitées à 256 Kio. Huit
+domaines et huit empreintes au maximum sont extraits du message. Le suivi
+optionnel des liens ajoute les domaines des sauts effectivement visités et
+traite leurs dernières destinations en priorité. Il reste au plus douze
+consultations par fournisseur et message ; les cibles omises et les quotas
+sont indiqués dans le rapport. Le délai est commun à toutes les consultations d’un
 fournisseur, pas renouvelé pour chaque cible. Les caches durent au plus 30
 minutes (cinq minutes pour inconnu/ancien) et contiennent des empreintes, jamais
 les clés ou URLs. Les erreurs de droits/quota déclenchent une pause de cinq
@@ -104,8 +107,13 @@ les messages déjà livrés. La recherche reste consultative et bornée en temps
 ## Base locale de liens
 
 Les liens HTML sont parsés avec un parseur HTML5. Les URLs du texte, des ancres,
-des formulaires et du texte OCR/QR rejoignent le même ensemble. Les liens ne
-sont jamais ouverts. Une base correspond à des URLs exactes (chemin/requête
+des formulaires et du texte OCR/QR rejoignent le même ensemble pour l’analyse
+passive. Par défaut, les liens ne sont pas ouverts. Depuis 0.4.4,
+**Suivre les redirections des liens** active les visites HTTP des liens du texte,
+des ancres et de l’OCR/QR ; les actions de formulaire restent passives.
+Le détail des limites, effets des visites et protections réseau figure dans
+[Suivi des URLs](url-resolution.md).
+Une base correspond à des URLs exactes (chemin/requête
 conservés), sans condamner tout un service partagé pour une page malveillante.
 
 Importer un flux texte autorisé, une URL par ligne :

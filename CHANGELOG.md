@@ -5,6 +5,22 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-10
+
+- Suivre les redirections HTTP et HTML des liens du texte et de l’OCR/QR avec
+  un réglage administrateur explicite. Vérifier chaque saut DNS/IP et le
+  certificat TLS, exclure les adresses internes et borner temps, volume et
+  concurrence. Ne pas exécuter JavaScript ni soumettre de formulaires.
+- Comparer les URLs visitées à la base locale de phishing et consulter les
+  domaines découverts via les connecteurs configurés, avec priorité aux dernières
+  destinations et indication des quotas et omissions.
+- Afficher les parcours et leurs interruptions dans les diagnostics, sans
+  conserver chemins, paramètres ou pages. Conserver les observations
+  consultatives, les modèles et les actions de livraison existants.
+- Reporter cette capacité de 0.5.0-dev.15 sur la branche stable 0.4.3, sans
+  migration de stockage. Les configurations existantes gardent le suivi désactivé
+  jusqu’à son activation depuis la console.
+
 ## [0.4.3] - 2026-09-10
 
 - Accepter le point final des noms MX pour le relais SMTP, notamment les avis

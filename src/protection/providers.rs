@@ -352,10 +352,13 @@ impl Client {
         let mut hits = Vec::new();
         report.status = Status::Complete;
         let work = async {
-            let indicators = targets
-                .domains
+            let mut seen = std::collections::BTreeSet::new();
+            let indicators: Vec<_> = targets
+                .destination_domains
                 .iter()
+                .chain(targets.domains.iter())
                 .filter(|s| super::local::public_domain(s))
+                .filter(|s| seen.insert(s.as_str()))
                 .map(|s| (s, false))
                 .chain(
                     targets
@@ -368,8 +371,9 @@ impl Client {
                         })
                         .map(|s| (s, true)),
                 )
-                .take(12);
-            for (indicator, file) in indicators {
+                .collect();
+            report.omitted = indicators.len().saturating_sub(12);
+            for (indicator, file) in indicators.into_iter().take(12) {
                 let result = self.query(provider, &key, indicator, file).await;
                 if result.status != Status::Complete {
                     report.status = result.status;
@@ -397,6 +401,9 @@ impl Client {
             .is_err()
         {
             report.status = Status::Unavailable;
+        }
+        if report.omitted > 0 && report.status == Status::Complete {
+            report.status = Status::Limited;
         }
         report.elapsed_ms = started.elapsed().as_millis() as u64;
         (report, hits)
@@ -686,6 +693,41 @@ mod transport_tests {
         );
         let (cached, _) = client.inspect(Provider::Crdf, true, &targets).await;
         assert_eq!(cached.cache_hits, 1);
+    }
+    #[tokio::test]
+    async fn discovered_destination_precedes_original_domains_under_quota() {
+        let root = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            crdf_per_minute: 1,
+            crdf_per_day: 1,
+            ..Default::default()
+        };
+        let mut client = Client::new(&settings, root.path()).unwrap();
+        save_key(
+            root.path(),
+            Provider::Crdf,
+            "synthetic-key-for-transport-1234",
+        )
+        .unwrap();
+        let (url, task) = server("200 OK", serde_json::json!({"error":false,"data":[{"url":"z-final.example.com","error":false,"in_database":false}]}).to_string(), 0).await;
+        client.endpoint_override = Some(url);
+        let mut targets = Targets::default();
+        for i in 0..13 {
+            targets.domains.insert(format!("a{i}.example.com"));
+        }
+        targets.domains.insert("z-final.example.com".into());
+        targets
+            .destination_domains
+            .insert("z-final.example.com".into());
+        let (report, hits) = client.inspect(Provider::Crdf, true, &targets).await;
+        assert_eq!(report.checked, 1);
+        assert_eq!(report.omitted, 2); // 14 unique domains, with a 12-target limit.
+        assert_eq!(report.status, Status::Quota);
+        assert!(hits.is_empty());
+        let request = task.await.unwrap();
+        let body: serde_json::Value =
+            serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(body["urls"], serde_json::json!(["z-final.example.com"]));
     }
     #[tokio::test]
     async fn quota_timeout_and_oversized_responses_never_produce_a_hit() {

@@ -772,12 +772,23 @@ async fn protection_credentials_stay_private_and_policy_changes_preserve_the_sco
     let old = control.snapshot().engine.offline(common::MESSAGE);
     let mut settings = control.snapshot().settings.clone();
     settings.protection.as_mut().unwrap().crdf = true;
+    settings.protection.as_mut().unwrap().follow_urls = true;
     control.apply(0, settings, "admin".into()).await.unwrap();
     let new = control.snapshot().engine.offline(common::MESSAGE);
     assert_eq!(old.score, new.score);
     assert_eq!(old.features, new.features);
     assert!(new.protection.unwrap().observation_only);
     let resumed = Controller::load(cfg, store).await.unwrap();
+    assert!(
+        resumed
+            .snapshot()
+            .config
+            .protection
+            .as_ref()
+            .unwrap()
+            .policy
+            .follow_urls
+    );
     assert!(
         resumed
             .snapshot()
