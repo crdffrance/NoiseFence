@@ -94,7 +94,7 @@ cargo metadata --manifest-path fuzz/Cargo.toml --offline --locked --no-deps
 cargo check --manifest-path fuzz/Cargo.toml --offline --locked --bin research_detectors
 ```
 
-This keeps the path package at `0.5.0-dev.1` and includes the CFB, ZIP, XML and
+This aligns the path package with the current version and includes the CFB, ZIP, XML and
 compression dependencies. An uncached dependency is an offline build limitation;
 do not silently drop that parser or claim its fuzz coverage.
 

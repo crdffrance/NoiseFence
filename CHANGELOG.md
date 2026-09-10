@@ -18,6 +18,9 @@ incompatible demande une version mineure et une migration documentée.
   sans masquer cet échec ni convertir l’analyse en succès.
 - Publier le premier relevé Linux du candidat dev.6 : 664 messages synthétiques
   livrés intacts, avec les analyses limitées et l’échec PNG/OCR documentés.
+- Vérifier le correctif dev.7 sur Linux : 50 tests d’inspection, 16 messages
+  entièrement analysés et livrés intacts, huit OCR/QR vérifiés et six jobs CI
+  réussis. Conserver le p95 OCR de 708 ms, encore supérieur à l’objectif initial.
 
 ### 0.5.0-dev.6 — Mesures SMTP des moteurs de recherche
 

@@ -1,0 +1,526 @@
+{
+  "recorded_at": "2026-09-10T11:13:43.445527+00:00",
+  "commit": "28c4a28968522f81b8105e0337c2ef1110aebf38",
+  "build": {
+    "commit": "28c4a28968522f81b8105e0337c2ef1110aebf38",
+    "engine_source_sha256": "95ca48479a809cafa57f104a10a850ae49309917fc9ed4a77a81ee62670fca23",
+    "engine_source_manifest": "noisefence-source-tree-2",
+    "engine_source_files": 60,
+    "test_binary_sha256": "3168cdc0114d81f5a0aa4f97297e03dc0feee1417d0781f1838af5c3992b5a8e",
+    "daemon_binary_sha256": "96401a34103887a0455c37be2857b44ac68276f85ff2e9fe2cb6af3361c33850",
+    "runtime_files_sha256": {
+      "config/development.toml": "da7489c8118bfc523677989f605791a2d6bb42370543dbdc59cec7b4ad518163",
+      "scripts/smtp_load.py": "695d37d67a12bc880d1d6d88b6b3eeaf2cf696dc71b25911a778dcb1cd094f29",
+      "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+      "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969",
+      "deploy/vision-worker.py": "26b2ebd9a4c62ee3f56c3e5ee11e59d2e8c08ff9b579d49224661628ba0b5d48"
+    },
+    "probe_source_sha256": "8a8efa7c1ae634fd99e87c36eeea8c79337b5cad2a9db4b357883dc4f83ae408",
+    "binary_sha256": "512ee2953091254401c2c7add548100481ea38939f750c5bc24619a47faaec89",
+    "platform": "linux-amd64",
+    "profile": "release",
+    "features": [
+      "semantic"
+    ],
+    "image": "rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922"
+  },
+  "production_version": "noisefence 0.4.2",
+  "production_service_active": true,
+  "configuration_unchanged": true,
+  "production_state_inaccessible": true,
+  "private_network": true,
+  "external_messages": 0,
+  "model_sha256": {
+    "model.json": "eda9070844f4d7472aa828ff9fcf504526232d6401670dc5ec5cd207bdab3854",
+    "combination.json": "e36e95938fbf085af1b33b5e4f744e0663c7bb18afb6c771a59a2e5d5cda90ed",
+    "encoder/config.json": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+    "encoder/tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+    "encoder/model.safetensors": "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
+  },
+  "platform": {
+    "os": "Linux",
+    "kernel": "6.12.100+deb13-cloud-amd64",
+    "architecture": "x86_64",
+    "nominal_vcpu": 4,
+    "ram_mib": 7757
+  },
+  "resources": {
+    "cpu_quota_percent": 400,
+    "cpu_weight": 10,
+    "memory_max_bytes": 3221225472,
+    "nice": 10,
+    "scanners_outside_measurement_cgroup": true
+  },
+  "observed": {
+    "memory_peak_bytes": 1288577024,
+    "cpu_usage_usec": 6715236,
+    "wall_seconds": 12.734173476987053
+  },
+  "unit_exit_status": 0,
+  "limitations": [
+    "Synthetic sequential bursts; host is shared with production, not a sustained production-traffic capacity guarantee.",
+    "DNS/authentication, external reputation, paid LLM, TLS and Proton delivery are excluded; configured local models and scanners are identified per profile.",
+    "Model copies and model loading are excluded from SMTP admission/analysis times; cgroup CPU includes startup and the driver, but excludes shared scanner services.",
+    "Cgroup counters sampled every 100 ms; last CPU value may precede exit.",
+    "No filtering-quality or real CAPEv2 claim."
+  ],
+  "schema": "noisefence-png-linux-validation-1",
+  "private_record_sha256": "c999ffead303fef5568821cc5db523a3ec07a435d9b2d694c01e619a8951b118",
+  "artifact_id": 10149086595,
+  "artifact_digest": "sha256:9f091a79bc5a93250a309bfc1c44e3f180510d6f0a2923231096cddb6dea1b57",
+  "build_workflow": "https://github.com/crdffrance/NoiseFence/actions/runs/34469101008",
+  "checks_workflow": "https://github.com/crdffrance/NoiseFence/actions/runs/34468974803",
+  "checks": {
+    "web": "success",
+    "research": "success",
+    "rust (ubuntu-latest, --features semantic)": "success",
+    "deployment": "success",
+    "rust (ubuntu-24.04-arm, --features semantic, --release)": "success",
+    "rust (ubuntu-latest)": "success"
+  },
+  "suite": {
+    "run_finished": true,
+    "native_content_tests_passed": 50,
+    "all_profile_expectations_met": true,
+    "cases": {
+      "research-documents": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "96401a34103887a0455c37be2857b44ac68276f85ff2e9fe2cb6af3361c33850",
+        "version": "noisefence 0.5.0-dev.7",
+        "messages": 8,
+        "concurrency": 4,
+        "message_bytes": 8192,
+        "processing": 4,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": false,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": false,
+          "signatures": false,
+          "vision": false,
+          "protection": false,
+          "html_fixture": true,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": true
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {
+              "fr.credentials": 8,
+              "en.credentials": 8
+            },
+            "content_inspection": {
+              "html_event_handler": 8,
+              "pdf_active_name": 8
+            }
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 1,
+            "max": 1
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "disabled": 8
+          },
+          "antivirus": {
+            "disabled": 8
+          },
+          "signatures": {
+            "disabled": 8
+          },
+          "vision": {
+            "disabled": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {},
+        "acceptance_ms": {
+          "p50": 9.988,
+          "p95": 33.322,
+          "max": 33.322
+        },
+        "analysis_ms": {
+          "p50": 1,
+          "p95": 23,
+          "max": 23
+        },
+        "admission_seconds": 0.043,
+        "drained_seconds": 0.147,
+        "accepted_per_second": 186.384,
+        "delivered_per_second": 54.395,
+        "complete_per_second": 54.395,
+        "delivery_states": {
+          "delivered": 8
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 37076992,
+        "peak_daemon_threads": 11,
+        "peak_pending_deliveries": 4,
+        "daemon_cpu_seconds": 0.12,
+        "wall_seconds": 0.359,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true
+      },
+      "model-ocr": {
+        "schema": "noisefence-smtp-load-2",
+        "binary_sha256": "96401a34103887a0455c37be2857b44ac68276f85ff2e9fe2cb6af3361c33850",
+        "version": "noisefence 0.5.0-dev.7",
+        "messages": 8,
+        "concurrency": 4,
+        "message_bytes": 27634,
+        "processing": 1,
+        "relay_workers": 8,
+        "transport": "loopback plaintext both hops",
+        "durability": "unmodified SQLite FULL + spool fsync",
+        "exclusions": [
+          "DNS/authentication",
+          "DQS",
+          "LLM",
+          "Proton",
+          "TLS",
+          "traffic representativeness"
+        ],
+        "components": {
+          "semantic": true,
+          "semantic_parallel": 1,
+          "semantic_timeout_ms": 500,
+          "antivirus": true,
+          "signatures": true,
+          "vision": true,
+          "protection": false,
+          "html_fixture": false,
+          "mailing": false,
+          "heuristics": true,
+          "content_inspection": true,
+          "document_fixture": false
+        },
+        "require_complete": true,
+        "complete_definition": "stored scan.complete plus all requested research modules complete",
+        "cpu_environment": {
+          "RAYON_NUM_THREADS": "4",
+          "CANDLE_NUM_THREADS": "4",
+          "TOKENIZERS_PARALLELISM": "false",
+          "TOKIO_WORKER_THREADS": "4"
+        },
+        "research": {
+          "findings": {
+            "heuristics": {},
+            "content_inspection": {}
+          },
+          "heuristic_limits": {},
+          "analysis_ms": {
+            "p50": 0,
+            "p95": 1,
+            "max": 1
+          }
+        },
+        "correctness_passed": true,
+        "accepted": 8,
+        "delivered": 8,
+        "complete": 8,
+        "primary_complete": 8,
+        "incomplete": 0,
+        "statuses": {
+          "semantic": {
+            "complete": 8
+          },
+          "antivirus": {
+            "clean": 8
+          },
+          "signatures": {
+            "clean": 8
+          },
+          "vision": {
+            "complete": 8
+          },
+          "llm": {
+            "disabled": 8
+          },
+          "research_execution": {
+            "complete": 8
+          },
+          "heuristics": {
+            "complete": 8
+          },
+          "content_inspection": {
+            "complete": 8
+          }
+        },
+        "missing": 0,
+        "extra": 0,
+        "duplicates": 0,
+        "changed_bodies": 0,
+        "retryable_responses": {
+          "451": 22
+        },
+        "acceptance_ms": {
+          "p50": 632.759,
+          "p95": 6957.067,
+          "max": 6957.067
+        },
+        "analysis_ms": {
+          "p50": 622,
+          "p95": 708,
+          "max": 708
+        },
+        "admission_seconds": 6.96,
+        "drained_seconds": 7.064,
+        "accepted_per_second": 1.149,
+        "delivered_per_second": 1.133,
+        "complete_per_second": 1.133,
+        "delivery_states": {
+          "delivered": 8
+        },
+        "integrity": "ok",
+        "requirements_met": true,
+        "peak_daemon_rss_bytes": 1183551488,
+        "peak_daemon_threads": 12,
+        "peak_pending_deliveries": 1,
+        "daemon_cpu_seconds": 5.1,
+        "wall_seconds": 11.725,
+        "exit_status": 0,
+        "expected_exit_status": 0,
+        "profile_expectation_met": true,
+        "fixture_profile": "public-vision-worker-ocr-qr",
+        "message_bytes_range": [
+          27634,
+          27634
+        ],
+        "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+        "probe_sources_sha256": {
+          "scripts/smtp_load.py": "695d37d67a12bc880d1d6d88b6b3eeaf2cf696dc71b25911a778dcb1cd094f29",
+          "scripts/smtp_load_vision.py": "cf260d7693cea7489ec3f98344af2c7eceaf4e3fcb2a9ea82f511afd8027389e",
+          "tests/vision_worker.py": "6b7971c255fda82f7da57a84715d6f310607f82d8815ae753ad87cbed5395969"
+        },
+        "ocr_verified_messages": 8,
+        "ocr_complete_messages": 8,
+        "ocr_requirements_met": true,
+        "ocr_elapsed_ms": {
+          "p50": 618,
+          "p95": 675,
+          "max": 675
+        },
+        "ocr_backend_sha256": [
+          "ca8eee5f979da5e8b069e918f84462095a1327f69c51cbfcaae1f058bd67c277"
+        ]
+      }
+    }
+  },
+  "unchanged_worker_profile": {
+    "scope": "Unmodified worker analyze(), direct call on a public synthetic image; excludes Rust IPC and Python job/supervisor startup. Unit CPUQuota100%, MemoryMax900M, PrivateNetwork. No production-worker modification.",
+    "worker_sha256": "26b2ebd9a4c62ee3f56c3e5ee11e59d2e8c08ff9b579d49224661628ba0b5d48",
+    "fixture_image_sha256": "4953f1cf422a1dea3cc2b0d684689d44d59df0408b228c5cd8451a18e8d7c9e0",
+    "records": [
+      {
+        "wall_ms": 522.6106639602222,
+        "child_cpu_ms": 422.88899999999995,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 65.46295899897814
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 415.7198980101384
+          }
+        ],
+        "other_wall_ms": 41.427806951105595,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 514.8890690179542,
+        "child_cpu_ms": 421.883,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 64.55430103233084
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 415.2582240058109
+          }
+        ],
+        "other_wall_ms": 35.07654397981241,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 520.6907319952734,
+        "child_cpu_ms": 431.99300000000005,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 64.47787396609783
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 415.2441769838333
+          }
+        ],
+        "other_wall_ms": 40.96868104534224,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 567.7425210014917,
+        "child_cpu_ms": 474.5390000000001,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 65.25761197553948
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 465.8989349845797
+          }
+        ],
+        "other_wall_ms": 36.58597404137254,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 515.022235980723,
+        "child_cpu_ms": 407.2159999999999,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 64.47360798483714
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 415.43535998789594
+          }
+        ],
+        "other_wall_ms": 35.11326800798997,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 515.9609969705343,
+        "child_cpu_ms": 429.34700000000043,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 64.2806880059652
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 415.39483703672886
+          }
+        ],
+        "other_wall_ms": 36.28547192784026,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 517.639881989453,
+        "child_cpu_ms": 416.56799999999987,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 64.34029998490587
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 416.0178320016712
+          }
+        ],
+        "other_wall_ms": 37.281750002875924,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      },
+      {
+        "wall_ms": 514.1598570044152,
+        "child_cpu_ms": 416.7030000000002,
+        "phases": [
+          {
+            "command": "zbarimg",
+            "wall_ms": 64.36417100485414
+          },
+          {
+            "command": "tesseract",
+            "wall_ms": 415.26473697740585
+          }
+        ],
+        "other_wall_ms": 34.530949022155255,
+        "status": "complete",
+        "pages": 1,
+        "qr_codes": 1,
+        "text_chars": 124
+      }
+    ]
+  },
+  "conclusions": {
+    "png_limit_regression_resolved_on_fixture": true,
+    "all_16_messages_delivered_intact_and_complete": true,
+    "ocr_verified_messages": 8,
+    "ocr_analysis_p95_ms": 708,
+    "initial_500ms_target_met_by_ocr_profile": false,
+    "sustained_capacity_proven": false,
+    "filtering_quality_proven": false,
+    "real_office_sandbox_validated": false,
+    "production_activation": false
+  }
+}

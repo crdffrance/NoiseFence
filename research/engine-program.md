@@ -187,8 +187,22 @@ heuristique ; les huit images OCR ont texte et QR décodés, mais l’inspection
 échoue sur le ratio de compression. Ce dernier cas, inattendu, fait échouer le
 critère global du banc. Le candidat dev.7 corrige l’inspection PNG sans relever
 les plafonds absolus, avec un rapport structurel révisé et conservation des
-résultats OCR même lorsqu’une autre analyse échoue. Sa validation Linux après
-correction reste à effectuer ; le relevé dev.6 demeure inchangé.
+résultats OCR même lorsqu’une autre analyse échoue. Le relevé dev.6 demeure
+inchangé.
+
+Le [rejeu Linux de dev.7](png-linux-validation-20260910.json) valide 50 tests
+natifs d’inspection et 16 livraisons synthétiques intactes et entièrement
+analysées. Chacune des huit images OCR fournit le texte et le QR attendus, avec
+une inspection PNG complète. Les six jobs CI du commit `28c4a28`, dont Rust
+AMD64/ARM64 et la parité des modèles, ont réussi.
+
+Le p95 du profil OCR reste à 708 ms, au-dessus de l’objectif initial de 500 ms.
+Huit appels directs au worker inchangé, limités à un CPU, situent l’essentiel
+du temps dans Tesseract ; ils excluent SMTP et le démarrage du superviseur/job.
+Ce diagnostic conserve les durées brutes et ne démontre ni une capacité soutenue
+ni une amélioration de classification. L’optimisation des attentes de processus
+reste une piste de recherche ; aucun worker expérimental n’a été activé en
+production.
 
 ## Travail encore nécessaire
 
@@ -203,7 +217,7 @@ correction reste à effectuer ; le relevé dev.6 demeure inchangé.
   au-delà des premiers lots synthétiques, puis contrôle
   de la livraison Proton pour les nouvelles actions explicitement activées.
 - Validation de chaque nouveau candidat sur Linux et choix d’activation des
-  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2, 0.5.0-dev.3, 0.5.0-dev.5 et 0.5.0-dev.6 ont réussi
+  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2, 0.5.0-dev.3, 0.5.0-dev.5, 0.5.0-dev.6 et 0.5.0-dev.7 ont réussi
   sur AMD64 et ARM64 ;
   elles ne valident pas par avance les modifications suivantes.
 

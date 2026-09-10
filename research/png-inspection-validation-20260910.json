@@ -32,7 +32,16 @@
     "retain OCR evidence and original failure on incomplete research analysis",
     "wrong QR fails OCR requirements in both summary and exit status"
   ],
-  "linux_after_fix": "pending",
+  "linux_after_fix": {
+    "status": "verified",
+    "commit": "28c4a28968522f81b8105e0337c2ef1110aebf38",
+    "report": "png-linux-validation-20260910.json",
+    "checks_jobs_passed": 6,
+    "native_content_tests": 50,
+    "complete_smtp_messages": 16,
+    "complete_and_verified_ocr_messages": 8,
+    "ocr_analysis_p95_ms": 708
+  },
   "quality_claim": false,
   "production_activation": false,
   "native_smtp": {

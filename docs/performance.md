@@ -6,9 +6,23 @@ profil OCR. Les 664 messages synthétiques sont livrés intacts, mais les analys
 incomplètes ne comptent pas dans le débit d’analyse complète. Ce sont de courts
 lots sur un serveur partagé, avec des exclusions détaillées par profil.
 
+Le [rejeu du correctif dev.7](../research/png-linux-validation-20260910.json)
+confirme 16 messages livrés intacts et entièrement analysés, dont huit images
+avec texte et QR décodés. Le p95 OCR de 708 ms dépasse encore l’objectif de
+500 ms. Les 50 tests d’inspection natifs et les six jobs CI AMD64/ARM64 ont réussi
+sur le commit indiqué dans le relevé ; cela ne mesure pas la qualité antispam.
+
 Depuis dev.7, le banc OCR ajoute `ocr_requirements_met` et conserve ses compteurs
 même si une autre analyse obligatoire échoue. Son code de sortie demeure en
 échec et `requirements_met` exige aussi la lecture du texte et du QR attendus.
+
+Le relevé inclut huit appels directs au worker inchangé, limités à un CPU, pour
+localiser le temps passé dans Tesseract, les codes-barres et la préparation.
+Ce profil exclut le superviseur/job, SMTP, l’inférence et les autres scanners.
+L’attente POSIX avec délai peut comporter de courtes pauses de sondage, selon
+la [documentation Python](https://docs.python.org/3/library/subprocess.html#subprocess.Popen.wait).
+Une attente par notification Linux constitue une piste à mesurer et à valider
+sur les arrêts/délais, sans réduire les contrôles OCR.
 
 `model-benchmark` mesure l'extraction et l'inférence locales. Pour mesurer aussi
 les connecteurs, le banc `pipeline_probe` appelle le même `Engine::process` que
