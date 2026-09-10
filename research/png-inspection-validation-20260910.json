@@ -34,5 +34,12 @@
   ],
   "linux_after_fix": "pending",
   "quality_claim": false,
-  "production_activation": false
+  "production_activation": false,
+  "native_smtp": {
+    "delivered_intact": 10,
+    "complete_document_analyses": 8,
+    "expected_limited_large_analyses": 2,
+    "unexpected_failures": 0,
+    "structural_report_version_checked": "noisefence-content-inspection-2"
+  }
 }
