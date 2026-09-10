@@ -59,6 +59,10 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    /// Opaque engine-produced recipient variants, never accepted from JSON or
+    /// exposed in a shared scan. Each has its own normal queue id and wire bytes.
+    #[serde(skip)]
+    pub delivery_variants: Vec<crate::store::batch::Message>,
     /// Opaque proof from the live SMTP verification. Never deserialize it from
     /// stored scans or message headers, nor expose it in console diagnostics.
     #[serde(skip)]
@@ -672,7 +676,8 @@ impl Engine {
             .unwrap_or_else(|| Arc::new(tokio::sync::Semaphore::new(4)));
         let sender_history = config.sender_history.as_ref().map(|settings| {
             template
-                .and_then(|t| t.sender_history.clone())
+                .and_then(|t| t.sender_history.as_ref())
+                .map(|history| Arc::new(history.reconfigured(settings.clone())))
                 .unwrap_or_else(|| {
                     Arc::new(crate::sender_history::History::new(
                         &config.data_dir,
@@ -1032,7 +1037,7 @@ impl Engine {
             helo,
             sender,
             id,
-            (crate::evidence::Source::SuppliedEnvelope, &[]),
+            (crate::evidence::Source::SuppliedEnvelope, &[], &[]),
         )
         .await
     }
@@ -1062,27 +1067,52 @@ impl Engine {
                 helo,
                 sender,
                 id,
-                (crate::evidence::Source::SmtpSession, &scopes),
+                (crate::evidence::Source::SmtpSession, &scopes, recipients),
             )
             .await?;
-        if let Some(history) = &self.sender_history {
-            let started = Instant::now();
-            scan.sender_history_projection = Some(history.inspect(raw, &scan, recipients).await);
-            scan.sender_history_receipt = crate::sender_history::prepare_receipt(raw, &scan);
-            scan.elapsed_ms = scan
-                .elapsed_ms
-                .saturating_add(started.elapsed().as_millis() as u64);
+        let started = Instant::now();
+        let primary_recipients: Vec<_> = recipients
+            .iter()
+            .filter(|r| {
+                !scan
+                    .delivery_variants
+                    .iter()
+                    .any(|v| v.recipients.iter().any(|other| other.address == r.address))
+            })
+            .cloned()
+            .collect();
+        self.finish_smtp_scan(raw, &mut scan, &primary_recipients)
+            .await?;
+        for variant in &mut scan.delivery_variants {
+            self.finish_smtp_scan(raw, &mut variant.scan, &variant.recipients)
+                .await?;
         }
-        if let Some(runtime) = &self.research_engines {
-            let started = Instant::now();
-            let (report, plan) = runtime.prepare_sandbox(raw, &scan).await?;
-            scan.sandbox_pipeline = report;
-            scan.sandbox_pipeline_plan = plan;
-            scan.elapsed_ms = scan
-                .elapsed_ms
-                .saturating_add(started.elapsed().as_millis() as u64);
+        scan.elapsed_ms = scan
+            .elapsed_ms
+            .saturating_add(started.elapsed().as_millis() as u64);
+        for variant in &mut scan.delivery_variants {
+            variant.scan.elapsed_ms = scan.elapsed_ms;
         }
         Ok((scan, bytes))
+    }
+    async fn finish_smtp_scan(
+        &self,
+        raw: &[u8],
+        scan: &mut Scan,
+        recipients: &[crate::config::Recipient],
+    ) -> Result<()> {
+        if let Some(history) = &self.sender_history {
+            if scan.sender_history_projection.is_none() || !scan.complete {
+                scan.sender_history_projection = Some(history.inspect(raw, scan, recipients).await);
+            }
+            scan.sender_history_receipt = crate::sender_history::prepare_receipt(raw, scan);
+        }
+        if let Some(runtime) = &self.research_engines {
+            let (report, plan) = runtime.prepare_sandbox(raw, scan).await?;
+            scan.sandbox_pipeline = report;
+            scan.sandbox_pipeline_plan = plan;
+        }
+        Ok(())
     }
     async fn process_with_source(
         &self,
@@ -1091,10 +1121,16 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        context: (crate::evidence::Source, &[String]),
+        context: (
+            crate::evidence::Source,
+            &[String],
+            &[crate::config::Recipient],
+        ),
     ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        let mut alternate: Option<crate::store::batch::Message> = None;
+        let recipients = context.2;
         if let Some(runtime) = &self.research_engines {
             runtime.inspect(raw).await.apply(&mut scan);
         }
@@ -1400,7 +1436,63 @@ impl Engine {
                     .await;
             }
             self.score(&mut scan);
-            if scan.complete
+            // Trust is read only after all mandatory observations. It can change
+            // an explicitly configured cutoff, never the recorded model score.
+            Self::refresh_evidence(&mut scan);
+            let mut trusted_indices = Vec::new();
+            let mut trusted_scan = None;
+            if context.0 == crate::evidence::Source::SmtpSession
+                && !recipients.is_empty()
+                && self
+                    .config
+                    .sender_history
+                    .as_ref()
+                    .is_some_and(|p| p.mode == crate::sender_history::Mode::Adaptive)
+                && let Some(history) = &self.sender_history
+            {
+                let projection = history.inspect(raw, &scan, recipients).await;
+                trusted_indices = crate::sender_history::adaptive::selected(
+                    &scan,
+                    &self.config,
+                    &projection,
+                    self.llm.is_some(),
+                );
+                if !trusted_indices.is_empty() && trusted_indices.len() < recipients.len() {
+                    let others: Vec<_> = (0..recipients.len())
+                        .filter(|i| !trusted_indices.contains(i))
+                        .collect();
+                    let mut trusted = scan.clone();
+                    trusted.sender_history_projection = Some(projection.select(&trusted_indices));
+                    trusted_scan = Some(trusted);
+                    scan.sender_history_projection = Some(projection.select(&others));
+                } else {
+                    scan.sender_history_projection = Some(projection);
+                }
+            }
+            let all_trusted =
+                !trusted_indices.is_empty() && trusted_indices.len() == recipients.len();
+            let optional_llm_omitted = !trusted_indices.is_empty()
+                && self.llm.is_some()
+                && self
+                    .config
+                    .llm
+                    .as_ref()
+                    .is_some_and(|c| scan.score >= c.score_low && scan.score <= c.score_high);
+            let omit_llm = |s: &mut Scan| {
+                if let Some(settings) = &self.config.llm {
+                    s.llm.status = crate::llm::LlmStatus::NotNeeded;
+                    s.llm.model = settings.model.clone();
+                    s.llm.prompt_version = crate::llm::PROMPT_VERSION.into();
+                }
+            };
+            if all_trusted {
+                omit_llm(&mut scan);
+            }
+            if let Some(trusted) = &mut trusted_scan {
+                omit_llm(trusted);
+            }
+            if !all_trusted
+                && scan.complete
                 && let Some(llm) = &self.llm
                 && scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware
             {
@@ -1421,59 +1513,100 @@ impl Engine {
                 }
                 Self::check_llm(&mut scan);
             }
+            let render = |scan: &mut Scan, variant_id: &str| -> Result<Vec<u8>> {
+                scan.action = Some(crate::actions::evaluate(scan, &self.config));
+                let subject_tag = crate::decision::subject_tag(scan, &self.config);
+                let tag = subject_tag == Some(message::SubjectTag::Spam);
+                let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
+                // If the chain cannot be extended, preserve the signed subject and fail open.
+                if (tag || pub_tag) && !arc.can_be_sealed() {
+                    anyhow::bail!("ARC chain cannot be extended");
+                }
+                scan.tagged = tag;
+                scan.pub_tagged = pub_tag;
+                let mut bytes = message::rewrite_with_tag(
+                    raw,
+                    subject_tag,
+                    &format!(
+                        "{}{}",
+                        self.headers(ip, variant_id, scan),
+                        results.to_header()
+                    ),
+                )?;
+                if let Some(key) = &self.arc_key
+                    && arc.can_be_sealed()
+                {
+                    let changed =
+                        AuthenticatedMessage::parse(&bytes).context("modified message parse")?;
+                    let signature = ArcSealer::from_key(rsa_key(key)?)
+                        .domain(self.config.filter.arc_domain.as_deref().unwrap())
+                        .selector(self.config.filter.arc_selector.as_deref().unwrap())
+                        .headers([
+                            "From",
+                            "To",
+                            "Subject",
+                            "Date",
+                            "Message-ID",
+                            "MIME-Version",
+                            "Content-Type",
+                            "Content-Transfer-Encoding",
+                            "DKIM-Signature",
+                            "X-NoiseFence-Score",
+                            "X-NoiseFence-Status",
+                            "X-NoiseFence-Decision",
+                            "X-NoiseFence-Decision-Source",
+                            "X-NoiseFence-Category",
+                        ])
+                        .seal(&changed, &results, &arc)?;
+                    bytes = [signature.to_header().as_bytes(), &bytes].concat();
+                }
+                Ok(bytes)
+            };
             self.decide(&mut scan);
-            scan.action = Some(crate::actions::evaluate(&scan, &self.config));
-            let subject_tag = crate::decision::subject_tag(&scan, &self.config);
-            let tag = subject_tag == Some(message::SubjectTag::Spam);
-            let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
-            // If the chain cannot be extended, preserve the signed subject and fail open.
-            if (tag || pub_tag) && !arc.can_be_sealed() {
-                anyhow::bail!("ARC chain cannot be extended");
+            if all_trusted {
+                crate::sender_history::adaptive::apply(
+                    &mut scan,
+                    &self.config,
+                    optional_llm_omitted,
+                );
             }
-            scan.tagged = tag;
-            scan.pub_tagged = pub_tag;
-            let mut bytes = message::rewrite_with_tag(
-                raw,
-                subject_tag,
-                &format!("{}{}", self.headers(ip, id, &scan), results.to_header()),
-            )?;
-            if let Some(key) = &self.arc_key
-                && arc.can_be_sealed()
-            {
-                let changed =
-                    AuthenticatedMessage::parse(&bytes).context("modified message parse")?;
-                let signature = ArcSealer::from_key(rsa_key(key)?)
-                    .domain(self.config.filter.arc_domain.as_deref().unwrap())
-                    .selector(self.config.filter.arc_selector.as_deref().unwrap())
-                    .headers([
-                        "From",
-                        "To",
-                        "Subject",
-                        "Date",
-                        "Message-ID",
-                        "MIME-Version",
-                        "Content-Type",
-                        "Content-Transfer-Encoding",
-                        "DKIM-Signature",
-                        "X-NoiseFence-Score",
-                        "X-NoiseFence-Status",
-                        "X-NoiseFence-Decision",
-                        "X-NoiseFence-Decision-Source",
-                        "X-NoiseFence-Category",
-                    ])
-                    .seal(&changed, &results, &arc)?;
-                bytes = [signature.to_header().as_bytes(), &bytes].concat();
+            let bytes = render(&mut scan, id)?;
+            if let Some(mut trusted) = trusted_scan {
+                self.decide(&mut trusted);
+                crate::sender_history::adaptive::apply(
+                    &mut trusted,
+                    &self.config,
+                    optional_llm_omitted,
+                );
+                let variant_id = uuid::Uuid::new_v4().to_string();
+                let wire = render(&mut trusted, &variant_id)?;
+                alternate = Some(crate::store::batch::Message {
+                    id: variant_id,
+                    recipients: trusted_indices
+                        .iter()
+                        .map(|i| recipients[*i].clone())
+                        .collect(),
+                    scan: trusted,
+                    raw: wire,
+                });
             }
             Ok::<_, anyhow::Error>(bytes)
         };
         match tokio::time::timeout(Duration::from_secs(5), work).await {
             Ok(Ok(bytes)) => {
                 scan.elapsed_ms = started.elapsed().as_millis() as u64;
+                if let Some(mut variant) = alternate {
+                    variant.scan.elapsed_ms = scan.elapsed_ms;
+                    scan.delivery_variants.push(variant);
+                }
                 // decide() already snapshotted detector availability. A fusion
                 // profile failure must not rewrite those observations as failed checks.
                 Ok((scan, bytes))
             }
             _ => {
+                scan.sender_history_projection = None;
+                scan.reasons
+                    .retain(|r| r.id != crate::sender_history::adaptive::REASON);
                 scan.complete = false;
                 scan.tagged = false;
                 scan.pub_tagged = false;
@@ -1562,7 +1695,102 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
     Ok(listed)
 }
 #[cfg(test)]
+#[path = "engine/history_tests.rs"]
+mod history_tests;
+#[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn reconfiguration_applies_sender_history_policy_revocation_and_new_scopes() {
+        use crate::{
+            evidence::{AuthResult, Source, State},
+            sender_history::{
+                Config as HistoryConfig, ManualEntry, ManualMatch, ManualSender, Mode,
+            },
+        };
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        let _store = crate::store::Store::open(root.path()).unwrap();
+        let entry = |address: &str| ManualEntry {
+            recipient: address.into(),
+            destination: address.into(),
+            sender: ManualSender::Exact("sender@example.org".into()),
+        };
+        config.sender_history = Some(HistoryConfig {
+            trusted_threshold: None,
+            mode: Mode::CandidateCredit,
+            manual: vec![entry("alice@example.test")],
+        });
+        let original = Engine::new(Arc::new(config.clone())).unwrap();
+        let raw = b"From: sender@example.org\r\nSubject: Reload fixture\r\n\r\nHello\r\n";
+        let mut scan = original.extract(raw);
+        original.start_evidence(&mut scan, Source::SmtpSession);
+        let auth = &mut scan.evidence.as_mut().unwrap().authentication;
+        auth.state = State::Complete;
+        auth.dmarc_state = State::Complete;
+        auth.spf_state = State::Complete;
+        auth.spf = Some(AuthResult::Pass);
+        auth.dmarc_spf = Some(AuthResult::Pass);
+        let recipients = [
+            config.recipient("alice@example.test").unwrap(),
+            config.recipient("bob@example.test").unwrap(),
+        ];
+        let before = original
+            .sender_history
+            .as_ref()
+            .unwrap()
+            .inspect(raw, &scan, &recipients)
+            .await;
+        assert!(before.for_recipient(0).unwrap().candidate_credit);
+        assert!(!before.for_recipient(1).unwrap().candidate_credit);
+        config.sender_history.as_mut().unwrap().manual = vec![entry("bob@example.test")];
+        let changed = original.reconfigure(Arc::new(config.clone())).unwrap();
+        let after = changed
+            .sender_history
+            .as_ref()
+            .unwrap()
+            .inspect(raw, &scan, &recipients)
+            .await;
+        assert_eq!(
+            after.for_recipient(0).unwrap().manual_match,
+            ManualMatch::None
+        );
+        assert!(!after.for_recipient(0).unwrap().candidate_credit);
+        assert!(after.for_recipient(1).unwrap().candidate_credit);
+        config.sender_history.as_mut().unwrap().mode = Mode::Observation;
+        let observed = changed.reconfigure(Arc::new(config.clone())).unwrap();
+        let observed = observed
+            .sender_history
+            .as_ref()
+            .unwrap()
+            .inspect(raw, &scan, &recipients)
+            .await;
+        assert_eq!(
+            observed.for_recipient(1).unwrap().manual_match,
+            ManualMatch::Exact
+        );
+        assert!(!observed.for_recipient(1).unwrap().candidate_credit);
+        config.sender_history = None;
+        assert!(
+            changed
+                .reconfigure(Arc::new(config))
+                .unwrap()
+                .sender_history
+                .is_none()
+        );
+        // An already-started analysis retains its own policy snapshot.
+        assert!(
+            original
+                .sender_history
+                .as_ref()
+                .unwrap()
+                .inspect(raw, &scan, &recipients)
+                .await
+                .for_recipient(0)
+                .unwrap()
+                .candidate_credit
+        );
+    }
     #[test]
     fn visual_links_keep_a_reputation_slot_after_envelope_identities() {
         let raw = format!(

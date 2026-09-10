@@ -220,7 +220,7 @@ impl Artifacts {
                 "trusted_prefixes":c.trusted_unofficial_prefixes})
             })
         };
-        let policy = serde_json::json!({
+        let mut policy = serde_json::json!({
             "application":env!("CARGO_PKG_VERSION"), "schema":SCHEMA,
             "rules":"legacy-rules-with-contextual-dqs-1", "semantic_compiled":cfg!(feature="semantic"),
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
@@ -257,6 +257,13 @@ impl Artifacts {
                 "budget":c.monthly_budget_micro_eur,"pricing_checked_at":c.pricing_checked_at,
                 "input_price":c.input_micro_eur_per_million,"output_price":c.output_micro_eur_per_million}))
         });
+        if config
+            .sender_history
+            .as_ref()
+            .is_some_and(|p| p.mode == crate::sender_history::Mode::Adaptive)
+        {
+            policy["sender_history_adaptive"] = crate::sender_history::adaptive::VERSION.into();
+        }
         Self {
             application: env!("CARGO_PKG_VERSION").into(),
             dependency_lock_sha256: crate::message::digest(include_bytes!("../Cargo.lock")),

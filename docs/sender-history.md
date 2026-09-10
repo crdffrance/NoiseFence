@@ -4,8 +4,9 @@
 humains autorisés pour une relation précise entre expéditeur et destinataire.
 Le module est raccordé au traitement SMTP, à la file durable et aux diagnostics
 par destinataire. Sa configuration reste facultative et son mode par défaut est
-`observation`. Il ne modifie aucun score, verdict, préfixe, modèle ou traitement
-de livraison.
+`observation`. Ce mode ne modifie aucun score, verdict, préfixe, modèle ou
+traitement de livraison. Le mode facultatif `adaptive`, décrit ci-dessous, peut
+changer le seuil et la décision pour une livraison précise.
 
 Le mode explicite `candidate_credit` expose uniquement une éligibilité
 indicative. Il ne contourne jamais l’authentification, la recherche de logiciels
@@ -126,12 +127,15 @@ validation ne recopient pas les adresses.
 
 `Store::open` installe les tables et index additionnels dans sa migration.
 Le module ne change pas `PRAGMA user_version` ni les règles de la file durable.
-Le moteur conserve une instance partagée de `History` pour borner les lectures
-concurrentes.
+Le moteur partage la limite des lectures concurrentes entre les révisions de
+configuration. Un rechargement remplace bien la politique : la suppression ou
+le changement de portée d’une entrée affecte les messages suivants.
 
-Après le traitement final du scan, `Engine::process_smtp` appelle `inspect` et
-`prepare_receipt` avec les **octets originaux**, les vrais destinataires SMTP
-et le scan produit localement. La liste inclut les copies cachées et les adresses
+En mode adaptatif, après les vérifications obligatoires, `Engine::process_smtp`
+appelle `inspect` avant le LLM facultatif, puis `prepare_receipt` après la décision
+finale. Les modes consultatifs inspectent l’historique après l’analyse complète.
+Les appels utilisent les **octets originaux**, les vrais destinataires SMTP et
+le scan produit localement. La liste inclut les copies cachées et les adresses
 d’entrée des alias. Les octets réécrits sont ensuite transmis à l’enqueue avec
 les deux valeurs opaques conservées dans les champs éphémères de `Scan` :
 
@@ -311,7 +315,68 @@ les arrête avant l’échange SMTP ; les fixtures désactivent l’authentifica
 n’effectuent pas de requête DNS distante.
 
 Ces régressions synthétiques vérifient des invariants de sécurité, pas une
-amélioration du taux de capture ni le calibrage d’un poids de score. Une future
-utilisation du crédit dans une décision exige une évaluation indépendante et
+amélioration du taux de capture ni le calibrage d’un poids de score. L’activation de
+l’adaptation dans une décision de production exige une évaluation indépendante et
 une activation explicite. Les réglages de production et la documentation de
 publication restent des travaux séparés.
+
+
+## Adaptation explicite par destinataire
+
+Le mode `adaptive` applique un seuil administratif distinct aux correspondants
+appris ou explicitement configurés. Exemple pour un seuil normal de 95 :
+
+```toml
+[sender_history]
+mode = "adaptive"
+trusted_threshold = 98.0
+```
+
+Le seuil doit être fini, strictement supérieur au seuil normal et inférieur à
+100. L’authentification SMTP doit être activée. Ce mode est incompatible avec
+un modèle de fusion configuré : il ne modifie pas un profil de fusion validé.
+Le mode Observation global conserve son absence de marquage et de quarantaine.
+Aucun bonus numérique n’est ajouté au score du modèle. La décision est recalculée
+avec le seuil retenu, qui figure dans les diagnostics de cette livraison.
+Un résultat sous ce seuil n’est pas une preuve de légitimité.
+
+L’adaptation exige un historique complet, une identité actuellement authentifiée
+et alignée, une extraction complète et des vérifications obligatoires terminées.
+Une signature suspecte, un résultat de réputation positif, une observation active
+HTML/PDF/Office, un indice visuel de demande d’identifiants, un signal de règle
+positif ou une analyse requise limitée/indisponible empêche cette adaptation.
+Les contrôles de contenu, antivirus, OCR, réputation, SMTP et authentification
+restent exécutés. Un score atteignant le seuil de confiance suit la politique
+normale. Les fournisseurs demandés mais non configurés ne donnent pas de crédit.
+
+Pour les destinataires éligibles, l’analyse LLM facultative peut être omise
+lorsqu’elle aurait été demandée dans sa plage de scores. Le rapport enregistre
+explicitement cette omission ; il n’invente aucun verdict LLM. Si d’autres
+destinataires nécessitent ce contrôle, le message commun attend encore cet
+appel, et son résultat ne modifie pas la variante des correspondants fiables.
+Un message uniquement destiné à des correspondants fiables évite réellement
+l’appel. Cela ne constitue pas un cache de classification des mêmes octets.
+
+Au plus deux variantes sont produites : décision normale et décision adaptée.
+Chacune possède son identifiant, ses diagnostics, ses destinataires et ses
+en-têtes réécrits/scellés ARC ; le corps reste identique. Les deux fichiers sont
+synchronisés puis toutes les lignes sont insérées dans **une transaction** avant
+le `250` SMTP. Une erreur annule l’ensemble. Les fichiers déjà présents ne sont
+jamais écrasés. La reprise, les réessais et la conservation opèrent ensuite sur
+chaque variante. Les utilisateurs voient uniquement leurs variantes autorisées ;
+un administrateur peut voir deux enregistrements pour une réception initiale.
+La relation interne `queue_batches` et le champ `queue_id` des journaux système
+permettent de les rapprocher sans exposer un autre destinataire dans la console.
+Les compteurs de messages comptent ces enregistrements, pas des réceptions uniques.
+
+Une preuve de lecture valable au plus cinq secondes est revérifiée dans la
+transaction d’acceptation. La révision de modification est globale : un lot de
+corrections peut donc provoquer des réessais pour d’autres relations en cours.
+Les échéances d’expiration, elles, sont propres aux destinataires concernés. Une correction humaine, une modification de compte,
+de droits ou d’observation pertinente l’invalide ; l’expiration temporelle est
+également vérifiée. Dans ce cas, le serveur répond `451` et le prochain essai
+refait l’analyse. L’arrivée de messages sans correction humaine ne crée pas de
+confiance et n’invalide pas à elle seule cette preuve. Une panne ou une analyse
+incomplète conserve la transmission normale sans adaptation. Les tests couvrent
+les décisions mixtes, les octets ARC, les droits, l’apprentissage humain, les
+révocations concurrentes et les appels LLM réellement omis sur des messages distincts.

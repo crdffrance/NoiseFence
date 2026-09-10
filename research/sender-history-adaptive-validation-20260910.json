@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "candidate": "0.5.0-dev.4",
+  "parent_commit": "97f539ef43defb45765c51f4e23afdde30a11cef",
+  "recorded_at": "2026-09-10T08:53:06.653467+00:00",
+  "status": "local_software_validation_passed",
+  "production_activated": false,
+  "source_sha256": {
+    "Cargo.toml": "6f4c1c1b1e3adbdcf6b9cda2487f9d7cfdcca7dd707cb8fa34e28b9ee68372ae",
+    "Cargo.lock": "eabb52b3c7ca9a1194052f1dec37f2e58ae11d1540e7067428c10c87bfef8782",
+    "src/config.rs": "104179fcca62bd89cbbd4216438175b1f10cbb8f6f598f17d537c18655cb5847",
+    "src/engine.rs": "5b07317c3c6170aa29113ff790799b52db3a6c9b2c166e5d19426b46a339733c",
+    "src/engine/history_tests.rs": "be4389d5fff3128555782e1d34ecb016f3d9b1fa33bf4de9cf53ba8a354a2b51",
+    "src/evidence.rs": "3f5153a03c6562d20ba2ec4c93bf2d80c1029c08fdb3f07980f072c5c1c069c8",
+    "src/llm.rs": "a6b50bfb39861f6ce535534e6b7d92d9fdfad5bcc46a4bcde61da39202093db7",
+    "src/sender_history.rs": "9859270f1b137eccc13248a84bddf9063a9aa70a8c13f160576b169d8ecc6595",
+    "src/sender_history/adaptive.rs": "77f53369670c20f49e619329726f3e01b53d7a95ee3275d981c2a75a84536f65",
+    "src/sender_history/epoch.rs": "819d90f8d1453a6a4025c7935167266fb1095e19109374a9b25992e2424733d6",
+    "src/smtp.rs": "34890e0faa8cc86b4fd79bfaea2d4ced4ef4bbf98e6ea23fcca124d6e4d3e614",
+    "src/store.rs": "bfdcdf6924d1e72db5171c2d87e9d7511c29a216c87cde427057e92851c978bb",
+    "src/store/batch.rs": "47b6a21c6dffbdde5030230db2db2ae3a7f1772eff508154a21e7958a4590f11",
+    "tests/queue_batch.rs": "f68ec29f190c3f2d47a6db33481bba324ed3dd76f7f2cddc1cfa6311035bd3d2",
+    "tests/sender_history.rs": "db6b24170be7471c86aa7fe7c8c69974e9b89aadd966265660da472d84b5fd63",
+    "web/app/sender-history-diagnostics.tsx": "34ce9aa6b1cbf05b050f390652a1ec4a867347dfeb6dd8ab22cf0d7c188ee933",
+    "web/app/diagnostics.tsx": "2cfd479228082748de9a5332bfc3f4816b8cb8934b8b2d7d74a6c398123ec802",
+    "web/app/diagnostics-formatters.ts": "ee93646bbda01f0589006d40c3d7e9f06b37e7e0560f435d9e4305b674f14220",
+    "web/tests/sender-history-diagnostics.test.mjs": "a5f81f61de03089f5b9f9d2ec7560a0bc2a2d2232e0c3c1c46dffdd271d0df8a"
+  },
+  "checks": {
+    "rust": {
+      "command": "CARGO_INCREMENTAL=0 cargo test --offline --features semantic -j 2",
+      "passed": 444,
+      "ignored": 1,
+      "ignored_reason": "Requires a live ClamAV service"
+    },
+    "clippy": "all targets with semantic; -D warnings passed",
+    "python": {
+      "passed": 57
+    },
+    "frontend": {
+      "passed": 35,
+      "types": "passed",
+      "lint": "passed",
+      "build": "passed"
+    },
+    "format": "passed",
+    "version_alignment": "passed"
+  },
+  "evidence": {
+    "new_rust_scenarios": 21,
+    "new_frontend_scenarios": 3,
+    "authenticated_identity": "SPF/DMARC verified through a local DNS server in the real engine path",
+    "learned_trust": "Distinct synthetic campaigns and authorized human legitimate feedback change the recipient decision; a later spam correction revokes it",
+    "atomic_acceptance": "Real loopback SMTP returns 250 only with both variants present, and 451 with no message rows or spool files if second variant insertion fails",
+    "recipient_privacy": "Per-variant scans and recipient reports; grants checked by real diagnostics and enqueue, with restart checks",
+    "freshness": "Durable revision validated at transaction start and before commit; recipient-specific deadlines and future-vote tests",
+    "mandatory_checks": "Adverse, incomplete, unavailable or unauthenticated observations veto adaptation; only optional LLM omission is exercised",
+    "reload": "Manual identity policy and scope changes apply after Engine reconfiguration while concurrency capacity is shared"
+  },
+  "performance": {
+    "external_messages": 0,
+    "llm_calls": 12,
+    "ordinary_us": [
+      136940,
+      140563,
+      131051,
+      131356,
+      140237,
+      139128,
+      141174,
+      140735,
+      141656,
+      139216,
+      137288,
+      140923
+    ],
+    "samples_per_group": 12,
+    "scenario": "loopback DNS and optional LLM delayed 120 ms; distinct synthetic messages",
+    "trusted_us": [
+      6894,
+      10652,
+      6459,
+      6340,
+      6267,
+      7737,
+      8737,
+      7385,
+      7508,
+      7581,
+      7215,
+      6481
+    ],
+    "quantile_method": "nearest rank; p95 is the maximum for 12 observations",
+    "environment": {
+      "os": "macOS",
+      "architecture": "aarch64",
+      "rust": "1.98.0",
+      "build": "debug",
+      "features": [
+        "semantic"
+      ],
+      "semantic_model_loaded": false,
+      "antivirus_configured": false,
+      "ocr_configured": false,
+      "reputation_configured": false,
+      "model": "synthetic fixed-bias logistic fixture"
+    },
+    "summary": {
+      "trusted_us": {
+        "p50_ms": 7.3,
+        "p95_ms": 10.652
+      },
+      "ordinary_us": {
+        "p50_ms": 139.7265,
+        "p95_ms": 141.656
+      }
+    },
+    "limitations": [
+      "Controlled local API latency of 120 ms, not a production provider measurement.",
+      "Measures Engine::process_smtp, excludes durable enqueue and outbound relay.",
+      "A mixed-recipient message still makes one optional LLM call for the ordinary group.",
+      "No capture, false-positive or general throughput claim."
+    ]
+  },
+  "limitations": [
+    "Independent recent filtering quality, calibration and Linux 4 vCPU/8 GB capacity remain unproved.",
+    "No real CAPEv2 Office VM validation or R&D production activation.",
+    "Modification revision is global: unrelated human corrections can conservatively force SMTP retries during the five-second live window.",
+    "Queue file-collision, symlink and SQL failure tests are not a real disk-full or power-loss campaign."
+  ],
+  "development_failures_resolved": [
+    "Local compilation initially exhausted regenerable incremental build storage.",
+    "A private deadline temporarily affected historical report equality; it was moved into opaque live projections.",
+    "Loopback test TLS provider initialization and frontend build socket permissions were corrected."
+  ]
+}

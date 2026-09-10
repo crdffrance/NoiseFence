@@ -90,6 +90,7 @@ impl Fixture {
         History::new(
             self.root.path(),
             Config {
+                trusted_threshold: None,
                 mode,
                 manual: vec![],
             },
@@ -100,6 +101,7 @@ impl Fixture {
         History::new(
             self.root.path(),
             Config {
+                trusted_threshold: None,
                 mode: Mode::CandidateCredit,
                 manual: vec![ManualEntry {
                     recipient: scope.address,
@@ -195,6 +197,7 @@ fn config_defaults_are_observation_and_reject_broad_or_ambiguous_identities() {
         "\"sender\"@example.org",
     ] {
         let c = Config {
+            trusted_threshold: None,
             mode: Mode::Observation,
             manual: vec![ManualEntry {
                 recipient: ALICE.into(),
@@ -217,6 +220,7 @@ fn config_defaults_are_observation_and_reject_broad_or_ambiguous_identities() {
         "example.org@evil.test",
     ] {
         let c = Config {
+            trusted_threshold: None,
             mode: Mode::Observation,
             manual: vec![ManualEntry {
                 recipient: ALICE.into(),
@@ -227,6 +231,7 @@ fn config_defaults_are_observation_and_reject_broad_or_ambiguous_identities() {
         assert!(c.validate().is_err());
     }
     let c = Config {
+        trusted_threshold: None,
         mode: Mode::Observation,
         manual: vec![ManualEntry {
             recipient: "*@tenant.test".into(),
@@ -261,6 +266,7 @@ async fn durable_observation_and_explicit_candidate_mode_never_mutate_the_scan()
     let history = History::new(
         &reopened.root,
         Config {
+            trusted_threshold: None,
             mode: Mode::CandidateCredit,
             manual: vec![],
         },
@@ -1258,6 +1264,7 @@ async fn durable_global_capacity_breaker_prevents_eviction_from_restoring_credit
     let reopened = History::new(
         f.root.path(),
         Config {
+            trusted_threshold: None,
             mode: Mode::CandidateCredit,
             manual: vec![],
         },
@@ -1488,6 +1495,7 @@ async fn smtp_history_acceptance(recipients: Vec<String>, from: &str, expected_r
     let root = tempfile::tempdir().unwrap();
     let mut config = (*common::config(root.path())).clone();
     config.sender_history = Some(Config {
+        trusted_threshold: None,
         mode: Mode::CandidateCredit,
         manual: vec![],
     });

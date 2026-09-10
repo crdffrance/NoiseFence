@@ -94,3 +94,10 @@ avec ces observations locales, depuis les données conservées lors de la récep
 SMTP. Le protocole lie le modèle au catalogue et à la configuration des moteurs.
 Les observations de développement exportées ci-dessus ne remplacent pas les
 preuves SMTP ni les retours humains nécessaires à cette expérience.
+
+
+Le candidat 0.5.0-dev.4 propose l’[adaptation par historique](sender-history.md#adaptation-explicite-par-destinataire) :
+seuil explicite pour un correspondant authentifié, omission possible du LLM
+facultatif et variantes durables selon les destinataires. Les contrôles obligatoires
+restent exécutés. Cette option est désactivée par défaut et exige sa propre
+validation avant activation ; elle est incompatible avec un modèle de fusion.

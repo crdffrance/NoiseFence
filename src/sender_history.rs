@@ -1,4 +1,6 @@
-//! Recipient-scoped, revocable observations. This module never changes a Scan.
+//! Recipient-scoped, revocable correspondent observations and explicit policy.
+pub(crate) mod adaptive;
+pub(crate) mod epoch;
 use crate::{
     antivirus::AntivirusStatus,
     config::Recipient,
@@ -26,6 +28,7 @@ pub enum Mode {
     #[default]
     Observation,
     CandidateCredit,
+    Adaptive,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,6 +51,10 @@ pub struct ManualEntry {
 pub struct Config {
     pub mode: Mode,
     pub manual: Vec<ManualEntry>,
+    /// Explicit cutoff for known correspondents. No default score/credit is
+    /// invented: adaptive mode requires an operator-selected threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted_threshold: Option<f64>,
 }
 
 // Both names support existing optional-module configuration conventions.
@@ -56,6 +63,15 @@ pub type Policy = Config;
 
 impl Config {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.trusted_threshold
+                .is_none_or(|t| t.is_finite() && t > 0.0 && t < 100.0),
+            "invalid trusted sender threshold"
+        );
+        ensure!(
+            self.mode != Mode::Adaptive || self.trusted_threshold.is_some(),
+            "adaptive history requires an explicit trusted sender threshold"
+        );
         ensure!(self.manual.len() <= 256, "too many sender history entries");
         for entry in &self.manual {
             ensure!(
@@ -94,7 +110,7 @@ pub enum ManualMatch {
 
 /// Contains no addresses, message IDs, campaign hashes, timestamps or text.
 /// Even these counts are private to the authorized recipient projection.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Report {
     pub version: String,
     pub status: Status,
@@ -106,6 +122,15 @@ pub struct Report {
     pub contradicted: bool,
     /// Advisory eligibility only. Never an allow, score delta or scanner bypass.
     pub candidate_credit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied: Option<Applied>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Applied {
+    pub version: String,
+    pub threshold: f64,
+    pub optional_llm_omitted: bool,
 }
 
 impl Report {
@@ -120,6 +145,7 @@ impl Report {
             manual_match: ManualMatch::None,
             contradicted: false,
             candidate_credit: false,
+            applied: None,
         }
     }
 }
@@ -128,8 +154,10 @@ impl Report {
 #[derive(Clone)]
 pub struct Projection {
     reports: Vec<Report>,
+    validity_deadlines: Vec<Option<i64>>,
     scopes: Vec<(String, String)>,
     raw_hash: Option<String>,
+    epoch: Option<epoch::Epoch>,
 }
 
 impl std::fmt::Debug for Projection {
@@ -139,6 +167,49 @@ impl std::fmt::Debug for Projection {
 }
 
 impl Projection {
+    pub(crate) fn select(&self, indices: &[usize]) -> Self {
+        Self {
+            reports: indices
+                .iter()
+                .filter_map(|i| self.reports.get(*i).cloned())
+                .collect(),
+            scopes: indices
+                .iter()
+                .filter_map(|i| self.scopes.get(*i).cloned())
+                .collect(),
+            validity_deadlines: indices
+                .iter()
+                .filter_map(|i| self.validity_deadlines.get(*i).copied())
+                .collect(),
+            raw_hash: self.raw_hash.clone(),
+            epoch: self.epoch.clone(),
+        }
+    }
+    pub(crate) fn applied(&mut self, threshold: f64, optional_llm_omitted: bool) {
+        for report in &mut self.reports {
+            report.applied = Some(Applied {
+                version: adaptive::VERSION.into(),
+                threshold,
+                optional_llm_omitted,
+            });
+        }
+    }
+    pub(crate) fn epoch(&self) -> Option<epoch::Epoch> {
+        self.epoch.clone()
+    }
+    pub(crate) fn active_epoch(&self) -> Option<epoch::Epoch> {
+        let mut epoch = self.epoch.clone()?;
+        let mut active = false;
+        for (report, deadline) in self.reports.iter().zip(&self.validity_deadlines) {
+            if report.applied.is_some() {
+                active = true;
+                if let Some(deadline) = deadline {
+                    epoch.expire_before(*deadline);
+                }
+            }
+        }
+        active.then_some(epoch)
+    }
     /// Index into the exact SMTP recipient slice passed to inspect. The caller
     /// must authorize that delivery before exporting its report.
     pub fn for_recipient(&self, index: usize) -> Option<&Report> {
@@ -288,6 +359,7 @@ pub fn install(db: &Connection) -> Result<()> {
            delivery_id INTEGER PRIMARY KEY REFERENCES deliveries(id) ON DELETE CASCADE,
            sender_history TEXT NOT NULL);",
     )?;
+    epoch::install(db)?;
     Ok(())
 }
 
@@ -531,6 +603,16 @@ impl History {
         }
     }
 
+    /// New messages use the current policy. Older in-flight analyses retain
+    /// their snapshot, but all revisions share the same bounded read capacity.
+    pub fn reconfigured(&self, policy: Config) -> Self {
+        Self {
+            root: self.root.clone(),
+            policy,
+            reads: self.reads.clone(),
+        }
+    }
+
     pub async fn inspect(
         &self,
         raw: &[u8],
@@ -547,15 +629,19 @@ impl History {
                 Report::empty(self.policy.mode, status);
                 scopes.as_ref().map_or(0, Vec::len)
             ],
+            validity_deadlines: vec![None; scopes.as_ref().map_or(0, Vec::len)],
             scopes: scopes.clone().unwrap_or_default(),
             raw_hash: auth_scan.raw_sha256.clone(),
+            epoch: None,
         };
         if recipients.len() > MAX_RECIPIENTS {
             // No partial projection for an over-budget recipient set.
             return Projection {
                 reports: Vec::new(),
+                validity_deadlines: Vec::new(),
                 scopes: Vec::new(),
                 raw_hash: auth_scan.raw_sha256.clone(),
+                epoch: None,
             };
         }
         if self.policy.validate().is_err() {
@@ -586,25 +672,34 @@ impl History {
             // Feedback, disabled users and grants share one consistent snapshot.
             db.execute_batch("BEGIN")?;
             let now = crate::now();
+            let epoch = if policy.mode == Mode::Adaptive {
+                Some(epoch::Epoch::capture(&db, now)?)
+            } else {
+                None
+            };
             let overflow: i64 = db.query_row(
                 "SELECT overflow_until FROM sender_history_state WHERE id=1",
                 [],
                 |r| r.get(0),
             )?;
-            let reports = scopes
+            let (reports, validity_deadlines): (Vec<_>, Vec<_>) = scopes
                 .iter()
                 .map(|(recipient, destination)| {
                     if overflow > now {
-                        Ok(Report::empty(policy.mode, Status::Limited))
+                        Ok((Report::empty(policy.mode, Status::Limited), None))
                     } else {
                         inspect_pair(&db, &policy, &sender, &hash, recipient, destination, now)
                     }
                 })
-                .collect::<Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .unzip();
             Ok(Projection {
                 reports,
+                validity_deadlines,
                 scopes,
                 raw_hash: Some(hash),
+                epoch,
             })
         });
         // The guard interrupts on timeout AND future cancellation. If open is
@@ -642,7 +737,8 @@ fn inspect_pair(
     recipient: &str,
     destination: &str,
     now: i64,
-) -> Result<Report> {
+) -> Result<(Report, Option<i64>)> {
+    let mut validity_deadline: Option<i64> = None;
     let mut report = Report::empty(policy.mode, Status::Complete);
     let domain = sender.rsplit_once('@').unwrap().1;
     for entry in &policy.manual {
@@ -667,6 +763,14 @@ fn inspect_pair(
     // contradictions from the entire exact domain, never a suffix/subdomain.
     let domain_scope = report.manual_match == ManualMatch::Domain;
     let identity_column = if domain_scope { "domain" } else { "sender" };
+    // A future-dated observation/vote can enter the valid window without a DB
+    // write. Only inspect the five-second snapshot horizon and never count it
+    // as present evidence. Ordinary observation mode keeps its original query.
+    let horizon = if policy.mode == Mode::Adaptive {
+        now + 5
+    } else {
+        now
+    };
     let mut q = db.prepare(&format!(
         "SELECT h.message_id,h.delivery_id,h.sender,h.received,h.raw_hash,h.campaign,h.simhash,h.eligible
          FROM sender_history_receipts h
@@ -678,7 +782,7 @@ fn inspect_pair(
         destination,
         if domain_scope { domain } else { sender },
         now - TTL_SECONDS,
-        now,
+        horizon,
         MAX_PAIR_RECORDS + 1
     ])?;
     let mut examples = Vec::new();
@@ -686,12 +790,16 @@ fn inspect_pair(
     while let Some(row) = rows.next()? {
         count += 1;
         if count > MAX_PAIR_RECORDS {
-            return Ok(Report::empty(policy.mode, Status::Limited));
+            return Ok((Report::empty(policy.mode, Status::Limited), None));
         }
         let message_id: String = row.get(0)?;
         let delivery_id: i64 = row.get(1)?;
         let historical_sender: String = row.get(2)?;
         let received: i64 = row.get(3)?;
+        if received > now {
+            validity_deadline = Some(validity_deadline.map_or(received, |t| t.min(received)));
+            continue;
+        }
         let raw: String = row.get(4)?;
         let campaign: Option<String> = row.get(5)?;
         let simhash: Option<String> = row.get(6)?;
@@ -699,7 +807,7 @@ fn inspect_pair(
         // Access to some other delivery of the same message is insufficient.
         // Re-check original routing too: a changed/deleted alias is not a grant.
         let mut votes = db.prepare_cached(
-            "SELECT f.spam,c.category FROM feedback f
+            "SELECT f.spam,c.category,f.created FROM feedback f
              JOIN users u ON u.username=f.username AND u.disabled=0
              JOIN deliveries d ON d.id=?2 AND d.message_id=f.message_id
              JOIN messages m ON m.id=d.message_id AND m.is_dsn=0 AND m.created=?3
@@ -731,7 +839,7 @@ fn inspect_pair(
             delivery_id,
             received,
             now - TTL_SECONDS,
-            now,
+            horizon,
             address,
             target,
             MAX_VOTES + 1
@@ -741,17 +849,22 @@ fn inspect_pair(
         while let Some(label) = labels.next()? {
             vote_count += 1;
             if vote_count > MAX_VOTES {
-                return Ok(Report::empty(policy.mode, Status::Limited));
+                return Ok((Report::empty(policy.mode, Status::Limited), None));
             }
             let spam: i64 = label.get(0)?;
             let category: Option<String> = label.get(1)?;
+            let created: i64 = label.get(2)?;
+            if created > now {
+                validity_deadline = Some(validity_deadline.map_or(created, |t| t.min(created)));
+                continue;
+            }
             match spam {
                 1 => report.contradicted = true,
                 // Binary non-spam is a human legitimate vote, but an explicit
                 // publicity subtype is not evidence of a personal relationship.
                 0 if category.as_deref().is_none_or(|c| c == "legitimate") => legitimate = true,
                 0 => {}
-                _ => return Ok(Report::empty(policy.mode, Status::Unavailable)),
+                _ => return Ok((Report::empty(policy.mode, Status::Unavailable), None)),
             }
         }
         if legitimate
@@ -771,15 +884,25 @@ fn inspect_pair(
     }
     if report.contradicted {
         // Contradiction revokes manual and learned credit, not just one vote.
-        return Ok(report);
+        return Ok((report, validity_deadline));
     }
     let (campaigns, days) = diversity(&examples);
     report.distinct_campaigns = campaigns;
     report.distinct_days = days;
     report.learned_candidate = campaigns >= 3 && days >= 3;
-    report.candidate_credit = policy.mode == Mode::CandidateCredit
+    // Only this relation's learned evidence constrains its lifetime. Unrelated
+    // expirations must not repeatedly force retries for every busy-domain mail.
+    if policy.mode == Mode::Adaptive
+        && report.learned_candidate
+        && report.manual_match == ManualMatch::None
+        && let Some(first) = examples.iter().map(|e| e.received).min()
+    {
+        let expires = first + TTL_SECONDS;
+        validity_deadline = Some(validity_deadline.map_or(expires, |t| t.min(expires)));
+    }
+    report.candidate_credit = matches!(policy.mode, Mode::CandidateCredit | Mode::Adaptive)
         && (report.learned_candidate || report.manual_match != ManualMatch::None);
-    Ok(report)
+    Ok((report, validity_deadline))
 }
 
 fn diversity(examples: &[Example]) -> (u16, u16) {

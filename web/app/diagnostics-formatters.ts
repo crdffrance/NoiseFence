@@ -51,6 +51,11 @@ export type DiagnosticRecipient = {
     manual_match: string;
     contradicted: boolean;
     candidate_credit: boolean;
+    applied?: {
+      version: string;
+      threshold: number;
+      optional_llm_omitted: boolean;
+    } | null;
   } | null;
   delivery_id: number;
   address: string;

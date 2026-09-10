@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from './client';
 import ResearchDiagnostics from './research-diagnostics';
+import SenderHistoryDiagnostics from './sender-history-diagnostics';
 import {
   authenticationResult,
   contribution,
@@ -347,43 +348,7 @@ function RecipientDetails({
       </dl>
       <p>{nextRetry(displayedHistory.status, displayedHistory.next_attempt)}</p>
       {displayedHistory.sender_history && (
-        <details className="diagnostic-disclosure">
-          <summary>Historique de confiance pour ce destinataire</summary>
-          <p>
-            État : {displayedHistory.sender_history.status} ·{' '}
-            <code>{displayedHistory.sender_history.version}</code>.
-          </p>
-          {displayedHistory.sender_history.status === 'complete' && (
-            <>
-              <p>
-                {displayedHistory.sender_history.distinct_campaigns} campagne(s)
-                distincte(s), {displayedHistory.sender_history.distinct_days}{' '}
-                période(s) de réception espacée(s).
-              </p>
-              <p>
-                {displayedHistory.sender_history.contradicted
-                  ? 'Un retour spam autorisé contredit cette relation : aucun crédit proposé.'
-                  : displayedHistory.sender_history.learned_candidate
-                    ? 'Historique humain suffisamment diversifié pour proposer un crédit de confiance.'
-                    : 'Historique insuffisant pour proposer un crédit appris.'}
-              </p>
-              {displayedHistory.sender_history.manual_match !== 'none' && (
-                <p>
-                  Correspondance avec une identité de confiance configurée (
-                  {displayedHistory.sender_history.manual_match === 'exact'
-                    ? 'adresse exacte'
-                    : 'domaine exact'}
-                  ).
-                </p>
-              )}
-            </>
-          )}
-          <p className="diagnostic-muted">
-            Observation à la réception, propre à ce destinataire. Aucun
-            contournement des autres filtres ni autorisation automatique des
-            prochains messages.
-          </p>
-        </details>
+        <SenderHistoryDiagnostics report={displayedHistory.sender_history} />
       )}
       {displayedHistory.last_error && (
         <div className="diagnostic-callout">

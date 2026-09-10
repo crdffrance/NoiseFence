@@ -291,6 +291,30 @@ pub struct Client {
     capacity: Semaphore,
 }
 impl Client {
+    #[cfg(test)]
+    pub(crate) fn loopback_fixture(
+        config: LlmConfig,
+        root: &Path,
+        address: std::net::SocketAddr,
+    ) -> Self {
+        assert!(address.ip().is_loopback());
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .ok();
+        Self {
+            capacity: Semaphore::new(config.max_parallel),
+            budget: Budget::open(&root.join("llm-budget.sqlite3")).unwrap(),
+            http: reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never())
+                .timeout(Duration::from_millis(config.timeout_ms))
+                .build()
+                .unwrap(),
+            endpoint: format!("http://{address}/classify"),
+            config,
+        }
+    }
     pub fn new(config: LlmConfig, data_dir: &Path) -> Result<Self> {
         config.validate()?;
         let mut headers = HeaderMap::new();

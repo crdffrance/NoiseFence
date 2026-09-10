@@ -5,6 +5,22 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+### 0.5.0-dev.4 — Historique adaptatif par destinataire
+
+- Raccorder la confiance apprise ou configurée à un seuil explicite par
+  destinataire, après authentification et contrôles obligatoires. Conserver le
+  score du modèle ; ne pas appliquer cette politique aux modèles de fusion.
+- Éviter les appels LLM facultatifs des relations éligibles et isoler leur
+  décision lorsque d’autres destinataires nécessitent l’analyse normale.
+- Persister au plus deux variantes dans une transaction durable, avec corps
+  identique, en-têtes/ARC propres, diagnostics privés et reprise indépendante.
+- Revérifier les corrections, droits et échéances avant acceptation ; appliquer
+  les changements de listes manuelles au rechargement sans multiplier les limites
+  de concurrence. Un échec d’acceptation annule les deux variantes.
+- Montrer dans la console le seuil appliqué et l’éventuelle omission du LLM.
+  Les tests et mesures synthétiques vérifient le mécanisme, sans démontrer une
+  amélioration de capture ni activer ces réglages en production.
+
 ### 0.5.0-dev.3 — Confirmation avec code affiché
 
 - Ajouter un code visuel généré localement en Rust au parcours de confirmation

@@ -263,6 +263,22 @@ impl Config {
         }
         if let Some(settings) = &self.sender_history {
             settings.validate()?;
+            if settings.mode == crate::sender_history::Mode::Adaptive {
+                ensure!(
+                    self.filter.authentication,
+                    "adaptive history requires SMTP authentication checks"
+                );
+                ensure!(
+                    settings
+                        .trusted_threshold
+                        .is_some_and(|t| t > self.filter.threshold),
+                    "trusted sender threshold must exceed the normal threshold"
+                );
+                ensure!(
+                    self.fusion.is_none(),
+                    "adaptive history currently requires the legacy classifier; keep the validated fusion profile unchanged"
+                );
+            }
         }
         if let Some(policy) = &self.challenge {
             policy.validate()?;

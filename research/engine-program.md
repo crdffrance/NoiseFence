@@ -123,8 +123,14 @@ les réponses génériques et la migration sont décrits dans le
 
 ## Travail encore nécessaire
 
-L’historique de confiance demeure consultatif : son effet sur la décision par
-destinataire et l’accélération demandée ne sont pas encore implémentés.
+Le candidat 0.5.0-dev.4 raccorde maintenant la confiance à une décision par
+destinataire et à l’omission réelle du LLM facultatif, tout en maintenant les
+contrôles obligatoires. La transaction d’acceptation peut persister deux variantes
+sans mélanger les diagnostics ni les destinataires. Une révocation invalide la
+preuve avant le commit. Le [guide](../docs/sender-history.md) décrit la configuration,
+les conditions restrictives et les compteurs ; le
+[relevé logiciel](sender-history-adaptive-validation-20260910.json) sépare les
+tests et la mesure synthétique des performances encore à démontrer.
 
 - Validation d’un vrai CAPEv2 et de sa VM Office isolée : instantané, restauration,
   absence d’accès au serveur de messagerie et au réseau de production, et politique
@@ -136,9 +142,9 @@ destinataire et l’accélération demandée ne sont pas encore implémentés.
 - Mesures du traitement complet et du débit sur Linux 4 vCPU/8 Go, puis contrôle
   de la livraison Proton pour les nouvelles actions explicitement activées.
 - Validation de chaque nouveau candidat sur Linux et choix d’activation des
-  nouveaux modules. Les CI des candidats 0.5.0-dev.1 et 0.5.0-dev.2 ont réussi
+  nouveaux modules. Les CI des candidats 0.5.0-dev.1, 0.5.0-dev.2 et 0.5.0-dev.3 ont réussi
   sur AMD64 et ARM64 ;
-  elle ne valide pas par avance les modifications suivantes.
+  elles ne valident pas par avance les modifications suivantes.
 
 Ces éléments restent dans le périmètre du programme ; le succès des tests locaux
 ne les transforme pas en conditions remplies.

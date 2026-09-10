@@ -1,4 +1,5 @@
 use crate::{config::Recipient, engine::Scan, now};
+pub mod batch;
 use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -122,6 +123,7 @@ impl Store {
         crate::sender_history::install(&migration)?;
         crate::sandbox_pipeline::install(&migration)?;
         migration.execute_batch(crate::challenge::SCHEMA_SQL)?;
+        migration.execute_batch(batch::SCHEMA_SQL)?;
         migration.execute_batch("PRAGMA user_version=2")?;
         migration.commit()?;
         Ok(Self {
@@ -243,85 +245,38 @@ impl Store {
         &self,
         id: String,
         sender: String,
-        recipients: Vec<Recipient>,
-        scan: Scan,
+        mut recipients: Vec<Recipient>,
+        mut scan: Scan,
         raw: Vec<u8>,
     ) -> Result<()> {
-        let mut sandbox_plan = scan.sandbox_pipeline_plan.clone();
-        if let Some(plan) = &mut sandbox_plan {
-            plan.bind_queued(&raw)?;
-        }
-        let mut challenge_identity = scan.challenge_identity.clone();
-        if let Some(proof) = &mut challenge_identity {
-            proof.bind_queued(&raw);
-        }
-        let action = scan
-            .action
-            .as_ref()
-            .map(|a| a.effective)
-            .unwrap_or_default();
-        let held_days = scan
-            .action
-            .as_ref()
-            .map(|a| a.quarantine_days)
-            .unwrap_or(14);
+        let variants = std::mem::take(&mut scan.delivery_variants);
         ensure!(
-            action != crate::actions::Action::Quarantine || (1..=30).contains(&held_days),
-            "invalid quarantine retention"
+            variants.len() < batch::MAX_VARIANTS,
+            "too many recipient variants"
         );
-        let path = self.raw_path(&id);
-        let directory = self.root.join("spool");
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut f = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)?;
-            if let Err(e) = f
-                .write_all(&raw)
-                .and_then(|_| f.sync_all())
-                .and_then(|_| File::open(directory)?.sync_all())
-            {
-                let _ = fs::remove_file(path);
-                return Err(e.into());
+        let mut assigned = std::collections::HashSet::new();
+        for variant in &variants {
+            for recipient in &variant.recipients {
+                ensure!(
+                    assigned.insert(recipient.address.clone())
+                        && recipients
+                            .iter()
+                            .any(|original| original.address == recipient.address
+                                && original.destination == recipient.destination
+                                && original.hosts == recipient.hosts),
+                    "recipient variant does not match the SMTP envelope"
+                );
             }
-            Ok(())
-        })
-        .await??;
-        let cleanup = self.raw_path(&id);
-        let result=self.run(move|db| {
-            let tx=db.transaction()?;
-            tx.execute("INSERT INTO messages(id,created,sender,scan) VALUES(?1,?2,?3,?4)",params![id,now(),sender,serde_json::to_string(&scan)?])?;
-            let (name,status) = match action {
-                crate::actions::Action::Deliver => ("deliver","pending"),
-                crate::actions::Action::Tag => ("tag","pending"),
-                crate::actions::Action::Quarantine => ("quarantine","quarantined"),
-            };
-            for r in recipients {
-                tx.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt,status) VALUES(?1,?2,?3,?4,?5,?6)",params![id,r.address,r.destination,serde_json::to_string(&r.hosts)?,now(),status])?;
-                tx.execute("INSERT INTO delivery_policy(delivery_id,action,held_until) VALUES(?1,?2,?3)",params![tx.last_insert_rowid(),name,(action == crate::actions::Action::Quarantine).then(||now()+i64::from(held_days)*86400)])?;
-            }
-            if let Some(receipt) = &scan.sender_history_receipt {
-                crate::sender_history::record_prepared(&tx, &id, &scan, receipt)?;
-            }
-            if let Some(projection) = &scan.sender_history_projection {
-                crate::sender_history::record_projection(&tx, &id, &scan, projection)?;
-            }
-            if let Some(proof) = &challenge_identity {
-                proof.record(&tx, &id, &scan)?;
-            }
-            if let Some(plan) = &sandbox_plan {
-                crate::sandbox_pipeline::record(&tx, &id, &scan, plan)?;
-            }
-            tx.commit()?;Ok(())
-        }).await;
-        if result.is_err() {
-            let _ = fs::remove_file(cleanup);
-        } else {
-            // Notify only after both the spool and the SQLite transaction are durable.
-            self.delivery_ready.notify_one();
         }
-        result
+        recipients.retain(|r| !assigned.contains(&r.address));
+        let mut batch = vec![batch::Message {
+            id: id.clone(),
+            recipients,
+            scan,
+            raw,
+        }];
+        batch.extend(variants);
+        self.enqueue_batch(id.clone(), sender, batch).await
     }
     pub async fn claim(&self) -> Result<Option<Job>> {
         self.run(|db| {

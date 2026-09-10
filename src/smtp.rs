@@ -483,7 +483,13 @@ async fn session(
                     .await;
                 let result = match result {
                     Ok((scan, raw)) => {
-                        tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
+                        let analyzed = |message_id: &str, scan: &crate::engine::Scan| {
+                            tracing::info!(id=%message_id,queue_id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
+                        };
+                        analyzed(&id, &scan);
+                        for variant in &scan.delivery_variants {
+                            analyzed(&variant.id, &variant.scan);
+                        }
                         state
                             .store
                             .enqueue(id.clone(), sender, recipients, scan, raw)
