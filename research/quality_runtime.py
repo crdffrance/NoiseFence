@@ -5,6 +5,7 @@ import numpy as np
 from scipy.special import expit, softmax
 from train_quality import PROTOCOL_HASH, PROTOCOL, KINDS
 from train_fusion import require, numeric, is_hex, decode
+from quality_metrics import kind_argmax
 
 
 def load_model(path):
@@ -40,5 +41,5 @@ def predict(model, observation):
     result={'risk_probability':p,'risk':'spam' if p>=upper else 'legitimate' if p<=lower else 'review','kind':'unavailable','kind_probabilities':[]}
     if model['kind_models'] and observation['availability_profile'] in model['kind_profiles']:
         probabilities=softmax(np.array([m['bias']+np.dot(values,m['weights']) for m in model['kind_models']])/model['kind_temperature'])
-        result.update(kind=KINDS[int(np.argmax(probabilities))],kind_probabilities=probabilities.tolist())
+        result.update(kind=KINDS[int(kind_argmax(probabilities))],kind_probabilities=probabilities.tolist())
     return result

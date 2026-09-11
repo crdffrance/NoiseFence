@@ -18,7 +18,7 @@ import time
 import numpy as np
 from scipy.optimize import minimize
 from scipy.special import expit, softmax
-from quality_metrics import interval, metrics
+from quality_metrics import interval, metrics, kind_argmax
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
@@ -210,7 +210,7 @@ def fit_kinds(parts):
     biases = fitted.intercept_-np.sum(fitted.coef_*scaler.mean_/scaler.scale_,axis=1)
     models=[{'bias':float(b),'weights':w.tolist()} for b,w in zip(biases,weights)]
     probabilities=softmax(logits['test']/temperature,axis=1)
-    predicted=np.argmax(probabilities,axis=1)
+    predicted=kind_argmax(probabilities)
     profiles={r['quality']['availability_profile'] for r in parts['train']}
     available=np.array([r['quality']['availability_profile'] in profiles for r in parts['test']])
     predicted[~available]=6

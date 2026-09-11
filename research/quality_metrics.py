@@ -5,6 +5,12 @@ from scipy.stats import beta
 TARGETS = {'recall': .95, 'fpr': .001, 'review_rate': .05}
 
 
+def kind_argmax(probabilities):
+    """Match Rust Iterator::max_by: equal probabilities select the last kind."""
+    values=np.asarray(probabilities)
+    return values.shape[-1]-1-np.argmax(np.flip(values,axis=-1),axis=-1)
+
+
 def interval(success, total, alpha=.05):
     if not total:
         return None

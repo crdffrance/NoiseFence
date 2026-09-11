@@ -5,8 +5,9 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
-## [0.4.12] — 2026-09-11
+## [0.4.13] — 2026-09-11
 
+- Choix identique en Python et Rust lorsque plusieurs types de courrier ont la même probabilité ; contrôle de parité sur les catégories, en plus des probabilités.
 - Apprentissage du risque indépendant des six types de courrier : un type rare ou inconnu ne bloque plus un candidat de risque. Format 2 avec profils distincts, manifeste privé lié aux poids et lecture des anciens candidats conservée.
 - Évaluation prospective séparée : campagnes antérieures, exclusions et abstentions comptées, seuils figés, calibration, métriques PUB et critères de capture/faux positifs assortis d’intervalles de confiance. Aucun rapport ne permet une activation automatique.
 - Neuf comparaisons par retrait de familles de signaux, parité Python/Rust, contrôles d’encodage MIME et de contexte cité. Ces tests synthétiques ne démontrent pas une performance sur le trafic.

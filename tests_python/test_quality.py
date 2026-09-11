@@ -202,6 +202,22 @@ class QualityTests(unittest.TestCase):
         self.assertFalse(acceptance(good,good,False,True)['meets_final_confidence_bounds'])
         self.assertFalse(acceptance(good,good,True,False)['meets_final_confidence_bounds'])
 
+    def test_tied_kind_probabilities_match_the_native_last_winner_policy(self):
+        from quality_metrics import kind_argmax
+        from quality_runtime import predict
+        np.testing.assert_array_equal(kind_argmax([[.5,.5,0,0,0,0],[0,0,0,0,.5,.5]]),[1,5])
+        model=json.loads((self.root/'candidate/model.json').read_text())
+        model['kind_models']=[{'bias':0.,'weights':[0.]*len(self.q.PROTOCOL['features'])} for _ in self.q.KINDS]
+        observation=self.data[1]['quality']
+        expected=predict(model,observation)
+        self.assertEqual(expected['kind'],'other')
+        if os.environ.get('NOISEFENCE_BINARY'):
+            path=self.root/'tied-model.json';path.write_text(json.dumps(model))
+            probe=self.root/'tied-observation.json';probe.write_text(json.dumps(observation))
+            native=json.loads(subprocess.check_output([str(Path(os.environ['NOISEFENCE_BINARY']).resolve()),'quality-predict','--model',str(path),'--observation',str(probe)],text=True))
+            self.assertEqual(native['kind'],expected['kind'])
+            np.testing.assert_allclose(native['kind_probabilities'],expected['kind_probabilities'],atol=1e-9,rtol=1e-9)
+
     def test_independent_evaluation_refuses_reused_campaigns_and_modified_manifest(self):
         from evaluate_quality import evaluate
         candidate=self.root/'candidate'
@@ -255,6 +271,8 @@ class QualityTests(unittest.TestCase):
             self.assertAlmostEqual(result['risk_probability'],probe['risk_probability'],places=9)
             np.testing.assert_allclose(result['kind_probabilities'],probe['kind_probabilities'],atol=1e-9,rtol=1e-9)
             self.assertTrue(result['observation_only'])
+            from quality_metrics import kind_argmax
+            self.assertEqual(result['kind'],self.q.KINDS[int(kind_argmax(probe['kind_probabilities']))])
 
 
 if __name__=='__main__':unittest.main()

@@ -74,7 +74,7 @@ figées : 50 % entraînement, 15 % choix des paramètres, 15 % calibration, 10 %
 10 % test final. Les campagnes exactes ou proches ne traversent pas ces périodes.
 Les campagnes contradictoires et celles qui traversent une frontière sont exclues
 et comptées. Une campagne conservée contribue un représentant déterministe.
-Depuis 0.4.12, les deux têtes sont entraînées séparément sur les mêmes frontières
+Depuis 0.4.13, les deux têtes sont entraînées séparément sur les mêmes frontières
 temporelles, fixées avec tous les messages conservés, même non annotés ou incomplets.
 Chaque période du risque doit contenir au moins douze campagnes et les deux risques :
 sinon la commande sort avec le code 3 et un rapport `insufficient_labels`, sans modèle.
@@ -112,7 +112,8 @@ reste une limite explicite du rapport ; aucun certificat d’activation n’est 
 Le modèle `noisefence-quality-model-2` lie par SHA-256 un manifeste privé contenant
 toutes les campagnes déjà consultées, y compris celles exclues de l’entraînement,
 ainsi que l’historique fourni. Les profils de disponibilité des deux têtes sont
-distincts. Conserver `training-manifest.json` avec les poids ; il ne doit pas être
+distincts. En cas d’égalité exacte des probabilités de type, la dernière catégorie
+dans l’ordre du protocole gagne, comme dans le runtime Rust historique. Conserver `training-manifest.json` avec les poids ; il ne doit pas être
 publié. Le format 1 reste lisible, mais seul le format 2 porte cette provenance.
 
 ## Évaluer sur un nouveau lot indépendant
@@ -237,4 +238,4 @@ la mise à jour. Conserver l’observation tant que les validations Proton et le
 mesures indépendantes nécessaires ne sont pas réunies.
 Pour revenir à 0.4.11 ou avant, retirer aussi tout candidat de format 2 de la
 configuration avant de démarrer l’ancien binaire. Les poids actifs historiques,
-les budgets externes et les règles de livraison ne sont pas changés par 0.4.12.
+les budgets externes et les règles de livraison ne sont pas changés par 0.4.13.
