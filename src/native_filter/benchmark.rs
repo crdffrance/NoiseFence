@@ -6,6 +6,7 @@ use std::{path::Path, sync::Arc, time::Instant};
 
 #[derive(Serialize)]
 pub struct Report {
+    pub version: &'static str,
     pub schema: &'static str,
     pub arch: &'static str,
     pub available_cpus: usize,
@@ -123,6 +124,7 @@ pub async fn run(path: &Path, iterations: usize, concurrency: usize) -> Result<R
     }
     let individual_regex_ms = start.elapsed().as_secs_f64() * 1000.;
     Ok(Report {
+        version: env!("CARGO_PKG_VERSION"),
         schema: "noisefence-native-benchmark-1",
         arch: std::env::consts::ARCH,
         available_cpus: std::thread::available_parallelism()?.get(),

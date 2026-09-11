@@ -266,6 +266,21 @@ fn osb_model_is_bound_to_scope_protocol_and_expiration() {
         "expired"
     );
     let mut invalid = model.clone();
+    let mut expired = model.clone();
+    expired.created = noisefence::now() - 31 * 86400;
+    expired.expires = expired.created + 30 * 86400;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("expired-model.json");
+    std::fs::write(&path, serde_json::to_vec(&expired).unwrap()).unwrap();
+    let runtime = Runtime::new(Settings {
+        bayes_model: Some(path),
+        ..Default::default()
+    })
+    .unwrap();
+    let observation = runtime.offline(common::MESSAGE, &["example.test".into()]);
+    assert_eq!(observation.report.status, Status::Complete);
+    assert_eq!(observation.report.bayes.status, "expired");
+    assert!(observation.report.bayes.raw_log_odds.is_none());
     invalid.counts[0].1 = 100;
     assert!(invalid.validate().is_err());
     let mut rows = rows;
@@ -576,4 +591,28 @@ fn arbitrary_mime_inputs_keep_feature_shapes_bounded() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn short_bursts_wait_for_cpu_capacity_under_one_shared_deadline() {
+    let runtime = Runtime::new(Settings {
+        max_parallel: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    let raw = mail(
+        "Burst",
+        &"Bonjour merci pour votre participation à cette réunion. ".repeat(1000),
+    );
+    let (a, b, c, d) = tokio::join!(
+        runtime.inspect(&raw, &[]),
+        runtime.inspect(&raw, &[]),
+        runtime.inspect(&raw, &[]),
+        runtime.inspect(&raw, &[])
+    );
+    assert!(
+        [a, b, c, d]
+            .iter()
+            .all(|o| o.report.status == Status::Complete)
+    );
 }

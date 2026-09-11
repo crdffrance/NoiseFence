@@ -5,7 +5,7 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
-## [0.4.14] — 2026-09-11
+## [0.4.15] — 2026-09-12
 
 - Moteur complémentaire natif Rust : motifs compilés et groupés par vue MIME, symboles explicites, composites déterministes et plafonds de contribution par famille. Les contributions remplacées restent visibles dans les diagnostics.
 - Similarité des campagnes par shingles et MinHash du texte et de la structure HTML. La mémoire consulte uniquement les corrections humaines récentes autorisées du domaine ; les contradictions, répétitions exactes, délais et indisponibilités empêchent un renforcement.

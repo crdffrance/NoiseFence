@@ -1,6 +1,6 @@
 # Mécanismes de filtrage natifs Rust
 
-Depuis 0.4.14, NoiseFence dispose d'un moteur complémentaire d'observation, écrit
+Depuis 0.4.15, NoiseFence dispose d'un moteur complémentaire d'observation, écrit
 en Rust. Il transpose les principes des [composites de Rspamd](https://docs.rspamd.com/configuration/composites/),
 de sa [détection de similarité](https://docs.rspamd.com/modules/fuzzy_check/) et des
 [classifieurs statistiques](https://docs.rspamd.com/configuration/statistic/).
@@ -30,7 +30,7 @@ observation indisponible. Le mode Proton existant est indépendant de cette tabl
 Le modèle Bayes est facultatif ; `untrained` signifie qu'aucun poids n'est chargé.
 
 L'analyse CPU s'exécute hors des travailleurs asynchrones Tokio, avec un nombre
-borné de tâches. Une tâche annulée conserve son permis jusqu'à sa fin réelle.
+borné de tâches. Les rafales attendent une place dans le budget de temps total. Une tâche annulée conserve son permis jusqu'à sa fin réelle.
 Le module ne contacte aucun service externe. La mémoire SQLite a son propre
 plafond de concurrence, un délai de 200 ms et une interruption de requête.
 La configuration impose 1 à 8 tâches, 50 à 1 000 ms, 1 Kio à 2 Mio par message.
@@ -176,7 +176,10 @@ déjà vues, doublons et omissions. `independent` décrit cette séparation ; il
 certifie ni une population représentative, ni les objectifs de capture. Une
 nouvelle sélection des mêmes messages pour ajuster le modèle invaliderait leur
 usage comme test indépendant. Le classifieur ne fournit pas de probabilité
-calibrée. Ses modèles expirent trente jours après leur création.
+calibrée. Ses modèles expirent trente jours après leur création. Un modèle expiré
+devient indisponible et laisse la passerelle démarrer ; aucune contribution Bayes
+n’est produite. L’évaluation indépendante exclut aussi les observations hors de
+la période de validité du modèle.
 
 Les fichiers sont créés sans écrasement, avec permissions 0600 (répertoire 0700).
 Les vecteurs et empreintes restent privés malgré leur hachage. La rétention en

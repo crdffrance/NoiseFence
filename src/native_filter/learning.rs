@@ -437,7 +437,11 @@ pub fn evaluate(
     }
     for group in groups(&rows)? {
         let first = &rows[group[0]];
-        if group.len() > 1 || group.iter().any(|&i| rows[i].observed_at <= model.created) {
+        if group.len() > 1
+            || group.iter().any(|&i| {
+                rows[i].observed_at <= model.created || rows[i].observed_at >= model.expires
+            })
+        {
             excluded += group.len();
             continue;
         }

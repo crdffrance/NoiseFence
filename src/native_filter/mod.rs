@@ -139,7 +139,7 @@ impl Runtime {
         let matcher = rules::Matcher::compile(&settings.patterns)?;
         let composites = rules::Composites::compile(&settings.composites, &settings.patterns)?;
         let policy_sha256 = crate::message::digest(&serde_json::to_vec(
-            &serde_json::json!({"version":VERSION,"content":input::PROTOCOL,"settings":settings,"bayes":model_sha256}),
+            &serde_json::json!({"version":VERSION,"application":env!("CARGO_PKG_VERSION"),"content":input::PROTOCOL,"settings":settings,"bayes":model_sha256}),
         )?);
         Ok(Arc::new(Self {
             permits: Arc::new(Semaphore::new(settings.max_parallel)),
@@ -196,10 +196,16 @@ impl Runtime {
         if raw.len() > self.settings.max_bytes {
             return self.empty(Status::Limited);
         }
-        let Ok(permit) = self.permits.clone().try_acquire_owned() else {
-            return self.empty(Status::Busy);
-        };
         let started = Instant::now();
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(self.settings.timeout_ms);
+        let Ok(Ok(permit)) =
+            tokio::time::timeout_at(deadline, self.permits.clone().acquire_owned()).await
+        else {
+            let mut out = self.empty(Status::Busy);
+            out.report.elapsed_ms = started.elapsed().as_millis() as u64;
+            return out;
+        };
         let runtime = self.clone();
         let raw = raw.to_vec();
         let scopes = scopes.to_vec();
@@ -208,8 +214,11 @@ impl Runtime {
             runtime.offline(&raw, &scopes)
         });
         // A cancelled blocking worker retains its permit until it actually exits.
-        match tokio::time::timeout(Duration::from_millis(self.settings.timeout_ms), task).await {
-            Ok(Ok(report)) => report,
+        match tokio::time::timeout_at(deadline, task).await {
+            Ok(Ok(mut observation)) => {
+                observation.report.elapsed_ms = started.elapsed().as_millis() as u64;
+                observation
+            }
             _ => {
                 let mut out = self.empty(Status::Unavailable);
                 out.report.elapsed_ms = started.elapsed().as_millis() as u64;

@@ -78,7 +78,8 @@ impl Model {
         let bytes = super::read_bounded(path, MAX_MODEL_BYTES)?;
         let model: Self = serde_json::from_slice(&bytes)?;
         model.validate()?;
-        ensure!(model.expires > crate::now(), "expired OSB model");
+        // Expiration disables the optional observation at prediction time; it
+        // must not prevent the SMTP gateway from restarting with this artifact.
         Ok((model, crate::message::digest(&bytes)))
     }
     pub fn validate(&self) -> Result<()> {
