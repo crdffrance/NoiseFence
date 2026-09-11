@@ -1023,6 +1023,18 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
     let (_, stats) = request(&app, &alice, "/stats", None).await;
     assert_eq!(stats["received"], 5);
     assert_eq!(stats["publicity"], 1);
+    let (code, signals) = request(&app, &alice, "/messages?filter=publicity_signal", None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(signals.as_array().unwrap().len(), 4);
+    assert!(!signals.to_string().contains("bob@example.test"));
+    let (_, hidden_signals) = request(
+        &app,
+        &alice,
+        "/messages?filter=publicity_signal&domain=elsewhere.test",
+        None,
+    )
+    .await;
+    assert_eq!(hidden_signals, serde_json::json!([]));
     assert_eq!(stats["flagged"], 1);
     let path = format!("/messages/{public_id}/feedback");
     assert_eq!(

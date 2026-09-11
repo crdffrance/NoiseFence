@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests_python -v
       - run: sudo python3 tests/systemd_learning.py
+      - run: sudo python3 tests/systemd_network.py
       - name: Exercise isolated local OCR, QR and scanned PDF decoding
         run: |
           sudo apt-get update -qq

@@ -4,7 +4,33 @@ import {
   classification,
   deliverySummary,
   matchesAccount,
+  checkFailure,
+  publicitySignal,
 } from '../app/presentation.ts';
+
+test('failure diagnostics use fixed descriptions and do not echo untrusted text', () => {
+  assert.match(checkFailure('timeout'), /Délai/);
+  assert.match(checkFailure('authentication'), /Authentification/);
+  assert.equal(checkFailure(null), '');
+  assert.equal(
+    checkFailure('private@example.org <script>'),
+    'Cause non reconnue',
+  );
+});
+
+test('publicity evidence stays visible independently of a security decision', () => {
+  assert.ok(publicitySignal({ status: 'complete', verdict: 'promotion' }));
+  assert.ok(publicitySignal({ status: 'complete', verdict: 'newsletter' }));
+  assert.equal(
+    publicitySignal({ status: 'limited', verdict: 'promotion' }),
+    false,
+  );
+  assert.equal(
+    publicitySignal({ status: 'complete', verdict: 'transactional' }),
+    false,
+  );
+  assert.ok(!publicitySignal(undefined));
+});
 const mail = {
   category: 'publicity',
   complete: true,

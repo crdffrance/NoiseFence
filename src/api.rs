@@ -295,6 +295,7 @@ async fn messages(
             "all",
             "spam",
             "publicity",
+            "publicity_signal",
             "review",
             "incomplete",
             "pending",

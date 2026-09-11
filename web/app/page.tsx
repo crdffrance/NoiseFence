@@ -3,7 +3,12 @@ import { actionLabel, type DeliveryAction } from './actions';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
 import { BrandMark, LoginStory, ScoreMeter } from './brand';
-import { classification, deliverySummary } from './presentation';
+import {
+  classification,
+  deliverySummary,
+  checkFailure,
+  publicitySignal,
+} from './presentation';
 import {
   deliveryStatus,
   mergeDiagnosticRecipient,
@@ -137,6 +142,7 @@ type Mail = {
     elapsed_ms: number;
   };
   llm?: {
+    failure?: string | null;
     status:
       | 'disabled'
       | 'not_needed'
@@ -802,6 +808,10 @@ export default function Home() {
                         ).label
                       }
                     </span>
+                    {publicitySignal(selected.mailing) &&
+                      selected.category !== 'publicity' && (
+                        <span className="status publicity">Indices PUB</span>
+                      )}
                     <span
                       className={`status ${deliverySummary(selected.recipients).tone}`}
                     >
@@ -998,6 +1008,8 @@ export default function Home() {
                           }
                           {selected.llm.status === 'complete' &&
                             ` · ${selected.llm.model} · ${selected.llm.elapsed_ms} ms`}
+                          {selected.llm.failure &&
+                            ` · ${checkFailure(selected.llm.failure)} · ${selected.llm.elapsed_ms} ms`}
                         </p>
                       )}
                       {selected.antivirus &&
@@ -1381,6 +1393,9 @@ export default function Home() {
                           </option>
                           <option value="pending">En attente</option>
                           <option value="review">À vérifier</option>
+                          <option value="publicity_signal">
+                            Indices PUB, tous classements
+                          </option>
                           <option value="incomplete">Analyse incomplète</option>
                         </select>
                       </label>
@@ -1489,6 +1504,13 @@ export default function Home() {
                                     .label
                                 }
                               </span>
+                              {publicitySignal(m.mailing) &&
+                                m.category !== 'publicity' && (
+                                  <small className="tag-note">
+                                    Indices PUB · décision de sécurité
+                                    prioritaire
+                                  </small>
+                                )}
                               {(m.tagged || m.pub_tagged) && (
                                 <small className="tag-note">
                                   {m.tagged ? '[SPAM]' : '[PUB]'} ajouté
@@ -1561,6 +1583,12 @@ export default function Home() {
                           >
                             {classification(m, stats?.threshold ?? 95).label}
                           </span>
+                          {publicitySignal(m.mailing) &&
+                            m.category !== 'publicity' && (
+                              <span className="status publicity">
+                                Indices PUB
+                              </span>
+                            )}
                           <time
                             dateTime={new Date(m.created * 1000).toISOString()}
                           >

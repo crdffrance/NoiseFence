@@ -5,6 +5,25 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-09-11
+
+- Rétablir le suivi des URL sous systemd : autoriser l’inventaire des interfaces
+  via Netlink, conserver les exclusions des adresses internes et distinguer un
+  inventaire indisponible d’une destination interdite. Tester le confinement Linux.
+- Exécuter les consultations de réputation avec trois indicateurs au plus par
+  fournisseur et message, sous un plafond global de requêtes partagé. Préserver
+  la priorité des destinations finales, les quotas durables et le cache ; compter
+  aussi les indicateurs omis en raison d’un quota, d’un échec ou du délai global.
+- Chevaucher le LLM consultatif et les vérifications de réputation. Continuer les
+  contrôles indépendants après un OCR limité sans déclarer l’analyse complète,
+  sans préfixer le message et sans effacer une détection antivirus acquise.
+- Expliquer les erreurs LLM et fournisseurs avec des causes bornées : délai,
+  connexion, authentification, quota distant, réponse invalide ou trop volumineuse.
+  Aucun corps de réponse fournisseur ni secret n’est ajouté aux diagnostics.
+- Afficher les indices PUB même lorsqu’une décision de sécurité reste prioritaire,
+  avec un filtre dédié qui conserve les droits par destinataire. Les décisions
+  historiques et les modèles ne sont pas réécrits. Aucune migration de stockage.
+
 ## [0.4.6] - 2026-09-11
 
 - Repenser la console avec une identité orange, une navigation claire, une page

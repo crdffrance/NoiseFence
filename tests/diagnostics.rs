@@ -42,6 +42,7 @@ async fn queue(store: &Store, cfg: &noisefence::config::Config) -> (String, Job,
     scan.analysis_policy = Some(AnalysisPolicy::capture(cfg));
     scan.protection = Some(noisefence::protection::Report {
         url_resolution: Some(noisefence::protection::redirects::Report {
+            local_inventory_available: Some(true),
             version: "url-resolution-1".into(),
             settings_sha256: "synthetic-settings".into(),
             chains: vec![noisefence::protection::redirects::Chain {

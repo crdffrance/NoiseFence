@@ -996,6 +996,7 @@ impl Engine {
     ) -> Result<(Scan, Vec<u8>)> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        scan.features_complete.get_or_insert(scan.complete);
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
                 raw,
@@ -1132,7 +1133,7 @@ impl Engine {
                 _ => {}
             }
         }
-        if headers
+        let excessive_signatures = headers
             .iter()
             .filter(|h| message::name(h) == "dkim-signature")
             .count()
@@ -1141,8 +1142,8 @@ impl Engine {
                 .iter()
                 .filter(|h| message::name(h).starts_with("arc-"))
                 .count()
-                > 150
-        {
+                > 150;
+        if excessive_signatures {
             scan.complete = false;
             scan.reasons.push(Signal {
                 id: "signature_budget".into(),
@@ -1150,7 +1151,10 @@ impl Engine {
                 weight: 0.0,
             });
         }
-        if !scan.complete {
+        // A limited OCR or scanner result must not skip safe authentication and
+        // reputation checks. Keep completeness false and the delivery fallback.
+        // Extraction and signature limits still bound parsing/authentication work.
+        if !scan.features_complete.unwrap_or(scan.complete) || excessive_signatures {
             return self.finish_unchecked(raw, scan, ip, id, started);
         }
         let work = async {
@@ -1285,22 +1289,46 @@ impl Engine {
             let (arc, results) = auth_result?;
             self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
                 .await?;
-            if let (Some(runtime), Some(settings)) = (&self.protection, &self.config.protection) {
-                runtime
-                    .observe(&mut scan, targets, &settings.policy, context.1)
-                    .await;
-            }
             self.score(&mut scan);
-            if scan.complete
-                && let Some(llm) = &self.llm
-                && scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware
-            {
+            let needs_llm = scan.complete
+                && self.llm.is_some()
+                && scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware;
+            let requested_score = scan.score;
+            if needs_llm {
                 // Preserve an attempted-check marker if the enclosing DNS/LLM deadline cancels it.
                 scan.llm.status = crate::llm::LlmStatus::Unavailable;
                 scan.llm.prompt_version = crate::llm::PROMPT_VERSION.into();
                 scan.llm.model = self.config.llm.as_ref().unwrap().model.clone();
                 scan.evidence.as_mut().unwrap().llm.requested_at_score = Some(scan.score);
-                scan.llm = llm.classify(raw, scan.score).await;
+            }
+            // Protection is advisory and does not change the LLM selection
+            // score. Overlap these independent calls under the existing deadline.
+            let (_, llm_result) = tokio::join!(
+                async {
+                    if let (Some(runtime), Some(settings)) =
+                        (&self.protection, &self.config.protection)
+                    {
+                        runtime
+                            .observe(&mut scan, targets, &settings.policy, context.1)
+                            .await;
+                    }
+                },
+                async {
+                    if needs_llm {
+                        Some(
+                            self.llm
+                                .as_ref()
+                                .unwrap()
+                                .classify(raw, requested_score)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                }
+            );
+            if let Some(result) = llm_result {
+                scan.llm = result;
                 if let Some(verdict) = &scan.llm.verdict {
                     let weight = scan.llm.advisory_weight();
                     scan.reasons.push(Signal {

@@ -34,6 +34,23 @@ const base = {
   chains: [],
 };
 
+test('an unavailable local inventory is distinct from a forbidden destination', () => {
+  const html = render({
+    ...base,
+    local_inventory_available: false,
+    chains: [
+      {
+        source_sha256: 'hash',
+        complete: false,
+        detail: 'network',
+        hops: [],
+      },
+    ],
+  });
+  assert.match(html, /Inventaire réseau du serveur indisponible/);
+  assert.doesNotMatch(html, /adresse interne, réservée ou exclue bloqué/);
+});
+
 test('historical messages do not invent a URL visit', () => {
   assert.equal(render(undefined), '');
   assert.equal(render(null), '');

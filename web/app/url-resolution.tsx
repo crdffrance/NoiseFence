@@ -3,6 +3,7 @@ export type UrlResolutionReport = {
   settings_sha256: string;
   elapsed_ms: number;
   omitted: number;
+  local_inventory_available?: boolean | null;
   chains: {
     source_sha256: string;
     complete: boolean;
@@ -25,6 +26,12 @@ export function UrlResolutionDetails({
         affichés sans chemins ni paramètres privés. Une destination atteinte ne
         signifie pas que le lien est sûr.
       </p>
+      {report.local_inventory_available === false && (
+        <p className="notice">
+          Inventaire réseau du serveur indisponible. Vérifier les restrictions
+          du service ; les parcours restent suspendus.
+        </p>
+      )}
       {report.omitted > 0 && (
         <p className="notice">
           Au moins {report.omitted} lien(s) supplémentaire(s) non parcouru(s) :

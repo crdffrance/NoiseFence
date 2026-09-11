@@ -7,6 +7,36 @@ type DecisionInput = {
   decision?: { source: string; outcome: string; score: number | null };
 };
 
+export function checkFailure(reason?: string | null) {
+  if (!reason) return '';
+  return (
+    (
+      {
+        input: 'Contenu non exploitable par ce contrôle',
+        storage: 'Stockage du cache ou des quotas indisponible',
+        budget_storage: 'Comptabilité du budget indisponible',
+        timeout: 'Délai maximal dépassé',
+        network: 'Connexion ou vérification TLS impossible',
+        authentication: 'Authentification refusée par le fournisseur',
+        rate_limit: 'Limite imposée par le fournisseur',
+        http: 'Erreur HTTP du fournisseur',
+        response_limit: 'Réponse supérieure à la limite autorisée',
+        invalid_response: 'Réponse invalide ou incompatible avec le protocole',
+        accounting: 'Comptage des jetons incompatible avec le budget réservé',
+      } as Record<string, string>
+    )[reason] ?? 'Cause non reconnue'
+  );
+}
+
+export function publicitySignal(
+  report?: { status: string; verdict: string } | null,
+) {
+  return (
+    report?.status === 'complete' &&
+    ['promotion', 'newsletter'].includes(report.verdict)
+  );
+}
+
 // Keep the canonical decision distinct from the delivery action and feedback.
 export function classification(mail: DecisionInput, threshold?: number) {
   if (mail.decision?.source === 'antivirus')

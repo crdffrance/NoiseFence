@@ -186,6 +186,8 @@ pub struct ProviderReport {
     pub elapsed_ms: u64,
     #[serde(default)]
     pub omitted: usize,
+    #[serde(default)]
+    pub failure: Option<providers::Failure>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Report {

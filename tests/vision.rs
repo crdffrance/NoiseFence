@@ -9,6 +9,42 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const IMAGE: &[u8] = b"From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Image\r\nMIME-Version: 1.0\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n";
 
+#[tokio::test]
+async fn unavailable_ocr_does_not_skip_independent_checks_or_claim_completeness() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.authentication = false;
+    cfg.vision = Some(Settings {
+        socket: root.path().join("absent.sock"),
+        ..Default::default()
+    });
+    let mut protection = noisefence::protection::Settings::default();
+    protection.policy.crdf = true;
+    cfg.protection = Some(protection);
+    let (scan, wire) = Engine::new(Arc::new(cfg))
+        .unwrap()
+        .process(
+            IMAGE,
+            "192.0.2.1".parse().unwrap(),
+            "mail.example.org",
+            "sender@example.org",
+            "limited-vision",
+        )
+        .await
+        .unwrap();
+    assert_eq!(scan.features_complete, Some(true));
+    assert!(!scan.complete && !scan.tagged && !scan.pub_tagged);
+    assert_eq!(scan.vision.status, Status::Unavailable);
+    assert_eq!(
+        scan.protection.unwrap().crdf.status,
+        noisefence::protection::Status::NotConfigured
+    );
+    assert_eq!(
+        noisefence::message::fields(IMAGE).unwrap().1,
+        noisefence::message::fields(&wire).unwrap().1
+    );
+}
+
 async fn fake_worker(
     path: &std::path::Path,
     response: serde_json::Value,

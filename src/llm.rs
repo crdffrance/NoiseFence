@@ -176,6 +176,36 @@ pub struct LlmResult {
     pub verdict: Option<Verdict>,
     pub elapsed_ms: u64,
     pub accounted_micro_eur: Option<u64>,
+    /// Bounded diagnostics only: never persist API responses, URLs or credentials.
+    #[serde(default)]
+    pub failure: Option<Failure>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Failure {
+    Input,
+    BudgetStorage,
+    Timeout,
+    Network,
+    Authentication,
+    RateLimit,
+    Http,
+    ResponseLimit,
+    InvalidResponse,
+    Accounting,
+}
+fn http_failure(error: &reqwest::Error) -> Failure {
+    if error.is_timeout() {
+        Failure::Timeout
+    } else {
+        match error.status().map(|s| s.as_u16()) {
+            Some(401 | 403) => Failure::Authentication,
+            Some(429) => Failure::RateLimit,
+            Some(_) => Failure::Http,
+            None => Failure::Network,
+        }
+    }
 }
 
 impl LlmResult {
@@ -355,6 +385,7 @@ impl Client {
         };
         let Ok(data) = email_input(raw, self.config.max_text_bytes) else {
             result.status = LlmStatus::Unavailable;
+            result.failure = Some(Failure::Input);
             return result;
         };
         let payload = json!({"model":self.config.model,"temperature":0,"max_tokens":self.config.max_output_tokens,
@@ -384,6 +415,7 @@ impl Client {
             }
             _ => {
                 result.status = LlmStatus::Unavailable;
+                result.failure = Some(Failure::BudgetStorage);
                 return result;
             }
         };
@@ -394,26 +426,32 @@ impl Client {
                 .post(&self.endpoint)
                 .json(&payload)
                 .send()
-                .await?
-                .error_for_status()?;
-            ensure!(
-                response.content_length().unwrap_or(0) <= 16384,
-                "LLM response too large"
-            );
+                .await
+                .map_err(|e| http_failure(&e))?
+                .error_for_status()
+                .map_err(|e| http_failure(&e))?;
+            if response.content_length().unwrap_or(0) > 16384 {
+                return Err(Failure::ResponseLimit);
+            }
             let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await? {
-                ensure!(bytes.len() + chunk.len() <= 16384, "LLM response too large");
+            while let Some(chunk) = response.chunk().await.map_err(|e| http_failure(&e))? {
+                if bytes.len() + chunk.len() > 16384 {
+                    return Err(Failure::ResponseLimit);
+                }
                 bytes.extend(chunk);
             }
-            let (verdict, input, output) = parse_reply(&bytes, &self.config.model)?;
-            ensure!(
-                input <= input_bound && output <= self.config.max_output_tokens,
-                "unexpected LLM token accounting"
-            );
+            let (verdict, input, output) =
+                parse_reply(&bytes, &self.config.model).map_err(|_| Failure::InvalidResponse)?;
+            if input > input_bound || output > self.config.max_output_tokens {
+                return Err(Failure::Accounting);
+            }
             let actual = self.config.estimated_cost(input, output);
             let budget = self.budget.clone();
-            tokio::task::spawn_blocking(move || budget.settle(&id, actual)).await??;
-            Ok::<_, anyhow::Error>((verdict, actual))
+            tokio::task::spawn_blocking(move || budget.settle(&id, actual))
+                .await
+                .map_err(|_| Failure::BudgetStorage)?
+                .map_err(|_| Failure::BudgetStorage)?;
+            Ok::<_, Failure>((verdict, actual))
         };
         match tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), work).await {
             Ok(Ok((verdict, actual))) => {
@@ -421,7 +459,14 @@ impl Client {
                 result.verdict = Some(verdict);
                 result.accounted_micro_eur = Some(actual);
             }
-            _ => result.status = LlmStatus::Unavailable,
+            failed => {
+                result.status = LlmStatus::Unavailable;
+                result.failure = Some(match failed {
+                    Ok(Err(reason)) => reason,
+                    Err(_) => Failure::Timeout,
+                    Ok(Ok(_)) => unreachable!(),
+                });
+            }
         }
         // On cancellation or uncertain billing, the durable maximum reservation remains.
         result.elapsed_ms = started.elapsed().as_millis() as u64;
@@ -667,10 +712,12 @@ mod tests {
             daemon.await.unwrap();
             if invalid {
                 assert_eq!(result.status, LlmStatus::Unavailable);
+                assert_eq!(result.failure, Some(Failure::InvalidResponse));
                 assert!(result.verdict.is_none());
                 assert!(result.accounted_micro_eur.unwrap() > 9);
             } else {
                 assert_eq!(result.status, LlmStatus::Complete);
+                assert_eq!(result.failure, None);
                 assert!(result.verdict.is_some());
                 assert_eq!(result.accounted_micro_eur, Some(9));
             }

@@ -1,5 +1,35 @@
 # Exploitation Linux
 
+## Contrôles réseau et diagnostics
+
+Le service SMTP autorise `AF_NETLINK` pour l’inventaire local des interfaces
+(`getifaddrs` sur Linux). Cet inventaire permet au résolveur d’URL d’exclure les
+adresses de la machine. Ne pas le remplacer par une liste vide lorsqu’il échoue :
+les parcours doivent alors rester suspendus. `sudo python3 tests/systemd_network.py`
+vérifie cette capacité avec les restrictions livrées, dans une unité temporaire.
+Les adresses internes, les redirections non autorisées et les certificats invalides
+restent bloqués.
+
+Les rapports nouveaux indiquent séparément la disponibilité de cet inventaire.
+Les erreurs de connecteur et de LLM exposent une cause limitée, sans recopier une
+réponse distante. Un quota illimité ne désactive ni les délais ni la concurrence
+bornée. `protection.max_parallel` limite les requêtes réseau des fournisseurs
+pour tous les messages ; chaque rapport traite au plus trois indicateurs à la fois.
+Le compteur d’omissions inclut les indicateurs sans résultat après interruption,
+en plus du plafond de travail par message.
+
+Une indisponibilité OCR ne dispense pas des autres contrôles sûrs. Le message
+reste explicitement incomplet et n’est pas préfixé. Le filtre « Indices PUB »
+retrouve les promotions/newsletters détectées, y compris celles dont la décision
+reste Spam ou À vérifier ; il ne constitue pas une liste de messages sûrs.
+
+L’acceptation de toutes les adresses d’un domaine dans NoiseFence doit correspondre
+à la configuration du serveur de réception en aval. Un `550 5.1.1` à `RCPT TO`
+signale un destinataire refusé par ce serveur ; il ne faut pas le transformer en
+succès, ni transférer silencieusement les adresses vers une autre boîte. Vérifier
+les alias et la réception catch-all du fournisseur. Les essais `RCPT` suivis de
+`RSET` ne nécessitent pas l’envoi d’un message.
+
 ## Installation
 
 Compiler sur la cible Linux avec `cargo build --release --locked`. La compilation effectuée sur macOS ne produit pas un binaire Linux. La CI vérifie le code Rust et la console sur Linux ; consulter [GitHub Actions](https://github.com/crdffrance/NoiseFence/actions) pour le résultat correspondant au commit déployé.

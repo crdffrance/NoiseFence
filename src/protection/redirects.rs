@@ -92,6 +92,9 @@ pub struct Report {
     pub chains: Vec<Chain>,
     pub omitted: usize,
     pub elapsed_ms: u64,
+    /// Absent on historical rows. Keep interruption variants readable by old binaries.
+    #[serde(default)]
+    pub local_inventory_available: Option<bool>,
 }
 pub struct Resolver {
     settings: Settings,
@@ -300,17 +303,19 @@ impl Resolver {
     pub async fn inspect(&self, urls: &[String], truncated: bool) -> (Report, BTreeSet<String>) {
         let start = Instant::now();
         let mut report = Report {
-            version: "url-resolution-1".into(),
+            version: "url-resolution-2".into(),
             settings_sha256: crate::message::digest(
                 &serde_json::to_vec(&self.settings).expect("URL settings"),
             ),
             chains: vec![],
             omitted: urls.len().saturating_sub(self.settings.max_urls) + usize::from(truncated),
             elapsed_ms: 0,
+            local_inventory_available: None,
         };
         let mut visited = BTreeSet::new();
         let permit = self.slots.try_acquire();
         let own = local_addresses();
+        report.local_inventory_available = Some(own.is_ok());
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(self.settings.timeout_ms);
         for original in urls.iter().take(self.settings.max_urls) {
@@ -323,7 +328,7 @@ impl Resolver {
             chain.detail = if permit.is_err() {
                 Some(Detail::Busy)
             } else if own.is_err() {
-                Some(Detail::ForbiddenAddress)
+                Some(Detail::Network)
             } else {
                 match tokio::time::timeout_at(
                     deadline,

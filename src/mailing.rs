@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock, time::Instant};
 
 pub const VERSION: &str = "mailing-1";
+pub(crate) const SIGNAL_SQL: &str = "COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)";
 pub(crate) const PUBLICITY_SQL: &str = "(json_extract(m.scan,'$.complete')=1 AND COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0))";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

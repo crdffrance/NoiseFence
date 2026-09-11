@@ -143,6 +143,29 @@ struct Lookup {
     verdict: Option<Verdict>,
     status: Status,
     cached: bool,
+    failure: Option<Failure>,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Failure {
+    Storage,
+    Timeout,
+    Network,
+    Authentication,
+    RateLimit,
+    Http,
+    ResponseLimit,
+    InvalidResponse,
+}
+fn network_failure(error: &reqwest::Error) -> (Failure, bool) {
+    (
+        if error.is_timeout() {
+            Failure::Timeout
+        } else {
+            Failure::Network
+        },
+        false,
+    )
 }
 enum Reservation {
     Cached(Verdict),
@@ -150,12 +173,14 @@ enum Reservation {
     Quota,
 }
 
+#[derive(Clone)]
 pub struct Client {
     root: PathBuf,
     config: Settings,
     http: reqwest::Client,
     db: Arc<Mutex<Connection>>,
     gate: Arc<tokio::sync::Semaphore>,
+    requests: Arc<tokio::sync::Semaphore>,
     #[cfg(test)]
     endpoint_override: Option<String>,
 }
@@ -185,6 +210,7 @@ impl Client {
                 .build()?,
             db: Arc::new(Mutex::new(db)),
             gate: Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
+            requests: Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
         })
     }
     async fn reserve(
@@ -322,6 +348,7 @@ impl Client {
                     verdict: Some(verdict),
                     status: Status::Complete,
                     cached: true,
+                    failure: None,
                 };
             }
             Ok(Reservation::Quota) => {
@@ -329,6 +356,7 @@ impl Client {
                     verdict: None,
                     status: Status::Quota,
                     cached: false,
+                    failure: None,
                 };
             }
             Err(_) => {
@@ -336,37 +364,48 @@ impl Client {
                     verdict: None,
                     status: Status::Unavailable,
                     cached: false,
+                    failure: Some(Failure::Storage),
                 };
             }
             Ok(Reservation::Fetch) => {}
         }
         let request = self.request(provider, key, indicator, file);
         let result = async {
-            let mut response = request.send().await.map_err(|_| false)?;
+            let _slot = self
+                .requests
+                .acquire()
+                .await
+                .map_err(|_| (Failure::Network, false))?;
+            let mut response = request.send().await.map_err(|e| network_failure(&e))?;
             let status = response.status();
             if status == reqwest::StatusCode::NOT_FOUND && provider == Provider::Virustotal {
                 return Ok(Some(Verdict::Unknown));
             }
             if !status.is_success() {
-                return Err(matches!(status.as_u16(), 401 | 403 | 429));
+                return Err(match status.as_u16() {
+                    401 | 403 => (Failure::Authentication, true),
+                    429 => (Failure::RateLimit, true),
+                    _ => (Failure::Http, false),
+                });
             }
             if response.content_length().is_some_and(|n| n > 256 * 1024) {
-                return Err(false);
+                return Err((Failure::ResponseLimit, false));
             }
             let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|_| false)? {
+            while let Some(chunk) = response.chunk().await.map_err(|e| network_failure(&e))? {
                 if bytes.len() + chunk.len() > 256 * 1024 {
-                    return Err(false);
+                    return Err((Failure::ResponseLimit, false));
                 }
                 bytes.extend_from_slice(&chunk);
             }
-            let body: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| false)?;
+            let body: serde_json::Value =
+                serde_json::from_slice(&bytes).map_err(|_| (Failure::InvalidResponse, false))?;
             match provider {
                 Provider::Crdf => parse_crdf(&body, indicator),
                 Provider::Virustotal => parse_vt(&body),
             }
             .map(Some)
-            .map_err(|_| true)
+            .map_err(|_| (Failure::InvalidResponse, true))
         }
         .await;
         match result {
@@ -376,14 +415,16 @@ impl Client {
                     verdict,
                     status: Status::Complete,
                     cached: false,
+                    failure: None,
                 }
             }
-            Err(backoff) => {
+            Err((failure, backoff)) => {
                 let _ = self.remember(cache_key, credential, None, backoff).await;
                 Lookup {
                     verdict: None,
                     status: Status::Unavailable,
                     cached: false,
+                    failure: Some(failure),
                 }
             }
         }
@@ -414,6 +455,7 @@ impl Client {
         };
         let mut hits = Vec::new();
         report.status = Status::Complete;
+        let mut planned = 0;
         let work = async {
             let mut seen = std::collections::BTreeSet::new();
             let indicators: Vec<_> = targets
@@ -436,32 +478,70 @@ impl Client {
                 )
                 .collect();
             report.omitted = indicators.len().saturating_sub(12);
-            for (indicator, file) in indicators.into_iter().take(12) {
-                let result = self
-                    .query(
-                        provider,
-                        &key,
-                        indicator,
-                        file,
-                        self.config.quota(provider, policy),
-                    )
-                    .await;
+            planned = indicators.len().min(12);
+            let priority_end = indicators
+                .iter()
+                .take(planned)
+                .take_while(|(indicator, file)| {
+                    !file && targets.destination_domains.contains(*indicator)
+                })
+                .count();
+            let mut priority_finished = priority_end == 0;
+            let mut scheduled = 0;
+            let mut remaining = indicators.into_iter().take(12);
+            let quota = self.config.quota(provider, policy);
+            let mut tasks = tokio::task::JoinSet::new();
+            let mut may_schedule = true;
+            loop {
+                while may_schedule && tasks.len() < 3 {
+                    // Final destinations reserve scarce quota before origins.
+                    if !priority_finished && scheduled == priority_end {
+                        break;
+                    }
+                    let Some((indicator, file)) = remaining.next() else {
+                        break;
+                    };
+                    scheduled += 1;
+                    let client = self.clone();
+                    let key = key.clone();
+                    let indicator = indicator.clone();
+                    tasks.spawn(async move {
+                        let result = client.query(provider, &key, &indicator, file, quota).await;
+                        (indicator, file, result)
+                    });
+                }
+                let Some(completed) = tasks.join_next().await else {
+                    break;
+                };
+                if tasks.is_empty() && scheduled == priority_end {
+                    priority_finished = true;
+                }
+                let Ok((indicator, file, result)) = completed else {
+                    report.status = Status::Unavailable;
+                    report.failure = Some(Failure::Network);
+                    may_schedule = false;
+                    continue;
+                };
                 if result.status != Status::Complete {
                     report.status = result.status;
-                    break;
+                    report.failure = result.failure;
+                    may_schedule = false;
+                    continue;
                 }
                 report.checked += 1;
                 report.cache_hits += usize::from(result.cached);
                 match result.verdict {
                     Some(Verdict::Malicious) => {
                         report.malicious += 1;
-                        hits.push((indicator.clone(), file));
+                        hits.push((indicator, file));
                     }
                     Some(Verdict::Suspicious) => report.suspicious += 1,
                     Some(Verdict::Unknown) => report.unknown += 1,
                     Some(Verdict::Stale) => {
                         report.unknown += 1;
-                        report.status = Status::Stale;
+                        if report.status == Status::Complete {
+                            report.status = Status::Stale;
+                        }
                     }
                     _ => {}
                 }
@@ -472,11 +552,14 @@ impl Client {
             .is_err()
         {
             report.status = Status::Unavailable;
+            report.failure = Some(Failure::Timeout);
         }
+        report.omitted += planned.saturating_sub(report.checked);
         if report.omitted > 0 && report.status == Status::Complete {
             report.status = Status::Limited;
         }
         report.elapsed_ms = started.elapsed().as_millis() as u64;
+        hits.sort();
         (report, hits)
     }
 }
@@ -1059,7 +1142,7 @@ mod transport_tests {
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
             .await;
         assert_eq!(report.checked, 1);
-        assert_eq!(report.omitted, 2); // 14 unique domains, with a 12-target limit.
+        assert_eq!(report.omitted, 13); // Includes both cap exclusions and quota skips.
         assert_eq!(report.status, Status::Quota);
         assert!(hits.is_empty());
         let request = task.await.unwrap();
@@ -1072,10 +1155,33 @@ mod transport_tests {
     }
     #[tokio::test]
     async fn quota_timeout_and_oversized_responses_never_produce_a_hit() {
-        for (status, body, delay) in [
-            ("429 Too Many Requests", "{}".to_owned(), 0),
-            ("200 OK", "x".repeat(256 * 1024 + 1), 0),
-            ("200 OK", "{}".to_owned(), 300),
+        for (status, body, delay, failure) in [
+            (
+                "429 Too Many Requests",
+                "{}".to_owned(),
+                0,
+                Failure::RateLimit,
+            ),
+            (
+                "401 Unauthorized",
+                "{}".to_owned(),
+                0,
+                Failure::Authentication,
+            ),
+            (
+                "500 Internal Server Error",
+                "{}".to_owned(),
+                0,
+                Failure::Http,
+            ),
+            (
+                "200 OK",
+                "x".repeat(256 * 1024 + 1),
+                0,
+                Failure::ResponseLimit,
+            ),
+            ("200 OK", "{}".to_owned(), 0, Failure::InvalidResponse),
+            ("200 OK", "{}".to_owned(), 300, Failure::Timeout),
         ] {
             let root = tempfile::tempdir().unwrap();
             let mut client = Client::new(
@@ -1101,6 +1207,8 @@ mod transport_tests {
                 .inspect(Provider::Virustotal, true, &targets, &Policy::default())
                 .await;
             assert_eq!(report.status, Status::Unavailable);
+            assert_eq!(report.failure, Some(failure));
+            assert_eq!(report.omitted, 1);
             assert!(hits.is_empty());
             assert!(start.elapsed() < Duration::from_secs(3));
             if delay == 0 {
@@ -1128,5 +1236,65 @@ mod transport_tests {
             format!("https://www.virustotal.com/api/v3/files/{hash}")
         );
         assert!(request.body().is_none());
+    }
+
+    #[tokio::test]
+    async fn indicators_run_concurrently_with_a_shared_request_limit_and_cache() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let count = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let (a, p, c, b) = (active.clone(), peak.clone(), count.clone(), barrier);
+        let app = axum::Router::new().route("/lookup", axum::routing::post(move |axum::Json(input): axum::Json<serde_json::Value>| {
+            let (a,p,c,b) = (a.clone(),p.clone(),c.clone(),b.clone());
+            async move {
+                let current=a.fetch_add(1,Ordering::SeqCst)+1;
+                p.fetch_max(current,Ordering::SeqCst);
+                c.fetch_add(1,Ordering::SeqCst);
+                b.wait().await;
+                a.fetch_sub(1,Ordering::SeqCst);
+                axum::Json(serde_json::json!({"error":false,"data":[{"url":input["urls"][0],"error":false,"in_database":false}]}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/lookup", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            max_parallel: 2,
+            timeout_ms: 2000,
+            crdf_per_minute: 0,
+            crdf_per_day: 0,
+            ..Default::default()
+        };
+        let mut client = Client::new(&settings, root.path()).unwrap();
+        client.endpoint_override = Some(endpoint);
+        save_key(
+            root.path(),
+            Provider::Crdf,
+            "synthetic-key-for-concurrency-1234",
+        )
+        .unwrap();
+        let mut targets = Targets::default();
+        for i in 0..6 {
+            targets.domains.insert(format!("a{i}.example.com"));
+        }
+        let (report, hits) = client
+            .inspect(Provider::Crdf, true, &targets, &Policy::default())
+            .await;
+        assert_eq!(report.status, Status::Complete);
+        assert_eq!(report.checked, 6);
+        assert_eq!(report.omitted, 0);
+        assert!(hits.is_empty());
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
+        assert_eq!(count.load(Ordering::SeqCst), 6);
+        let (cached, _) = client
+            .inspect(Provider::Crdf, true, &targets, &Policy::default())
+            .await;
+        assert_eq!(cached.cache_hits, 6);
+        assert_eq!(count.load(Ordering::SeqCst), 6);
+        assert_eq!(client.requests.available_permits(), 2);
+        server.abort();
     }
 }

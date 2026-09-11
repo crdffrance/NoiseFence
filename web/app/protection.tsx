@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
+import { checkFailure } from './presentation';
 import {
   ProviderQuotas,
   type ProviderQuota,
@@ -386,6 +387,7 @@ const statuses: Record<string, string> = {
   stale: 'données trop anciennes',
 };
 type ProviderReport = {
+  failure?: string | null;
   omitted?: number;
   status: string;
   checked: number;
@@ -459,6 +461,7 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
             suspect(s), {r.unknown} inconnu(s) · {r.cache_hits} en cache ·{' '}
             {r.elapsed_ms} ms
           </p>
+          {r.failure && <p className="notice">{checkFailure(r.failure)}.</p>}
           {r.cache_hits > 0 && (
             <p className="muted small">
               {r.cache_hits} résultat(s) réutilisé(s) du cache, sans nouvelle
@@ -467,7 +470,8 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
           )}
           {!!r.omitted && (
             <p className="muted small">
-              {r.omitted} indicateur(s) non consulté(s) : limite par message.
+              {r.omitted} indicateur(s) sans résultat exploitable : limite de
+              temps, de quota ou de travail par message.
             </p>
           )}
           {r.status === 'quota' && (
