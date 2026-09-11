@@ -61,6 +61,14 @@ export type MessageDiagnostics = {
     features_complete: boolean | null;
     policy: HistoricalPolicy | null;
     score_breakdown?: {families:Record<string,number|null>;reconstructed_score:number|null;matches_recorded_score:boolean;saturated:boolean};
+    native_filter?: {
+      version: string; mode: 'observe'; status: string; elapsed_ms: number;
+      calibrated: boolean; affects_delivery: boolean;
+      score: {total:number; families:Record<string,{raw:number;effective:number;capped:boolean}>;
+        symbols:Array<{id:string;label:string;weight:number;family:string;absorbed_by:string[]}>} | null;
+      bayes:{status:string;model:string|null;raw_log_odds:number|null;matched_features:number;calibrated:boolean};
+      fuzzy:{status:string;matches:number;spam_examples:number;legitimate_examples:number;structural_matches:number;conflict:boolean;corroborated_spam:boolean};
+    } | null;
     lexical_logit: number | null;
     semantic_contribution: number | null;
     rule_weight_total: number;

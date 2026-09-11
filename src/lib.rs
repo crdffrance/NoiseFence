@@ -15,6 +15,7 @@ pub mod learning;
 pub mod llm;
 pub mod mailing;
 pub mod message;
+pub mod native_filter;
 pub mod population;
 pub mod protection;
 pub mod quality;

@@ -174,6 +174,24 @@ function AnalysisDetails({
         <p className="diagnostic-muted">{analysis.score_breakdown.matches_recorded_score ? 'La somme reproduit le score historique enregistré.' : 'Les observations conservées ne suffisent pas à reproduire exactement le score historique.'}
           {analysis.score_breakdown.saturated && ' L’indice est proche d’une extrémité ; ce n’est pas une preuve de certitude.'}</p>
       </details>}
+      {analysis.native_filter && <details className="diagnostic-disclosure">
+        <summary>Moteur Rust : règles composites, campagnes et Bayes</summary>
+        <p className="diagnostic-muted">Observation comparative sans effet sur la livraison. Les points et le résultat Bayes ne sont pas des probabilités calibrées.</p>
+        <dl className="diagnostic-facts">
+          <div><dt>Analyse locale</dt><dd>{evidenceState(analysis.native_filter.status)} · {duration(analysis.native_filter.elapsed_ms)}</dd></div>
+          <div><dt>Points après plafonds</dt><dd>{contribution(analysis.native_filter.score?.total)}</dd></div>
+          <div><dt>Classifieur OSB Bayes</dt><dd>{({untrained:'Aucun modèle entraîné',complete:'Analyse disponible',scope_mismatch:'Domaine hors du modèle',expired:'Modèle expiré',insufficient_features:'Indices insuffisants',incompatible:'Protocole incompatible'} as Record<string,string>)[analysis.native_filter.bayes.status] ?? 'Analyse indisponible'}</dd></div>
+          <div><dt>Mémoire de campagnes</dt><dd>{evidenceState(analysis.native_filter.fuzzy.status)} · {analysis.native_filter.fuzzy.matches} correspondance(s) textuelle(s)
+            {analysis.native_filter.fuzzy.conflict && ' · corrections contradictoires, aucun renforcement'}</dd></div>
+        </dl>
+        {analysis.native_filter.score && <>
+          <table className="diagnostic-table"><caption>Contributions regroupées</caption><thead><tr><th>Famille</th><th>Brute</th><th>Retenue</th></tr></thead>
+            <tbody>{Object.entries(analysis.native_filter.score.families).map(([family,weight])=><tr key={family}><td>{({lexical:'Texte et structure',semantic:'Sémantique',content:'Règles de contenu',authentication:'Authentification',reputation:'Réputation',smtp:'SMTP',llm:'Second avis',campaign:'Campagnes',bayes:'OSB Bayes',other:'Autres'} as Record<string,string>)[family] ?? family}</td><td>{contribution(weight.raw)}</td><td>{contribution(weight.effective)}{weight.capped && ' · plafonnée'}</td></tr>)}</tbody>
+          </table>
+          <ul>{analysis.native_filter.score.symbols.map(symbol=><li key={symbol.id}><code>{symbol.id}</code> · {symbol.label} · {contribution(symbol.weight)}
+            {symbol.absorbed_by.length>0 && ` · regroupé dans ${symbol.absorbed_by.join(', ')}`}</li>)}</ul>
+        </>}
+      </details>}
       {overrides.length > 0 && (
         <details className="diagnostic-disclosure">
           <summary>

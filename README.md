@@ -6,8 +6,8 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. Les [actions configurables](docs/actions.md) permettent de transmettre sans préfixe, tagger ou placer en quarantaine les spams, publicités et malwares confirmés. Aucun rejet SMTP n’est fondé sur le score.
 
-**Version 0.4.9 — règles personnalisées, profils et invitations, en observation par défaut.**
-Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.4.9), puis suivre le [guide de première installation](docs/getting-started.md).
+**Version 0.4.14 — composites, similarité des campagnes et OSB Bayes natifs Rust, en observation.**
+Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.4.14), puis suivre le [guide de première installation](docs/getting-started.md).
 Le projet reste en 0.x : les formats peuvent évoluer avec une migration documentée.
 La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
@@ -48,6 +48,9 @@ une annotation séparée du risque et du type de courrier, et un candidat local
 calibré en observation. Les liens affichés, QR codes et destinations finales sont
 rapprochés ; la réputation des correspondants repose sur des corrections humaines
 et une identité authentifiée. Aucun gain de capture n’est revendiqué sans mesure.
+
+Les mécanismes natifs Rust de comparaison (composites, similarité des campagnes,
+OSB Bayes et motifs groupés) sont documentés dans [ce guide](docs/native-filtering.md).
 
 ## Démarrage local
 

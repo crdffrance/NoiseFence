@@ -122,6 +122,8 @@ pub struct Scan {
     pub quality: Option<crate::quality::Report>,
     #[serde(default)]
     pub sender_history: Option<crate::quality::history::Report>,
+    #[serde(default)]
+    pub native_filter: Option<crate::native_filter::Observation>,
 }
 pub fn legacy_feature_version() -> u32 {
     1
@@ -504,6 +506,7 @@ pub struct Engine {
     llm: Option<Arc<crate::llm::Client>>,
     vision: Option<Arc<crate::vision::Client>>,
     protection: Option<Arc<crate::protection::Runtime>>,
+    native_filter: Option<Arc<crate::native_filter::Runtime>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
@@ -517,6 +520,21 @@ impl Engine {
         Self::build(config, Some(self))
     }
     fn build(config: Arc<Config>, template: Option<&Self>) -> Result<Self> {
+        let native_filter = config
+            .native_filter
+            .as_ref()
+            .map(|settings| {
+                if let Some(runtime) = template.and_then(|t| t.native_filter.as_ref()) {
+                    ensure!(
+                        &runtime.settings == settings,
+                        "Changing native filter settings requires a restart"
+                    );
+                    Ok(runtime.clone())
+                } else {
+                    crate::native_filter::Runtime::new(settings.clone())
+                }
+            })
+            .transpose()?;
         let quality = config
             .quality
             .as_ref()
@@ -650,6 +668,7 @@ impl Engine {
             .map(|s| crate::fusion::runtime::Runtime::load(s, &evidence_artifacts))
             .transpose()?;
         Ok(Self {
+            native_filter,
             quality,
             quality_policy,
             fusion,
@@ -670,6 +689,10 @@ impl Engine {
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
         let mut scan = self.extract(raw);
+        scan.native_filter = self
+            .native_filter
+            .as_ref()
+            .map(|runtime| runtime.offline(raw, &[]));
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
                 raw,
@@ -731,6 +754,12 @@ impl Engine {
             self.quality.as_ref(),
             Some(&self.quality_policy),
         ));
+        if let (Some(runtime), Some(mut observation)) =
+            (&self.native_filter, scan.native_filter.take())
+        {
+            runtime.finish(&mut observation, scan);
+            scan.native_filter = Some(observation);
+        }
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
         if matches!(
@@ -1042,7 +1071,7 @@ impl Engine {
         }
         self.start_evidence(&mut scan, context.0);
         let headers = message::fields(raw)?.0;
-        let (semantic, antivirus, signatures, vision) = tokio::join!(
+        let (semantic, antivirus, signatures, vision, native_filter) = tokio::join!(
             async {
                 #[cfg(feature = "semantic")]
                 if scan.complete
@@ -1069,8 +1098,15 @@ impl Engine {
                     Some(client) => Some(client.inspect(raw).await),
                     None => None,
                 }
+            },
+            async {
+                match &self.native_filter {
+                    Some(runtime) => Some(runtime.inspect(raw, context.1).await),
+                    None => None,
+                }
             }
         );
+        scan.native_filter = native_filter;
         scan.semantic = semantic;
         #[cfg(feature = "semantic")]
         Self::check_semantic(&mut scan);
@@ -1327,6 +1363,18 @@ impl Engine {
                 crate::quality::history::inspect(&self.config.data_dir, raw, &scan, context.1)
                     .await,
             );
+            if let (Some(runtime), Some(observation)) =
+                (&self.native_filter, &mut scan.native_filter)
+            {
+                runtime
+                    .remember(
+                        &self.config.data_dir,
+                        observation,
+                        context.1,
+                        scan.raw_sha256.as_deref().unwrap_or(""),
+                    )
+                    .await;
+            }
             self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
                 .await?;
             self.score(&mut scan);

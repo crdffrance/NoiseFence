@@ -5,6 +5,14 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.14] — 2026-09-11
+
+- Moteur complémentaire natif Rust : motifs compilés et groupés par vue MIME, symboles explicites, composites déterministes et plafonds de contribution par famille. Les contributions remplacées restent visibles dans les diagnostics.
+- Similarité des campagnes par shingles et MinHash du texte et de la structure HTML. La mémoire consulte uniquement les corrections humaines récentes autorisées du domaine ; les contradictions, répétitions exactes, délais et indisponibilités empêchent un renforcement.
+- Classifieur OSB Bayes Rust : fréquences documentaires, bigrammes distants, export privé avec contrôle d’accès, entraînement et évaluation chronologiques séparant les campagnes, seuil figé et manifeste d’historique lié aux poids. Les modèles expirent après trente jours.
+- Configuration bornée, exécution locale concurrente, conservation privée des caractéristiques et diagnostics français. Commande de mesure du débit et comparaison de la recherche groupée avec des expressions évaluées individuellement.
+- Ces mécanismes sont en observation uniquement. Aucun nouveau score ne modifie l’arbitrage, les actions, les appels externes ou les messages livrés. La qualité en production exige des annotations humaines récentes et un test indépendant ; les scores Bayes ne sont pas des probabilités calibrées.
+
 ## [0.4.13] — 2026-09-11
 
 - Choix identique en Python et Rust lorsque plusieurs types de courrier ont la même probabilité ; contrôle de parité sur les catégories, en plus des probabilités.

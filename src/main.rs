@@ -30,6 +30,47 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Measure native Rust filtering with concurrent local tasks; no network or database.
+    NativeBenchmark {
+        message: PathBuf,
+        #[arg(long, default_value_t = 1000)]
+        iterations: usize,
+        #[arg(long, default_value_t = 4)]
+        concurrency: usize,
+    },
+    /// Export authorized human labels and private native features; no message bodies.
+    NativeExport {
+        #[arg(long)]
+        username: String,
+        #[arg(long)]
+        domain: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Train OSB Bayes in Rust with chronological, campaign-separated evaluation.
+    NativeTrain {
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        train_until: i64,
+        #[arg(long)]
+        validation_until: i64,
+    },
+    /// Evaluate a frozen OSB candidate on new, independent human labels.
+    NativeEvaluate {
+        input: PathBuf,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        training_report: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
     Serve,
     CheckConfig,
     /// Restore the bootstrap policy; requires the daemon to be stopped.
@@ -242,6 +283,58 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::NativeBenchmark {
+            message,
+            iterations,
+            concurrency,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &noisefence::native_filter::benchmark::run(message, *iterations, *concurrency)
+                        .await?
+                )?
+            );
+            return Ok(());
+        }
+        Command::NativeTrain {
+            input,
+            output,
+            version,
+            train_until,
+            validation_until,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::native_filter::learning::train(
+                    input,
+                    output,
+                    version,
+                    *train_until,
+                    *validation_until
+                )?)?
+            );
+            return Ok(());
+        }
+        Command::NativeEvaluate {
+            input,
+            model,
+            manifest,
+            training_report,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::native_filter::learning::evaluate(
+                    input,
+                    model,
+                    manifest,
+                    training_report,
+                    output
+                )?)?
+            );
+            return Ok(());
+        }
         Command::QualityPredict { model, observation } => {
             use std::io::Read;
             let model = noisefence::quality::Model::load(model)?;
@@ -595,6 +688,19 @@ async fn main() -> Result<()> {
     }
     let store = Store::open(&config.data_dir)?;
     match cli.command {
+        Command::NativeExport {
+            username,
+            domain,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &noisefence::native_filter::learning::export(&store, username, domain, &output)
+                        .await?
+                )?
+            );
+        }
         Command::Init => println!("Database initialized; create users with user-add."),
         Command::UserAdd {
             username,

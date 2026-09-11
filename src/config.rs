@@ -25,6 +25,7 @@ pub struct Config {
     pub protection: Option<crate::protection::Settings>,
     pub mailing: Option<crate::mailing::Settings>,
     pub quality: Option<crate::quality::Settings>,
+    pub native_filter: Option<crate::native_filter::Settings>,
     pub relay: Relay,
     pub domains: Vec<Domain>,
 }
@@ -242,6 +243,9 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(native) = &self.native_filter {
+            native.validate()?;
+        }
         if let Some(protection) = &self.protection {
             protection.validate()?;
         }

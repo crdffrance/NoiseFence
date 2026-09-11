@@ -57,6 +57,7 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
     for mode in [Mode::Observe, Mode::Decision] {
         let root = tempfile::tempdir().unwrap();
         let mut cfg = (*common::config(root.path())).clone();
+        cfg.native_filter = Some(noisefence::native_filter::Settings::default());
         // Isolated loopback test of the tagging branch. No Proton report,
         // external relay or production configuration is produced by this fixture.
         cfg.filter.mode = FilterMode::Tag;
@@ -107,6 +108,12 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 .unwrap();
             let queued = std::fs::read(store.raw_path(&job.message_id)).unwrap();
             let rendered = String::from_utf8_lossy(&queued);
+            let native = scan
+                .native_filter
+                .as_ref()
+                .expect("native observation persisted");
+            assert!(!native.report.affects_delivery);
+            assert!(native.report.score.is_some());
             assert_eq!(scan.raw_sha256, Some(message::digest(&raw)));
             assert_eq!(
                 message::fields(&raw).unwrap().1,

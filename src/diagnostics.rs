@@ -34,6 +34,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub native_filter: Option<crate::native_filter::Report>,
     pub score_breakdown: crate::detection_diagnostics::Breakdown,
     pub arbitration: Option<crate::decision::Arbitration>,
     pub elapsed_ms: u64,
@@ -48,8 +49,10 @@ pub struct Analysis {
 }
 impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
+        let score_breakdown = crate::detection_diagnostics::breakdown(&scan);
         Self {
-            score_breakdown: crate::detection_diagnostics::breakdown(&scan),
+            native_filter: scan.native_filter.map(|observation| observation.report),
+            score_breakdown,
             arbitration: scan.arbitration,
             elapsed_ms: scan.elapsed_ms,
             feature_version: scan.feature_version,

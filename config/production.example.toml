@@ -44,6 +44,16 @@ max_analysis_bytes = 2097152
 # arc_selector = "gateway2026"
 # proton_report = "/etc/noisefence/proton-validation.json"
 
+# Optional native Rust composites, fuzzy memory and OSB Bayes comparison.
+# Explicit observation only; see docs/native-filtering.md for limits and training.
+# [native_filter]
+# mode = "observe"
+# max_bytes = 1048576
+# max_parallel = 2
+# timeout_ms = 500
+# fuzzy_memory = true
+# bayes_model = "/var/lib/noisefence/native/candidate/model.json"
+
 # Optional isolated local OCR/QR service; install deploy/install-vision.sh first.
 # See docs/vision.md. Incomplete checks prevent subject tagging.
 # [vision]
