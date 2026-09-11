@@ -139,6 +139,11 @@ def group_rows(rows):
             continue
         representative = dict(rows[min(indices, key=lambda i: rows[i]['id'])])
         representative['group'] = min(rows[i]['fingerprint'] for i in indices)
+        # The whole transitive component owns the time interval. Choosing one
+        # convenient member could leak a later observation into temporal fitting.
+        representative['observed_at'] = min(rows[i]['observed_at'] for i in indices)
+        representative['last_observed_at'] = max(rows[i]['observed_at'] for i in indices)
+        representative['labelled_at'] = max(rows[i]['labelled_at'] for i in indices)
         selected.append(representative)
         removed += len(indices)-1
     selected.sort(key=lambda row: row['id'])

@@ -43,6 +43,10 @@ Cette commande ne reprend pas la file et ne change pas l’état des livraisons.
 
 ## Entraîner un candidat
 
+Pour tester une correction conservant le modèle de référence et un corpus de
+rappel, voir [l’apprentissage correctif](corrective-learning.md). Le programme
+ci-dessous réentraîne un modèle complet à partir des corrections disponibles.
+
 Le runtime numérique est séparé du service SMTP. Les versions de
 `research/requirements.txt` sont épinglées ; utiliser un environnement Python
 compatible avec ces versions (par exemple Python 3.11). Aucun téléchargement

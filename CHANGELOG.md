@@ -5,6 +5,11 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+- Apprentissage correctif privé à partir des erreurs humaines, ancré sur le modèle lexical existant et un corpus de rappel ; conservation de l’IDF, du biais, du seuil et de la tête sémantique.
+- Comparaison hors campagne, contrôle temporel et contrôles de régression par corpus. Une baisse des faux positifs accompagnée d’une perte de capture rejette le candidat ; aucune activation automatique.
+- Regroupement des retours humains : conserver les dates extrêmes de toute la campagne transitive afin de ne pas faire passer une annotation future pour une observation antérieure.
+- Concordance des poids correctifs avec l’inférence Rust existante, sans nouveau calcul dans le chemin SMTP. Voir [le protocole](docs/corrective-learning.md).
+
 ## [0.4.9] — 2026-09-11
 
 - Profils de sensibilité et actions par organisation, domaine et destinataire, avec héritage explicite et priorité des alias.
