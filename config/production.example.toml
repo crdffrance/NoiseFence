@@ -107,6 +107,7 @@ max_analysis_bytes = 2097152
 # max_output_tokens = 256
 # score_low = 20.0
 # score_high = 98.0
+# review_unconfirmed_high = true # Second avis au-dessus de score_high sans corroboration ; budget inchangé.
 # max_parallel = 2
 
 [relay]

@@ -5,6 +5,11 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.10] — 2026-09-11
+
+- Second avis facultatif sur les scores élevés sans corroboration : option explicite, motif conservé même en cas d’annulation, budget et délais inchangés.
+- Normalisation des anciens préfixes de filtrage dans l’objet soumis au LLM, identique au modèle local, sans modifier les messages livrés ni les poids actifs. Ces corrections ne démontrent pas un taux de capture en production.
+
 - Apprentissage correctif privé à partir des erreurs humaines, ancré sur le modèle lexical existant et un corpus de rappel ; conservation de l’IDF, du biais, du seuil et de la tête sémantique.
 - Comparaison hors campagne, contrôle temporel et contrôles de régression par corpus. Une baisse des faux positifs accompagnée d’une perte de capture rejette le candidat ; aucune activation automatique.
 - Regroupement des retours humains : conserver les dates extrêmes de toute la campagne transitive afin de ne pas faire passer une annotation future pour une observation antérieure.

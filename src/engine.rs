@@ -1325,16 +1325,27 @@ impl Engine {
             self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
                 .await?;
             self.score(&mut scan);
-            let needs_llm = scan.complete
-                && self.llm.is_some()
-                && scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware;
-            let requested_score = scan.score;
+            let selection = self.config.llm.as_ref().map(|c| c.selection(&scan));
+            let needs_llm = self.llm.is_some()
+                && selection.is_some_and(|s| s != crate::llm::Selection::NotSelected);
+            if self.llm.is_some() {
+                scan.llm.selection = selection;
+                scan.llm.status = crate::llm::LlmStatus::NotNeeded;
+            }
             if needs_llm {
                 // Preserve an attempted-check marker if the enclosing DNS/LLM deadline cancels it.
                 scan.llm.status = crate::llm::LlmStatus::Unavailable;
                 scan.llm.prompt_version = crate::llm::PROMPT_VERSION.into();
                 scan.llm.model = self.config.llm.as_ref().unwrap().model.clone();
                 scan.evidence.as_mut().unwrap().llm.requested_at_score = Some(scan.score);
+                if selection == Some(crate::llm::Selection::UnconfirmedHigh) {
+                    scan.reasons.push(Signal {
+                        id: "llm_review_unconfirmed".into(),
+                        detail: "Second avis demandé : score élevé sans confirmation suffisante."
+                            .into(),
+                        weight: 0.0,
+                    });
+                }
             }
             // Protection is advisory and does not change the LLM selection
             // score. Overlap these independent calls under the existing deadline.
@@ -1354,7 +1365,7 @@ impl Engine {
                             self.llm
                                 .as_ref()
                                 .unwrap()
-                                .classify(raw, requested_score)
+                                .classify_selected(raw, selection.unwrap())
                                 .await,
                         )
                     } else {

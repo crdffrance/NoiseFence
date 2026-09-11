@@ -39,12 +39,7 @@ pub fn text(raw: &[u8]) -> Option<(String, String)> {
     if parsed.parts.len() > 200 {
         return None;
     }
-    let prefix = PREFIX.get_or_init(|| {
-        Regex::new(r"(?i)^(?:\s*\[(?:spam|junk|phishing|bulk)(?:[^\]]{0,20})\]\s*)+").unwrap()
-    });
-    let subject = prefix
-        .replace_all(parsed.subject().unwrap_or(""), "")
-        .into_owned();
+    let subject = unlabelled_subject(parsed.subject().unwrap_or(""));
     let mut pieces = Vec::new();
     for i in 0..parsed.text_body_count().min(20) {
         if let Some(body) = parsed.body_text(i) {
@@ -63,6 +58,16 @@ pub fn text(raw: &[u8]) -> Option<(String, String)> {
         subject.chars().take(500).collect(),
         pieces.join(" ").chars().take(TEXT_LIMIT).collect(),
     ))
+}
+
+/// An upstream filter's subject tag is not evidence of abuse. Share the exact
+/// normalization with the second opinion without changing schema-3 features.
+pub(crate) fn unlabelled_subject(subject: &str) -> std::borrow::Cow<'_, str> {
+    PREFIX
+        .get_or_init(|| {
+            Regex::new(r"(?i)^(?:\s*\[(?:spam|junk|phishing|bulk)(?:[^\]]{0,20})\]\s*)+").unwrap()
+        })
+        .replace_all(subject, "")
 }
 
 pub fn campaign_text(raw: &[u8]) -> Option<String> {

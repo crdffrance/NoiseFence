@@ -60,6 +60,11 @@ contenant catégorie, estimation, confiance et courte raison est accepté. Les c
 supplémentaires, actions, appels d'outils, sorties tronquées et réponses trop grandes
 sont refusés. La confiance déclarée par le modèle n'est pas une mesure calibrée.
 
+Les préfixes de filtres antérieurs (`[SPAM]`, `[JUNK]`, `[PHISHING]`, `[BULK]`)
+au début de l'objet sont retirés de l'extrait, comme pour le modèle local. L'objet
+livré et les citations dans le corps restent intacts. Ces étiquettes ne constituent
+pas des preuves de spam.
+
 Le verdict ajoute au plus un faible signal au score local. Il ne commande aucune
 livraison, suppression, quarantaine ou modification de configuration. Les messages
 incomplets ou déjà détectés comme malveillants ne sont pas soumis au LLM. Une panne,
@@ -81,8 +86,18 @@ l'usage déclaré. Le client ne relance pas automatiquement les requêtes HTTP.
 Ce plafond estimé ne remplace pas les alertes de facturation du fournisseur.
 L'API administrateur `/api/v1/metrics` expose réservations, requêtes et plafond.
 
-Deux appels au plus tournent en parallèle par défaut, uniquement dans l'intervalle
-de scores configuré. Le délai LLM de 2,5 secondes fait partie des cinq secondes
+Deux appels au plus tournent en parallèle par défaut, dans l'intervalle
+de scores configuré. L'option `review_unconfirmed_high = true` ajoute les scores
+supérieurs à `score_high` sans corroboration au sens de `confirmation-3` : un score
+élevé seul ne doit pas empêcher le second avis de rechercher un faux positif.
+Cette option est désactivée par défaut et peut augmenter le nombre d'extraits
+transmis. Elle conserve les limites de budget, concurrence et durée. Les preuves
+de malware et les analyses incomplètes restent exclues. La sélection est enregistrée
+dans `scan.llm.selection`, y compris en cas de quota ou d'annulation ; les anciens
+enregistrements peuvent ne pas posséder ce champ. Aucun score n'est abaissé par la
+seule demande de vérification. Les pondérations consultatives restent inchangées.
+
+Le délai LLM de 2,5 secondes fait partie des cinq secondes
 partagées avec les vérifications DNS. Mesurer le p95 global avec cette option : un
 LLM ne garantit pas l'objectif de 500 ms. Le prix par message et la proportion
 soumise au LLM doivent figurer dans les comparaisons de qualité.

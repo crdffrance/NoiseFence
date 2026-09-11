@@ -244,6 +244,7 @@ impl Artifacts {
             "llm_enabled":llm_enabled,
             "llm":config.llm.as_ref().map(|c| serde_json::json!({
                 "model":c.model,"prompt":llm::PROMPT_VERSION,"timeout_ms":c.timeout_ms,
+                "policy":llm::POLICY_VERSION,"review_unconfirmed_high":c.review_unconfirmed_high,
                 "max_text_bytes":c.max_text_bytes,"max_output_tokens":c.max_output_tokens,
                 "score_low":c.score_low,"score_high":c.score_high,"max_parallel":c.max_parallel,
                 "budget":c.monthly_budget_micro_eur,"pricing_checked_at":c.pricing_checked_at,
