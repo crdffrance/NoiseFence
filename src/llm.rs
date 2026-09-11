@@ -244,6 +244,28 @@ fn http_failure(error: &reqwest::Error) -> Failure {
 }
 
 impl LlmResult {
+    /// Coherence guard, not a calibrated probability or an independent vote.
+    /// Only a completed, validated response can cause abstention. An uncertain
+    /// or internally contradictory response has no definite opinion.
+    pub fn opinion(&self) -> Option<crate::fusion::runtime::Outcome> {
+        use crate::fusion::runtime::Outcome;
+        let v = self
+            .verdict
+            .as_ref()
+            .filter(|v| self.status == LlmStatus::Complete && v.validate().is_ok())?;
+        Some(match v.category {
+            Category::Legitimate if v.confidence >= 0.5 && v.spam_probability < 0.5 => {
+                Outcome::Legitimate
+            }
+            Category::Spam | Category::Phishing
+                if v.confidence >= 0.5 && v.spam_probability > 0.5 =>
+            {
+                Outcome::Unwanted
+            }
+            _ => Outcome::Undetermined,
+        })
+    }
+
     /// One bounded policy shared by scoring and corroboration. A stale verdict
     /// attached to an unavailable result must never influence either path.
     pub fn advisory_weight(&self) -> f64 {

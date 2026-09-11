@@ -114,6 +114,8 @@ pub struct Scan {
     /// Canonical decision. Historical rows use their original legacy score.
     #[serde(default)]
     pub decision: Option<crate::fusion::runtime::Decision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arbitration: Option<crate::decision::Arbitration>,
     #[serde(default)]
     pub fusion: crate::fusion::runtime::Observation,
     #[serde(default)]
@@ -710,8 +712,11 @@ impl Engine {
         // The historical score remains available for the LLM selection policy,
         // evidence export and comparisons. Fusion never feeds itself on a retry.
         scan.reasons.retain(|r| {
-            r.id != crate::confirmation::REVIEW_REASON && r.id != crate::decision::MALWARE_REASON
+            r.id != crate::confirmation::REVIEW_REASON
+                && r.id != crate::decision::MALWARE_REASON
+                && r.id != crate::decision::REVIEW_REASON
         });
+        scan.arbitration = None;
         Self::refresh_evidence(scan);
         scan.decision = Some(crate::fusion::runtime::Decision::legacy(
             scan,

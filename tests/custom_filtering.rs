@@ -211,3 +211,67 @@ async fn durable_batch_rolls_back_every_variant_and_preserves_existing_spool() {
     store.recover().await.unwrap();
     assert!(store.claim().await.unwrap().is_some());
 }
+
+#[test]
+fn recipient_profiles_reapply_arbitration_with_their_own_threshold() {
+    use noisefence::{
+        decision,
+        fusion::runtime::{Decision, Outcome},
+        llm::{Category as LlmCategory, LlmResult, LlmStatus, Verdict},
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(tmp.path())).clone();
+    cfg.filter.threshold = 95.;
+    cfg.filter.require_corroboration = false;
+    cfg.filter.mode = Mode::Observe;
+    let mut scan = scan();
+    scan.llm = LlmResult {
+        status: LlmStatus::Complete,
+        verdict: Some(Verdict {
+            category: LlmCategory::Legitimate,
+            confidence: 0.95,
+            spam_probability: 0.05,
+            explanation: "Fixture".into(),
+        }),
+        ..Default::default()
+    };
+    scan.decision = Some(Decision::legacy(&scan, 95.));
+    decision::apply(&mut scan, false);
+    assert_eq!(
+        scan.decision.as_ref().unwrap().outcome,
+        Outcome::Undetermined
+    );
+    for (threshold, expected) in [
+        (None, Category::Undetermined),
+        (Some(90.), Category::Undetermined),
+        (Some(100.), Category::Legitimate),
+    ] {
+        let policy = Policy {
+            profiles: vec![Profile {
+                id: "p".into(),
+                name: "Fixture".into(),
+                threshold,
+                require_corroboration: false,
+                spam: Action::Quarantine,
+                publicity: Action::Deliver,
+                review: Action::Deliver,
+                quarantine_days: 7,
+            }],
+            bindings: vec![Binding {
+                scope: "*".into(),
+                profile: "p".into(),
+            }],
+            ..Default::default()
+        };
+        let result = assess(
+            &policy,
+            &cfg,
+            &scan,
+            &Facts::default(),
+            &cfg.recipient("alice@example.test").unwrap(),
+            100,
+        );
+        assert_eq!(result.category, expected);
+        assert_eq!(result.action.effective, Action::Deliver);
+    }
+}

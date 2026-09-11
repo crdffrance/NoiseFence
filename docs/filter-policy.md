@@ -1,6 +1,6 @@
 # Cohérence des décisions
 
-Depuis 0.3.0-dev.22, `decision-policy-1` résout le classement après le score
+Depuis 0.4.11, `decision-policy-2` résout le classement après le score
 historique, la fusion éventuelle et les observations des contrôles. Le résultat
 stocké pilote la catégorie, la console, les compteurs et les en-têtes SMTP.
 Le classement, l’exhaustivité des contrôles et la modification de l’objet sont
@@ -10,7 +10,9 @@ trois informations distinctes.
 | --- | --- | --- |
 | Malware reconnu par l’antivirus principal | Spam, motif antivirus prioritaire | `[SPAM]` si analyse complète et marquage autorisé |
 | Même détection, autre contrôle incomplet | Spam, avec analyse incomplète | Aucun |
-| Score élevé corroboré, sans malware | Spam | `[SPAM]` si marquage autorisé |
+| Score élevé corroboré, sans malware ni second avis contradictoire | Spam | `[SPAM]` si marquage autorisé |
+| Désaccord explicite entre classement historique et second avis, sans malware | À vérifier | Aucun |
+| Second avis ambigu sans score élevé corroboré | À vérifier | Aucun |
 | Score élevé non corroboré, option de confirmation active | À vérifier | Aucun |
 | Décision légitime et promotion/newsletter reconnue | PUB | `[PUB]` si marquage autorisé |
 | Décision légitime, sans publicité reconnue | Légitime | Aucun |
@@ -43,12 +45,13 @@ Les validations Proton et ARC restent requises pour le marquage.
 
 ## Signaux consultatifs
 
-L’avis du LLM emploie une seule fonction pour sa contribution au score et sa
-confirmation : résultat terminé et validé, spam/phishing avec confiance et
+L’avis du LLM emploie une fonction commune pour sa contribution au score : résultat terminé et validé, spam/phishing avec confiance et
 probabilité déclarées ≥ 0,9, poids +1,5 ; légitime avec confiance ≥ 0,95 et
 probabilité ≤ 0,1, poids −0,5. Un avis périmé associé à une erreur, un nombre hors
 bornes ou un avis ambigu ne contribue pas. Ces nombres déclarés ne sont pas
-des probabilités calibrées. Aucun nouvel appel externe n’est déclenché.
+des probabilités calibrées. L’arbitrage réutilise le résultat enregistré sans
+déclencher de nouvel appel externe. Le LLM ne corrobore jamais sa propre
+contribution au score.
 
 ZEN 2/3/4/9 garde la contribution de réputation existante (+4, une seule fois
 par IP). PBL 10/11 et BCL 30 sont conservés avec un poids nul et ne corroborent
@@ -62,6 +65,33 @@ pas les raisons. Les sources corrélées ne deviennent pas de nouveaux votes par
 qu’elles sont affichées dans plusieurs panneaux. Les poids appris et les seuils
 de production ne changent pas dans cette version.
 
+## Arbitrage du second avis
+
+Pour une analyse complète dont la décision est historique (`legacy`), un avis
+terminé et valide est comparé à cette décision. L’avis est déterminé seulement
+si sa confiance déclarée est ≥ 0,5 et sa catégorie cohérente avec le côté de 0,5
+de sa probabilité déclarée : légitime en dessous, spam/phishing au-dessus.
+À la frontière, avec une confiance moindre, une contradiction interne ou une
+catégorie ambiguë, il est indéterminé. Ces bornes assurent la cohérence de la
+réponse ; elles ne constituent pas une calibration statistique.
+
+Un désaccord explicite dans l’un ou l’autre sens donne **À vérifier**, même avec
+une réputation défavorable. Un avis indéterminé donne aussi À vérifier, sauf si
+le score élevé possède une corroboration de transport/réputation admissible.
+Un accord conserve le classement sous réserve de l’option de confirmation ;
+le score historique incluant déjà le poids LLM, cet accord n’est pas une preuve
+indépendante. Les analyses incomplètes, avis absents, non sélectionnés, invalides
+ou indisponibles ne sont pas transformés en avis favorables. La fusion validée
+conserve sa politique et l’antivirus principal conserve sa priorité.
+
+L’abstention d’arbitrage a `decision.score = null`. Le score brut, les observations
+et caractéristiques restent disponibles. Le rapport additif `arbitration`
+conserve la décision d’entrée, le second avis, la résolution et la décision finale.
+La console les distingue. Les profils de sensibilité réappliquent cet arbitrage
+avec leur seuil ; les règles explicites d’un administrateur restent des choix de
+politique et non des observations du moteur. Les décisions déjà enregistrées ne
+sont pas réécrites.
+
 ## Validation et compatibilité
 
 Les tests couvrent les désaccords antivirus/LLM/fusion/PUB, seuils bas et hauts,
@@ -74,6 +104,13 @@ de capture ni des faux positifs sur du trafic indépendant récent.
 antivirus sur les observations historiques admissibles. Cet audit ne rejoue ni
 les requêtes DQS ni le prompt LLM ni les poids du score. Il ne réécrit aucune
 décision historique. Les analyses incomplètes et fusions sont comptées à part.
+`with_arbitration` compare l’arbitrage seul sans activer la corroboration optionnelle.
+`recent` donne les transitions sur au plus 100 messages récents, sans identité,
+objet, texte ni vecteur. Ce sont des simulations sur observations enregistrées,
+pas un taux de capture mesuré. Les spams détectés, manqués et à vérifier ainsi que
+les légitimes, faux positifs et légitimes à vérifier sont comptés séparément.
+Le champ additif est lisible après retour à 0.4.10 ; aucune migration SQLite n’est
+nécessaire. Les artefacts de fusion doivent toujours correspondre à la politique.
 
 La nouvelle valeur de source `antivirus` nécessite dev.21 ou plus récent pour
 lire les nouvelles décisions. Après réception de telles décisions, ne pas revenir

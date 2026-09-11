@@ -414,6 +414,7 @@ pub fn assess_prepared(
     {
         let mut candidate = scan.clone();
         if p.threshold.is_some() {
+            candidate.arbitration = None;
             candidate.decision = Some(crate::fusion::runtime::Decision::legacy(scan, threshold));
         }
         crate::decision::apply(

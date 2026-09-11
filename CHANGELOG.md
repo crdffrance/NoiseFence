@@ -5,6 +5,13 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.11] — 2026-09-11
+
+- Arbitrage explicite du second avis : un désaccord avec le classement historique donne « À vérifier », sans déclarer automatiquement le message légitime. Un avis ambigu est traité séparément des erreurs de fournisseur.
+- Conservation du score brut et des caractéristiques, priorité de l’antivirus principal, respect de la politique de fusion et réapplication cohérente des profils par destinataire.
+- Console et diagnostics : avis contradictoires visibles, absence de score décisionnel trompeur lors d’une abstention, compteurs et actions fondés sur la décision finale.
+- Audit natif en lecture seule : comparaison séparée des détections, erreurs et abstentions, et transitions sur les 100 messages récents. Aucun historique réécrit, aucun nouveau modèle activé ni taux de capture présumé.
+
 ## [0.4.10] — 2026-09-11
 
 - Second avis facultatif sur les scores élevés sans corroboration : option explicite, motif conservé même en cas d’annulation, budget et délais inchangés.

@@ -34,6 +34,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub arbitration: Option<crate::decision::Arbitration>,
     pub elapsed_ms: u64,
     pub feature_version: u32,
     pub features_complete: Option<bool>,
@@ -47,6 +48,7 @@ pub struct Analysis {
 impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
         Self {
+            arbitration: scan.arbitration,
             elapsed_ms: scan.elapsed_ms,
             feature_version: scan.feature_version,
             features_complete: scan.features_complete,

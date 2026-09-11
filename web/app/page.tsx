@@ -10,6 +10,8 @@ import {
   deliverySummary,
   checkFailure,
   publicitySignal,
+  arbitrationExplanation,
+  type Arbitration,
 } from './presentation';
 import {
   deliveryStatus,
@@ -71,6 +73,7 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  arbitration?: Arbitration | null;
   delivery_classification?: string | null;
   action?: {
     requested: DeliveryAction;
@@ -878,7 +881,7 @@ function Home() {
                       {selected.decision?.source === 'antivirus'
                         ? 'Malware'
                         : (displayedScore(selected)?.toFixed(1) ?? '—')}
-                      {selected.decision?.source !== 'antivirus' && (
+                      {displayedScore(selected) !== null && selected.decision?.source !== 'antivirus' && (
                         <span>/ 100</span>
                       )}
                     </div>
@@ -887,7 +890,7 @@ function Home() {
                         ? 'Malware détecté · décision antivirus, sans score probabiliste'
                         : selected.decision?.outcome === 'undetermined'
                           ? selected.complete
-                            ? 'À vérifier · confirmation insuffisante'
+                            ? `À vérifier · ${selected.arbitration && ['disagreement', 'ambiguous'].includes(selected.arbitration.resolution) ? arbitrationExplanation(selected.arbitration)?.title : 'confirmation insuffisante'}`
                             : 'Décision indéterminée'
                           : selected.decision?.source === 'fusion'
                             ? 'Estimation calibrée'
@@ -895,6 +898,12 @@ function Home() {
                       {' · '}
                       {selected.decision?.model ?? selected.model}
                     </p>
+                    {selected.arbitration && (
+                      <p className="notice">
+                        {arbitrationExplanation(selected.arbitration)?.detail}
+                        {' '}Indice historique : {selected.arbitration.baseline.score?.toFixed(1) ?? '—'} / 100.
+                      </p>
+                    )}
                     {selected.decision?.source === 'antivirus' && (
                       <p className="notice">
                         Le résultat antivirus prime sur l’indice de suspicion (

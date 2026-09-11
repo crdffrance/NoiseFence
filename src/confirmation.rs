@@ -104,6 +104,59 @@ pub struct Audit {
     pub before: Counts,
     pub with_confirmation: Counts,
     pub with_decision_policy: Counts,
+    /// Arbitration alone, without enabling the optional corroboration gate.
+    pub with_arbitration: Counts,
+    pub recent: RecentAudit,
+}
+
+#[derive(Default, serde::Serialize)]
+pub struct RecentAudit {
+    pub considered: usize,
+    pub unsupported: usize,
+    pub transitions: Vec<Transition>,
+}
+#[derive(serde::Serialize)]
+pub struct Transition {
+    pub before: Outcome,
+    pub after: Outcome,
+    pub count: usize,
+}
+
+fn recent_audit(db: &rusqlite::Connection) -> anyhow::Result<RecentAudit> {
+    let mut report = RecentAudit::default();
+    let mut query = db.prepare("SELECT scan FROM messages WHERE is_dsn=0 AND created>=?1 ORDER BY created DESC,id DESC LIMIT 100")?;
+    let mut rows = query.query([crate::now() - 30 * 86400])?;
+    while let Some(row) = rows.next()? {
+        report.considered += 1;
+        let raw = row.get_ref(0)?.as_str()?;
+        anyhow::ensure!(raw.len() <= 8 * 1024 * 1024, "oversized analysis snapshot");
+        let mut scan: Scan = serde_json::from_str(raw)?;
+        let Some(decision) = &scan.decision else {
+            report.unsupported += 1;
+            continue;
+        };
+        if !scan.complete || decision.source == DecisionSource::Fusion {
+            report.unsupported += 1;
+            continue;
+        }
+        let before = decision.outcome;
+        crate::decision::apply(&mut scan, false);
+        let after = scan.decision.unwrap().outcome;
+        if let Some(t) = report
+            .transitions
+            .iter_mut()
+            .find(|t| t.before == before && t.after == after)
+        {
+            t.count += 1;
+        } else {
+            report.transitions.push(Transition {
+                before,
+                after,
+                count: 1,
+            });
+        }
+    }
+    Ok(report)
 }
 
 /// Aggregate an existing, bounded feedback snapshot on the server. Never opens
@@ -154,6 +207,11 @@ pub fn audit(path: &std::path::Path) -> anyhow::Result<Audit> {
         }
         report.evaluated += 1;
         report.before.add(decision.outcome, min == 1);
+        let mut arbitrated = scan.clone();
+        crate::decision::apply(&mut arbitrated, false);
+        report
+            .with_arbitration
+            .add(arbitrated.decision.unwrap().outcome, min == 1);
         apply(&mut scan, true);
         report
             .with_confirmation
@@ -163,5 +221,6 @@ pub fn audit(path: &std::path::Path) -> anyhow::Result<Audit> {
             .with_decision_policy
             .add(scan.decision.unwrap().outcome, min == 1);
     }
+    report.recent = recent_audit(&db)?;
     Ok(report)
 }

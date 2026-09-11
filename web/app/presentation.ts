@@ -8,6 +8,23 @@ type DecisionInput = {
   decision?: { source: string; outcome: string; score: number | null };
 };
 
+export type Arbitration = {
+  version: string;
+  baseline: { outcome: string; score: number | null };
+  opinion: string;
+  resolution: 'agreement' | 'disagreement' | 'ambiguous' | 'corroborated';
+  decision: { outcome: string; score: number | null };
+};
+
+export function arbitrationExplanation(report?: Arbitration | null) {
+  if (!report) return null;
+  const label = (outcome: string) => ({ legitimate: 'Légitime', unwanted: 'Spam', undetermined: 'Indéterminé' }[outcome] ?? 'Indéterminé');
+  return {
+    title: ({ agreement: 'Avis concordants', disagreement: 'Avis contradictoires', ambiguous: 'Second avis incertain', corroborated: 'Autres signaux concordants' })[report.resolution],
+    detail: `Classement historique : ${label(report.baseline.outcome)}. Second avis : ${label(report.opinion)}. ${report.decision.outcome === 'undetermined' ? 'Une vérification reste nécessaire ; le message n’est pas déclaré légitime.' : 'Ces avis ne constituent pas des preuves indépendantes.'}`,
+  };
+}
+
 export function checkFailure(reason?: string | null) {
   if (!reason) return '';
   return (

@@ -92,7 +92,15 @@ async fn confirmation_audit_is_aggregate_read_only_and_rechecks_human_grants() {
         let mut scan = extract(common::MESSAGE, 10000);
         scan.score = if index == 0 { 90. } else { 99. };
         scan.decision = Some(Decision::legacy(&scan, 95.));
-        if spam {
+        if index == 1 {
+            scan.llm.status = llm::LlmStatus::Complete;
+            scan.llm.verdict = Some(llm::Verdict {
+                category: llm::Category::Legitimate,
+                confidence: 0.95,
+                spam_probability: 0.05,
+                explanation: "Fixture".into(),
+            });
+        } else if spam {
             scan.llm.status = llm::LlmStatus::Complete;
             scan.llm.verdict = Some(llm::Verdict {
                 category: llm::Category::Phishing,
@@ -141,6 +149,19 @@ async fn confirmation_audit_is_aggregate_read_only_and_rechecks_human_grants() {
     assert_eq!(report.with_decision_policy.false_positives, 0);
     assert_eq!(report.with_decision_policy.legitimate_to_review, 3);
     assert_eq!(report.with_decision_policy.spam_detected, 0);
+    assert_eq!(report.with_arbitration.false_positives, 2);
+    assert_eq!(report.with_arbitration.legitimate_to_review, 1);
+    assert_eq!(report.with_arbitration.spam_detected, 3);
+    assert_eq!(report.recent.considered, 7);
+    assert_eq!(
+        report
+            .recent
+            .transitions
+            .iter()
+            .map(|t| t.count)
+            .sum::<usize>(),
+        7
+    );
     let text = serde_json::to_string(&report).unwrap();
     assert!(!text.contains("PRIVATE") && !text.contains("alice") && !text.contains(&ids[0]));
     assert_eq!(before, snapshot());

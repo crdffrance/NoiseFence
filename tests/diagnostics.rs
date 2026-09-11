@@ -40,6 +40,19 @@ async fn queue(store: &Store, cfg: &noisefence::config::Config) -> (String, Job,
     let id = uuid::Uuid::new_v4().to_string();
     let mut scan = extract(common::MESSAGE, 10000);
     scan.analysis_policy = Some(AnalysisPolicy::capture(cfg));
+    scan.score = 99.99;
+    scan.decision = Some(noisefence::fusion::runtime::Decision::legacy(&scan, 95.));
+    scan.llm = noisefence::llm::LlmResult {
+        status: noisefence::llm::LlmStatus::Complete,
+        verdict: Some(noisefence::llm::Verdict {
+            category: noisefence::llm::Category::Legitimate,
+            confidence: 0.95,
+            spam_probability: 0.05,
+            explanation: "Fixture".into(),
+        }),
+        ..Default::default()
+    };
+    noisefence::decision::apply(&mut scan, false);
     scan.protection = Some(noisefence::protection::Report {
         url_resolution: Some(noisefence::protection::redirects::Report {
             local_inventory_available: Some(true),
@@ -134,6 +147,19 @@ async fn diagnostics_enforce_recipient_grants_and_authentication() {
     assert!(!alice.to_string().contains("bob@example.test"));
     assert!(!alice.to_string().contains("\"features\":"));
     assert!(!alice.to_string().contains("rendez-vous est confirme"));
+    assert_eq!(
+        alice["analysis"]["arbitration"]["resolution"],
+        "disagreement"
+    );
+    assert_eq!(
+        alice["analysis"]["arbitration"]["baseline"]["outcome"],
+        "unwanted"
+    );
+    assert_eq!(
+        alice["analysis"]["arbitration"]["decision"]["outcome"],
+        "undetermined"
+    );
+    assert!(alice["analysis"]["arbitration"]["decision"]["score"].is_null());
     assert_eq!(
         alice["analysis"]["protection"]["url_resolution"]["chains"][0]["hops"][0]["code"],
         200
