@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
-import { candidateLabel, mailKinds, type MailKind, type Risk, type QualityReport } from './quality-types';
+import { candidateLabel, mailKinds, mailKindLabel, type SampleReadiness, type MailKind, type Risk, type QualityReport } from './quality-types';
 
 type Batch = {id:string;created:number;since:number;until:number;domain:string;population:number;selected:number;available:number;labelled:number};
 type Member = {id:string;created:number;sender:string;subject:string;risk:Risk|null;kind:MailKind|null;joint_observations:boolean};
@@ -13,7 +13,7 @@ export function QualityDetails({report}:{report:QualityReport}) {
     <p>{candidateLabel(report.candidate_status)}</p>
     {report.prediction && <>
       <p><strong>{report.prediction.risk === 'spam' ? 'Spam probable' : report.prediction.risk === 'legitimate' ? 'Légitime probable' : 'À vérifier'}</strong>
-        {' · '}{mailKinds[report.prediction.kind] ?? 'Type indéterminé'}</p>
+        {' · '}{mailKindLabel(report.prediction.kind)}</p>
       <p className="muted small">Modèle {report.prediction.model} · probabilité de risque estimée {(report.prediction.risk_probability*100).toFixed(1)} % dans le contexte évalué.</p>
     </>}
     <p className="muted small">Cette analyse candidate ne modifie ni le classement appliqué ni la livraison.</p>
@@ -39,7 +39,7 @@ function Annotation({member,user,onSaved}:{member:Member;user:User;onSaved:()=>v
       <label>Risque<select aria-label={`Risque : ${member.subject || 'sans objet'}`} value={risk} disabled={busy} onChange={e=>setRisk(e.target.value as Risk|'')}>
         <option value="">Choisir après vérification</option><option value="legitimate">Légitime</option><option value="spam">Spam / fraude</option><option value="uncertain">Je ne peux pas conclure</option>
       </select></label>
-      <label>Type de courrier<select aria-label={`Type : ${member.subject || 'sans objet'}`} value={kind} disabled={busy} onChange={e=>setKind(e.target.value as MailKind|'')}>
+      <label>Type de courrier, facultatif<select aria-label={`Type : ${member.subject || 'sans objet'}`} value={kind} disabled={busy} onChange={e=>setKind(e.target.value as MailKind|'')}>
         <option value="">Indéterminé</option>{Object.entries(mailKinds).map(([key,label])=><option value={key} key={key}>{label}</option>)}
       </select></label>
       <Button disabled={busy || !risk} onClick={save}>{busy?'Enregistrement…':member.risk?'Mettre à jour':'Valider'}</Button>
@@ -48,7 +48,7 @@ function Annotation({member,user,onSaved}:{member:Member;user:User;onSaved:()=>v
 }
 export function QualityConsole({user}:{user:User}) {
   const [batches,setBatches]=useState<Batch[]>([]),[selected,setSelected]=useState('');
-  const [loaded,setLoaded]=useState<{id:string;revision:number;offset:number;members:Member[]}>({id:'',revision:0,offset:0,members:[]});
+  const [loaded,setLoaded]=useState<{id:string;revision:number;offset:number;members:Member[];readiness?:SampleReadiness}>({id:'',revision:0,offset:0,members:[]});
   const [offset,setOffset]=useState(0);
   const [days,setDays]=useState(7),[count,setCount]=useState(50),[domain,setDomain]=useState('');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[revision,setRevision]=useState(0);
@@ -64,8 +64,9 @@ export function QualityConsole({user}:{user:User}) {
   useEffect(()=>{
     const controller=new AbortController();
     if(!selected)return;
-    api<Member[]>(`/quality/samples/${selected}?offset=${offset}`,undefined,undefined,{signal:controller.signal})
-      .then(members=>{if(!controller.signal.aborted)setLoaded({id:selected,revision,offset,members});})
+    Promise.all([api<Member[]>(`/quality/samples/${selected}?offset=${offset}`,undefined,undefined,{signal:controller.signal}),
+      api<SampleReadiness>(`/quality/samples/${selected}/readiness`,undefined,undefined,{signal:controller.signal})])
+      .then(([members,readiness])=>{if(!controller.signal.aborted)setLoaded({id:selected,revision,offset,members,readiness});})
       .catch(e=>{if(!controller.signal.aborted){setError(e.message);setLoaded({id:selected,revision,offset,members:[]});}});
     return ()=>controller.abort();
   },[selected,revision,offset]);
@@ -102,6 +103,13 @@ export function QualityConsole({user}:{user:User}) {
         <Button variant="outline" disabled={loading || offset===0} onClick={()=>setOffset(x=>Math.max(0,x-200))}>Précédents</Button>
         <span>Page {Math.floor(offset/200)+1} / {Math.ceil(current.available/200)}</span>
         <Button variant="outline" disabled={loading || offset+200>=current.available} onClick={()=>setOffset(x=>x+200)}>Suivants</Button>
+      </div>}
+      {current && !loading && loaded.readiness && <div className="notice">
+        <p>{loaded.readiness.risk_with_observations} annotations de risque avec observations exploitables · {loaded.readiness.kind_with_observations} annotations de type exploitables.</p>
+        <p>Vous pouvez valider le risque sans connaître le type de courrier. Les réponses incertaines ne sont pas transformées en exemples légitimes.</p>
+        {loaded.readiness.missing_or_incompatible_observations>0 && <p>{loaded.readiness.missing_or_incompatible_observations} messages n’ont pas les observations nécessaires à ce pipeline. Leurs corrections restent conservées.</p>}
+        {loaded.readiness.detector_cohorts>1 && <p>Ce lot couvre plusieurs versions des contrôles ; elles devront être évaluées séparément.</p>}
+        <p className="muted small">Ces comptes décrivent les données disponibles. La diversité des exemples et leur séparation dans le temps restent à vérifier avant tout apprentissage.</p>
       </div>}
       {loading && <output>Chargement des messages…</output>}
       <div className="quality-members">{members.map(m=><Annotation key={`${m.id}:${revision}`} member={m} user={user} onSaved={()=>setRevision(x=>x+1)}/>)}</div>

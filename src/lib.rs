@@ -5,6 +5,7 @@ pub mod confirmation;
 pub mod corpus;
 pub mod decision;
 pub mod delivery_log;
+pub mod detection_diagnostics;
 pub mod diagnostics;
 pub mod engine;
 pub mod evidence;

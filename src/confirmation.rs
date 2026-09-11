@@ -82,7 +82,7 @@ pub struct Counts {
     pub legitimate_to_review: usize,
 }
 impl Counts {
-    fn add(&mut self, outcome: Outcome, spam: bool) {
+    pub(crate) fn add(&mut self, outcome: Outcome, spam: bool) {
         let count = match (outcome, spam) {
             (Outcome::Unwanted, true) => &mut self.spam_detected,
             (Outcome::Legitimate, true) => &mut self.spam_missed,
@@ -97,6 +97,7 @@ impl Counts {
 
 #[derive(Default, serde::Serialize)]
 pub struct Audit {
+    pub diagnostics: crate::detection_diagnostics::Audit,
     pub considered: usize,
     pub evaluated: usize,
     pub conflicting: usize,
@@ -209,6 +210,7 @@ pub fn audit(path: &std::path::Path) -> anyhow::Result<Audit> {
         report.before.add(decision.outcome, min == 1);
         let mut arbitrated = scan.clone();
         crate::decision::apply(&mut arbitrated, false);
+        report.diagnostics.add(&arbitrated, min == 1);
         report
             .with_arbitration
             .add(arbitrated.decision.unwrap().outcome, min == 1);

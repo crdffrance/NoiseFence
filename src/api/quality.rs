@@ -74,9 +74,22 @@ async fn label(
         .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
+async fn readiness(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &headers).await?;
+    Ok(Json(
+        evaluation::readiness(&app.store, user.username, id)
+            .await
+            .map_err(|_| Error(StatusCode::NOT_FOUND, "Échantillon introuvable.".into()))?,
+    ))
+}
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/quality/samples", get(list).post(create))
         .route("/quality/samples/{id}", get(members))
+        .route("/quality/samples/{id}/readiness", get(readiness))
         .route("/messages/{id}/quality-label", post(label))
 }

@@ -97,6 +97,8 @@ pub struct Prediction {
     pub risk_probability: f64,
     pub risk: String,
     pub kind: String,
+    #[serde(default)]
+    pub kind_status: String,
     pub kind_probabilities: Vec<f64>,
     pub contributions: Vec<Contribution>,
 }
@@ -127,6 +129,10 @@ pub struct Model {
     pub kinds: Vec<String>,
     pub kind_models: Vec<Linear>,
     pub kind_temperature: f64,
+    #[serde(default)]
+    pub kind_profiles: Vec<String>,
+    #[serde(default)]
+    pub training_manifest_sha256: Option<String>,
 }
 fn hash(s: &str) -> bool {
     s.len() == 64
@@ -149,8 +155,10 @@ impl Model {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.schema == "noisefence-quality-model-1"
-                && self.protocol_sha256 == protocol_hash()
+            matches!(
+                self.schema.as_str(),
+                "noisefence-quality-model-1" | "noisefence-quality-model-2"
+            ) && self.protocol_sha256 == protocol_hash()
                 && hash(&self.artifacts_sha256)
                 && hash(&self.dataset_sha256)
                 && !self.version.is_empty()
@@ -158,8 +166,6 @@ impl Model {
                 && !self.version.chars().any(char::is_control)
                 && self.trained_at > 0
                 && self.trained_at <= crate::now() + 60
-                && self.kinds == KINDS
-                && self.kind_models.len() == KINDS.len()
                 && !self.profiles.is_empty()
                 && self.profiles.len() <= 256
                 && self.profiles.iter().all(|s| !s.is_empty()
@@ -177,6 +183,34 @@ impl Model {
                 && (0.05..=20.0).contains(&self.kind_temperature),
             "invalid quality candidate contract"
         );
+        let full_kinds = self.kinds == KINDS && self.kind_models.len() == KINDS.len();
+        if self.schema == "noisefence-quality-model-1" {
+            ensure!(
+                full_kinds
+                    && self.kind_profiles.is_empty()
+                    && self.training_manifest_sha256.is_none(),
+                "invalid legacy kind model"
+            );
+        } else {
+            ensure!(
+                self.training_manifest_sha256.as_deref().is_some_and(hash),
+                "missing training manifest binding"
+            );
+            ensure!(
+                (self.kinds.is_empty()
+                    && self.kind_models.is_empty()
+                    && self.kind_profiles.is_empty()
+                    && self.kind_temperature == 1.0)
+                    || (full_kinds
+                        && !self.kind_profiles.is_empty()
+                        && self.kind_profiles.len() <= 256
+                        && self.kind_profiles.iter().all(|s| !s.is_empty()
+                            && s.len() <= 1024
+                            && s.bytes()
+                                .all(|b| b.is_ascii_lowercase() || b == b'/' || b == b'_'))),
+                "invalid independent kind model"
+            );
+        }
         for linear in std::iter::once(&self.risk).chain(&self.kind_models) {
             ensure!(
                 linear.bias.is_finite()
@@ -212,9 +246,13 @@ impl Model {
         };
         let probability =
             crate::engine::sigmoid(self.calibration[0] * linear(&self.risk) + self.calibration[1]);
+        let kind_available = !self.kind_models.is_empty()
+            && (self.schema == "noisefence-quality-model-1"
+                || self.kind_profiles.contains(&report.availability_profile));
         let logits: Vec<_> = self
             .kind_models
             .iter()
+            .filter(|_| kind_available)
             .map(|m| linear(m) / self.kind_temperature)
             .collect();
         let max = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -227,8 +265,8 @@ impl Model {
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.total_cmp(b.1))
-            .unwrap()
-            .0;
+            .map(|(i, _)| KINDS[i])
+            .unwrap_or("unavailable");
         let mut families: BTreeMap<String, f64> = BTreeMap::new();
         for ((feature, weight), value) in specs().iter().zip(&self.risk.weights).zip(&report.values)
         {
@@ -257,7 +295,15 @@ impl Model {
                 "review"
             }
             .into(),
-            kind: KINDS[kind].into(),
+            kind: kind.into(),
+            kind_status: if kind_available {
+                "complete"
+            } else if self.kind_models.is_empty() {
+                "not_trained"
+            } else {
+                "unsupported_profile"
+            }
+            .into(),
             kind_probabilities: probabilities,
             contributions,
         })

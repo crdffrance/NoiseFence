@@ -40,7 +40,8 @@ def main():
     (output/'research').mkdir()
     for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',
                      'train_fusion.py','evaluate_population.py','fusion-protocol.json','fusion.md','labeling-protocol.md',
-                     'train_quality.py','quality-protocol.json']:
+                     'train_quality.py','quality-protocol.json','quality_metrics.py',
+                     'quality_runtime.py','evaluate_quality.py']:
         shutil.copy2(ROOT/'research'/filename,output/'research'/filename)
     # Public research documentation linked from README; use only tracked files.
     research_docs = subprocess.check_output(

@@ -105,6 +105,45 @@ pub async fn observation_start(store: &Store, username: String) -> Result<Option
 pub async fn members(store: &Store, username: String, batch: String) -> Result<Vec<Value>> {
     members_page(store, username, batch, 0).await
 }
+
+/// Counts only, with the same current access checks as annotation. This does
+/// not claim that chronological folds, campaigns or both classes are sufficient.
+pub async fn readiness(store: &Store, username: String, batch: String) -> Result<Value> {
+    store.read(move |db| {
+        let selected: Option<usize> = db.query_row("SELECT selected FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3",
+            params![batch,username,now()-30*86400], |r|r.get(0)).optional()?;
+        let selected = selected.ok_or_else(||anyhow::anyhow!("sample not found"))?;
+        let mut query = db.prepare("SELECT l.risk,l.kind,
+          json_extract(m.scan,'$.quality.complete_features')=1 AND json_extract(m.scan,'$.quality.source')='smtp_session' AND json_extract(m.scan,'$.quality.protocol_sha256')=?4,
+          json_extract(m.scan,'$.quality.artifacts_sha256')
+          FROM quality_members x JOIN messages m ON m.id=x.message_id
+          LEFT JOIN quality_labels l ON l.message_id=m.id AND l.username=?1
+          WHERE x.batch_id=?2 AND m.created>=?3 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1)")?;
+        let mut rows = query.query(params![username,batch,now()-30*86400,super::protocol_hash()])?;
+        let (mut available, mut labelled, mut risk_labels, mut kind_labels, mut risk_observed, mut kind_observed, mut missing) = (0usize,0usize,0usize,0usize,0usize,0usize,0usize);
+        let mut cohorts = std::collections::BTreeSet::new();
+        while let Some(row) = rows.next()? {
+            available += 1;
+            let risk: Option<String> = row.get(0)?;
+            let kind: Option<String> = row.get(1)?;
+            let observed = row.get::<_,Option<bool>>(2)?.unwrap_or(false);
+            let artifact: Option<String> = row.get(3)?;
+            let observed = observed && artifact.as_deref().is_some_and(super::hash);
+            labelled += usize::from(risk.is_some());
+            let certain = matches!(risk.as_deref(),Some("legitimate"|"spam"));
+            risk_labels += usize::from(certain);
+            kind_labels += usize::from(kind.is_some());
+            risk_observed += usize::from(certain && observed);
+            kind_observed += usize::from(kind.is_some() && observed);
+            missing += usize::from(!observed);
+            if observed { cohorts.insert(artifact.unwrap()); }
+        }
+        Ok(json!({"selected":selected,"available":available,"labelled":labelled,"risk_labels":risk_labels,
+            "kind_labels":kind_labels,"risk_with_observations":risk_observed,"kind_with_observations":kind_observed,
+            "missing_or_incompatible_observations":missing,"detector_cohorts":cohorts.len(),
+            "training_validated":false,"observation_only":true}))
+    }).await
+}
 pub async fn members_page(
     store: &Store,
     username: String,
@@ -136,7 +175,7 @@ pub async fn export(
         while let Some(row)=rows.next()? {
             let scan:crate::engine::Scan=serde_json::from_str(&row.get::<_,String>(2)?)?;
             let quality=scan.quality.map(|mut q| {q.sender.key=None;q});
-            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":scan.decision,"quality":quality}));
+            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":scan.decision,"baseline_complete":scan.complete,"delivery_classification":scan.delivery_classification,"quality":quality}));
         }
         out.push(json!({"type":"footer","rows":out.len()-1}));Ok(out)
     }).await?;

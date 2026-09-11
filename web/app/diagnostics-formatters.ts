@@ -60,6 +60,7 @@ export type MessageDiagnostics = {
     feature_version: number;
     features_complete: boolean | null;
     policy: HistoricalPolicy | null;
+    score_breakdown?: {families:Record<string,number|null>;reconstructed_score:number|null;matches_recorded_score:boolean;saturated:boolean};
     lexical_logit: number | null;
     semantic_contribution: number | null;
     rule_weight_total: number;

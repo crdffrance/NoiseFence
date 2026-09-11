@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train joint risk/type shadow candidates from frozen, human-labelled samples.
+"""Train independent risk/type shadow heads from frozen, human-labelled samples.
 
 No mail body access, inferred labels, network, executable model or activation.
 Time partitions are fixed before looking at labels; campaigns cannot cross them.
@@ -18,7 +18,7 @@ import time
 import numpy as np
 from scipy.optimize import minimize
 from scipy.special import expit, softmax
-from scipy.stats import beta
+from quality_metrics import interval, metrics
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
@@ -43,11 +43,13 @@ def read_jsonl(path):
             total += len(raw)
             require(len(raw) <= 2 * 1024 * 1024 and total <= 256 * 1024 * 1024, 'Oversized quality dataset')
             digest.update(raw)
-            rows.append(decode(raw))
+            row = decode(raw)
+            require(isinstance(row, dict), 'Expected a JSON object')
+            rows.append(row)
     raise ValueError('Too many quality rows')
 
 
-def load_dataset(path):
+def load_dataset(path, allow_multiple_artifacts=False):
     data, digest = read_jsonl(path)
     require(len(data) >= 2 and data[0].get('type') == 'header' and data[-1].get('type') == 'footer', 'Incomplete quality export')
     header, rows = data[0], data[1:-1]
@@ -71,14 +73,14 @@ def load_dataset(path):
                 and row.get('risk') in (None, 'legitimate', 'spam', 'uncertain')
                 and row.get('kind') in (None, *KINDS), 'Invalid human quality row')
         ids.add(row['id'])
-        if row['risk'] is not None:
+        if row['risk'] is not None or row['kind'] is not None:
             require(type(row.get('labelled_at')) is int and row['observed_at'] <= row['labelled_at'] <= header['captured_at'], 'Invalid annotation time')
         quality = row.get('quality')
         if quality is None:
             counts['missing_observations'] += 1
             continue
         require(isinstance(quality, dict) and quality.get('schema') == 'noisefence-quality-observation-1', 'Invalid observation')
-        if not quality.get('complete_features') or quality.get('source') != 'smtp_session' or not quality.get('values'):
+        if quality.get('complete_features') is not True or quality.get('source') != 'smtp_session' or not quality.get('values'):
             counts['unusable_observations'] += 1
             continue
         require(quality.get('protocol_sha256') == PROTOCOL_HASH and is_hex(quality.get('artifacts_sha256'))
@@ -91,20 +93,30 @@ def load_dataset(path):
         artifacts.add(quality['artifacts_sha256'])
         require(is_hex(row.get('fingerprint')) and is_hex(row.get('simhash'), 16), 'Missing campaign identifiers')
         usable.append({**row, 'campaign': row['fingerprint'], 'split': '', 'values': values})
-    require(len(artifacts) <= 1, 'Detector artifacts changed inside this sample; evaluate separately')
+    require(allow_multiple_artifacts or len(artifacts) <= 1, 'Detector artifacts changed inside this sample; evaluate separately')
     counts['retained'] = len(rows)
     counts['deleted_or_no_longer_authorized'] = header['selected'] - len(rows)
     counts['usable'] = len(usable)
+    header = {**header, 'partition_cuts': chronological_cuts(rows)}
     return header, usable, counts, next(iter(artifacts), None), digest
 
 
-def partition(rows):
-    """Fixed chronological cuts; exclude campaigns spanning a cut or conflicting labels."""
+def chronological_cuts(rows):
+    # All retained timestamps, including unlabelled and unavailable observations.
+    # Annotation and availability changes cannot move a message to another fold.
     if len(rows) < 20:
-        return {s: [] for s in SPLITS}, {'insufficient_rows': len(rows)}
+        return []
     times = sorted(r['observed_at'] for r in rows)
     cuts = [times[min(len(times)-1, int(len(times)*f))] for f in FRACTIONS]
-    require(len(set(cuts)) == 4, 'Insufficient distinct observation times for frozen temporal splits')
+    return cuts if len(set(cuts)) == 4 else []
+
+
+def partition(rows, target='risk', cuts=None):
+    """Independent labels, shared fixed time cuts and whole-campaign exclusion."""
+    require(target in ('risk', 'kind'), 'Invalid training target')
+    cuts = chronological_cuts(rows) if cuts is None else cuts
+    if len(cuts) != 4:
+        return {s: [] for s in SPLITS}, {'insufficient_times': len(rows)}
     result, counts = {s: [] for s in SPLITS}, Counter()
     for group in components(rows):
         candidates = [rows[i] for i in group]
@@ -112,44 +124,30 @@ def partition(rows):
         if len(splits) != 1:
             counts['cross_period_campaigns'] += 1
             continue
-        labels = {(r['risk'], r['kind']) for r in candidates if r['risk'] not in (None, 'uncertain') and r['kind'] is not None}
-        if len(labels) > 1:
+        labelled = [r for r in candidates if r[target] not in (None, 'uncertain')]
+        if len({r[target] for r in labelled}) > 1:
             counts['conflicting_campaigns'] += 1
             continue
-        labelled = [r for r in candidates if r['risk'] not in (None, 'uncertain') and r['kind'] is not None]
         if not labelled:
             counts['unlabelled_or_uncertain_campaigns'] += 1
             continue
-        # One uniformly ordered representative per campaign, never chosen by score.
-        selected = min(labelled, key=lambda r: r['id'])
+        selected = dict(min(labelled, key=lambda r: r['id']))
         selected['split'] = SPLITS[next(iter(splits))]
         result[selected['split']].append(selected)
         counts['duplicates_removed'] += len(candidates) - 1
     return result, dict(counts)
 
 
-def interval(success, total):
-    if not total:
-        return None
-    return [0.0 if not success else float(beta.ppf(.025, success, total-success+1)),
-            1.0 if success == total else float(beta.ppf(.975, success+1, total-success))]
+def readiness(parts, target):
+    required = {'legitimate', 'spam'} if target == 'risk' else set(KINDS)
+    return {name: {'campaigns': len(rows),
+                   'labels': dict(Counter(r[target] for r in rows)),
+                   'missing_classes': sorted(required-{r[target] for r in rows}),
+                   'minimum_campaigns': 12,
+                   'ready': len(rows) >= 12 and required <= {r[target] for r in rows}}
+            for name, rows in parts.items()}
 
 
-def metrics(y, probability, lower, upper, available=None):
-    available = np.ones(len(y), dtype=bool) if available is None else available
-    spam = (probability >= upper) & available
-    legit = (probability <= lower) & available
-    tp, fp = int(np.sum(spam & (y == 1))), int(np.sum(spam & (y == 0)))
-    positives, negatives = int(np.sum(y == 1)), int(np.sum(y == 0))
-    return {'messages': len(y), 'tp': tp, 'fp': fp, 'spam_total': positives, 'legitimate_total': negatives,
-            'spam_missed_or_review': positives-tp, 'review': int(np.sum(~spam & ~legit)),
-            'spam_to_review': int(np.sum(~spam & ~legit & (y == 1))),
-            'legitimate_to_review': int(np.sum(~spam & ~legit & (y == 0))),
-            'recall': tp/positives if positives else None, 'recall_ci95': interval(tp, positives),
-            'fpr': fp/negatives if negatives else None, 'fpr_ci95': interval(fp, negatives),
-            'precision': tp/(tp+fp) if tp+fp else None, 'precision_ci95': interval(tp, tp+fp),
-            'unsupported_profile': int(np.sum(~available)),
-            'brier': float(np.mean((probability[available]-y[available])**2)) if np.any(available) else None}
 
 
 def matrix(rows):
@@ -225,19 +223,23 @@ def fit_kinds(parts):
 def train(dataset, destination, version, base_history=None):
     require(not destination.exists(),'Candidate destination already exists')
     header, rows, coverage, artifacts, digest = load_dataset(dataset)
-    parts, grouping = partition(rows)
+    parts, grouping = partition(rows, 'risk', header['partition_cuts'])
+    kind_parts, kind_grouping = partition(rows, 'kind', header['partition_cuts'])
+    availability = {'risk': readiness(parts, 'risk'), 'kind': readiness(kind_parts, 'kind')}
     counts={s:{'campaigns':len(v),'risk':dict(Counter(r['risk'] for r in v)),
                'kind':dict(Counter(r['kind'] for r in v))} for s,v in parts.items()}
-    report={'schema':'noisefence-quality-training-1','eligible':False,'observation_only':True,
+    report={'schema':'noisefence-quality-training-2','eligible':False,'observation_only':True,
             'sampling':header,'coverage':dict(coverage),'grouping':grouping,'splits':counts,
             'dataset_sha256':digest,'test_unit':'one_representative_per_campaign',
-            'limitations':['No automatic activation; independent population review is still required.']}
-    if any(len(v)<12 or len({r['risk'] for r in v})<2 or len({r['kind'] for r in v})<6 for v in parts.values()):
+            'limitations':['No automatic activation; independent population review is still required.'],
+            'readiness':availability,'kind_grouping':kind_grouping}
+    if not all(v['ready'] for v in availability['risk'].values()):
         report['status']='insufficient_labels'
         return report
+    history=[]
     if base_history is not None:
         history, history_hash=read_jsonl(base_history)
-        require(all(is_hex(r.get('fingerprint')) and is_hex(r.get('simhash'),16) and is_hex(r.get('campaign')) for r in history),'Invalid base history')
+        require(history and all(is_hex(r.get('fingerprint')) and is_hex(r.get('simhash'),16) and is_hex(r.get('campaign')) for r in history),'Invalid base history')
         combined=rows+history
         require(not any(any(i<len(rows) for i in g) and any(i>=len(rows) for i in g) for g in components(combined)),'Base-model data or previous evaluation overlaps the new sample')
         report['base_history_sha256']=history_hash
@@ -246,37 +248,74 @@ def train(dataset, destination, version, base_history=None):
     if header['until'] < time.time()-30*86400:
         report['limitations'].append('The evaluation population is not recent.')
     risk,calibration,thresholds,probabilities,risk_report=fit_risk(parts)
-    kinds,temperature,kind_probabilities,kind_report=fit_kinds(parts)
+    kinds, temperature, kind_report = [], 1.0, {'status':'insufficient_labels'}
+    kind_profiles = []
+    if all(v['ready'] for v in availability['kind'].values()):
+        kinds,temperature,_,kind_report=fit_kinds(kind_parts)
+        kind_report['status']='complete'
+        kind_profiles=sorted({r['quality']['availability_profile'] for r in kind_parts['train']})
     report.update(status='candidate_prepared',risk=risk_report,mail_kind=kind_report)
     families={f['family'] for f in PROTOCOL['features']}
-    variants={'without_llm':families-{'llm'},'without_providers':families-{'external_reputation'},
-              'without_sender_history':families-{'sender_history','campaign'},'content_only':{'lexical','semantic','llm','mail_type'}}
+    variants={'without_llm':families-{'llm'},'without_providers':families-{'external_reputation','reputation'},
+              'without_sender_history':families-{'sender_history','campaign'},
+              'without_semantic':families-{'semantic'},'without_lexical':families-{'lexical'},
+              'without_identity':families-{'identity_context','authentication'},
+              'without_vision':families-{'vision'},'without_mail_type':families-{'mail_type'},
+              'content_only':{'lexical','semantic','llm','mail_type'}}
     report['ablations']={name:fit_risk(parts,selected)[4] for name,selected in variants.items()}
     report['baseline']=dict(Counter((r.get('legacy_decision') or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
     report['slices']={}
     y=matrix(parts['test'])[1]
     supported={r['quality']['availability_profile'] for r in parts['train']}
     available=np.array([r['quality']['availability_profile'] in supported for r in parts['test']])
-    for kind in KINDS:
+    for kind in [*KINDS, None]:
         indices=np.array([r['kind']==kind for r in parts['test']])
-        report['slices'][kind]=metrics(y[indices],probabilities['test'][indices],*thresholds,available[indices])
-    model={'schema':'noisefence-quality-model-1','version':version,'protocol_sha256':PROTOCOL_HASH,
+        report['slices'][kind or 'unlabelled_type']=metrics(y[indices],probabilities['test'][indices],*thresholds,available[indices])
+    # All previously seen campaigns (not just fitted rows) bind future evaluation.
+    retained,retained_digest=read_jsonl(dataset)
+    require(retained_digest == digest, 'Dataset changed during training')
+    seen=[r for r in retained[1:-1] if is_hex(r.get('fingerprint')) and is_hex(r.get('simhash'),16)]
+    manifest={'schema':'noisefence-quality-training-manifest-1', 'dataset_sha256':digest,
+              'protocol_sha256':PROTOCOL_HASH,'artifacts_sha256':artifacts,
+              'until':header['until'],'captured_at':header['captured_at'],
+              'partition_cuts':header['partition_cuts'],
+              'base_history_sha256':report.get('base_history_sha256'),
+              'unverifiable_seen_campaigns':len(retained)-2-len(seen),
+              'campaigns':[{'fingerprint':r['fingerprint'],'simhash':r['simhash'],'campaign':r['fingerprint']} for r in seen]+history}
+    manifest_bytes=(json.dumps(manifest,sort_keys=True,separators=(',',':'))+'\n').encode()
+    model={'schema':'noisefence-quality-model-2','version':version,'protocol_sha256':PROTOCOL_HASH,
            'artifacts_sha256':artifacts,'trained_at':int(time.time()),'dataset_sha256':digest,
            'profiles':sorted({r['quality']['availability_profile'] for r in parts['train']}),
-           'risk':risk,'calibration':calibration,'thresholds':thresholds,'kinds':KINDS,
-           'kind_models':kinds,'kind_temperature':temperature}
+           'risk':risk,'calibration':calibration,'thresholds':thresholds,'kinds':KINDS if kinds else [],
+           'kind_models':kinds,'kind_temperature':temperature,'kind_profiles':kind_profiles,
+           'training_manifest_sha256':hashlib.sha256(manifest_bytes).hexdigest()}
     # References for native parity; no labels or text are included in these probes.
-    probes=[{'observation':r['quality'],'risk_probability':float(p),'kind_probabilities':kp.tolist()}
-            for r,p,kp in zip(parts['test'],probabilities['test'],kind_probabilities)
-            if r['quality']['availability_profile'] in model['profiles']][:12]
+    probes=[]
+    for r,p in zip(parts['test'],probabilities['test']):
+        if r['quality']['availability_profile'] not in model['profiles']:
+            continue
+        kp=[]
+        if kinds and r['quality']['availability_profile'] in kind_profiles:
+            kp=softmax(np.array([m['bias']+np.dot(m['weights'],r['values']) for m in kinds])/temperature).tolist()
+        probes.append({'observation':r['quality'],'risk_probability':float(p),'kind_probabilities':kp})
+        if len(probes)==12: break
     destination.parent.mkdir(parents=True,exist_ok=True)
     stage=Path(tempfile.mkdtemp(prefix='.quality-candidate-',dir=destination.parent))
     try:
+        with (stage/'training-manifest.json').open('xb') as out:
+            os.chmod(out.name,0o600)
+            out.write(manifest_bytes);out.flush();os.fsync(out.fileno())
         for name,value in [('model.json',model),('report.json',report),('parity.json',probes)]:
             path=stage/name
             with path.open('x') as out:
                 os.chmod(path,0o600);json.dump(value,out,indent=2,allow_nan=False);out.write('\n');out.flush();os.fsync(out.fileno())
+        descriptor=os.open(stage,os.O_RDONLY)
+        try:os.fsync(descriptor)
+        finally:os.close(descriptor)
         stage.rename(destination)
+        descriptor=os.open(destination.parent,os.O_RDONLY)
+        try:os.fsync(descriptor)
+        finally:os.close(descriptor)
     finally:
         if stage.exists():shutil.rmtree(stage)
     return report

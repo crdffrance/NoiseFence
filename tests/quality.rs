@@ -195,6 +195,19 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
     assert!(members.iter().all(|m| m["risk"].is_null()));
     assert!(members.iter().all(|m| m.get("score").is_none()));
     assert!(members.iter().any(|m| m["joint_observations"] == false));
+    let readiness = evaluation::readiness(&store, "alice".into(), batch.clone())
+        .await
+        .unwrap();
+    assert_eq!(readiness["selected"], 2);
+    assert_eq!(readiness["available"], 2);
+    assert_eq!(readiness["risk_with_observations"], 0);
+    assert_eq!(readiness["missing_or_incompatible_observations"], 1);
+    assert!(!readiness.to_string().contains("PRIVATE"));
+    assert!(
+        evaluation::readiness(&store, "bob".into(), batch.clone())
+            .await
+            .is_err()
+    );
     insert(&store, &scan, "alice@example.test", now - 80).await;
     assert_eq!(
         evaluation::members(&store, "alice".into(), batch.clone())
@@ -228,6 +241,12 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
     )
     .await
     .unwrap();
+    let readiness = evaluation::readiness(&store, "alice".into(), batch.clone())
+        .await
+        .unwrap();
+    assert_eq!(readiness["risk_with_observations"], 1);
+    assert_eq!(readiness["kind_with_observations"], 1);
+    assert_eq!(readiness["training_validated"], false);
     let output = root.path().join("dataset.jsonl");
     evaluation::export(&store, "alice".into(), batch.clone(), &output)
         .await
@@ -267,6 +286,12 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
         })
         .await
         .unwrap();
+    assert_eq!(
+        evaluation::readiness(&store, "alice".into(), batch.clone())
+            .await
+            .unwrap()["available"],
+        0
+    );
     assert!(
         evaluation::members(&store, "alice".into(), batch)
             .await
@@ -345,4 +370,33 @@ async fn sender_memory_needs_authentication_diversity_earlier_labels_and_matchin
             .key
             .is_none()
     );
+}
+
+#[test]
+fn independent_kind_availability_never_discards_a_valid_risk_prediction() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let report = quality::snapshot(&observed(&cfg), None);
+    let mut candidate = model(&report);
+    candidate.schema = "noisefence-quality-model-2".into();
+    candidate.training_manifest_sha256 = Some(digest(b"private manifest"));
+    candidate.kind_profiles = vec!["different_profile".into()];
+    candidate.validate().unwrap();
+    let prediction = candidate.predict(&report).unwrap();
+    assert_eq!(prediction.risk_probability, 0.5);
+    assert_eq!(prediction.kind, "unavailable");
+    assert_eq!(prediction.kind_status, "unsupported_profile");
+    assert!(prediction.kind_probabilities.is_empty());
+    candidate.kind_models.clear();
+    candidate.kinds.clear();
+    candidate.kind_profiles.clear();
+    candidate.validate().unwrap();
+    assert_eq!(
+        candidate.predict(&report).unwrap().kind_status,
+        "not_trained"
+    );
+    candidate.training_manifest_sha256 = None;
+    assert!(candidate.validate().is_err());
+    candidate.schema = "noisefence-quality-model-1".into();
+    assert!(candidate.validate().is_err());
 }

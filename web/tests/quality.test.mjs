@@ -13,3 +13,10 @@ test('mail kind vocabulary separates commercial and useful transactional mail',(
   assert.notEqual(mailKinds.transactional,mailKinds.promotion);
   assert.notEqual(mailKinds.notification,mailKinds.newsletter);
 });
+
+test('missing kind model never invents a conversation or a safe classification',async()=>{
+  const {mailKindLabel}=await import('../app/quality-types.ts');
+  assert.equal(mailKindLabel('unavailable'),'Type indéterminé');
+  assert.equal(mailKindLabel('<script>private</script>'),'Type indéterminé');
+  assert.equal(mailKindLabel('newsletter'),'Newsletter');
+});

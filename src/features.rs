@@ -256,6 +256,57 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine as _;
+
+    #[test]
+    fn international_mime_encodings_preserve_content_features_and_campaigns() {
+        let subject = "Réunion été";
+        let body = "Bonjour, réunion confirmée demain. Merci.";
+        let encoded_subject = base64::engine::general_purpose::STANDARD.encode(subject);
+        let encoded_body = base64::engine::general_purpose::STANDARD.encode(body);
+        let headers = "From: service@example.org\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n";
+        let original =
+            format!("{headers}Subject: {subject}\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body}");
+        let variants = [
+            format!(
+                "{headers}Subject: =?UTF-8?B?{encoded_subject}?=\r\nContent-Transfer-Encoding: base64\r\n\r\n{encoded_body}"
+            ),
+            format!(
+                "{headers}Subject: =?UTF-8?Q?R=C3=A9union_=C3=A9t=C3=A9?=\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nBonjour, r=C3=A9union confirm=C3=A9e demain. Merci."
+            ),
+        ];
+        let baseline = extract(original.as_bytes(), 10000);
+        for variant in variants {
+            assert_eq!(text(original.as_bytes()), text(variant.as_bytes()));
+            let scan = extract(variant.as_bytes(), 10000);
+            assert_eq!(baseline.features, scan.features);
+            assert_eq!(baseline.fingerprint, scan.fingerprint);
+            assert_eq!(baseline.campaign_simhash, scan.campaign_simhash);
+        }
+    }
+
+    #[test]
+    fn quoted_fraud_and_footer_do_not_hide_the_content_or_add_rule_weights() {
+        // Synthetic counterexamples: preserve the context for learning instead
+        // of treating a quote or a signature as an automatic trust exception.
+        let warning = b"From: help@example.org\r\nSubject: Alerte de phishing\r\n\r\nNe repondez pas au message suivant :\r\n> Urgent, verify your account https://example.invalid/login\r\n--\r\nEquipe securite";
+        let fraud = b"From: help@example.org\r\nSubject: Compte bloque\r\n\r\nUrgent, verify your account https://example.invalid/login\r\n--\r\nEquipe securite";
+        let left = extract(warning, 10000);
+        let right = extract(fraud, 10000);
+        assert!(left.complete && right.complete);
+        assert_ne!(left.features, right.features);
+        for scan in [left, right] {
+            assert!(scan.reasons.iter().any(|r| r.id == "credential_request"));
+            assert!(scan.reasons.iter().all(|r| r.weight == 0.));
+        }
+        assert!(text(warning).unwrap().1.contains("Ne repondez pas"));
+        assert!(
+            text(fraud)
+                .unwrap()
+                .1
+                .contains("https://example.invalid/login")
+        );
+    }
 
     #[test]
     fn non_visible_html_and_filter_headers_do_not_train_the_model() {

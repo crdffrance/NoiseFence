@@ -77,7 +77,7 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(report['status'],'candidate_prepared')
         self.assertFalse(report['eligible'])
         self.assertTrue(report['observation_only'])
-        self.assertEqual(len(report['ablations']),4)
+        self.assertEqual(len(report['ablations']),9)
         self.assertIsNotNone(report['risk']['test']['fpr_ci95'])
         self.assertGreater(report['risk']['test']['fpr_ci95'][1],.001)
         self.assertEqual(len(report['mail_kind']['confusion']),6)
@@ -96,8 +96,10 @@ class QualityTests(unittest.TestCase):
         altered=copy.deepcopy(rows)
         altered[1]['fingerprint']=altered[0]['fingerprint']
         altered[1]['campaign']=altered[0]['campaign']
-        _,counts=self.q.partition(altered)
+        _,counts=self.q.partition(altered, 'kind')
         self.assertEqual(counts['conflicting_campaigns'],1)
+        _,risk_counts=self.q.partition(altered, 'risk')
+        self.assertEqual(risk_counts.get('conflicting_campaigns',0),0)
 
     def test_unknown_labels_are_not_replaced_by_model_predictions(self):
         data=copy.deepcopy(self.data)
@@ -132,6 +134,116 @@ class QualityTests(unittest.TestCase):
         self.write(history,[{'fingerprint':row['fingerprint'],'campaign':row['fingerprint'],'simhash':row['simhash']}])
         with self.assertRaisesRegex(ValueError,'overlaps'):
             self.q.train(self.path,self.root/'overlap-model','SOFTWARE-TEST-ONLY',history)
+
+    def test_risk_training_does_not_require_a_mail_kind(self):
+        data=copy.deepcopy(self.data)
+        for row in data[1:-1]:row['kind']=None
+        path=self.root/'risk-only.jsonl';self.write(path,data)
+        candidate=self.root/'risk-only'
+        report=self.q.train(path,candidate,'SOFTWARE-RISK-ONLY')
+        self.assertEqual(report['status'],'candidate_prepared')
+        self.assertEqual(report['mail_kind']['status'],'insufficient_labels')
+        model=json.loads((candidate/'model.json').read_text())
+        self.assertEqual(model['schema'],'noisefence-quality-model-2')
+        self.assertEqual(model['kind_models'],[])
+        from quality_runtime import load_model,predict
+        loaded,_=load_model(candidate/'model.json')
+        for probe in json.loads((candidate/'parity.json').read_text()):
+            result=predict(loaded,probe['observation'])
+            self.assertEqual(result['kind'],'unavailable')
+            self.assertEqual(result['kind_probabilities'],[])
+            self.assertAlmostEqual(result['risk_probability'],probe['risk_probability'],places=9)
+        if os.environ.get('NOISEFENCE_BINARY'):
+            probe=json.loads((candidate/'parity.json').read_text())[0]
+            observation=self.root/'risk-only-observation.json';observation.write_text(json.dumps(probe['observation']))
+            result=json.loads(subprocess.check_output([str(Path(os.environ['NOISEFENCE_BINARY']).resolve()),'quality-predict','--model',str(candidate/'model.json'),'--observation',str(observation)],text=True))
+            self.assertEqual(result['kind_status'],'not_trained')
+            self.assertAlmostEqual(result['risk_probability'],probe['risk_probability'],places=9)
+
+    def test_time_cuts_ignore_labels_and_missing_observations(self):
+        original=self.q.load_dataset(self.path)[0]['partition_cuts']
+        data=copy.deepcopy(self.data)
+        for row in data[1:200]:row['quality']=None;row['kind']=None;row['risk']=None
+        path=self.root/'missing-observations.jsonl';self.write(path,data)
+        self.assertEqual(self.q.load_dataset(path)[0]['partition_cuts'],original)
+        risk=copy.deepcopy(self.q.load_dataset(self.path)[1])
+        risk[1]['fingerprint']=risk[0]['fingerprint'];risk[1]['campaign']=risk[0]['campaign']
+        risk[1]['risk']='spam'
+        _,counts=self.q.partition(risk,'risk')
+        self.assertEqual(counts['conflicting_campaigns'],1)
+
+    def test_runtime_rejects_malformed_models_and_incomplete_baselines(self):
+        from quality_runtime import load_model
+        from evaluate_quality import baseline
+        original=json.loads((self.root/'candidate/model.json').read_text())
+        for key,value in [('trained_at',int(time.time())+3600),('version','bad\x7f'),
+                          ('kind_models',None),('training_manifest_sha256','bad'),
+                          ('extra',True),('thresholds',[.9,.1]),('kind_profiles',[])]:
+            model=copy.deepcopy(original);model[key]=value
+            path=self.root/'invalid-model.json';path.write_text(json.dumps(model))
+            with self.subTest(key=key),self.assertRaises(ValueError):load_model(path)
+        row={'legacy_decision':{'source':'legacy','outcome':'unwanted'},
+             'baseline_complete':False,'delivery_classification':'spam'}
+        self.assertEqual(baseline(row),'review')
+        row['legacy_decision']['source']='antivirus'
+        self.assertEqual(baseline(row),'spam')
+
+    def test_metrics_keep_spam_review_in_the_recall_denominator(self):
+        from quality_metrics import metrics,acceptance,outcomes
+        result=metrics([1,1,0,0],[.99,.5,.99,.5],.2,.8)
+        self.assertEqual((result['tp'],result['fp'],result['review']),(1,1,2))
+        self.assertEqual(result['recall'],.5)
+        self.assertEqual(result['spam_to_review'],1)
+        self.assertEqual(sum(b['count'] for b in result['reliability']),4)
+        good=outcomes([1]*100+[0]*4000,['spam']*100+['legitimate']*4000)
+        gate=acceptance(good,good,True,True)
+        self.assertTrue(gate['meets_final_confidence_bounds'])
+        self.assertFalse(gate['may_activate'])
+        self.assertFalse(acceptance(good,good,False,True)['meets_final_confidence_bounds'])
+        self.assertFalse(acceptance(good,good,True,False)['meets_final_confidence_bounds'])
+
+    def test_independent_evaluation_refuses_reused_campaigns_and_modified_manifest(self):
+        from evaluate_quality import evaluate
+        candidate=self.root/'candidate'
+        report=evaluate(self.path,candidate/'model.json',candidate/'training-manifest.json')
+        self.assertFalse(report['acceptance']['independent'])
+        self.assertFalse(report['acceptance']['passes_pilot'])
+        self.assertFalse(report['may_activate'])
+        self.assertEqual(report['coverage']['overlapping_messages'],1020)
+        bad=self.root/'changed-manifest.json';bad.write_bytes((candidate/'training-manifest.json').read_bytes()+b' ')
+        with self.assertRaisesRegex(ValueError,'manifest'):
+            evaluate(self.path,candidate/'model.json',bad)
+
+    def test_prospective_evaluation_preserves_unknowns_and_detects_real_improvement(self):
+        from evaluate_quality import evaluate
+        from unittest.mock import patch
+        captured=int(time.time())
+        with patch('time.time',return_value=captured-10000):
+            older=self.fixture();path=self.root/'older.jsonl';self.write(path,older)
+            candidate=self.root/'older-candidate'
+            identity=hashlib.sha256(b'separate base corpus fixture').hexdigest()
+            history=self.root/'prospective-base.jsonl';self.write(history,[{'fingerprint':identity,'simhash':identity[:16],'campaign':identity}])
+            self.q.train(path,candidate,'SOFTWARE-PROSPECTIVE',history)
+        fresh=copy.deepcopy(self.data)
+        for i,row in enumerate(fresh[1:-1]):
+            identity=hashlib.sha256(('separate-evaluation-'+str(i)).encode()).hexdigest()
+            row.update(id=identity,fingerprint=identity,simhash=identity[:16],legacy_decision={'source':'legacy','outcome':'unwanted'},baseline_complete=True)
+        path=self.root/'fresh.jsonl';self.write(path,fresh)
+        report=evaluate(path,candidate/'model.json',candidate/'training-manifest.json')
+        self.assertTrue(report['prospective'])
+        self.assertTrue(report['acceptance']['passes_pilot'])
+        self.assertFalse(report['acceptance']['meets_final_confidence_bounds'])
+        self.assertEqual(report['candidate']['fp'],0)
+        self.assertEqual(report['candidate']['tp'],report['baseline']['tp'])
+        self.assertNotIn('separate-evaluation',json.dumps(report))
+        fresh[1]['quality']=None
+        fresh[2]['risk']=None;fresh[2]['kind']=None;fresh[2]['labelled_at']=None
+        self.write(path,fresh)
+        report=evaluate(path,candidate/'model.json',candidate/'training-manifest.json')
+        self.assertEqual(report['coverage']['unsupported_observations'],1)
+        self.assertEqual(report['coverage']['unlabelled_or_uncertain'],1)
+        self.assertFalse(report['acceptance']['coverage_complete'])
+        self.assertFalse(report['acceptance']['passes_pilot'])
 
     @unittest.skipUnless(os.environ.get('NOISEFENCE_BINARY'),'Native binary configured by semantic CI')
     def test_native_risk_and_six_kind_probabilities_match_python(self):

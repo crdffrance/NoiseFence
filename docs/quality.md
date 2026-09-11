@@ -25,6 +25,12 @@ risque. L’objet seul ne constitue pas une preuve ; choisir « Je ne peux pas
 conclure » si l’original n’est pas disponible. Aucun label n’est déduit du filtre.
 Les scores sont masqués pendant cette annotation.
 
+La console indique séparément le nombre d’annotations de risque et de type
+associées à des observations exploitables, les observations manquantes et le
+nombre de configurations de détecteurs présentes. Le type est facultatif :
+il ne bloque pas une annotation certaine du risque. Ces compteurs ne valident
+ni les effectifs par période ni un futur modèle.
+
 Les labels certains mettent aussi à jour les corrections historiques. « Incertain »
 retire le vote binaire précédent. Une nouvelle correction historique invalide la
 double annotation devenue obsolète. Les messages déjà livrés restent inchangés.
@@ -68,15 +74,25 @@ figées : 50 % entraînement, 15 % choix des paramètres, 15 % calibration, 10 %
 10 % test final. Les campagnes exactes ou proches ne traversent pas ces périodes.
 Les campagnes contradictoires et celles qui traversent une frontière sont exclues
 et comptées. Une campagne conservée contribue un représentant déterministe.
-Chaque période doit contenir les deux risques et les six types : sinon la commande
-sort avec le code 3 et un rapport `insufficient_labels`, sans produire de modèle.
+Depuis 0.4.12, les deux têtes sont entraînées séparément sur les mêmes frontières
+temporelles, fixées avec tous les messages conservés, même non annotés ou incomplets.
+Chaque période du risque doit contenir au moins douze campagnes et les deux risques :
+sinon la commande sort avec le code 3 et un rapport `insufficient_labels`, sans modèle.
+Le type utilise ses propres annotations et exige douze campagnes et les six types
+par période. S’ils manquent, seul le risque est entraîné ; le type indique
+`not_trained` et aucune distribution de types n’est inventée. Un conflit de type
+ne supprime pas une annotation de risque cohérente, et réciproquement.
 Ce minimum logiciel ne garantit pas une évaluation statistique suffisante.
 
 La régression logistique est régularisée. Le risque reçoit une calibration de
 Platt et une zone d’abstention ; les six types reçoivent une calibration de température.
 Le rapport mesure rappel, faux positifs, précision et intervalles binomiaux exacts
 à 95 %, abstentions, Brier, matrice des types, résultats par type, comparaison au
-classement appliqué et ablations sans LLM, fournisseurs ou historique.
+classement appliqué et neuf ablations prédéfinies : sans LLM, réputation,
+historique, modèle lexical, modèle sémantique, identité/authentification,
+vision, type de courrier, puis contenu seul. Chaque variante est réentraînée
+et calibrée sur les mêmes périodes ; elle ne se règle pas sur le test final.
+Retirer une famille mesure son apport conditionnel, pas son indépendance causale.
 Les profils de contrôles non rencontrés à l’entraînement sont des abstentions.
 Les contrôles indisponibles ne sont jamais transformés en verdict malveillant.
 
@@ -92,6 +108,70 @@ L’option `--base-history chemin.jsonl` vérifie aussi l’absence de campagnes
 avec les jeux des modèles de base ou des tests précédents. Ce fichier privé contient
 `fingerprint`, `simhash` et `campaign`, comme les exports de fusion. Son absence
 reste une limite explicite du rapport ; aucun certificat d’activation n’est produit.
+
+Le modèle `noisefence-quality-model-2` lie par SHA-256 un manifeste privé contenant
+toutes les campagnes déjà consultées, y compris celles exclues de l’entraînement,
+ainsi que l’historique fourni. Les profils de disponibilité des deux têtes sont
+distincts. Conserver `training-manifest.json` avec les poids ; il ne doit pas être
+publié. Le format 1 reste lisible, mais seul le format 2 porte cette provenance.
+
+## Évaluer sur un nouveau lot indépendant
+
+Figer le modèle avant le début de la période suivante. Exporter ensuite un
+nouveau tirage uniforme entièrement annoté, sans le consulter pour régler le
+candidat. Ne pas mélanger plusieurs versions de détecteur lors de l’entraînement :
+l’empreinte inclut la version de l’application. Une mise à jour exige de nouvelles
+observations compatibles ; elle ne rend pas rétroactivement les anciennes compatibles.
+
+```sh
+OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
+  /opt/noisefence/current/research/evaluate_quality.py \
+  /var/lib/noisefence/quality/independent.jsonl \
+  --model /var/lib/noisefence/quality/candidate-01/model.json \
+  --training-manifest /var/lib/noisefence/quality/candidate-01/training-manifest.json \
+  --output /var/lib/noisefence/quality/evaluation-01.json
+```
+
+Cette commande ne modifie aucun seuil, modèle, message ou réglage. Elle refuse
+d’écraser le rapport et vérifie l’empreinte du manifeste. Les campagnes communes
+avec tous les jeux antérieurs, les doublons, conflits, labels absents, pertes de
+droits, observations incompatibles et modèles expirés empêchent une validation
+complète. Une provenance inconnue du corpus de base bloque aussi cette validation.
+Les prédictions indisponibles comptent comme abstentions, jamais comme bonnes réponses.
+
+Le rapport compare le classement enregistré au candidat pur et au candidat avec
+la priorité antivirus principale déjà observée. Il sépare les unités message et
+campagne, la calibration du risque et la précision/rappel PUB (newsletter ou
+promotion), avec une matrice des six types incluant une colonne indisponible.
+Les métriques PUB portent sur les messages également annotés en risque.
+Les corrections des destinataires et le dossier choisi par Proton ne sont pas
+rejoués ; des appels fournisseurs/LLM enregistrés ne valident pas une autre
+politique de sélection de ces appels.
+
+Critères de pilote : au moins vingt spams et cent légitimes indépendants, moins
+de faux positifs, autant de spams capturés et pas davantage d’abstentions. Les
+objectifs finaux portent sur les bornes binomiales unilatérales à 95 % : capture
+au moins 95 %, faux positifs au plus 0,1 %, abstentions au plus 5 %. Ils demandent
+beaucoup plus d’exemples et une revue de leur représentativité. Le rapport
+contient toujours `may_activate: false`, même si ces tests numériques passent.
+Le code de sortie est 0 si le pilote passe, 3 sinon ; il n’autorise aucune activation.
+
+## Expliquer les erreurs sans exporter les messages
+
+Le détail d’un message décompose le score historique avant saturation entre
+modèle lexical, sémantique, règles, authentification, réputation, SMTP et LLM.
+Une contribution combinée historique reste indivisible si sa décomposition
+manque. La somme est vérifiée contre le score enregistré ; une divergence reste
+visible. Les poids appris du texte et de la structure MIME partagent des buckets
+de hachage : ce rapport ne prétend pas les séparer rétroactivement.
+
+`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` produit aussi
+ces agrégats par faux positifs, spams détectés, erreurs et abstentions, ainsi que
+les erreurs propres au second avis, son statut, son coût comptabilisé et ses
+durées. Seules les décompositions réconciliées entrent dans les moyennes de
+contribution. Les retours contradictoires et inaccessibles sont exclus explicitement.
+Il s’agit de corrections ciblées, donc biaisées, pas d’une mesure du trafic.
+L’audit n’ouvre pas les corps, n’appelle aucun fournisseur et ne réécrit pas SQLite.
 
 ## Charger uniquement en observation
 
@@ -155,3 +235,6 @@ cette version, retirer la section `[quality]` si elle a été ajoutée. Ne jamai
 restaurer une vieille base qui ferait disparaître des messages acceptés après
 la mise à jour. Conserver l’observation tant que les validations Proton et les
 mesures indépendantes nécessaires ne sont pas réunies.
+Pour revenir à 0.4.11 ou avant, retirer aussi tout candidat de format 2 de la
+configuration avant de démarrer l’ancien binaire. Les poids actifs historiques,
+les budgets externes et les règles de livraison ne sont pas changés par 0.4.12.

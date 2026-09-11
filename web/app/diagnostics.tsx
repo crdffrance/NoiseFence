@@ -166,6 +166,14 @@ function AnalysisDetails({
         des pourcentages et elles ne totalisent pas 100. Une contribution non
         enregistrée n’est pas un zéro. Les indices peuvent être corrélés.
       </p>
+      {analysis.score_breakdown && <details className="diagnostic-disclosure">
+        <summary>Contributions par famille de contrôles</summary>
+        <dl className="diagnostic-facts">{Object.entries(analysis.score_breakdown.families).map(([family,value])=><div key={family}>
+          <dt>{({lexical:'Texte et structure',semantic:'Analyse sémantique',content_unseparated:'Contenu, détail historique absent',heuristics:'Règles de contenu',authentication:'Authentification',reputation:'Réputation',smtp:'Contrôles SMTP',llm:'Second avis',other_rules:'Autres règles'} as Record<string,string>)[family] ?? 'Autres contributions'}</dt><dd>{contribution(value)}</dd>
+        </div>)}</dl>
+        <p className="diagnostic-muted">{analysis.score_breakdown.matches_recorded_score ? 'La somme reproduit le score historique enregistré.' : 'Les observations conservées ne suffisent pas à reproduire exactement le score historique.'}
+          {analysis.score_breakdown.saturated && ' L’indice est proche d’une extrémité ; ce n’est pas une preuve de certitude.'}</p>
+      </details>}
       {overrides.length > 0 && (
         <details className="diagnostic-disclosure">
           <summary>
