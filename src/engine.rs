@@ -112,6 +112,10 @@ pub struct Scan {
     pub decision: Option<crate::fusion::runtime::Decision>,
     #[serde(default)]
     pub fusion: crate::fusion::runtime::Observation,
+    #[serde(default)]
+    pub quality: Option<crate::quality::Report>,
+    #[serde(default)]
+    pub sender_history: Option<crate::quality::history::Report>,
 }
 pub fn legacy_feature_version() -> u32 {
     1
@@ -485,6 +489,8 @@ pub struct Engine {
     model: Option<Model>,
     evidence_artifacts: crate::evidence::Artifacts,
     fusion: Option<crate::fusion::runtime::Runtime>,
+    quality: Option<crate::quality::Model>,
+    quality_policy: String,
     arc_key: Option<String>,
     dqs_key: Option<String>,
     smtp_policy: Option<crate::smtp_policy::Policy>,
@@ -505,6 +511,13 @@ impl Engine {
         Self::build(config, Some(self))
     }
     fn build(config: Arc<Config>, template: Option<&Self>) -> Result<Self> {
+        let quality = config
+            .quality
+            .as_ref()
+            .and_then(|q| q.candidate.as_deref())
+            .map(crate::quality::Model::load)
+            .transpose()?;
+        let quality_policy = crate::quality::policy_hash(&config);
         let llm = config
             .llm
             .as_ref()
@@ -631,6 +644,8 @@ impl Engine {
             .map(|s| crate::fusion::runtime::Runtime::load(s, &evidence_artifacts))
             .transpose()?;
         Ok(Self {
+            quality,
+            quality_policy,
             fusion,
             smtp_policy,
             config,
@@ -702,6 +717,11 @@ impl Engine {
             fusion.apply(scan);
         }
         crate::decision::apply(scan, self.config.filter.require_corroboration);
+        scan.quality = Some(crate::quality::snapshot_bound(
+            scan,
+            self.quality.as_ref(),
+            Some(&self.quality_policy),
+        ));
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
         if matches!(
@@ -1287,6 +1307,10 @@ impl Engine {
             policy_result.apply(&mut scan);
             scan.smtp_policy = policy_result;
             let (arc, results) = auth_result?;
+            scan.sender_history = Some(
+                crate::quality::history::inspect(&self.config.data_dir, raw, &scan, context.1)
+                    .await,
+            );
             self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
                 .await?;
             self.score(&mut scan);

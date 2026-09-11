@@ -143,7 +143,7 @@ fn advisory_signatures_and_publicity_never_override_security_decisions() {
 }
 
 #[test]
-fn llm_scoring_and_confirmation_share_validated_advice_including_boundaries() {
+fn llm_scoring_validates_advice_but_cannot_supply_its_own_confirmation() {
     for (category, confidence, probability, expected) in [
         (LlmCategory::Spam, 0.9, 0.9, 1.5),
         (LlmCategory::Phishing, 1., 1., 1.5),
@@ -184,7 +184,7 @@ fn llm_scoring_and_confirmation_share_validated_advice_including_boundaries() {
                 ..Default::default()
             };
             assert_eq!(scan.llm.advisory_weight(), weight);
-            assert_eq!(noisefence::confirmation::corroborated(&scan), weight > 0.);
+            assert!(!noisefence::confirmation::corroborated(&scan));
         }
     }
 }

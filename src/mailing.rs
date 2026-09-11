@@ -364,6 +364,32 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
             &lead,
         ),
     );
+    static NOTIFICATION: OnceLock<Regex> = OnceLock::new();
+    feature(
+        report,
+        "notification_subject",
+        matches(
+            r"\b(?:code (?:de |d')?(?:connexion|verification|securite)|verification code|security alert|alerte|notification|password reset|mot de passe|incident)\b",
+            &NOTIFICATION,
+            subject,
+        ),
+    );
+    static INVOICE: OnceLock<Regex> = OnceLock::new();
+    feature(
+        report,
+        "invoice_subject",
+        matches(r"\b(?:facture|invoice|recu|receipt)\b", &INVOICE, subject),
+    );
+    static ORDER: OnceLock<Regex> = OnceLock::new();
+    feature(
+        report,
+        "order_subject",
+        matches(
+            r"\b(?:commande|order|reservation|shipping|colis)\b",
+            &ORDER,
+            subject,
+        ),
+    );
     let automatic_response = feature(
         report,
         "automatic_response",

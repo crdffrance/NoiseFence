@@ -337,8 +337,9 @@ impl Client {
             Provider::Crdf => crdf_url(indicator),
             Provider::Virustotal => indicator.to_owned(),
         };
-        let cache_key =
-            crate::message::digest(format!("{credential}:{file}:{cache_indicator}").as_bytes());
+        let cache_key = crate::message::digest(
+            format!("target-bound-1:{credential}:{file}:{cache_indicator}").as_bytes(),
+        );
         match self
             .reserve(provider, cache_key.clone(), credential.clone(), quota)
             .await
@@ -402,7 +403,7 @@ impl Client {
                 serde_json::from_slice(&bytes).map_err(|_| (Failure::InvalidResponse, false))?;
             match provider {
                 Provider::Crdf => parse_crdf(&body, indicator),
-                Provider::Virustotal => parse_vt(&body),
+                Provider::Virustotal => parse_vt_for(&body, indicator, file),
             }
             .map(Some)
             .map_err(|_| (Failure::InvalidResponse, true))
@@ -530,6 +531,40 @@ impl Client {
                 }
                 report.checked += 1;
                 report.cache_hits += usize::from(result.cached);
+                if let Some(verdict) = result.verdict {
+                    let cache_age = if result.cached {
+                        if matches!(verdict, Verdict::Unknown | Verdict::Stale) {
+                            300
+                        } else {
+                            1800
+                        }
+                    } else {
+                        0
+                    };
+                    report.observations.push(super::ProviderObservation {
+                        indicator_sha256: crate::message::digest(indicator.as_bytes()),
+                        scope: if file {
+                            "file"
+                        } else if provider == Provider::Crdf {
+                            "host_lookup"
+                        } else {
+                            "domain"
+                        }
+                        .into(),
+                        verdict: serde_json::to_value(verdict)
+                            .expect("verdict")
+                            .as_str()
+                            .unwrap()
+                            .into(),
+                        queried_at: crate::now(),
+                        cached: result.cached,
+                        cache_max_age_seconds: cache_age,
+                        analysis_max_age_seconds: (provider == Provider::Virustotal
+                            && verdict != Verdict::Stale
+                            && verdict != Verdict::Unknown)
+                            .then_some(7 * 86400 + cache_age),
+                    });
+                }
                 match result.verdict {
                     Some(Verdict::Malicious) => {
                         report.malicious += 1;
@@ -610,11 +645,22 @@ fn parse_crdf(body: &serde_json::Value, indicator: &str) -> Result<Verdict> {
                 let scope = record["url"]
                     .as_str()
                     .and_then(|u| reqwest::Url::parse(u).ok());
-                if scope.is_some_and(|u| u.path() != "/" || u.query().is_some()) {
-                    Ok(Verdict::Suspicious)
-                } else {
-                    Ok(Verdict::Malicious)
-                }
+                let Some(scope) = scope else {
+                    return Ok(Verdict::Suspicious);
+                };
+                ensure!(
+                    scope.host_str() == Some(indicator)
+                        && record["domainName"].as_str().is_none_or(|d| d == indicator),
+                    "CRDF record target mismatch"
+                );
+                Ok(
+                    if scope.path() != "/" || scope.query().is_some() || scope.fragment().is_some()
+                    {
+                        Verdict::Suspicious
+                    } else {
+                        Verdict::Malicious
+                    },
+                )
             } else if blacklisted {
                 Ok(Verdict::Suspicious)
             } else {
@@ -651,10 +697,47 @@ fn parse_vt(body: &serde_json::Value) -> Result<Verdict> {
     })
 }
 
+fn parse_vt_for(body: &serde_json::Value, indicator: &str, file: bool) -> Result<Verdict> {
+    ensure!(
+        body["data"]["id"].as_str() == Some(indicator)
+            && body["data"]["type"].as_str() == Some(if file { "file" } else { "domain" }),
+        "VT response target mismatch"
+    );
+    parse_vt(body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn provider_identity_and_scope_are_verified_before_recording_a_hit() {
+        let mut vt = json!({"data":{"id":"example.org","type":"domain","attributes":{"last_analysis_date":crate::now(),"last_analysis_stats":{"malicious":3,"suspicious":0}}}});
+        assert_eq!(
+            parse_vt_for(&vt, "example.org", false).unwrap(),
+            Verdict::Malicious
+        );
+        assert!(parse_vt_for(&vt, "other.org", false).is_err());
+        assert!(parse_vt_for(&vt, "example.org", true).is_err());
+        vt["data"]["attributes"]["last_analysis_date"] = json!(crate::now() - 8 * 86400);
+        assert_eq!(
+            parse_vt_for(&vt, "example.org", false).unwrap(),
+            Verdict::Stale
+        );
+        let mut crdf = json!({"error":false,"data":[{"url":"https://example.org/","error":false,"in_database":true,"data":{"isBlacklisted":"1","category":"Malicious:URL"}}]});
+        assert_eq!(
+            parse_crdf(&crdf, "example.org").unwrap(),
+            Verdict::Suspicious,
+            "Missing record scope cannot attest a whole host"
+        );
+        crdf["data"][0]["data"]["url"] = json!("https://other.org/");
+        assert!(parse_crdf(&crdf, "example.org").is_err());
+        crdf["data"][0]["data"]["url"] = json!("https://example.org/specific-page");
+        assert_eq!(
+            parse_crdf(&crdf, "example.org").unwrap(),
+            Verdict::Suspicious
+        );
+    }
     #[test]
     fn provider_errors_unknowns_and_low_consensus_never_become_malicious() {
         assert!(
@@ -665,7 +748,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(parse_crdf(&json!({"error":false,"data":[{"url":"https://evil.com/","error":false,"in_database":false}]}),"evil.com").unwrap(),Verdict::Unknown);
-        let mut body = json!({"error":false,"data":[{"url":"https://evil.com/","error":false,"in_database":true,"data":{"isBlacklisted":"1","category":"Malicious:URL"}}]});
+        let mut body = json!({"error":false,"data":[{"url":"https://evil.com/","error":false,"in_database":true,"data":{"url":"https://evil.com/","isBlacklisted":"1","category":"Malicious:URL"}}]});
         assert_eq!(parse_crdf(&body, "evil.com").unwrap(), Verdict::Malicious);
         assert!(parse_crdf(&body, "other.com").is_err());
         assert!(parse_crdf(&json!({"error":false,"data":[{"url":"evil.com","error":true,"message":"Invalid URL.","in_database":false}]}),"evil.com").is_err());

@@ -135,12 +135,12 @@ async fn confirmation_audit_is_aggregate_read_only_and_rechecks_human_grants() {
     assert_eq!(report.before.false_positives, 3);
     assert_eq!(report.with_confirmation.false_positives, 0);
     assert_eq!(report.with_confirmation.legitimate_to_review, 3);
-    assert_eq!(report.with_confirmation.spam_detected, 3);
-    assert_eq!(report.with_confirmation.spam_to_review, 0);
+    assert_eq!(report.with_confirmation.spam_detected, 0);
+    assert_eq!(report.with_confirmation.spam_to_review, 3);
     assert_eq!(report.with_confirmation.legitimate, 1);
     assert_eq!(report.with_decision_policy.false_positives, 0);
     assert_eq!(report.with_decision_policy.legitimate_to_review, 3);
-    assert_eq!(report.with_decision_policy.spam_detected, 3);
+    assert_eq!(report.with_decision_policy.spam_detected, 0);
     let text = serde_json::to_string(&report).unwrap();
     assert!(!text.contains("PRIVATE") && !text.contains("alice") && !text.contains(&ids[0]));
     assert_eq!(before, snapshot());
@@ -1401,4 +1401,109 @@ async fn console_persists_actions_and_rule_weights_without_reclassifying_accepte
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(control.snapshot().revision, 1);
+}
+
+#[tokio::test]
+async fn quality_sampling_and_dual_labels_enforce_sessions_csrf_and_recipient_access() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let bob = account(&store, "bob", false, vec!["bob@example.test"]).await;
+    let id = message(&store, &cfg, &["alice@example.test"]).await;
+    let foreign = message(&store, &cfg, &["bob@example.test"]).await;
+    store
+        .run(|db| {
+            db.execute("UPDATE messages SET created=created-5", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let app = api::router(cfg.clone(), store.clone()).unwrap();
+    let now = noisefence::now();
+    assert_eq!(
+        request(&app, "", "/quality/samples", None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, result) = request(
+        &app,
+        &alice,
+        "/quality/samples",
+        Some(json!({"since":now-1000,"until":now,"count":25,"domain":"example.test"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let path = format!("/quality/samples/{}", result["id"].as_str().unwrap());
+    let (status, rows) = request(&app, &alice, &path, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["id"], id);
+    assert!(rows[0].get("score").is_none());
+    assert_eq!(
+        request(&app, &bob, &path, None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &format!("/messages/{foreign}/quality-label"),
+            Some(json!({"risk":"spam","kind":"promotion"}))
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let bad = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/messages/{id}/quality-label"))
+        .header("content-type", "application/json")
+        .header("cookie", format!("noisefence_session={alice}"))
+        .header("origin", "http://127.0.0.1:3000")
+        .header("x-csrf-token", "wrong")
+        .body(Body::from(
+            json!({"risk":"legitimate","kind":"notification"}).to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(bad).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &format!("/messages/{id}/quality-label"),
+            Some(json!({"risk":"legitimate","kind":"notification"}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, rows) = request(&app, &alice, &path, None).await;
+    assert_eq!(rows[0]["kind"], "notification");
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &format!("/messages/{id}/quality-label"),
+            Some(json!({"risk":"legitimate","kind":"invalid"}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let (status, _) = request(
+        &app,
+        &alice,
+        &format!("/messages/{id}/feedback"),
+        Some(json!({"category":"spam"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, rows) = request(&app, &alice, &path, None).await;
+    assert!(
+        rows[0]["risk"].is_null(),
+        "A later old-style correction invalidates its prior dual annotation"
+    );
 }

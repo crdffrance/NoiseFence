@@ -74,14 +74,14 @@ fn model_only_and_weak_advice_abstain_without_relabeling_as_legitimate() {
 }
 
 #[test]
-fn confirmed_malware_and_strong_phishing_keep_their_decisions() {
+fn malware_confirms_but_llm_content_is_not_a_second_vote() {
     let mut malware = candidate();
     malware.antivirus.status = AntivirusStatus::Malware;
     assert_eq!(verdict(&apply(malware)), Outcome::Unwanted);
     for (confidence, probability) in [(0.9, 0.95), (0.95, 0.95)] {
         let mut phish = candidate();
         llm(&mut phish, Category::Phishing, confidence, probability);
-        assert_eq!(verdict(&apply(phish)), Outcome::Unwanted);
+        assert_eq!(verdict(&apply(phish)), Outcome::Undetermined);
     }
     for (category, confidence, probability, status) in [
         (Category::Legitimate, 1., 1., LlmStatus::Complete),

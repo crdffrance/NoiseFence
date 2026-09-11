@@ -6,8 +6,8 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. Les [actions configurables](docs/actions.md) permettent de transmettre sans préfixe, tagger ou placer en quarantaine les spams, publicités et malwares confirmés. Aucun rejet SMTP n’est fondé sur le score.
 
-**Version 0.4.1 — diagnostics SMTP et filtres détaillés, en observation par défaut.**
-Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.4.1), puis suivre le [guide de première installation](docs/getting-started.md).
+**Version 0.4.8 — qualité du filtrage et validation humaine, en observation par défaut.**
+Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.4.8), puis suivre le [guide de première installation](docs/getting-started.md).
 Le projet reste en 0.x : les formats peuvent évoluer avec une migration documentée.
 La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
@@ -42,6 +42,12 @@ préfixe. Ce compromis réduit les décisions fondées sur le seul modèle et pe
 réduire le rappel ; les corrections et abstentions doivent être mesurées ensemble.
 
 La [politique de classement](docs/filter-policy.md) précise les priorités entre antivirus, score, confirmation et PUB, ainsi que la différence entre une détection et une analyse complète.
+
+La [validation de la qualité](docs/quality.md) propose des échantillons aléatoires,
+une annotation séparée du risque et du type de courrier, et un candidat local
+calibré en observation. Les liens affichés, QR codes et destinations finales sont
+rapprochés ; la réputation des correspondants repose sur des corrections humaines
+et une identité authentifiée. Aucun gain de capture n’est revendiqué sans mesure.
 
 ## Démarrage local
 

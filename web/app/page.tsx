@@ -64,6 +64,8 @@ import {
 } from '@/components/ui/table';
 import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
+import { QualityConsole, QualityDetails } from './quality';
+import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
@@ -73,6 +75,7 @@ type Mail = {
     reason: string;
     quarantine_days: number;
   } | null;
+  quality?: QualityReport | null;
   protection?: ProtectionReport;
   mailing?: MailingReport;
   category: FeedbackCategory | 'undetermined';
@@ -220,7 +223,7 @@ function fusionReason(feature: string) {
 export default function Home() {
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
-  const [section, setSection] = useState<Section | 'account'>('messages');
+  const [section, setSection] = useState<Section | 'account' | 'quality'>('messages');
   const [mobileMenu, setMobileMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -386,7 +389,7 @@ export default function Home() {
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, [user, section, selected, confirmation]);
-  function navigate(next: Section | 'account', nextFilter = 'all') {
+  function navigate(next: Section | 'account' | 'quality', nextFilter = 'all') {
     setSection(next);
     setFilter(nextFilter);
     setOffset(0);
@@ -677,6 +680,7 @@ export default function Home() {
           )}
           <div className="rail-label admin-label">ESPACE PERSONNEL</div>
           <nav className="navigation" aria-label="Espace personnel">
+            <Button variant="ghost" className={`nav-item ${section === 'quality' ? 'nav-active' : ''}`} aria-current={section === 'quality' ? 'page' : undefined} onClick={() => navigate('quality')}><ShieldCheck size={18} /> Qualité du filtre</Button>
             <button
               className={`nav-item ${section === 'account' ? 'nav-active' : ''}`}
               aria-current={section === 'account' ? 'page' : undefined}
@@ -733,6 +737,7 @@ export default function Home() {
             <strong>
               {selected
                 ? 'Décision du filtre'
+                : section === 'quality' ? 'Qualité du filtre'
                 : section === 'account'
                   ? 'Mon compte'
                   : section === 'messages' && filter === 'quarantined'
@@ -758,10 +763,10 @@ export default function Home() {
         )}
         {notice && <output className="notice">{notice}</output>}
         {user.admin && (
-          <div hidden={section === 'messages' || section === 'account'}>
+          <div hidden={section === 'messages' || section === 'account' || section === 'quality'}>
             <AdminConsole
               user={user}
-              section={section === 'account' ? 'messages' : section}
+              section={section === 'account' || section === 'quality' ? 'messages' : section}
               onDirty={setConfigDirty}
               onApplied={refresh}
               onDomain={(name) => {
@@ -773,6 +778,7 @@ export default function Home() {
             />
           </div>
         )}
+        {section === 'quality' && <QualityConsole user={user} />}
         {section === 'account' && (
           <MyAccount
             key={user.username}
@@ -1082,6 +1088,7 @@ export default function Home() {
                       tagged={selected.pub_tagged}
                     />
                   )}
+                  {selected.quality && <QualityDetails report={selected.quality} />}
                   {selected.protection && (
                     <ProtectionDetails report={selected.protection} />
                   )}

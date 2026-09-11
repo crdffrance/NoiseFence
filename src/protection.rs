@@ -1,5 +1,6 @@
 //! Additional detectors are observations, never an uncalibrated change to delivery.
 mod campaign;
+mod context;
 mod local;
 mod providers;
 pub mod redirects;
@@ -188,6 +189,20 @@ pub struct ProviderReport {
     pub omitted: usize,
     #[serde(default)]
     pub failure: Option<providers::Failure>,
+    /// Per-target observations. A host-root lookup never attests a particular page.
+    #[serde(default)]
+    pub observations: Vec<ProviderObservation>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProviderObservation {
+    pub indicator_sha256: String,
+    pub scope: String,
+    pub verdict: String,
+    pub queried_at: i64,
+    pub cached: bool,
+    pub cache_max_age_seconds: u32,
+    /// None means the provider did not attest the age of its underlying analysis.
+    pub analysis_max_age_seconds: Option<u32>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Report {
@@ -239,6 +254,7 @@ impl Report {
 }
 #[derive(Default)]
 pub struct Targets {
+    pub context: Vec<context::Hint>,
     pub domains: BTreeSet<String>,
     pub destination_domains: BTreeSet<String>,
     pub hashes: BTreeSet<String>,
@@ -275,13 +291,21 @@ impl Runtime {
             }
             cache.1.clone()
         };
-        local_checks(
+        let (report, mut targets) = local_checks(
             raw,
             visual,
             config,
             &config.protection.as_ref().unwrap().policy,
             &feed,
-        )
+        );
+        context::collect(
+            raw,
+            visual,
+            &mut targets,
+            &config.protection.as_ref().unwrap().policy,
+            &report,
+        );
+        (report, targets)
     }
     pub async fn observe(
         &self,
@@ -328,6 +352,7 @@ impl Runtime {
                     }
                 }
             }
+            context::apply(&targets.context, &resolution, policy, report);
             report.url_resolution = Some(resolution);
         }
         let (crdf, vt, campaign) = tokio::join!(

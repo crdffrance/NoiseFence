@@ -39,7 +39,8 @@ def main():
     # Data-only feedback fitting runtime, without corpora, private models or hub clients.
     (output/'research').mkdir()
     for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',
-                     'train_fusion.py','evaluate_population.py','fusion-protocol.json','fusion.md','labeling-protocol.md']:
+                     'train_fusion.py','evaluate_population.py','fusion-protocol.json','fusion.md','labeling-protocol.md',
+                     'train_quality.py','quality-protocol.json']:
         shutil.copy2(ROOT/'research'/filename,output/'research'/filename)
     # Public research documentation linked from README; use only tracked files.
     research_docs = subprocess.check_output(
@@ -56,7 +57,7 @@ def main():
         shutil.copytree(ROOT/'release/third-party-licenses',output/'third-party-licenses')
     source=hashlib.sha256()
     inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', ROOT/'src/control-schema.sql', *sorted((ROOT/'src').rglob('*.rs')),
-              ROOT/'research/fusion-protocol.json', ROOT/'research/encoder-runtime.lock.json',
+              ROOT/'research/fusion-protocol.json', ROOT/'research/quality-protocol.json', ROOT/'research/encoder-runtime.lock.json',
               ROOT/'deploy/vision-worker.py', ROOT/'deploy/update-url-feed.py']
     for p in sorted(inputs):
         source.update(str(p.relative_to(ROOT)).encode() + b'\0')

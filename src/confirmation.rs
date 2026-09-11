@@ -6,7 +6,7 @@ use crate::{
     fusion::runtime::{DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "confirmation-2";
+pub const VERSION: &str = "confirmation-3";
 pub const REVIEW_REASON: &str = "confirmation_missing";
 
 /// Additional observations, not statistically independent votes. Weak SMTP
@@ -16,9 +16,8 @@ pub fn corroborated(scan: &Scan) -> bool {
     if scan.antivirus.status == AntivirusStatus::Malware {
         return true;
     }
-    if scan.llm.advisory_weight() > 0.0 {
-        return true;
-    }
+    // The LLM already contributes to the content score. Its self-declared
+    // confidence is not a second, independent confirmation of that score.
     let Some(e) = &scan.evidence else {
         return false;
     };

@@ -23,6 +23,7 @@ pub struct Config {
     pub vision: Option<crate::vision::Settings>,
     pub protection: Option<crate::protection::Settings>,
     pub mailing: Option<crate::mailing::Settings>,
+    pub quality: Option<crate::quality::Settings>,
     pub relay: Relay,
     pub domains: Vec<Domain>,
 }

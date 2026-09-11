@@ -1,4 +1,5 @@
 mod admin;
+mod quality;
 use crate::{
     config::Config,
     message, now,
@@ -587,7 +588,8 @@ pub fn router_controlled(
         .route("/stats", get(stats))
         .route("/password", post(password))
         .route("/metrics", get(metrics))
-        .merge(admin::routes());
+        .merge(admin::routes())
+        .merge(quality::routes());
     Ok(Router::new()
         .nest("/api/v1", api)
         .route("/healthz", get(health))

@@ -159,3 +159,14 @@ body {
     justify-self: start;
   }
 }
+
+/* Evaluation workspace uses the existing console palette and panel rhythm. */
+.quality-console { display:grid; gap:1.25rem; }
+.quality-controls,.quality-annotation { display:flex; flex-wrap:wrap; gap:1rem; align-items:end; }
+.quality-controls label,.quality-annotation label { display:grid; gap:.4rem; min-width:10rem; flex:1; }
+.quality-controls { margin-top:1.25rem; }
+.quality-members { display:grid; gap:1rem; margin-top:1.25rem; }
+.quality-member { padding:1.25rem 0; border-top:1px solid var(--border); }
+.quality-member h3,.quality-member p { overflow-wrap:anywhere; }
+.quality-annotation { margin-top:.75rem; }
+.quality-console select { width:100%; min-height:2.5rem; padding:.5rem; border:1px solid var(--border); border-radius:.5rem; background:var(--background); color:inherit; }

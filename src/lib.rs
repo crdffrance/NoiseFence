@@ -16,6 +16,7 @@ pub mod mailing;
 pub mod message;
 pub mod population;
 pub mod protection;
+pub mod quality;
 pub mod relay;
 pub mod research;
 #[cfg(feature = "semantic")]

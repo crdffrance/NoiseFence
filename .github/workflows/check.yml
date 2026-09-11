@@ -91,6 +91,13 @@ jobs:
         run: |
           cargo build --locked --features semantic --example fusion_fixture
           python3 research/verify_fusion.py var/fusion-parity --binary target/release/noisefence
+      - name: Check joint risk and six mail kinds against native shadow predictions
+        if: matrix.runner == 'ubuntu-latest' && matrix.features != ''
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+          NOISEFENCE_BINARY: target/release/noisefence
+        run: python3 -m unittest discover -s tests_python -p test_quality.py -v
   web:
     runs-on: ubuntu-latest
     defaults:

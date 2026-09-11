@@ -5,6 +5,18 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.8] — 2026-09-11
+
+### Filtrage et validation
+
+- Le LLM ne corrobore plus sa propre contribution au score historique (`confirmation-3`). Les scores élevés insuffisamment étayés restent « À vérifier » ; ce changement peut réduire le rappel.
+- Analyse contextuelle du phishing : nom protégé, lien affiché, Reply-To et QR rapprochés de la destination finale vérifiée. Les exceptions concernent le site final exact.
+- Réponses CRDF et VirusTotal liées à l’indicateur demandé, avec portée et bornes de fraîcheur. Une URL CRDF précise ne devient pas une condamnation de tout le domaine.
+- Historique de correspondants limité au domaine destinataire, à une identité DKIM alignée et aux corrections antérieures des administrateurs autorisés. Expiration, conflits et diversité des campagnes ; aucun contournement des contrôles.
+- Console « Qualité du filtre » pour tous les comptes : tirages uniformes figés, scores masqués, annotation du risque et de six types de courrier, pagination et autorisations par destinataire.
+- Observations versionnées, export privé sans corps, entraînement local régularisé et calibré, séparation temporelle/campagnes, comparaison au classement appliqué, ablations et intervalles de confiance. Modèles JSON vérifiés par parité Python/Rust, exclusivement en observation.
+- Stockage additif compatible avec le retour au binaire 0.4.7 ; aucune activation du marquage Proton, aucun modèle privé distribué, aucune performance de production présumée.
+
 ## [0.4.7] - 2026-09-11
 
 - Rétablir le suivi des URL sous systemd : autoriser l’inventaire des interfaces

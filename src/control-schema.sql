@@ -51,3 +51,27 @@ CREATE TABLE IF NOT EXISTS delivery_attempts(
  trace TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS delivery_attempt_history ON delivery_attempts(delivery_id,id DESC);
+
+-- Independent risk/type annotations and immutable, score-blind evaluation draws.
+CREATE TABLE IF NOT EXISTS quality_batches(
+ id TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+ created INTEGER NOT NULL, since INTEGER NOT NULL, until INTEGER NOT NULL,
+ domain TEXT NOT NULL, seed TEXT NOT NULL, population INTEGER NOT NULL, selected INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS quality_members(
+ batch_id TEXT NOT NULL REFERENCES quality_batches(id) ON DELETE CASCADE,
+ message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ rank INTEGER NOT NULL, PRIMARY KEY(batch_id,message_id)
+);
+CREATE TABLE IF NOT EXISTS quality_labels(
+ username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+ message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ risk TEXT NOT NULL CHECK(risk IN ('legitimate','spam','uncertain')),
+ kind TEXT CHECK(kind IN ('conversation','transactional','notification','newsletter','promotion','other')),
+ created INTEGER NOT NULL, PRIMARY KEY(username,message_id)
+);
+CREATE TRIGGER IF NOT EXISTS quality_label_invalidate
+AFTER UPDATE OF spam,created ON feedback BEGIN
+ DELETE FROM quality_labels WHERE username=NEW.username AND message_id=NEW.message_id;
+END;
+CREATE INDEX IF NOT EXISTS message_sender_history ON messages(CASE WHEN json_valid(scan) THEN json_extract(scan,'$.sender_history.key') END,created);

@@ -7,11 +7,9 @@ décision devient **À vérifier** (`undetermined`). Le message est transmis san
 préfixe. Son score, ses caractéristiques et son statut d’analyse restent conservés.
 Ce n’est ni une preuve de légitimité ni une catégorie PUB.
 
-Les confirmations prises en compte par `confirmation-2` sont :
+Les confirmations prises en compte par `confirmation-3` sont :
 
 - une détection de malware par l’antivirus principal ;
-- un avis LLM terminé, spam/phishing, avec confiance et probabilité déclarées
-  d’au moins 0,9 chacune, selon les seuils consultatifs déjà utilisés ;
 - un échec DMARC vérifié sur les deux possibilités d’alignement ;
 - une réponse DQS vérifiée indiquant une réputation défavorable pour une IP (ZEN 2, 3, 4, 9) ou
   un domaine (DBL 2, 4, 5, 6).
@@ -20,6 +18,8 @@ Les réponses indisponibles, codes d’erreur, listes de politique IP (PBL), dom
 légitimes compromis, SPF seul, incohérences SMTP, signatures consultatives et
 indices HTML/OCR ne suffisent pas. Le lexical et le sémantique constituent déjà
 le score de contenu : ils ne sont pas comptés comme deux confirmations.
+Depuis 0.4.8, le LLM reste un contributeur borné du score de contenu et ne
+constitue plus une confirmation indépendante, même avec une confiance déclarée élevée.
 Une réussite SPF/DKIM/DMARC ne dispense pas des contrôles : des messages malveillants
 peuvent être correctement authentifiés. Les en-têtes du message ne peuvent pas
 fournir ces résultats internes.

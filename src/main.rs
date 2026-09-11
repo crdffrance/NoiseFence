@@ -120,6 +120,35 @@ enum Command {
     ExportFeedback {
         output: PathBuf,
     },
+    /// Draw a frozen, recipient-scoped evaluation sample without reading bodies.
+    QualitySample {
+        #[arg(long)]
+        username: String,
+        #[arg(long)]
+        since: i64,
+        #[arg(long)]
+        until: i64,
+        #[arg(long, default_value_t = 100)]
+        count: usize,
+        #[arg(long, default_value = "")]
+        domain: String,
+    },
+    /// Export an annotated sample privately on the server; no content or delivery.
+    QualityExport {
+        #[arg(long)]
+        username: String,
+        #[arg(long)]
+        batch: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Check a data-only joint candidate against one recorded observation.
+    QualityPredict {
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        observation: PathBuf,
+    },
     /// Aggregate human feedback and replay confirmation, read-only and without external calls.
     AuditConfirmation {
         database: PathBuf,
@@ -213,6 +242,18 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::QualityPredict { model, observation } => {
+            use std::io::Read;
+            let model = noisefence::quality::Model::load(model)?;
+            let mut bytes = vec![];
+            std::fs::File::open(observation)?
+                .take(1024 * 1024 + 1)
+                .read_to_end(&mut bytes)?;
+            ensure!(bytes.len() <= 1024 * 1024, "oversized quality observation");
+            let observation = serde_json::from_slice(&bytes)?;
+            println!("{}", serde_json::to_string(&model.predict(&observation)?)?);
+            return Ok(());
+        }
         Command::AuditConfirmation { database } => {
             println!(
                 "{}",
@@ -653,6 +694,31 @@ async fn main() -> Result<()> {
             println!(
                 "{} labeled examples exported",
                 noisefence::corpus::export_feedback(&store, &output).await?
+            );
+        }
+        Command::QualitySample {
+            username,
+            since,
+            until,
+            count,
+            domain,
+        } => {
+            println!(
+                "{}",
+                noisefence::quality::evaluation::sample(
+                    &store, username, since, until, count, domain
+                )
+                .await?
+            );
+        }
+        Command::QualityExport {
+            username,
+            batch,
+            output,
+        } => {
+            println!(
+                "{}",
+                noisefence::quality::evaluation::export(&store, username, batch, &output).await?
             );
         }
         Command::ExportPopulation {
