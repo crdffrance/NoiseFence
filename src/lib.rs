@@ -38,3 +38,5 @@ pub mod control;
 pub mod actions;
 pub mod quarantine;
 pub mod rules;
+
+pub mod custom_filtering;

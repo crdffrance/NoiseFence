@@ -1,4 +1,6 @@
 'use client';
+import { OnboardingGate } from './onboarding';
+import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
@@ -69,6 +71,7 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  delivery_classification?: string | null;
   action?: {
     requested: DeliveryAction;
     effective: DeliveryAction;
@@ -115,6 +118,7 @@ type Mail = {
   };
   reasons: { id: string; detail: string; weight: number }[];
   recipients: {
+    filtering?: FilteringAssessment | null;
     delivery_id?: number;
     address: string;
     status: string;
@@ -220,10 +224,19 @@ function fusionReason(feature: string) {
   if (feature.includes('limited')) return `${family} : analyse limitée`;
   return family;
 }
-export default function Home() {
+export default function Page() {
+  return (
+    <OnboardingGate>
+      <Home />
+    </OnboardingGate>
+  );
+}
+function Home() {
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
-  const [section, setSection] = useState<Section | 'account' | 'quality'>('messages');
+  const [section, setSection] = useState<Section | 'account' | 'quality'>(
+    'messages',
+  );
   const [mobileMenu, setMobileMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -680,7 +693,14 @@ export default function Home() {
           )}
           <div className="rail-label admin-label">ESPACE PERSONNEL</div>
           <nav className="navigation" aria-label="Espace personnel">
-            <Button variant="ghost" className={`nav-item ${section === 'quality' ? 'nav-active' : ''}`} aria-current={section === 'quality' ? 'page' : undefined} onClick={() => navigate('quality')}><ShieldCheck size={18} /> Qualité du filtre</Button>
+            <Button
+              variant="ghost"
+              className={`nav-item ${section === 'quality' ? 'nav-active' : ''}`}
+              aria-current={section === 'quality' ? 'page' : undefined}
+              onClick={() => navigate('quality')}
+            >
+              <ShieldCheck size={18} /> Qualité du filtre
+            </Button>
             <button
               className={`nav-item ${section === 'account' ? 'nav-active' : ''}`}
               aria-current={section === 'account' ? 'page' : undefined}
@@ -737,12 +757,13 @@ export default function Home() {
             <strong>
               {selected
                 ? 'Décision du filtre'
-                : section === 'quality' ? 'Qualité du filtre'
-                : section === 'account'
-                  ? 'Mon compte'
-                  : section === 'messages' && filter === 'quarantined'
-                    ? 'Quarantaine'
-                    : navigation.find((n) => n.id === section)?.label}
+                : section === 'quality'
+                  ? 'Qualité du filtre'
+                  : section === 'account'
+                    ? 'Mon compte'
+                    : section === 'messages' && filter === 'quarantined'
+                      ? 'Quarantaine'
+                      : navigation.find((n) => n.id === section)?.label}
             </strong>
           </span>
           <span
@@ -763,10 +784,20 @@ export default function Home() {
         )}
         {notice && <output className="notice">{notice}</output>}
         {user.admin && (
-          <div hidden={section === 'messages' || section === 'account' || section === 'quality'}>
+          <div
+            hidden={
+              section === 'messages' ||
+              section === 'account' ||
+              section === 'quality'
+            }
+          >
             <AdminConsole
               user={user}
-              section={section === 'account' || section === 'quality' ? 'messages' : section}
+              section={
+                section === 'account' || section === 'quality'
+                  ? 'messages'
+                  : section
+              }
               onDirty={setConfigDirty}
               onApplied={refresh}
               onDomain={(name) => {
@@ -1088,7 +1119,9 @@ export default function Home() {
                       tagged={selected.pub_tagged}
                     />
                   )}
-                  {selected.quality && <QualityDetails report={selected.quality} />}
+                  {selected.quality && (
+                    <QualityDetails report={selected.quality} />
+                  )}
                   {selected.protection && (
                     <ProtectionDetails report={selected.protection} />
                   )}
@@ -1152,6 +1185,9 @@ export default function Home() {
                           {r.address}
                           <span>{deliveryStatus(r.status)}</span>
                         </p>
+                        {r.filtering && (
+                          <FilteringDetails value={r.filtering} />
+                        )}
                         {r.status === 'quarantined' && (
                           <>
                             <p className="small muted">

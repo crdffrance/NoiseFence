@@ -13,6 +13,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub struct QueueVariant {
+    pub id: String,
+    pub scan: Scan,
+    pub raw: Vec<u8>,
+    pub recipients: Vec<(Recipient, Option<crate::custom_filtering::Assessment>)>,
+}
+
 #[derive(Clone)]
 pub struct Store {
     pub root: PathBuf,
@@ -33,6 +40,7 @@ pub struct Job {
 }
 #[derive(Serialize)]
 pub struct VisibleRecipient {
+    pub filtering: Option<serde_json::Value>,
     pub held_until: Option<i64>,
     pub released_at: Option<i64>,
     pub action: Option<String>,
@@ -41,6 +49,7 @@ pub struct VisibleRecipient {
 }
 #[derive(Serialize)]
 pub struct VisibleMail {
+    pub delivery_classification: Option<crate::mailing::Category>,
     pub action: Option<crate::actions::Applied>,
     pub id: String,
     pub created: i64,
@@ -245,61 +254,82 @@ impl Store {
         scan: Scan,
         raw: Vec<u8>,
     ) -> Result<()> {
-        let action = scan
-            .action
-            .as_ref()
-            .map(|a| a.effective)
-            .unwrap_or_default();
-        let held_days = scan
-            .action
-            .as_ref()
-            .map(|a| a.quarantine_days)
-            .unwrap_or(14);
+        self.enqueue_variants(
+            sender,
+            vec![QueueVariant {
+                id,
+                scan,
+                raw,
+                recipients: recipients.into_iter().map(|r| (r, None)).collect(),
+            }],
+        )
+        .await
+    }
+    /// All files and all recipient policies commit as one SMTP acceptance unit.
+    pub async fn enqueue_variants(
+        &self,
+        sender: String,
+        variants: Vec<QueueVariant>,
+    ) -> Result<()> {
         ensure!(
-            action != crate::actions::Action::Quarantine || (1..=30).contains(&held_days),
-            "invalid quarantine retention"
+            !variants.is_empty() && variants.len() <= 6,
+            "invalid queue batch"
         );
-        let path = self.raw_path(&id);
-        let directory = self.root.join("spool");
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut f = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)?;
-            if let Err(e) = f
-                .write_all(&raw)
-                .and_then(|_| f.sync_all())
-                .and_then(|_| File::open(directory)?.sync_all())
-            {
-                let _ = fs::remove_file(path);
-                return Err(e.into());
+        for v in &variants {
+            ensure!(
+                !v.id.is_empty()
+                    && v.id.len() <= 100
+                    && v.id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b)),
+                "invalid queue identifier"
+            );
+            for (_, a) in &v.recipients {
+                let applied = a.as_ref().map(|a| &a.action).or(v.scan.action.as_ref());
+                ensure!(
+                    applied.is_none_or(|a| (1..=30).contains(&a.quarantine_days)),
+                    "invalid quarantine retention"
+                );
             }
-            Ok(())
-        })
-        .await??;
-        let cleanup = self.raw_path(&id);
-        let result=self.run(move|db| {
-            let tx=db.transaction()?;
-            tx.execute("INSERT INTO messages(id,created,sender,scan) VALUES(?1,?2,?3,?4)",params![id,now(),sender,serde_json::to_string(&scan)?])?;
-            let (name,status) = match action {
-                crate::actions::Action::Deliver => ("deliver","pending"),
-                crate::actions::Action::Tag => ("tag","pending"),
-                crate::actions::Action::Quarantine => ("quarantine","quarantined"),
-            };
-            for r in recipients {
-                tx.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt,status) VALUES(?1,?2,?3,?4,?5,?6)",params![id,r.address,r.destination,serde_json::to_string(&r.hosts)?,now(),status])?;
-                tx.execute("INSERT INTO delivery_policy(delivery_id,action,held_until) VALUES(?1,?2,?3)",params![tx.last_insert_rowid(),name,(action == crate::actions::Action::Quarantine).then(||now()+i64::from(held_days)*86400)])?;
-            }
-            tx.commit()?;Ok(())
-        }).await;
-        if result.is_err() {
-            let _ = fs::remove_file(cleanup);
-        } else {
-            // Notify only after both the spool and the SQLite transaction are durable.
-            self.delivery_ready.notify_one();
         }
-        result
+        let root = self.root.clone();
+        let db = self.db.clone();
+        // One owned blocking operation cannot be cancelled between persistence and commit.
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut written=Vec::new();
+            let result=(|| -> Result<()> {
+                for v in &variants {
+                    let path=root.join("spool").join(format!("{}.eml",v.id));
+                    let mut f=OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
+                    written.push(path); f.write_all(&v.raw)?; f.sync_all()?;
+                }
+                File::open(root.join("spool"))?.sync_all()?;
+                let mut db=db.lock().map_err(|_|anyhow::anyhow!("database lock poisoned"))?;
+                let tx=db.transaction()?;
+                for v in variants {
+                    tx.execute("INSERT INTO messages(id,created,sender,scan) VALUES(?1,?2,?3,?4)",params![v.id,now(),sender,serde_json::to_string(&v.scan)?])?;
+                    for (r,a) in v.recipients {
+                        let applied=a.as_ref().map(|a|&a.action).or(v.scan.action.as_ref());
+                        let action=applied.map(|a|a.effective).unwrap_or_default();
+                        let days=applied.map(|a|a.quarantine_days).unwrap_or(14);
+                        let (name,status)=match action {
+                            crate::actions::Action::Deliver=>("deliver","pending"),
+                            crate::actions::Action::Tag=>("tag","pending"),
+                            crate::actions::Action::Quarantine=>("quarantine","quarantined"),
+                        };
+                        tx.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt,status) VALUES(?1,?2,?3,?4,?5,?6)",params![v.id,r.address,r.destination,serde_json::to_string(&r.hosts)?,now(),status])?;
+                        let delivery_id=tx.last_insert_rowid();
+                        tx.execute("INSERT INTO delivery_policy(delivery_id,action,held_until) VALUES(?1,?2,?3)",params![delivery_id,name,(action==crate::actions::Action::Quarantine).then(||now()+i64::from(days)*86400)])?;
+                        if let Some(a)=a { tx.execute("INSERT INTO delivery_filtering(delivery_id,assessment) VALUES(?1,?2)",params![delivery_id,serde_json::to_string(&a)?])?; }
+                    }
+                }
+                tx.commit()?;Ok(())
+            })();
+            if result.is_err() { for path in written { let _=fs::remove_file(path); } }
+            result
+        }).await??;
+        self.delivery_ready.notify_one();
+        Ok(())
     }
     pub async fn claim(&self) -> Result<Option<Job>> {
         self.run(|db| {
@@ -414,6 +444,10 @@ impl Store {
         self.run(|db| {
             db.execute("DELETE FROM sessions WHERE expires<?1", [now()])?;
             db.execute(
+                "DELETE FROM console_invitations WHERE expires<?1",
+                [now() - 30 * 86400],
+            )?;
+            db.execute(
                 "DELETE FROM messages WHERE created<?1 AND raw_present=0",
                 [now() - 30 * 86400],
             )?;
@@ -452,7 +486,7 @@ impl Store {
         domain: String,
     ) -> Result<Vec<VisibleMail>> {
         self.read(move|db| {
-            let sql=format!("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1),(SELECT category FROM feedback_categories c WHERE c.message_id=m.id AND c.username=?1) FROM messages m WHERE (m.created>=?5 OR m.raw_present=1) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1 AND (?7='' OR lower(substr(d.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(d.destination,-length(?7)-1))='@'||lower(?7))) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0 OR EXISTS(SELECT 1 FROM deliveries sd JOIN console_access sg ON sg.delivery_id=sd.id WHERE sd.message_id=m.id AND sg.username=?1 AND instr(lower(sd.address),lower(?2))>0)) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='review' AND json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.decision.outcome')='undetermined') OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0) OR (?3='quarantined' AND EXISTS(SELECT 1 FROM deliveries qd JOIN console_access qg ON qg.delivery_id=qd.id WHERE qd.message_id=m.id AND qg.username=?1 AND qd.status='quarantined' AND (?7='' OR lower(substr(qd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(qd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending') AND (?7='' OR lower(substr(pd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(pd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='legitimate' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND NOT {publicity}) OR (?3='publicity' AND COALESCE(json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND {publicity}) OR (?3='publicity_signal' AND {signal})) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4", publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL);
+            let sql=format!("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1),(SELECT category FROM feedback_categories c WHERE c.message_id=m.id AND c.username=?1) FROM messages m WHERE (m.created>=?5 OR m.raw_present=1) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1 AND (?7='' OR lower(substr(d.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(d.destination,-length(?7)-1))='@'||lower(?7))) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0 OR EXISTS(SELECT 1 FROM deliveries sd JOIN console_access sg ON sg.delivery_id=sd.id WHERE sd.message_id=m.id AND sg.username=?1 AND instr(lower(sd.address),lower(?2))>0)) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='review' AND json_extract(m.scan,'$.complete')=1 AND COALESCE(json_extract(m.scan,'$.delivery_classification')='undetermined',json_extract(m.scan,'$.decision.outcome')='undetermined')) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0) OR (?3='quarantined' AND EXISTS(SELECT 1 FROM deliveries qd JOIN console_access qg ON qg.delivery_id=qd.id WHERE qd.message_id=m.id AND qg.username=?1 AND qd.status='quarantined' AND (?7='' OR lower(substr(qd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(qd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending') AND (?7='' OR lower(substr(pd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(pd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='legitimate' AND COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND NOT {publicity}) OR (?3='publicity' AND COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND {publicity}) OR (?3='publicity_signal' AND {signal})) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4", publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL);
             let mut q=db.prepare(&sql)?;
             let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?,r.get::<_,Option<String>>(5)?)))?;
             let mut out=Vec::new();
@@ -461,9 +495,9 @@ impl Store {
                 let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
                 let category=crate::mailing::category(&s,threshold);
                 let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
-                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2")?;
-                let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(VisibleMail{quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,fusion:s.fusion});
+                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2")?;
+                let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                out.push(VisibleMail{delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,fusion:s.fusion});
             }Ok(out)
         }).await
     }

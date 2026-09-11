@@ -15,6 +15,7 @@ pub struct Config {
     pub web: Web,
     pub filter: Filter,
     pub actions: Option<crate::actions::Policy>,
+    pub custom_filtering: Option<crate::custom_filtering::Policy>,
     pub fusion: Option<crate::fusion::runtime::Settings>,
     pub smtp_policy: Option<crate::smtp_policy::PolicyConfig>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
@@ -442,8 +443,22 @@ impl Config {
         crate::rules::validate(&self.filter.rule_weights)?;
         let actions = crate::actions::Policy::from_config(self);
         actions.validate()?;
-        let spam_tag = actions.spam_tag();
-        let pub_tag = self.mailing.is_some() && actions.publicity == crate::actions::Action::Tag;
+        if let Some(p) = &self.custom_filtering {
+            p.validate(self)?;
+        }
+        let custom_tags = self
+            .custom_filtering
+            .as_ref()
+            .map(|p| p.tags())
+            .unwrap_or_default();
+        let spam_tag = actions.spam_tag() || custom_tags.0;
+        let pub_tag = ((self.mailing.is_some() || self.custom_filtering.is_some())
+            && actions.publicity == crate::actions::Action::Tag)
+            || custom_tags.1;
+        ensure!(
+            self.filter.mode == Mode::Observe || !pub_tag || self.mailing.is_some(),
+            "PUB tagging requires a validated mailing configuration"
+        );
         if self.filter.mode != Mode::Observe && (spam_tag || pub_tag) {
             ensure!(
                 arc_count == 3 && self.filter.authentication,

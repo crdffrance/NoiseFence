@@ -831,3 +831,160 @@ async fn smtp_accepts_spam_and_pub_durably_into_quarantine_without_rewriting_sub
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn scoped_filtering_splits_wire_once_and_keeps_recipient_actions_and_acl() {
+    use noisefence::{actions::Action, config::Mode, custom_filtering::*, mailing::Category};
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.mode = Mode::Enforce;
+    cfg.actions = Some(noisefence::actions::Policy {
+        spam: Action::Deliver,
+        publicity: Action::Deliver,
+        malware: Action::Quarantine,
+        quarantine_days: 14,
+    });
+    cfg.custom_filtering = Some(Policy {
+        rules: vec![
+            Rule {
+                id: "billing".into(),
+                name: "Publicité facturation".into(),
+                enabled: true,
+                priority: 10,
+                scope: "billing@example.test".into(),
+                expires: None,
+                any: false,
+                conditions: vec![Condition {
+                    field: Field::Subject,
+                    op: Operator::Contains,
+                    value: "demain".into(),
+                }],
+                category: Some(Category::Publicity),
+                action: Some(Action::Quarantine),
+                stop: true,
+            },
+            Rule {
+                id: "bob".into(),
+                name: "Spam Bob".into(),
+                enabled: true,
+                priority: 20,
+                scope: "bob@example.test".into(),
+                expires: None,
+                any: false,
+                conditions: vec![Condition {
+                    field: Field::Subject,
+                    op: Operator::Contains,
+                    value: "demain".into(),
+                }],
+                category: Some(Category::Spam),
+                action: Some(Action::Deliver),
+                stop: true,
+            },
+        ],
+        ..Default::default()
+    });
+    let mut alice_rule = cfg.custom_filtering.as_ref().unwrap().rules[0].clone();
+    alice_rule.id = "alice".into();
+    alice_rule.priority = 30;
+    alice_rule.name = "Publicité Alice".into();
+    alice_rule.scope = "alice@example.test".into();
+    alice_rule.action = Some(Action::Deliver);
+    cfg.custom_filtering
+        .as_mut()
+        .unwrap()
+        .rules
+        .push(alice_rule);
+    cfg.validate().unwrap();
+    let cfg = Arc::new(cfg);
+    let store = Store::open(root.path()).unwrap();
+    let (addr, stop, task) = server(cfg.clone(), store.clone()).await;
+    let mut io = client(addr).await;
+    assert_eq!(command(&mut io, "EHLO example.org\r\n").await, 250);
+    assert_eq!(
+        command(&mut io, "MAIL FROM:<sender@example.org>\r\n").await,
+        250
+    );
+    for address in [
+        "alice@example.test",
+        "billing@example.test",
+        "bob@example.test",
+    ] {
+        assert_eq!(
+            command(&mut io, &format!("RCPT TO:<{address}>\r\n")).await,
+            250
+        );
+    }
+    assert_eq!(command(&mut io, "DATA\r\n").await, 354);
+    io.write_all(common::MESSAGE).await.unwrap();
+    io.write_all(b".\r\n").await.unwrap();
+    io.flush().await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    let rows=store.run(|db| {
+        db.execute("INSERT INTO users(username,password) VALUES('alice','test'),('bob','test')",[])?;
+        db.execute("INSERT INTO grants(username,address) VALUES('alice','alice@example.test'),('bob','bob@example.test')",[])?;
+        let mut q=db.prepare("SELECT m.id,d.address,d.status,m.scan,f.assessment FROM deliveries d JOIN messages m ON m.id=d.message_id JOIN delivery_filtering f ON f.delivery_id=d.id ORDER BY d.address")?;
+        Ok(q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)
+    }).await.unwrap();
+    assert_eq!(rows.len(), 3);
+    let mut transactions = std::collections::HashSet::new();
+    for (id, address, status, scan, assessment) in rows {
+        let scan: noisefence::engine::Scan = serde_json::from_str(&scan).unwrap();
+        let a: Assessment = serde_json::from_str(&assessment).unwrap();
+        transactions.insert(scan.transaction_id);
+        assert_eq!(
+            status,
+            if address.starts_with("billing") {
+                "quarantined"
+            } else {
+                "pending"
+            }
+        );
+        assert_eq!(
+            a.category,
+            if address.starts_with("billing") {
+                Category::Publicity
+            } else if address.starts_with("bob") {
+                Category::Spam
+            } else {
+                Category::Publicity
+            }
+        );
+        let wire = std::fs::read(store.raw_path(&id)).unwrap();
+        assert_eq!(
+            noisefence::message::fields(&wire).unwrap().1,
+            noisefence::message::fields(common::MESSAGE).unwrap().1
+        );
+    }
+    assert_eq!(transactions.len(), 1);
+    let bob = store
+        .list("bob".into(), "".into(), "spam".into(), 0, 95.0)
+        .await
+        .unwrap();
+    assert_eq!(bob.len(), 1);
+    assert_eq!(bob[0].recipients.len(), 1);
+    assert_eq!(bob[0].category, Category::Spam);
+    let alice = store
+        .list("alice".into(), "".into(), "publicity".into(), 0, 95.0)
+        .await
+        .unwrap();
+    assert_eq!(alice.len(), 1);
+    assert_eq!(alice[0].recipients.len(), 2);
+    assert!(alice[0].action.is_none());
+    assert!(
+        alice[0]
+            .recipients
+            .iter()
+            .any(|r| r.address == "billing@example.test" && r.status == "quarantined")
+    );
+    assert!(
+        alice[0]
+            .recipients
+            .iter()
+            .any(|r| r.address == "alice@example.test" && r.status == "pending")
+    );
+    assert!(!serde_json::to_string(&alice).unwrap().contains("Spam Bob"));
+    assert_eq!(command(&mut io, "QUIT\r\n").await, 221);
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+    store.recover().await.unwrap();
+}

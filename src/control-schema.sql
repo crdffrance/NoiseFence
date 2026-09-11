@@ -75,3 +75,16 @@ AFTER UPDATE OF spam,created ON feedback BEGIN
  DELETE FROM quality_labels WHERE username=NEW.username AND message_id=NEW.message_id;
 END;
 CREATE INDEX IF NOT EXISTS message_sender_history ON messages(CASE WHEN json_valid(scan) THEN json_extract(scan,'$.sender_history.key') END,created);
+
+CREATE TABLE IF NOT EXISTS delivery_filtering(
+ delivery_id INTEGER PRIMARY KEY REFERENCES deliveries(id) ON DELETE CASCADE,
+ assessment TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS console_invitations(
+ id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+ username TEXT NOT NULL, admin INTEGER NOT NULL, addresses TEXT NOT NULL,
+ creator TEXT NOT NULL REFERENCES users(username), creator_version INTEGER NOT NULL,
+ created INTEGER NOT NULL, expires INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+ revoked INTEGER, accepted INTEGER
+);
+CREATE INDEX IF NOT EXISTS invitation_expiry ON console_invitations(expires);

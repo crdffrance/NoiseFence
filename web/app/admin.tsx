@@ -1,4 +1,6 @@
 'use client';
+import { CustomFiltering, type CustomPolicy } from './custom-filtering';
+import { Invitations } from './onboarding';
 import { deliveryPolicy, restoreDefaults } from './policies';
 import { SectionTabs } from './console-ui';
 import { matchesAccount } from './presentation';
@@ -68,6 +70,7 @@ type Filters = {
   reputation: boolean;
 };
 type Settings = {
+  custom_filtering?: CustomPolicy | null;
   domains: Domain[];
   gateways: Gateway[];
   filters: Filters;
@@ -135,6 +138,7 @@ const filterSections = [
   { id: 'policy', label: 'Politique & actions' },
   { id: 'detectors', label: 'Moteurs de détection' },
   { id: 'rules', label: 'Poids des règles' },
+  { id: 'custom', label: 'Règles & profils' },
   { id: 'protection', label: 'Protection & réputation' },
   { id: 'mailing', label: 'Publicités & newsletters' },
 ] as const;
@@ -871,6 +875,25 @@ export function AdminConsole({
             onChange={setFilterSection}
           />
           <div
+            id="filters-panel-custom"
+            role="tabpanel"
+            aria-labelledby="filters-tab-custom"
+            hidden={filterSection !== 'custom'}
+            className="filter-section"
+          >
+            <CustomFiltering
+              policy={draft.custom_filtering}
+              onChange={(custom_filtering) =>
+                setDraft({ ...draft, custom_filtering })
+              }
+              domains={draft.domains
+                .filter((d) => d.enabled)
+                .map((d) => d.name)}
+              locked={config.threshold_locked}
+              csrf={user.csrf}
+            />
+          </div>
+          <div
             id="filters-panel-policy"
             role="tabpanel"
             aria-labelledby="filters-tab-policy"
@@ -1056,6 +1079,7 @@ export function AdminConsole({
       )}
       {section === 'users' && (
         <>
+          <Invitations user={user} />
           <div className="admin-summary">
             <span>
               <Users size={19} />
@@ -1551,6 +1575,16 @@ export function AdminConsole({
             <section className="change-review">
               <h2>Vérifier les modifications</h2>
               <ul>
+                {JSON.stringify(draft.custom_filtering) !==
+                  JSON.stringify(config.settings.custom_filtering) && (
+                  <li>
+                    Règles personnalisées :{' '}
+                    {draft.custom_filtering?.rules.length || 0} règles,{' '}
+                    {draft.custom_filtering?.profiles.length || 0} profils,{' '}
+                    {draft.custom_filtering?.bindings.length || 0} affectations.
+                    Les nouveaux messages seront évalués selon ce brouillon.
+                  </li>
+                )}
                 {changedDomains.map((d, i) => (
                   <li key={`d${i}`}>
                     Domaine <strong>{d.name || '(nom manquant)'}</strong> :{' '}

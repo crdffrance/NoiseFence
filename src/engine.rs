@@ -59,6 +59,10 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_classification: Option<crate::mailing::Category>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
     /// Exact decision settings at analysis time; absent on historical messages.
     #[serde(default)]
     pub analysis_policy: Option<crate::diagnostics::AnalysisPolicy>,
@@ -966,15 +970,18 @@ impl Engine {
         sender: &str,
         id: &str,
     ) -> Result<(Scan, Vec<u8>)> {
-        self.process_with_source(
-            raw,
-            ip,
-            helo,
-            sender,
-            id,
-            (crate::evidence::Source::SuppliedEnvelope, &[]),
-        )
-        .await
+        let mut variants = self
+            .process_with_source(
+                raw,
+                ip,
+                helo,
+                sender,
+                id,
+                (crate::evidence::Source::SuppliedEnvelope, &[], &[]),
+            )
+            .await?;
+        let variant = variants.remove(0);
+        Ok((variant.scan, variant.raw))
     }
     pub(crate) async fn process_smtp(
         &self,
@@ -984,7 +991,7 @@ impl Engine {
         sender: &str,
         id: &str,
         recipients: &[crate::config::Recipient],
-    ) -> Result<(Scan, Vec<u8>)> {
+    ) -> Result<Vec<crate::store::QueueVariant>> {
         let scopes: Vec<_> = recipients
             .iter()
             .filter_map(|r| {
@@ -1001,7 +1008,7 @@ impl Engine {
             helo,
             sender,
             id,
-            (crate::evidence::Source::SmtpSession, &scopes),
+            (crate::evidence::Source::SmtpSession, &scopes, recipients),
         )
         .await
     }
@@ -1012,8 +1019,12 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        context: (crate::evidence::Source, &[String]),
-    ) -> Result<(Scan, Vec<u8>)> {
+        context: (
+            crate::evidence::Source,
+            &[String],
+            &[crate::config::Recipient],
+        ),
+    ) -> Result<Vec<crate::store::QueueVariant>> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
         scan.features_complete.get_or_insert(scan.complete);
@@ -1175,7 +1186,7 @@ impl Engine {
         // reputation checks. Keep completeness false and the delivery fallback.
         // Extraction and signature limits still bound parsing/authentication work.
         if !scan.features_complete.unwrap_or(scan.complete) || excessive_signatures {
-            return self.finish_unchecked(raw, scan, ip, id, started);
+            return self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2));
         }
         let work = async {
             let authenticated =
@@ -1365,56 +1376,75 @@ impl Engine {
                 Self::check_llm(&mut scan);
             }
             self.decide(&mut scan);
-            scan.action = Some(crate::actions::evaluate(&scan, &self.config));
-            let subject_tag = crate::decision::subject_tag(&scan, &self.config);
-            let tag = subject_tag == Some(message::SubjectTag::Spam);
-            let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
-            // If the chain cannot be extended, preserve the signed subject and fail open.
-            if (tag || pub_tag) && !arc.can_be_sealed() {
-                anyhow::bail!("ARC chain cannot be extended");
-            }
-            scan.tagged = tag;
-            scan.pub_tagged = pub_tag;
-            let mut bytes = message::rewrite_with_tag(
-                raw,
-                subject_tag,
-                &format!("{}{}", self.headers(ip, id, &scan), results.to_header()),
-            )?;
-            if let Some(key) = &self.arc_key
-                && arc.can_be_sealed()
-            {
-                let changed =
-                    AuthenticatedMessage::parse(&bytes).context("modified message parse")?;
-                let signature = ArcSealer::from_key(rsa_key(key)?)
-                    .domain(self.config.filter.arc_domain.as_deref().unwrap())
-                    .selector(self.config.filter.arc_selector.as_deref().unwrap())
-                    .headers([
-                        "From",
-                        "To",
-                        "Subject",
-                        "Date",
-                        "Message-ID",
-                        "MIME-Version",
-                        "Content-Type",
-                        "Content-Transfer-Encoding",
-                        "DKIM-Signature",
-                        "X-NoiseFence-Score",
-                        "X-NoiseFence-Status",
-                        "X-NoiseFence-Decision",
-                        "X-NoiseFence-Decision-Source",
-                        "X-NoiseFence-Category",
-                    ])
-                    .seal(&changed, &results, &arc)?;
-                bytes = [signature.to_header().as_bytes(), &bytes].concat();
-            }
-            Ok::<_, anyhow::Error>(bytes)
+            self.variants(raw, &scan, sender, id, context.2, |scan, variant_id| {
+                let subject_tag = if scan
+                    .action
+                    .as_ref()
+                    .is_some_and(|a| a.effective == crate::actions::Action::Tag)
+                {
+                    match crate::mailing::category(scan, self.config.filter.threshold) {
+                        crate::mailing::Category::Spam => Some(message::SubjectTag::Spam),
+                        crate::mailing::Category::Publicity => Some(message::SubjectTag::Publicity),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let tag = subject_tag == Some(message::SubjectTag::Spam);
+                let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
+                // If the chain cannot be extended, preserve the signed subject and fail open.
+                if (tag || pub_tag) && !arc.can_be_sealed() {
+                    anyhow::bail!("ARC chain cannot be extended");
+                }
+                scan.tagged = tag;
+                scan.pub_tagged = pub_tag;
+                let mut bytes = message::rewrite_with_tag(
+                    raw,
+                    subject_tag,
+                    &format!(
+                        "{}{}",
+                        self.headers(ip, variant_id, scan),
+                        results.to_header()
+                    ),
+                )?;
+                if let Some(key) = &self.arc_key
+                    && arc.can_be_sealed()
+                {
+                    let changed =
+                        AuthenticatedMessage::parse(&bytes).context("modified message parse")?;
+                    let signature = ArcSealer::from_key(rsa_key(key)?)
+                        .domain(self.config.filter.arc_domain.as_deref().unwrap())
+                        .selector(self.config.filter.arc_selector.as_deref().unwrap())
+                        .headers([
+                            "From",
+                            "To",
+                            "Subject",
+                            "Date",
+                            "Message-ID",
+                            "MIME-Version",
+                            "Content-Type",
+                            "Content-Transfer-Encoding",
+                            "DKIM-Signature",
+                            "X-NoiseFence-Score",
+                            "X-NoiseFence-Status",
+                            "X-NoiseFence-Decision",
+                            "X-NoiseFence-Decision-Source",
+                            "X-NoiseFence-Category",
+                        ])
+                        .seal(&changed, &results, &arc)?;
+                    bytes = [signature.to_header().as_bytes(), &bytes].concat();
+                }
+                Ok(bytes)
+            })
         };
         match tokio::time::timeout(Duration::from_secs(5), work).await {
-            Ok(Ok(bytes)) => {
-                scan.elapsed_ms = started.elapsed().as_millis() as u64;
+            Ok(Ok(mut variants)) => {
+                for v in &mut variants {
+                    v.scan.elapsed_ms = started.elapsed().as_millis() as u64;
+                }
                 // decide() already snapshotted detector availability. A fusion
                 // profile failure must not rewrite those observations as failed checks.
-                Ok((scan, bytes))
+                Ok(variants)
             }
             _ => {
                 scan.complete = false;
@@ -1425,9 +1455,81 @@ impl Engine {
                     detail: "Vérifications incomplètes ou délai dépassé".into(),
                     weight: 0.0,
                 });
-                self.finish_unchecked(raw, scan, ip, id, started)
+                self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2))
             }
         }
+    }
+    fn variants(
+        &self,
+        raw: &[u8],
+        scan: &Scan,
+        sender: &str,
+        id: &str,
+        recipients: &[crate::config::Recipient],
+        mut render: impl FnMut(&mut Scan, &str) -> Result<Vec<u8>>,
+    ) -> Result<Vec<crate::store::QueueVariant>> {
+        use crate::{actions::Action, store::QueueVariant};
+        let mut variants: Vec<QueueVariant> = Vec::new();
+        let mut base = scan.clone();
+        base.action = Some(crate::actions::evaluate(scan, &self.config));
+        if let Some(policy) = &self.config.custom_filtering
+            && !recipients.is_empty()
+        {
+            let facts = crate::custom_filtering::Facts::message(
+                raw,
+                sender,
+                scan,
+                self.config.filter.max_analysis_bytes,
+            );
+            let prepared = crate::custom_filtering::Prepared::new(policy, &facts);
+            for recipient in recipients {
+                let assessment = crate::custom_filtering::assess_prepared(
+                    policy,
+                    &self.config,
+                    scan,
+                    &prepared,
+                    recipient,
+                    crate::now(),
+                );
+                let category = assessment.category;
+                let tag = assessment.action.effective == Action::Tag;
+                if let Some(v) = variants.iter_mut().find(|v| {
+                    v.scan.delivery_classification == Some(category)
+                        && (v.scan.tagged || v.scan.pub_tagged) == tag
+                }) {
+                    v.recipients.push((recipient.clone(), Some(assessment)));
+                    // Distinct per-recipient actions are shown on the delivery, not as a global assertion.
+                    v.scan.action = None;
+                } else {
+                    let mut s = base.clone();
+                    s.delivery_classification = Some(category);
+                    s.transaction_id = Some(id.into());
+                    s.action = Some(assessment.action.clone());
+                    let variant_id = if variants.is_empty() {
+                        id.to_owned()
+                    } else {
+                        uuid::Uuid::new_v4().to_string()
+                    };
+                    let wire = render(&mut s, &variant_id)?;
+                    variants.push(QueueVariant {
+                        id: variant_id,
+                        scan: s,
+                        raw: wire,
+                        recipients: vec![(recipient.clone(), Some(assessment))],
+                    });
+                }
+            }
+        } else {
+            let wire = render(&mut base, id)?;
+            variants.push(QueueVariant {
+                id: id.into(),
+                scan: base,
+                raw: wire,
+                recipients: recipients.iter().cloned().map(|r| (r, None)).collect(),
+            });
+        }
+        anyhow::ensure!(variants.len() <= 6, "too many policy wire variants");
+        Ok(variants)
     }
     fn headers(&self, ip: IpAddr, id: &str, scan: &Scan) -> String {
         use crate::fusion::runtime::{DecisionSource, Outcome};
@@ -1477,15 +1579,17 @@ impl Engine {
         ip: IpAddr,
         id: &str,
         started: Instant,
-    ) -> Result<(Scan, Vec<u8>)> {
+        context: (&str, &[crate::config::Recipient]),
+    ) -> Result<Vec<crate::store::QueueVariant>> {
         self.score(&mut scan);
         scan.tagged = false;
         scan.pub_tagged = false;
         self.decide(&mut scan);
         scan.action = Some(crate::actions::evaluate(&scan, &self.config));
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
-        let bytes = message::rewrite(raw, false, &self.headers(ip, id, &scan))?;
-        Ok((scan, bytes))
+        self.variants(raw, &scan, context.0, id, context.1, |scan, variant_id| {
+            message::rewrite(raw, false, &self.headers(ip, variant_id, scan))
+        })
     }
 }
 pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {

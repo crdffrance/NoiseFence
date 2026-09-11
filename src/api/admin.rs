@@ -14,7 +14,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/protection", get(protection_status))
         .route("/admin/protection/keys/{provider}", post(protection_key))
 }
-async fn administrator(app: &App, h: &HeaderMap, write: bool) -> ApiResult<User> {
+pub(super) async fn administrator(app: &App, h: &HeaderMap, write: bool) -> ApiResult<User> {
     let user = authenticated(app, h).await?;
     if !user.admin {
         return Err(Error(
@@ -87,7 +87,7 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
         "available":Settings::from_config(&control.base).filters,
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
-        "threshold_locked":control.base.filter.semantic.is_some(),"tag_ready":tag_ready,
+        "threshold_locked":control.base.filter.semantic.is_some() || control.base.fusion.as_ref().is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision),"tag_ready":tag_ready,
         "mailing_available":control.base.mailing.is_some(),"pub_tag_ready":pub_tag_ready,
         "hostname":control.base.hostname,"version":env!("CARGO_PKG_VERSION"),
         "tls_required":true,"max_connections":control.base.smtp.max_connections,
@@ -193,40 +193,8 @@ async fn save_user(
     let invalid = || {
         Error(StatusCode::BAD_REQUEST,"Compte invalide : vérifiez l’identifiant, les accès et le mot de passe (12 à 128 octets).".into())
     };
-    if body.username.is_empty()
-        || body.username.len() > 100
-        || !body
-            .username
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-@".contains(&b))
-        || body.addresses.len() > 1000
-    {
-        return Err(invalid());
-    }
-    let cfg = app.effective();
-    for address in &mut body.addresses {
-        let Some((local, domain)) = address.rsplit_once('@') else {
-            return Err(invalid());
-        };
-        if !(local == "*" || crate::config::valid_address(address))
-            || !cfg
-                .domains
-                .iter()
-                .any(|d| d.name.eq_ignore_ascii_case(domain))
-        {
-            return Err(invalid());
-        }
-        let normalized = if local == "*" {
-            format!("*@{}", domain.to_ascii_lowercase())
-        } else {
-            cfg.recipient(address)
-                .map(|r| r.destination)
-                .ok_or_else(invalid)?
-        };
-        *address = normalized;
-    }
-    body.addresses.sort();
-    body.addresses.dedup();
+    super::onboarding::grants(&app.effective(), &body.username, &mut body.addresses)
+        .map_err(|_| invalid())?;
     if body
         .password
         .as_ref()

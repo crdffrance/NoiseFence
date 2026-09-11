@@ -137,3 +137,12 @@ test('account search combines access scope and role without dropping disabled ac
   assert.equal(matchesAccount(account, '', 'admin'), false);
   assert.equal(matchesAccount(account, 'bob', 'all'), false);
 });
+
+test('recipient classification is visible without rewriting the detector decision', () => {
+  const original={...mail,decision:{source:'fusion',outcome:'unwanted',score:99}};
+  assert.equal(classification({...original,delivery_classification:'publicity'}).label,'PUB');
+  assert.equal(classification({...original,delivery_classification:'legitimate'}).label,'Légitime');
+  assert.equal(original.decision.outcome,'unwanted');
+  assert.equal(classification({...original,complete:false,delivery_classification:'publicity'}).label,'Analyse incomplète');
+  assert.equal(classification({...original,decision:{source:'antivirus',outcome:'unwanted',score:null},delivery_classification:'legitimate'}).label,'Malware');
+});

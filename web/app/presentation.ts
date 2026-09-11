@@ -1,4 +1,5 @@
 type DecisionInput = {
+  delivery_classification?: string | null;
   category: string;
   complete: boolean;
   score: number;
@@ -42,6 +43,17 @@ export function classification(mail: DecisionInput, threshold?: number) {
   if (mail.decision?.source === 'antivirus')
     return { label: 'Malware', tone: 'spam' };
   if (!mail.complete) return { label: 'Analyse incomplète', tone: 'review' };
+  if (mail.delivery_classification)
+    return (
+      (
+        {
+          spam: { label: 'Spam', tone: 'spam' },
+          publicity: { label: 'PUB', tone: 'publicity' },
+          legitimate: { label: 'Légitime', tone: 'good' },
+          undetermined: { label: 'À vérifier', tone: 'review' },
+        } as Record<string, { label: string; tone: string }>
+      )[mail.delivery_classification] || { label: 'À vérifier', tone: 'review' }
+    );
   if (
     !mail.decision &&
     (threshold === undefined || !Number.isFinite(threshold))

@@ -324,7 +324,9 @@ async fn session(
                     continue;
                 }
                 if available_bytes(&state.store.root)?
-                    < cfg.smtp.minimum_free_bytes + cfg.smtp.max_message_bytes as u64
+                    < cfg.smtp.minimum_free_bytes
+                        + cfg.smtp.max_message_bytes as u64
+                            * if cfg.custom_filtering.is_some() { 6 } else { 1 }
                 {
                     reply(&mut io, "452 4.3.1 Insufficient storage\r\n").await?;
                     continue;
@@ -449,12 +451,10 @@ async fn session(
                     .process_smtp(&raw, peer.ip(), &helo, &sender, &id, &recipients)
                     .await;
                 let result = match result {
-                    Ok((scan, raw)) => {
+                    Ok(variants) => {
+                        let scan = &variants[0].scan;
                         tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
-                        state
-                            .store
-                            .enqueue(id.clone(), sender, recipients, scan, raw)
-                            .await
+                        state.store.enqueue_variants(sender, variants).await
                     }
                     Err(e) => Err(e),
                 };

@@ -5,6 +5,14 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.4.9] — 2026-09-11
+
+- Profils de sensibilité et actions par organisation, domaine et destinataire, avec héritage explicite et priorité des alias.
+- Règles personnalisées bornées, ordre, expiration, combinaisons ET/OU, simulation du brouillon et détail des décisions par destinataire.
+- Une analyse commune, des variantes de livraison indépendantes et une acceptation atomique après persistance de tous les messages.
+- Invitations d’accès à la console : liens temporaires à usage unique, révocation, choix du mot de passe, contrôle des droits à l’activation et audit. Aucun envoi automatique.
+- Conservation du mode observation, des validations Proton et de la priorité du malware. Stockage additif ; voir les précautions de [retour arrière](docs/custom-filtering.md).
+
 ## [0.4.8] — 2026-09-11
 
 ### Filtrage et validation

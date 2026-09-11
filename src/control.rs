@@ -53,6 +53,8 @@ pub struct Filters {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_filtering: Option<crate::custom_filtering::Policy>,
     pub gateways: Vec<Gateway>,
     pub domains: Vec<ManagedDomain>,
     pub filters: Filters,
@@ -101,6 +103,7 @@ impl Settings {
             })
             .collect();
         Self {
+            custom_filtering: config.custom_filtering.clone(),
             gateways,
             domains,
             protection: config.protection.as_ref().map(|c| c.policy.clone()),
@@ -238,6 +241,7 @@ impl Settings {
             );
         }
         cfg.actions = self.actions.clone();
+        cfg.custom_filtering = self.custom_filtering.clone();
         cfg.filter.rule_weights = f.rule_weights.clone();
         cfg.filter.mode = f.mode;
         cfg.filter.threshold = f.threshold;

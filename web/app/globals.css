@@ -161,12 +161,156 @@ body {
 }
 
 /* Evaluation workspace uses the existing console palette and panel rhythm. */
-.quality-console { display:grid; gap:1.25rem; }
-.quality-controls,.quality-annotation { display:flex; flex-wrap:wrap; gap:1rem; align-items:end; }
-.quality-controls label,.quality-annotation label { display:grid; gap:.4rem; min-width:10rem; flex:1; }
-.quality-controls { margin-top:1.25rem; }
-.quality-members { display:grid; gap:1rem; margin-top:1.25rem; }
-.quality-member { padding:1.25rem 0; border-top:1px solid var(--border); }
-.quality-member h3,.quality-member p { overflow-wrap:anywhere; }
-.quality-annotation { margin-top:.75rem; }
-.quality-console select { width:100%; min-height:2.5rem; padding:.5rem; border:1px solid var(--border); border-radius:.5rem; background:var(--background); color:inherit; }
+.quality-console {
+  display: grid;
+  gap: 1.25rem;
+}
+.quality-controls,
+.quality-annotation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+}
+.quality-controls label,
+.quality-annotation label {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 10rem;
+  flex: 1;
+}
+.quality-controls {
+  margin-top: 1.25rem;
+}
+.quality-members {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.quality-member {
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--border);
+}
+.quality-member h3,
+.quality-member p {
+  overflow-wrap: anywhere;
+}
+.quality-annotation {
+  margin-top: 0.75rem;
+}
+.quality-console select {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: inherit;
+}
+
+/* Scoped filtering and account invitations share the console's visual language. */
+.custom-filtering,
+.custom-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.custom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+}
+.custom-grid label,
+.custom-card > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+}
+.custom-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.custom-row > input,
+.custom-row > select {
+  flex: 1;
+  min-width: 150px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.section-heading h2 {
+  flex: 1;
+  margin: 0;
+}
+.filter-assessment,
+.invitation-result {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--muted);
+  overflow-wrap: anywhere;
+}
+.invitation-panel {
+  margin-bottom: 1.5rem;
+}
+.invitation-result {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+.invitation-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.onboarding-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+  background: radial-gradient(ellipse at top, #fff0e3, transparent 70%);
+}
+.onboarding-card {
+  width: min(100%, 560px);
+  padding: 2rem;
+  box-shadow: 0 20px 70px #12342812;
+}
+.onboarding-card h1 {
+  font-size: 1.8rem;
+  line-height: 1.2;
+  margin: 1rem 0;
+}
+.onboarding-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  color: #b85b25;
+  background: #ffeddc;
+  margin-bottom: 1rem;
+}
+@media (max-width: 600px) {
+  .condition-row > * {
+    width: 100%;
+  }
+  .custom-grid {
+    grid-template-columns: 1fr;
+  }
+  .invitation-item {
+    flex-wrap: wrap;
+  }
+  .onboarding-card {
+    padding: 1.25rem;
+  }
+}
