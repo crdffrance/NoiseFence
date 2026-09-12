@@ -72,12 +72,31 @@ class QualityTests(unittest.TestCase):
         data.append({'type':'footer','rows':1020})
         return data
 
+    def test_native_features_can_be_learned_and_removed_without_legacy_feature_leakage(self):
+        data=copy.deepcopy(self.data)
+        names=[f['name'] for f in self.q.PROTOCOL['features']]
+        index=names.index('native.content_points')
+        for row in data[1:-1]:
+            row['kind']=None
+            row['quality']['values']=[0.]*len(names)
+            row['quality']['values'][index]=.2 if row['risk']=='spam' else -.2
+        path=self.root/'native-only.jsonl';self.write(path,data)
+        _,rows,_,_,_=self.q.load_dataset(path)
+        parts,_=self.q.partition(rows,'risk',self.q.chronological_cuts(data[1:-1]))
+        learned=self.q.fit_risk(parts)[0]
+        self.assertGreater(learned['weights'][index],0)
+        without=self.q.fit_risk(parts,{f['family'] for f in self.q.PROTOCOL['features']}-{'native_content'})[0]
+        self.assertEqual(without['weights'][index],0)
+        self.assertTrue(all(w==0 for w in without['weights']))
+
     def test_candidate_is_shadow_only_and_includes_calibration_ablation_and_intervals(self):
         report=self.report
         self.assertEqual(report['status'],'candidate_prepared')
         self.assertFalse(report['eligible'])
         self.assertTrue(report['observation_only'])
-        self.assertEqual(len(report['ablations']),9)
+        self.assertEqual(len(report['ablations']),11)
+        self.assertIn('without_native',report['ablations'])
+        self.assertIn('without_native_bayes',report['ablations'])
         self.assertIsNotNone(report['risk']['test']['fpr_ci95'])
         self.assertGreater(report['risk']['test']['fpr_ci95'][1],.001)
         self.assertEqual(len(report['mail_kind']['confusion']),6)

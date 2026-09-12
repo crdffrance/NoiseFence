@@ -5,6 +5,16 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-12
+
+- Console Fiabilité pour administrateurs et utilisateurs : historique cloisonné, annotations et corrections ciblées séparées, métriques avec intervalles, disponibilité des contrôles, variations du trafic et groupes de collecte.
+- Audit Rust borné des règles : occurrences, cooccurrences, regroupements et retrait de poids sur les observations historiques rejouables ; comparaison des candidats enregistrés sans modifier les décisions.
+- Compatibilité de collecte liée au code Rust/SQL, aux dépendances, à la compilation, aux paramètres et aux modèles. Une simple version applicative ne suffit plus à fragmenter les observations ; les anciens artefacts restent strictement distincts.
+- Entrées natives de contenu, campagne et Bayes dans le candidat calibré, avec états manquants explicites et onze ablations. Aucun modèle entraîné privé ni activation automatique.
+- Motifs natifs plus contextuels : normalisation bornée de certains caractères invisibles et pleine chasse, demandes de récupération distinguées des avertissements français/anglais, HTML inerte exclu des formulaires.
+- Contrôle local borné de la date annoncée par ClamD et checklists de compatibilité Proton SPAM/PUB ; une acceptation SMTP ne valide pas le dossier d’arrivée.
+- Migration des protocoles de candidats et contenu natif ; stockage SQLite inchangé. Voir [la migration et le protocole de validation](docs/reliability.md). La qualité de capture en production reste à mesurer sur des annotations récentes indépendantes.
+
 ## [0.4.15] — 2026-09-12
 
 - Moteur complémentaire natif Rust : motifs compilés et groupés par vue MIME, symboles explicites, composites déterministes et plafonds de contribution par famille. Les contributions remplacées restent visibles dans les diagnostics.

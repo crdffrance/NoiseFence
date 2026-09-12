@@ -206,7 +206,7 @@ impl Client {
                 .no_proxy()
                 .connect_timeout(Duration::from_millis(500))
                 .timeout(Duration::from_millis(config.timeout_ms))
-                .user_agent(concat!("NoiseFence/", env!("CARGO_PKG_VERSION")))
+                .user_agent("NoiseFence/1 Reputation-check")
                 .build()?,
             db: Arc::new(Mutex::new(db)),
             gate: Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),

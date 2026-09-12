@@ -78,6 +78,7 @@ pub async fn run(path: &Path, iterations: usize, concurrency: usize) -> Result<R
     let mut patterns = rules::default_patterns();
     for i in patterns.len()..128 {
         patterns.push(rules::Pattern {
+            exclude_negated: false,
             id: format!("BENCH_{i}"),
             label: "Benchmark literal".into(),
             family: rules::Family::Content,

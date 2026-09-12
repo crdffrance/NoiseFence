@@ -749,17 +749,17 @@ impl Engine {
             fusion.apply(scan);
         }
         crate::decision::apply(scan, self.config.filter.require_corroboration);
-        scan.quality = Some(crate::quality::snapshot_bound(
-            scan,
-            self.quality.as_ref(),
-            Some(&self.quality_policy),
-        ));
         if let (Some(runtime), Some(mut observation)) =
             (&self.native_filter, scan.native_filter.take())
         {
             runtime.finish(&mut observation, scan);
             scan.native_filter = Some(observation);
         }
+        scan.quality = Some(crate::quality::snapshot_bound(
+            scan,
+            self.quality.as_ref(),
+            Some(&self.quality_policy),
+        ));
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
         if matches!(

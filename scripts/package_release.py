@@ -57,8 +57,8 @@ def main():
     if (ROOT/'release/third-party-licenses').is_dir():
         shutil.copytree(ROOT/'release/third-party-licenses',output/'third-party-licenses')
     source=hashlib.sha256()
-    inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', ROOT/'src/control-schema.sql', *sorted((ROOT/'src').rglob('*.rs')),
-              ROOT/'research/fusion-protocol.json', ROOT/'research/quality-protocol.json', ROOT/'research/encoder-runtime.lock.json',
+    inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', ROOT/'build.rs', ROOT/'build_support.rs', ROOT/'src/control-schema.sql', *sorted((ROOT/'src').rglob('*.rs')),
+              ROOT/'research/fusion-protocol.json', ROOT/'research/quality-protocol.json', ROOT/'research/semantic-protocol.json', ROOT/'research/encoder-runtime.lock.json',
               ROOT/'deploy/vision-worker.py', ROOT/'deploy/update-url-feed.py']
     for p in sorted(inputs):
         source.update(str(p.relative_to(ROOT)).encode() + b'\0')

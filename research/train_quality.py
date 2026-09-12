@@ -257,11 +257,13 @@ def train(dataset, destination, version, base_history=None):
     report.update(status='candidate_prepared',risk=risk_report,mail_kind=kind_report)
     families={f['family'] for f in PROTOCOL['features']}
     variants={'without_llm':families-{'llm'},'without_providers':families-{'external_reputation','reputation'},
-              'without_sender_history':families-{'sender_history','campaign'},
+              'without_sender_history':families-{'sender_history','campaign','native_campaign'},
+              'without_native':families-{'native_content','native_campaign','native_bayes'},
+              'without_native_bayes':families-{'native_bayes'},
               'without_semantic':families-{'semantic'},'without_lexical':families-{'lexical'},
               'without_identity':families-{'identity_context','authentication'},
               'without_vision':families-{'vision'},'without_mail_type':families-{'mail_type'},
-              'content_only':{'lexical','semantic','llm','mail_type'}}
+              'content_only':{'lexical','semantic','llm','mail_type','native_content','native_bayes'}}
     report['ablations']={name:fit_risk(parts,selected)[4] for name,selected in variants.items()}
     report['baseline']=dict(Counter((r.get('legacy_decision') or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
     report['slices']={}

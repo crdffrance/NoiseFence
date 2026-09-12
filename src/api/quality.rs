@@ -86,8 +86,34 @@ async fn readiness(
             .map_err(|_| Error(StatusCode::NOT_FOUND, "Échantillon introuvable.".into()))?,
     ))
 }
+async fn reliability(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Query(options): Query<crate::reliability::Options>,
+) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &headers).await?;
+    options.validate().map_err(|_| {
+        Error(
+            StatusCode::BAD_REQUEST,
+            "Période ou domaine invalide.".into(),
+        )
+    })?;
+    let mut report = crate::reliability::audit(&app.store, user.username, options).await?;
+    if user.admin {
+        let config = app.effective();
+        let (antivirus, signatures) = tokio::join!(
+            crate::reliability::health::check(config.antivirus.as_ref()),
+            crate::reliability::health::check(config.signatures.as_ref())
+        );
+        report["system"] = json!({"antivirus":antivirus,"signatures":signatures,"proton":crate::reliability::proton::checklist(&config),
+            "quality_candidate_configured":config.quality.as_ref().is_some_and(|q|q.candidate.is_some()),
+            "native_bayes_configured":config.native_filter.as_ref().is_some_and(|n|n.bayes_model.is_some())});
+    }
+    Ok(Json(report))
+}
 pub(super) fn routes() -> Router<App> {
     Router::new()
+        .route("/quality/reliability", get(reliability))
         .route("/quality/samples", get(list).post(create))
         .route("/quality/samples/{id}", get(members))
         .route("/quality/samples/{id}/readiness", get(readiness))

@@ -314,3 +314,23 @@ body {
     padding: 1.25rem;
   }
 }
+
+/* Recipient-scoped reliability dashboard. */
+.reliability-console { grid-template-columns:minmax(0,1fr); min-width:0; }
+.reliability-console > .panel,.reliability-columns > * { min-width:0; }
+.reliability-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.reliability-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.reliability-stat { display:flex; flex-direction:column; gap:6px; padding:16px; border:1px solid var(--border); border-radius:12px; }
+.reliability-stat strong { font-size:1.7rem; font-variant-numeric:tabular-nums; }
+.reliability-stat span,.reliability-measures dt { color:var(--muted-foreground); font-size:.85rem; }
+.reliability-measures { display:grid; gap:16px; }
+.reliability-measures dd { margin:4px 0 0; font-variant-numeric:tabular-nums; }
+.reliability-table { overflow-x:auto; margin:16px 0; }
+.reliability-table table { width:100%; border-collapse:collapse; font-size:.85rem; }
+.reliability-table th,.reliability-table td { text-align:left; padding:12px; border-bottom:1px solid var(--border); vertical-align:top; }
+.reliability-table small { display:block; margin-top:4px; }
+.reliability-checklist { list-style:none; padding:0; }
+.reliability-checklist li { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); font-size:.85rem; }
+.reliability-console code { overflow-wrap:anywhere; }
+.reliability-console summary { cursor:pointer; padding:8px 0; }
+@media(max-width:900px) { .reliability-columns {grid-template-columns:1fr;} .reliability-grid {grid-template-columns:repeat(2,minmax(0,1fr));} }

@@ -64,6 +64,7 @@ pub fn policy_hash(config: &crate::config::Config) -> String {
         "protection":config.protection.as_ref().map(|p|serde_json::json!({"policy":p.policy,"timeout_ms":p.timeout_ms,"max_parallel":p.max_parallel,"url_resolution":p.url_resolution,
             "crdf_quota":[p.crdf_per_minute,p.crdf_per_day],"vt_quota":[p.virustotal_per_minute,p.virustotal_per_day]})),
         "mailing":config.mailing.as_ref().map(|m|&m.policy),
+        "native_filter":config.native_filter.as_ref().map(|n|serde_json::json!({"mode":n.mode,"max_bytes":n.max_bytes,"max_parallel":n.max_parallel,"timeout_ms":n.timeout_ms,"fuzzy_memory":n.fuzzy_memory,"patterns":n.patterns,"composites":n.composites,"caps":n.caps})),
         "protected_domains":config.domains.iter().map(|d|&d.name).collect::<Vec<_>>()});
     message::digest(&serde_json::to_vec(&policy).expect("quality policy"))
 }
@@ -345,8 +346,16 @@ pub fn snapshot_bound(scan: &Scan, model: Option<&Model>, policy: Option<&str>) 
         return report;
     };
     report.source = token(evidence.source);
-    report.artifacts_sha256 =
-        message::digest(&serde_json::to_vec(&(&evidence.artifacts, policy)).expect("artifacts"));
+    report.artifacts_sha256 = message::digest(
+        &serde_json::to_vec(&(
+            evidence.artifacts.compatible_view(),
+            policy,
+            scan.native_filter
+                .as_ref()
+                .map(|n| (&n.report.policy_sha256, &n.report.bayes_sha256)),
+        ))
+        .expect("artifacts"),
+    );
     report.availability_profile = fusion::availability_profile(evidence);
     let Ok(base) = fusion::features(evidence) else {
         report.candidate_status = "unsupported_evidence".into();
@@ -454,6 +463,52 @@ pub fn snapshot_bound(scan: &Scan, model: Option<&Model>, policy: Option<&str>) 
             "vision.lexical_logit".into(),
             scan.vision.lexical_logit.unwrap_or(0.0).clamp(-32.0, 32.0),
         );
+    }
+    if let Some(native) = &scan.native_filter {
+        let n = &native.report;
+        let state = token(n.status);
+        let bayes = n.bayes.status.as_str();
+        let fuzzy = token(n.fuzzy.status);
+        report
+            .availability_profile
+            .push_str(&format!("/{state}/{bayes}/{fuzzy}"));
+        values.insert(format!("native.state.{state}"), 1.0);
+        values.insert(format!("native.bayes.{bayes}"), 1.0);
+        values.insert(format!("native.fuzzy.{fuzzy}"), 1.0);
+        if n.status == crate::native_filter::Status::Complete {
+            if let Some(score) = &n.score {
+                for (family, name) in [
+                    (
+                        crate::native_filter::rules::Family::Content,
+                        "native.content_points",
+                    ),
+                    (
+                        crate::native_filter::rules::Family::Campaign,
+                        "native.campaign_points",
+                    ),
+                ] {
+                    if let Some(weight) = score.families.get(&family) {
+                        values.insert(name.into(), weight.effective / 5.0);
+                    }
+                }
+            }
+            if n.bayes.status == "complete" {
+                values.insert(
+                    "native.bayes.log_odds_clipped_32".into(),
+                    n.bayes.raw_log_odds.unwrap_or(0.0).clamp(-32.0, 32.0) / 32.0,
+                );
+            }
+            if n.fuzzy.status == crate::native_filter::Status::Complete {
+                values.insert("native.fuzzy.conflict".into(), f64::from(n.fuzzy.conflict));
+            }
+        }
+    } else {
+        report
+            .availability_profile
+            .push_str("/disabled/untrained/disabled");
+        values.insert("native.state.disabled".into(), 1.0);
+        values.insert("native.bayes.untrained".into(), 1.0);
+        values.insert("native.fuzzy.disabled".into(), 1.0);
     }
     report.values = specs()
         .iter()

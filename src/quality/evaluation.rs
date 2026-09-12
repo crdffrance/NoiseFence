@@ -97,9 +97,9 @@ pub async fn batches(store: &Store, username: String) -> Result<Vec<Value>> {
 pub async fn observation_start(store: &Store, username: String) -> Result<Option<i64>> {
     store.read(move |db| {
         Ok(db.query_row("SELECT MIN(m.created) FROM messages m WHERE m.is_dsn=0 AND m.created>=?2
-          AND CASE WHEN json_valid(m.scan) THEN json_extract(m.scan,'$.quality.schema') IS NOT NULL ELSE 0 END
+          AND CASE WHEN json_valid(m.scan) THEN json_extract(m.scan,'$.quality.protocol_sha256')=?3 AND substr(json_extract(m.scan,'$.evidence.artifacts.application'),-69)='-nf1.'||?4 ELSE 0 END
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1)",
-          params![username,now()-30*86400],|r|r.get(0))?)
+          params![username,now()-30*86400,super::protocol_hash(),crate::compatibility::DETECTOR_BUILD_SHA256],|r|r.get(0))?)
     }).await
 }
 pub async fn members(store: &Store, username: String, batch: String) -> Result<Vec<Value>> {

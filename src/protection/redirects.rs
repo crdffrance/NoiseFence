@@ -210,11 +210,7 @@ impl Resolver {
                 .resolve_to_addrs(host, &peers)
                 .connect_timeout(Duration::from_millis(500))
                 .timeout(Duration::from_millis(self.settings.timeout_ms))
-                .user_agent(concat!(
-                    "NoiseFence/",
-                    env!("CARGO_PKG_VERSION"),
-                    " URL-check"
-                ))
+                .user_agent("NoiseFence/1 URL-check")
                 .build()
                 .map_err(network_error)?;
             // Never forward cookies, authorization, referrers or provider keys.

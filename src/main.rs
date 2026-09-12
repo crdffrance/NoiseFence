@@ -38,6 +38,17 @@ enum Command {
         #[arg(long, default_value_t = 4)]
         concurrency: usize,
     },
+    /// Audit recipient-scoped observations and human corrections; never changes delivery.
+    ReliabilityAudit {
+        #[arg(long)]
+        username: String,
+        #[arg(long, default_value_t = 7)]
+        days: u32,
+        #[arg(long, default_value = "")]
+        domain: String,
+    },
+    /// Inspect the existing Proton compatibility evidence without activating tagging.
+    ProtonCheck,
     /// Export authorized human labels and private native features; no message bodies.
     NativeExport {
         #[arg(long)]
@@ -688,6 +699,29 @@ async fn main() -> Result<()> {
     }
     let store = Store::open(&config.data_dir)?;
     match cli.command {
+        Command::ReliabilityAudit {
+            username,
+            days,
+            domain,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &noisefence::reliability::audit(
+                        &store,
+                        username,
+                        noisefence::reliability::Options { days, domain }
+                    )
+                    .await?
+                )?
+            );
+        }
+        Command::ProtonCheck => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::reliability::proton::checklist(&config))?
+            );
+        }
         Command::NativeExport {
             username,
             domain,

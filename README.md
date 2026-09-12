@@ -185,3 +185,6 @@ consultatifs, regroupés sans changer le score calibré. Consulter
 [la configuration, les limites et l’import de flux](docs/protection.md).
 
 Configurer les [règles, profils et invitations](docs/custom-filtering.md) depuis la console.
+
+La page **Fiabilité** et son [guide](docs/reliability.md) expliquent les métriques,
+les limites des comparaisons, la collecte stable et la migration 0.5.0.

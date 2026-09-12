@@ -139,7 +139,7 @@ impl Runtime {
         let matcher = rules::Matcher::compile(&settings.patterns)?;
         let composites = rules::Composites::compile(&settings.composites, &settings.patterns)?;
         let policy_sha256 = crate::message::digest(&serde_json::to_vec(
-            &serde_json::json!({"version":VERSION,"application":env!("CARGO_PKG_VERSION"),"content":input::PROTOCOL,"settings":settings,"bayes":model_sha256}),
+            &serde_json::json!({"version":VERSION,"detector_build":crate::compatibility::DETECTOR_BUILD_SHA256,"content":input::PROTOCOL,"settings":settings,"bayes":model_sha256}),
         )?);
         Ok(Arc::new(Self {
             permits: Arc::new(Semaphore::new(settings.max_parallel)),

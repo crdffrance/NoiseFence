@@ -1,9 +1,10 @@
 //! Named symbols, compiled multi-pattern matching and deterministic composites.
 use super::input::Input;
 use anyhow::{Result, ensure};
-use regex::{RegexSet, RegexSetBuilder};
+use regex::{Regex, RegexBuilder, RegexSet, RegexSetBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +70,9 @@ pub struct Pattern {
     pub weight: f64,
     pub target: Target,
     pub pattern: String,
+    /// Ignore individually negated requests in French/English; never an allowlist.
+    #[serde(default)]
+    pub exclude_negated: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -110,7 +114,8 @@ pub fn default_patterns() -> Vec<Pattern> {
         ("NF_FORM", "Formulaire HTML", 0.5, Target::Html, r"(?i)<\s*form\b"),
         ("NF_UNSUBSCRIBE", "Mention de désabonnement", 0.0, Target::Body, r"(?i)\bunsubscribe\b|désabonn\p{L}*"),
     ].into_iter().map(|(id,label,weight,target,pattern)| Pattern {
-        id:id.into(), label:label.into(), family:Family::Content, weight, target, pattern:pattern.into()
+        id:id.into(), label:label.into(), family:Family::Content, weight, target, pattern:pattern.into(),
+        exclude_negated:id=="NF_WALLET_SECRET"
     }).collect()
 }
 pub fn default_composites() -> Vec<Composite> {
@@ -152,8 +157,47 @@ pub fn default_composites() -> Vec<Composite> {
     ]
 }
 
+/// A bounded matching view; original content and trained lexical features stay intact.
+/// Do not collapse multilingual joiners or confusable alphabets into Latin letters.
+fn match_text(text: &str) -> String {
+    text.chars()
+        .filter_map(|c| match c {
+            '\u{200b}' | '\u{feff}' | '\u{00ad}' | '\u{2060}' => None,
+            '\u{ff01}'..='\u{ff5e}' => char::from_u32(c as u32 - 0xfee0),
+            '\u{00a0}' => Some(' '),
+            '\u{2019}' => Some('\''),
+            _ => Some(c),
+        })
+        .collect()
+}
+fn negated(text: &str, start: usize, matched: &str) -> bool {
+    static BEFORE: OnceLock<Regex> = OnceLock::new();
+    static INSIDE: OnceLock<Regex> = OnceLock::new();
+    let before: String = text[..start]
+        .chars()
+        .rev()
+        .take(80)
+        .take_while(|c| !matches!(c, '.' | '!' | '?' | ';' | ':' | '\n'))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    BEFORE
+        .get_or_init(|| {
+            Regex::new(
+                r"(?i)\b(?:never(?:\s+ever)?|do\s+not|don't|ne\s+pas)\s+(?:[\p{L}']+\s+){0,4}$",
+            )
+            .unwrap()
+        })
+        .is_match(&before)
+        || INSIDE
+            .get_or_init(|| Regex::new(r"(?i)^\p{L}+\s+(?:jamais|pas)\b").unwrap())
+            .is_match(matched)
+}
+
+type MatchGroup = (Target, RegexSet, Vec<(Pattern, Option<Regex>)>);
 pub struct Matcher {
-    sets: Vec<(Target, RegexSet, Vec<Pattern>)>,
+    sets: Vec<MatchGroup>,
 }
 impl Matcher {
     pub fn compile(patterns: &[Pattern]) -> Result<Self> {
@@ -175,20 +219,50 @@ impl Matcher {
                 .dfa_size_limit(2 * 1024 * 1024)
                 .nest_limit(32)
                 .build()?;
+            let rules = rules
+                .into_iter()
+                .map(|rule| {
+                    let context = if rule.exclude_negated {
+                        ensure!(
+                            target == Target::Body,
+                            "negation context requires a body pattern"
+                        );
+                        Some(
+                            RegexBuilder::new(&rule.pattern)
+                                .size_limit(4 * 1024 * 1024)
+                                .dfa_size_limit(2 * 1024 * 1024)
+                                .nest_limit(32)
+                                .build()?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok((rule, context))
+                })
+                .collect::<Result<Vec<_>>>()?;
             sets.push((target, set, rules));
         }
         Ok(Self { sets })
     }
     pub fn inspect(&self, input: &Input) -> Vec<Symbol> {
         let mut out = Vec::new();
+        let subject = match_text(&input.subject);
+        let body = match_text(&input.body);
         for (target, set, rules) in &self.sets {
             let text = match target {
-                Target::Subject => &input.subject,
-                Target::Body => &input.body,
+                Target::Subject => &subject,
+                Target::Body => &body,
                 Target::Html => &input.html,
             };
             for index in set.matches(text) {
-                let rule = &rules[index];
+                let (rule, context) = &rules[index];
+                if context.as_ref().is_some_and(|regex| {
+                    !regex
+                        .find_iter(text)
+                        .any(|m| !negated(text, m.start(), m.as_str()))
+                }) {
+                    continue;
+                }
                 out.push(Symbol {
                     id: rule.id.clone(),
                     label: rule.label.clone(),

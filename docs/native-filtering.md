@@ -206,3 +206,24 @@ persistance et les autres analyseurs. Une accélération sur cette mesure ne
 démontre donc ni le débit complet du serveur, ni un gain de qualité antispam.
 Utiliser également les tests SMTP et la mesure `pipeline_probe` pour le système
 complet, avec les modèles et services réellement déployés.
+
+## Contexte des motifs depuis 0.5.0
+
+La vue de recherche normalise l’ASCII pleine chasse et certains caractères de
+coupure invisibles, sans convertir les alphabets confusables en lettres latines
+ni supprimer les jointures multilingues. Les modèles lexicaux actifs conservent
+leurs entrées. Les commentaires et blocs HTML inertes ne deviennent pas des
+formulaires natifs.
+
+Le champ facultatif `exclude_negated = true` s’applique uniquement aux motifs
+`target = "body"`. Chaque correspondance est examinée séparément : des formulations
+locales comme « never provide », « do not enter » ou « ne communiquez jamais »
+sont ignorées. La règle native de demande de phrase de récupération l’utilise par
+défaut. Un avertissement dans une phrase ne masque pas une demande explicite dans
+la suivante. Ce contrôle limité français/anglais ne constitue ni une compréhension
+générale du discours ni une liste blanche : citations, négations complexes et
+contenu dépassant la vue restent des cas à mesurer sur le corpus récent.
+
+Les points natifs alimentent aussi le candidat calibré, en observation, avec des
+ablations distinctes. Voir [Fiabilité](reliability.md) pour la mesure des règles,
+la compatibilité de collecte, les limites et la migration des modèles de 0.4.x.

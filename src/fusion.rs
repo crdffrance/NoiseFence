@@ -790,7 +790,7 @@ impl Model {
     pub fn predict(&self, evidence: &Evidence) -> Result<Prediction> {
         self.validate()?;
         ensure!(
-            self.artifacts == evidence.artifacts,
+            self.artifacts.equivalent(&evidence.artifacts),
             "fusion detector artifacts do not match the observations"
         );
         let values = features(evidence)?;

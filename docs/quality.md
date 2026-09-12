@@ -10,7 +10,7 @@ ni remplacer la décision de livraison. Aucun modèle privé n’est livré avec
 La page **Qualité du filtre** est disponible aux administrateurs et aux utilisateurs.
 Elle tire au sort 25 à 200 messages parmi ceux auxquels le compte a accès, dans
 une période et un domaine choisis. La période proposée commence avec la collecte
-introduite dans cette version. Elle inclut les analyses incomplètes. Le tirage
+liée au moteur et au protocole courants. Elle inclut les analyses incomplètes. Le tirage
 ne consulte aucun score ; sa graine, sa population et ses membres sont figés.
 Les messages arrivés ensuite ne modifient pas le lot.
 
@@ -239,3 +239,7 @@ mesures indépendantes nécessaires ne sont pas réunies.
 Pour revenir à 0.4.11 ou avant, retirer aussi tout candidat de format 2 de la
 configuration avant de démarrer l’ancien binaire. Les poids actifs historiques,
 les budgets externes et les règles de livraison ne sont pas changés par 0.4.13.
+
+Depuis 0.5.0, les entrées natives et leur disponibilité complètent le candidat.
+Le tableau **Fiabilité** décrit les groupes de collecte et les comparaisons.
+Voir [la procédure et la migration](reliability.md).

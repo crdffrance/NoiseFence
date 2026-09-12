@@ -400,3 +400,66 @@ fn independent_kind_availability_never_discards_a_valid_risk_prediction() {
     candidate.schema = "noisefence-quality-model-1".into();
     assert!(candidate.validate().is_err());
 }
+
+#[test]
+fn native_observations_are_calibration_inputs_without_recounting_the_legacy_model() {
+    use noisefence::native_filter::{
+        Runtime, Settings, Status,
+        rules::{Family, Symbol},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let mut scan = observed(&cfg);
+    let native = Runtime::new(Settings::default()).unwrap();
+    let before = quality::snapshot(&scan, None);
+    let mut observation = native.offline(common::MESSAGE, &["example.test".into()]);
+    observation.local_symbols = vec![Symbol {
+        id: "NF_CREDENTIALS".into(),
+        label: "request".into(),
+        family: Family::Content,
+        weight: 0.6,
+        absorbed_by: vec![],
+    }];
+    observation.report.bayes.status = "complete".into();
+    observation.report.bayes.raw_log_odds = Some(1000.);
+    observation.report.bayes_sha256 = Some(digest(b"model"));
+    native.finish(&mut observation, &scan);
+    scan.native_filter = Some(observation);
+    let active = serde_json::to_value(&scan.decision).unwrap();
+    let after = quality::snapshot(&scan, None);
+    let value = |r: &quality::Report, name: &str| {
+        r.values[quality::specs()
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap()]
+    };
+    assert_eq!(value(&before, "native.state.disabled"), 1.);
+    assert_eq!(value(&after, "native.state.complete"), 1.);
+    assert!((value(&after, "native.content_points") - 0.12).abs() < 1e-10);
+    assert_eq!(value(&after, "native.bayes.log_odds_clipped_32"), 1.);
+    assert_ne!(before.artifacts_sha256, after.artifacts_sha256);
+    assert_ne!(before.availability_profile, after.availability_profile);
+    assert_eq!(serde_json::to_value(&scan.decision).unwrap(), active);
+    for (a, b) in before
+        .values
+        .iter()
+        .zip(&after.values)
+        .zip(quality::specs())
+        .filter(|(_, spec)| !spec.name.starts_with("native."))
+    {
+        assert_eq!(
+            a.0, a.1,
+            "native observations changed existing feature {}",
+            b.name
+        );
+    }
+    scan.native_filter.as_mut().unwrap().report.status = Status::Limited;
+    let limited = quality::snapshot(&scan, None);
+    assert_eq!(value(&limited, "native.state.limited"), 1.);
+    assert_eq!(value(&limited, "native.content_points"), 0.);
+    assert_eq!(value(&limited, "native.bayes.log_odds_clipped_32"), 0.);
+    assert!(
+        model(&after).predict(&limited).is_err(),
+        "a missing control is a different availability profile"
+    );
+}

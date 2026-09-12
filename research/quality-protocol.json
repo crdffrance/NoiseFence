@@ -1857,6 +1857,138 @@
       "family": "vision",
       "minimum": -32,
       "maximum": 32
+    },
+    {
+      "name": "native.state.disabled",
+      "family": "native_content",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.state.not_run",
+      "family": "native_content",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.state.complete",
+      "family": "native_content",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.state.limited",
+      "family": "native_content",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.state.busy",
+      "family": "native_content",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.state.unavailable",
+      "family": "native_content",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.untrained",
+      "family": "native_bayes",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.complete",
+      "family": "native_bayes",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.scope_mismatch",
+      "family": "native_bayes",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.expired",
+      "family": "native_bayes",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.insufficient_features",
+      "family": "native_bayes",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.incompatible",
+      "family": "native_bayes",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.disabled",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.not_run",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.complete",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.limited",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.busy",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.unavailable",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "native.content_points",
+      "family": "native_content",
+      "minimum": -1,
+      "maximum": 1
+    },
+    {
+      "name": "native.campaign_points",
+      "family": "native_campaign",
+      "minimum": -1,
+      "maximum": 1
+    },
+    {
+      "name": "native.bayes.log_odds_clipped_32",
+      "family": "native_bayes",
+      "minimum": -1,
+      "maximum": 1
+    },
+    {
+      "name": "native.fuzzy.conflict",
+      "family": "native_campaign",
+      "minimum": 0,
+      "maximum": 1
     }
   ]
 }

@@ -112,7 +112,7 @@ pub fn convert(input: &Path, output: &Path, model: Option<&Model>) -> Result<Rep
             .with_context(|| format!("invalid observations at row {}", report.considered))?;
         if let Some(artifacts) = &artifacts {
             ensure!(
-                artifacts == &evidence.artifacts,
+                artifacts.equivalent(&evidence.artifacts),
                 "mixed detector cohorts: export one artifact cohort at a time"
             );
         } else {

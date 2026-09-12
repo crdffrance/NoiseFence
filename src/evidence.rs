@@ -206,6 +206,27 @@ pub struct Artifacts {
 }
 
 impl Artifacts {
+    /// Old records retain exact release/lock binding; only new source-bound records share cohorts.
+    pub fn compatible_view(&self) -> serde_json::Value {
+        let mut view = serde_json::to_value(self).expect("artifacts");
+        if let Some(build) = self.compatibility_hash() {
+            let object = view.as_object_mut().unwrap();
+            object.insert(
+                "application".into(),
+                serde_json::json!(format!("nf1.{build}")),
+            );
+            object.remove("dependency_lock_sha256");
+        }
+        view
+    }
+    /// Versioned build suffix keeps the old strict JSON and token syntax readable on rollback.
+    pub fn compatibility_hash(&self) -> Option<&str> {
+        let (release, build) = self.application.split_once("-nf1.")?;
+        (!release.is_empty() && crate::compatibility::valid_hash(build)).then_some(build)
+    }
+    pub fn equivalent(&self, other: &Self) -> bool {
+        self.compatible_view() == other.compatible_view()
+    }
     pub fn new(
         config: &crate::config::Config,
         lexical: Option<String>,
@@ -221,7 +242,7 @@ impl Artifacts {
             })
         };
         let policy = serde_json::json!({
-            "application":env!("CARGO_PKG_VERSION"), "schema":SCHEMA,
+            "detector_build":crate::compatibility::DETECTOR_BUILD_SHA256, "schema":SCHEMA,
             "rules":"legacy-rules-with-contextual-dqs-1", "semantic_compiled":cfg!(feature="semantic"),
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
             "rule_weights":config.filter.rule_weights,
@@ -251,7 +272,11 @@ impl Artifacts {
                 "input_price":c.input_micro_eur_per_million,"output_price":c.output_micro_eur_per_million}))
         });
         Self {
-            application: env!("CARGO_PKG_VERSION").into(),
+            application: format!(
+                "{}-nf1.{}",
+                env!("CARGO_PKG_VERSION"),
+                crate::compatibility::DETECTOR_BUILD_SHA256
+            ),
             dependency_lock_sha256: crate::message::digest(include_bytes!("../Cargo.lock")),
             policy_sha256: crate::message::digest(policy.to_string().as_bytes()),
             lexical_model_sha256: lexical,

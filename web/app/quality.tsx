@@ -85,7 +85,7 @@ export function QualityConsole({user}:{user:User}) {
     <section className="panel"><p className="eyebrow">QUALITÉ DU FILTRE</p><h1>Apprendre avec des décisions vérifiées</h1>
       <p>Évaluez un échantillon tiré au sort parmi vos messages accessibles. La sélection ignore le score du filtre et reste figée.</p>
       <p className="muted">{configured?'Un modèle candidat est configuré en observation.':'Le moteur collecte les observations ; aucun nouveau modèle n’est encore configuré.'}</p>
-      <p className="muted small">{observationStart ? `La période commence au plus tôt le ${new Date(observationStart*1000).toLocaleString('fr-FR')}, au début de cette collecte.` : 'En attente du premier message analysé avec cette version. Actualisez après son arrivée.'}</p>
+      <p className="muted small">{observationStart ? `La période commence au plus tôt le ${new Date(observationStart*1000).toLocaleString('fr-FR')}, au début de cette collecte.` : 'En attente du premier message analysé avec le moteur courant. Actualisez après son arrivée.'}</p>
       <div className="quality-controls">
         <label>Période<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Dernières 24 heures</option><option value={7}>7 derniers jours</option><option value={14}>14 derniers jours</option><option value={29}>29 derniers jours</option></select></label>
         <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option></select></label>

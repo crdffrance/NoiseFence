@@ -217,7 +217,7 @@ impl Runtime {
         settings.validate()?;
         let (model, sha256) = Model::load_bound(&settings.model)?;
         ensure!(
-            &model.artifacts == artifacts,
+            model.artifacts.equivalent(artifacts),
             "fusion model does not match loaded detector artifacts"
         );
         let validation = settings

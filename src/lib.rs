@@ -1,5 +1,6 @@
 pub mod antivirus;
 pub mod api;
+pub mod compatibility;
 pub mod config;
 pub mod confirmation;
 pub mod corpus;
@@ -42,3 +43,5 @@ pub mod quarantine;
 pub mod rules;
 
 pub mod custom_filtering;
+
+pub mod reliability;

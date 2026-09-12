@@ -4,7 +4,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, sync::OnceLock};
 
-pub const PROTOCOL: &str = "noisefence-native-content-1";
+pub const PROTOCOL: &str = "noisefence-native-content-2";
 pub const MAX_TOKENS: usize = 2048;
 pub const MAX_FEATURES: usize = MAX_TOKENS * 4;
 pub const DIMENSION: u32 = 65_536;
@@ -153,6 +153,9 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Result<Input> {
             );
         }
     }
+    // Raw pattern matching must not mistake examples inside comments/scripts for forms.
+    static INERT: OnceLock<Regex> = OnceLock::new();
+    html=INERT.get_or_init(||Regex::new(r"(?is)<!--.*?-->|<\s*(?:script|style|template|head)\b[^>]*>.*?</\s*(?:script|style|template|head)\s*>").unwrap()).replace_all(&html," ").into_owned();
     // DOM tag order is structural evidence only. Attribute values, tracking ids
     // and URLs are never retained as part of this sketch.
     let dom = scraper::Html::parse_fragment(&html);

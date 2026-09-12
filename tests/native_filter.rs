@@ -616,3 +616,111 @@ async fn short_bursts_wait_for_cpu_capacity_under_one_shared_deadline() {
             .all(|o| o.report.status == Status::Complete)
     );
 }
+
+#[test]
+fn adversarial_match_views_cover_obfuscation_without_confusing_wallet_warnings_with_requests() {
+    let matcher = rules::Matcher::compile(&rules::default_patterns()).unwrap();
+    let hits = |body: &str| {
+        matcher
+            .inspect(&input::extract(&mail("Security", body), 100000).unwrap())
+            .into_iter()
+            .map(|s| s.id)
+            .collect::<Vec<_>>()
+    };
+    for warning in [
+        "Never provide your seed phrase.",
+        "Don't enter your recovery phrase.",
+        "Do not ever provide your seed phrase.",
+        "Ne communiquez jamais votre phrase de récupération.",
+        "Ne pas saisir votre phrase de récupération.",
+    ] {
+        assert!(
+            !hits(warning).iter().any(|id| id == "NF_WALLET_SECRET"),
+            "warning: {warning}"
+        );
+    }
+    for request in [
+        "Enter your seed phrase immediately.",
+        "Please provide your recovery phrase.",
+        "Saisissez votre phrase de récupération.",
+        "Never provide your seed phrase to strangers. Enter your seed phrase here.",
+        "Enter your seed\u{200b} phrase.",
+        "Ｅｎｔｅｒ your seed phrase.",
+    ] {
+        assert!(
+            hits(request).iter().any(|id| id == "NF_WALLET_SECRET"),
+            "request: {request}"
+        );
+    }
+    let plain = hits("urgent verify your account.");
+    let padded = hits(&format!(
+        "{}{}",
+        "Bonjour réunion demain. ".repeat(100),
+        "urgent verify your account. ".repeat(100)
+    ));
+    assert_eq!(
+        plain, padded,
+        "repetition neither multiplies nor cancels named rules"
+    );
+    assert!(hits("Rendez-vous le 15 août. العربية فارسی नमस्ते שלום.").is_empty());
+}
+#[test]
+fn inert_html_examples_are_not_forms_but_real_forms_survive_mime_encoding() {
+    use base64::Engine;
+    let matcher = rules::Matcher::compile(&rules::default_patterns()).unwrap();
+    let hits = |body: &str, encoding: bool| {
+        let content = if encoding {
+            base64::engine::general_purpose::STANDARD.encode(body)
+        } else {
+            body.into()
+        };
+        let raw = format!(
+            "Subject: HTML\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: {}\r\n\r\n{content}",
+            if encoding { "base64" } else { "8bit" }
+        );
+        matcher
+            .inspect(&input::extract(raw.as_bytes(), 100000).unwrap())
+            .into_iter()
+            .map(|s| s.id)
+            .collect::<Vec<_>>()
+    };
+    for encoded in [false, true] {
+        assert!(
+            !hits(
+                "<!-- <form>example</form> --><script>let a='<form>';</script><p>Bonjour</p>",
+                encoded
+            )
+            .iter()
+            .any(|id| id == "NF_FORM")
+        );
+        assert!(
+            hits("<form><input name='secret'></form>", encoded)
+                .iter()
+                .any(|id| id == "NF_FORM")
+        );
+    }
+}
+
+#[tokio::test]
+async fn old_native_features_are_counted_but_never_converted_or_trained_after_migration() {
+    let root = tempfile::tempdir().unwrap();
+    let store = noisefence::store::Store::open(root.path()).unwrap();
+    seed(&store,"old",&mail("test","Bonjour voici une longue discussion entre plusieurs personnes concernant un projet de réunion demain matin avec des documents très détaillés à lire avant le début de la séance et à transmettre ensuite aux participants."),false,noisefence::now()-100).await;
+    store.run(|db| {db.execute("UPDATE messages SET scan=json_set(scan,'$.native_filter.features.protocol','noisefence-native-content-1')",[])?;Ok(())}).await.unwrap();
+    let report = native::learning::export(
+        &store,
+        "reviewer".into(),
+        "example.test".into(),
+        &root.path().join("out.jsonl"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.exported, 0);
+    assert_eq!(report.incompatible_features, 1);
+    assert_eq!(
+        std::fs::metadata(root.path().join("out.jsonl"))
+            .unwrap()
+            .len(),
+        0
+    );
+}

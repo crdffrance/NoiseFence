@@ -34,6 +34,7 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
 pub struct ExportReport {
     pub exported: usize,
     pub missing_features: usize,
+    pub incompatible_features: usize,
     pub conflicting_labels: usize,
     pub incomplete: usize,
 }
@@ -69,6 +70,7 @@ pub async fn export(
             let Some(observation)=scan.native_filter else {report.missing_features+=1;continue;};
             if observation.report.status!=super::Status::Complete {report.incomplete+=1;continue;}
             let Some(features)=observation.features else {report.missing_features+=1;continue;};
+            if features.protocol!=super::input::PROTOCOL {report.incompatible_features+=1;continue;}
             let row=Example {scope:scope.clone(),id:crate::message::digest(id.as_bytes()),observed_at,labelled_at,spam:min==1,features};row.validate()?;
             rows.push(row);report.exported+=1;
         }

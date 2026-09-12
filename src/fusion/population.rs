@@ -258,7 +258,7 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
                 report.rows += 1;
                 let (status, prediction) = match &row.evidence {
                     None => ("missing_or_invalid_evidence", None),
-                    Some(e) if e.artifacts != model.artifacts => {
+                    Some(e) if !e.artifacts.equivalent(&model.artifacts) => {
                         report.artifact_mismatch += 1;
                         ("artifact_mismatch", None)
                     }

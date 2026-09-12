@@ -69,6 +69,7 @@ import {
 import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
 import { QualityConsole, QualityDetails } from './quality';
+import { ReliabilityConsole } from './reliability';
 import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
@@ -237,7 +238,7 @@ export default function Page() {
 function Home() {
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
-  const [section, setSection] = useState<Section | 'account' | 'quality'>(
+  const [section, setSection] = useState<Section | 'account' | 'quality' | 'reliability'>(
     'messages',
   );
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -405,7 +406,7 @@ function Home() {
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, [user, section, selected, confirmation]);
-  function navigate(next: Section | 'account' | 'quality', nextFilter = 'all') {
+  function navigate(next: Section | 'account' | 'quality' | 'reliability', nextFilter = 'all') {
     setSection(next);
     setFilter(nextFilter);
     setOffset(0);
@@ -696,6 +697,9 @@ function Home() {
           )}
           <div className="rail-label admin-label">ESPACE PERSONNEL</div>
           <nav className="navigation" aria-label="Espace personnel">
+            <Button variant="ghost" className={`nav-item ${section === 'reliability' ? 'nav-active' : ''}`} aria-current={section === 'reliability' ? 'page' : undefined} onClick={() => navigate('reliability')}>
+              <ShieldCheck size={18} /> Fiabilité
+            </Button>
             <Button
               variant="ghost"
               className={`nav-item ${section === 'quality' ? 'nav-active' : ''}`}
@@ -760,6 +764,8 @@ function Home() {
             <strong>
               {selected
                 ? 'Décision du filtre'
+                : section === 'reliability'
+                  ? 'Fiabilité'
                 : section === 'quality'
                   ? 'Qualité du filtre'
                   : section === 'account'
@@ -791,13 +797,13 @@ function Home() {
             hidden={
               section === 'messages' ||
               section === 'account' ||
-              section === 'quality'
+              section === 'quality' || section === 'reliability'
             }
           >
             <AdminConsole
               user={user}
               section={
-                section === 'account' || section === 'quality'
+                section === 'account' || section === 'quality' || section === 'reliability'
                   ? 'messages'
                   : section
               }
@@ -813,6 +819,7 @@ function Home() {
           </div>
         )}
         {section === 'quality' && <QualityConsole user={user} />}
+        {section === 'reliability' && <ReliabilityConsole key={user.username} />}
         {section === 'account' && (
           <MyAccount
             key={user.username}
