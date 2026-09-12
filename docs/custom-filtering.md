@@ -15,10 +15,44 @@ Un profil sans affectation n’a aucun effet.
 
 Un profil définit les actions Spam, Publicité et À examiner, la durée de
 quarantaine (1 à 30 jours), la corroboration et un seuil hérité ou personnalisé.
-Les préréglages de seuil sont prudent (98), équilibré (95), strict (90).
-Ces indices ne sont pas des probabilités et ces noms ne garantissent aucun taux
-de capture. Le seuil du modèle multilingue ou d’une fusion active reste verrouillé.
+Depuis 0.10.0, **Filtres → Politique** propose cinq niveaux pour l’organisation
+et des exceptions par domaine. Les profils permettent aussi des exceptions par
+adresse et un seuil personnalisé de 50 à 100.
+
+| Niveau | Seuil de décision |
+| --- | ---: |
+| 1 · Très tolérant | 99,5 |
+| 2 · Tolérant | 98 |
+| 3 · Équilibré | 95 |
+| 4 · Strict | 90 |
+| 5 · Très strict | 85 |
+
+Un indice égal au seuil est admissible au classement Spam, sous réserve des
+confirmations et de l’arbitrage. Abaisser le seuil augmente les messages
+candidats au classement : sans confirmation, ils restent À examiner. Ces indices
+ne sont pas des probabilités et ces noms ne garantissent aucun taux de capture.
+Chaque seuil explicite impose la corroboration côté serveur, même si le client
+soumet `require_corroboration: false`. Les erreurs des fournisseurs, un avis LLM
+seul et les règles natives en observation ne fournissent pas cette confirmation.
+L’arbitrage des avis contradictoires et la priorité antivirus restent appliqués.
+Les règles administrateur explicites s’appliquent ensuite et conservent leurs effets.
+
+Le seuil d’exploitation s’applique **après** l’analyse commune. Il ne modifie ni
+les coefficients ni le seuil de référence de la combinaison multilingue, ni la
+sélection, le texte ou le budget des appels LLM. Une fusion en mode décision
+garde exclusivement son seuil validé : les seuils de profils sont alors refusés.
+
+Un seuil `null` hérite du premier seuil explicite dans les portées parentes,
+puis du seuil de référence du moteur. Exemple : organisation Strict, domaine
+Tolérant, adresse Hériter → seuil 98 pour cette adresse. Les actions restent
+celles du profil le plus spécifique. Créer un niveau dans la vue simplifiée
+reprend les actions en vigueur ; modifier un profil partagé le copie avant de
+changer une seule portée. Retirer le seuil ne supprime pas les actions du profil.
 Une corroboration exigée globalement ne peut pas être désactivée par un profil.
+
+La mise à niveau ne crée aucun profil, ne change aucun seuil actif et conserve
+l’observation. Le bouton d’application de la configuration est nécessaire pour
+enregistrer un nouveau niveau. Les messages antérieurs gardent leur évaluation.
 
 Les règles s’appliquent ensuite, par priorité croissante et identifiant stable
 pour départager les égalités. Elles combinent 1 à 8 conditions avec ET ou OU.
@@ -99,3 +133,12 @@ puis vérifiez que le champ a été omis dans la révision sérialisée. L’API
 ce retrait ; l’historique des anciennes révisions reste conservé. Contrôlez aussi
 les validations de marquage de la politique générale. Ne restaurez jamais une
 ancienne base de données : elle pourrait perdre des messages acceptés depuis.
+
+### Retour de 0.10 à 0.9
+
+Le format JSON des politiques et des évaluations reste identique. Toutefois,
+0.9 refuse les seuils explicites de profils avec le modèle multilingue actif.
+Avant un retour à 0.9, remettre ces seuils sur Hériter et appliquer une nouvelle
+révision avec 0.10 ; vérifier la configuration effective avec l’ancien binaire.
+L’héritage de seuils entre portées n’existe pas dans 0.9. Conserver les historiques
+et la file courante, sans restaurer une ancienne base de données.

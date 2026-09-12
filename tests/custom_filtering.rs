@@ -33,6 +33,211 @@ fn scan() -> Scan {
         ..Default::default()
     }
 }
+
+fn level_policy(threshold: f64) -> Policy {
+    Policy {
+        profiles: vec![Profile {
+            id: "level".into(),
+            name: "Level".into(),
+            threshold: Some(threshold),
+            // Deliberately false: the server must enforce confirmation for operating levels.
+            require_corroboration: false,
+            spam: Action::Quarantine,
+            publicity: Action::Deliver,
+            review: Action::Deliver,
+            quarantine_days: 7,
+        }],
+        bindings: vec![Binding {
+            scope: "*".into(),
+            profile: "level".into(),
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
+    use noisefence::evidence::{Artifacts, AuthResult, Evidence, Source, State};
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(tmp.path())).clone();
+    cfg.filter.mode = Mode::Enforce;
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    let mut evidence = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+    evidence.source = Source::SmtpSession;
+    evidence.authentication.dmarc_state = State::Complete;
+    evidence.authentication.dmarc_spf = Some(AuthResult::Fail);
+    evidence.authentication.dmarc_dkim = Some(AuthResult::Fail);
+    assert!(LEVELS.windows(2).all(|w| w[0].threshold > w[1].threshold));
+    for score in [
+        0., 84.9, 85., 89.9, 90., 94.9, 95., 97.9, 98., 99.49, 99.5, 100.,
+    ] {
+        let mut detections = 0;
+        for (i, level) in LEVELS.iter().enumerate() {
+            let policy = level_policy(level.threshold);
+            policy.validate(&cfg).unwrap();
+            for confirmed in [false, true] {
+                let mut scan = Scan {
+                    score,
+                    evidence: confirmed.then(|| evidence.clone()),
+                    ..scan()
+                };
+                scan.decision = Some(noisefence::fusion::runtime::Decision::legacy(
+                    &scan,
+                    cfg.filter.threshold,
+                ));
+                noisefence::decision::apply(&mut scan, true);
+                let before = serde_json::to_value(&scan).unwrap();
+                let result = assess(&policy, &cfg, &scan, &Facts::default(), &recipient, 100);
+                let expected = if score < level.threshold {
+                    Category::Legitimate
+                } else if confirmed {
+                    Category::Spam
+                } else {
+                    Category::Undetermined
+                };
+                assert_eq!(
+                    result.category, expected,
+                    "score={score}, level={i}, confirmed={confirmed}"
+                );
+                assert_eq!(
+                    result.action.effective,
+                    if expected == Category::Spam {
+                        Action::Quarantine
+                    } else {
+                        Action::Deliver
+                    }
+                );
+                assert_eq!(
+                    serde_json::to_value(&scan).unwrap(),
+                    before,
+                    "never mutate model evidence or LLM selection"
+                );
+                if confirmed && expected == Category::Spam {
+                    detections += 1;
+                }
+                if confirmed && detections > 0 {
+                    assert_eq!(expected, Category::Spam);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn levels_preserve_calibration_inherit_domains_and_keep_existing_revision_shape() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(tmp.path())).clone();
+    cfg.filter.semantic = Some(noisefence::config::SemanticFilter {
+        encoder_dir: "fixture".into(),
+        combination: "fixture".into(),
+        max_parallel: 1,
+        timeout_ms: 500,
+    });
+    let mut policy = level_policy(90.);
+    policy.validate(&cfg).unwrap();
+    assert_eq!(cfg.filter.threshold, 95.);
+    let mut domain = policy.profiles[0].clone();
+    domain.id = "domain".into();
+    domain.threshold = None;
+    policy.profiles.push(domain);
+    policy.bindings.push(Binding {
+        scope: "*@example.test".into(),
+        profile: "domain".into(),
+    });
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    let evaluate = |p: &Policy| assess(p, &cfg, &scan(), &Facts::default(), &recipient, 100);
+    assert_eq!(evaluate(&policy).threshold, 90.);
+    policy.profiles[1].threshold = Some(98.);
+    assert_eq!(evaluate(&policy).threshold, 98.);
+    let mut address = policy.profiles[0].clone();
+    address.id = "address".into();
+    address.threshold = Some(99.5);
+    policy.profiles.push(address);
+    policy.bindings.push(Binding {
+        scope: "alice@example.test".into(),
+        profile: "address".into(),
+    });
+    assert_eq!(evaluate(&policy).threshold, 99.5);
+    policy.profiles[2].threshold = None;
+    assert_eq!(evaluate(&policy).threshold, 98.);
+    policy.validate(&cfg).unwrap();
+    let serialized = serde_json::to_value(&policy).unwrap();
+    assert_eq!(serialized.as_object().unwrap().len(), 3);
+    assert_eq!(serialized["profiles"][0].as_object().unwrap().len(), 8);
+    assert_eq!(
+        serde_json::from_value::<Policy>(serialized).unwrap(),
+        policy
+    );
+    for bad in [49.9, 100.1, f64::NAN, f64::INFINITY] {
+        assert!(level_policy(bad).validate(&cfg).is_err());
+    }
+}
+
+#[test]
+fn levels_cannot_bypass_fusion_malware_or_incomplete_analysis() {
+    use noisefence::{
+        antivirus::AntivirusStatus,
+        fusion::runtime::{Decision, DecisionSource, Outcome},
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(tmp.path())).clone();
+    cfg.filter.mode = Mode::Enforce;
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    let policy = level_policy(85.);
+    let mut s = scan();
+    s.decision = Some(Decision {
+        source: DecisionSource::Fusion,
+        outcome: Outcome::Undetermined,
+        score: None,
+        model: "fixture".into(),
+    });
+    let result = assess(&policy, &cfg, &s, &Facts::default(), &recipient, 100);
+    assert_eq!(result.category, Category::Undetermined);
+    assert_eq!(result.threshold, cfg.filter.threshold);
+    cfg.fusion = Some(noisefence::fusion::runtime::Settings {
+        model: "fixture".into(),
+        mode: noisefence::fusion::runtime::Mode::Decision,
+        validation_report: None,
+    });
+    assert!(policy.validate(&cfg).is_err());
+    s.decision = None;
+    assert_eq!(
+        assess(&policy, &cfg, &s, &Facts::default(), &recipient, 100).threshold,
+        cfg.filter.threshold
+    );
+    cfg.fusion = None;
+    s.complete = false;
+    assert_eq!(
+        assess(&policy, &cfg, &s, &Facts::default(), &recipient, 100)
+            .action
+            .effective,
+        Action::Deliver
+    );
+    s.antivirus.status = AntivirusStatus::Malware;
+    cfg.actions = Some(noisefence::actions::Policy {
+        spam: Action::Deliver,
+        publicity: Action::Deliver,
+        malware: Action::Quarantine,
+        quarantine_days: 7,
+    });
+    for level in LEVELS {
+        let p = level_policy(level.threshold);
+        assert_eq!(
+            assess(&p, &cfg, &s, &Facts::default(), &recipient, 100)
+                .action
+                .effective,
+            Action::Quarantine
+        );
+        cfg.filter.mode = Mode::Observe;
+        assert_eq!(
+            assess(&p, &cfg, &s, &Facts::default(), &recipient, 100)
+                .action
+                .effective,
+            Action::Deliver
+        );
+        cfg.filter.mode = Mode::Enforce;
+    }
+}
 #[test]
 fn scoped_order_expiry_missing_facts_and_malware_priority() {
     let tmp = tempfile::tempdir().unwrap();

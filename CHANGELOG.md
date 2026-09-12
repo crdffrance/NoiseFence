@@ -3,6 +3,19 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.10.0 — 2026-09-12
+
+- Cinq niveaux de sensibilité dans l’administration, avec un choix général,
+  des exceptions par domaine et les profils par destinataire existants.
+- Seuil de décision distinct de la calibration du modèle multilingue ;
+  héritage adresse → domaine → organisation, copie des profils partagés
+  avant une modification ciblée et conservation des actions de livraison.
+- Confirmation obligatoire pour les seuils explicites, arbitrage des avis
+  contradictoires conservé et fusion validée protégée côté serveur.
+- La simulation applique aussi la confirmation générale. Aucun changement
+  automatique des réglages actifs, des modèles, des appels LLM ou de l’observation.
+- Voir `docs/custom-filtering.md` pour les limites et le retour à 0.9.
+
 ## [Unreleased]
 
 ## [0.9.0] — 2026-09-12

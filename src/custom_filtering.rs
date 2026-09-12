@@ -10,6 +10,54 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
+/// Operating policies over the existing score, not model calibrations or probabilities.
+/// Persist only the existing profile threshold so revisions keep their wire format.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct Level {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub threshold: f64,
+    pub description: &'static str,
+}
+pub const LEVELS: [Level; 5] = [
+    Level {
+        id: "very_lenient",
+        label: "Très tolérant",
+        threshold: 99.5,
+        description: "Réserve le classement Spam aux indices les plus élevés et confirmés.",
+    },
+    Level {
+        id: "lenient",
+        label: "Tolérant",
+        threshold: 98.0,
+        description: "Limite les classements Spam ; davantage de messages restent sous le seuil.",
+    },
+    Level {
+        id: "balanced",
+        label: "Équilibré",
+        threshold: 95.0,
+        description: "Point de départ à ajuster avec vos corrections de messages.",
+    },
+    Level {
+        id: "strict",
+        label: "Strict",
+        threshold: 90.0,
+        description: "Examine davantage de messages suspects ; surveillez les faux positifs.",
+    },
+    Level {
+        id: "very_strict",
+        label: "Très strict",
+        threshold: 85.0,
+        description: "Sensibilité maximale des préréglages ; nécessite un suivi des erreurs.",
+    },
+];
+
+pub fn sensitivity_locked(cfg: &Config) -> bool {
+    cfg.fusion
+        .as_ref()
+        .is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision)
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
@@ -25,7 +73,8 @@ pub struct Policy {
 pub struct Profile {
     pub id: String,
     pub name: String,
-    /// None inherits the validated global threshold. Never override fusion calibration.
+    /// None inherits the next less-specific threshold, then the model threshold.
+    /// This post-analysis operating point never changes model or LLM selection.
     pub threshold: Option<f64>,
     pub require_corroboration: bool,
     pub spam: Action,
@@ -174,12 +223,8 @@ impl Policy {
                     "Seuil : 50 à 100."
                 );
                 ensure!(
-                    cfg.filter.semantic.is_none()
-                        && !cfg
-                            .fusion
-                            .as_ref()
-                            .is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision),
-                    "Le seuil du modèle calibré doit être hérité."
+                    !sensitivity_locked(cfg),
+                    "Une fusion validée impose son propre seuil : choisissez Hériter."
                 );
             }
         }
@@ -399,27 +444,47 @@ pub fn assess_prepared(
     );
     let original = crate::mailing::category(scan, cfg.filter.threshold);
     f.put(Field::Category, original.as_str());
-    let profile = policy
+    let mut profiles: Vec<_> = policy
         .bindings
         .iter()
-        .filter_map(|b| scope_rank(&b.scope, recipient).map(|rank| (rank, b)))
-        .max_by_key(|(rank, _)| *rank)
-        .and_then(|(_, b)| policy.profiles.iter().find(|p| p.id == b.profile));
-    let threshold = profile
-        .and_then(|p| p.threshold)
-        .unwrap_or(cfg.filter.threshold);
+        .filter_map(|b| {
+            Some((
+                scope_rank(&b.scope, recipient)?,
+                policy.profiles.iter().find(|p| p.id == b.profile)?,
+            ))
+        })
+        .collect();
+    profiles.sort_by_key(|(rank, _)| std::cmp::Reverse(*rank));
+    let profile = profiles.first().map(|(_, p)| *p);
+    // Defensive runtime guard as well as configuration validation: never turn a
+    // fusion abstention into a legacy decision, even with an unchecked policy.
+    let override_threshold = profiles.iter().find_map(|(_, p)| p.threshold).filter(|t| {
+        !sensitivity_locked(cfg)
+            && scan
+                .decision
+                .as_ref()
+                .is_none_or(|d| d.source == crate::fusion::runtime::DecisionSource::Legacy)
+            && t.is_finite()
+            && (50.0..=100.0).contains(t)
+            && scan.score.is_finite()
+            && (0.0..=100.0).contains(&scan.score)
+    });
+    let threshold = override_threshold.unwrap_or(cfg.filter.threshold);
     let mut category = original;
     if scan.complete
         && let Some(p) = profile
     {
         let mut candidate = scan.clone();
-        if p.threshold.is_some() {
+        if override_threshold.is_some() {
             candidate.arbitration = None;
+            candidate.delivery_classification = None;
             candidate.decision = Some(crate::fusion::runtime::Decision::legacy(scan, threshold));
         }
         crate::decision::apply(
             &mut candidate,
-            cfg.filter.require_corroboration || p.require_corroboration,
+            cfg.filter.require_corroboration
+                || p.require_corroboration
+                || override_threshold.is_some(),
         );
         category = crate::mailing::category(&candidate, threshold);
     }

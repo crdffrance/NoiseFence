@@ -17,6 +17,91 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+#[tokio::test]
+async fn sensitivity_catalog_and_profiles_are_admin_only_atomic_and_persistent() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let token = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let (status, view) = request(&app, &token, "/admin/config", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["sensitivity_locked"], false);
+    assert_eq!(view["sensitivity_levels"].as_array().unwrap().len(), 5);
+    let mut settings = view["settings"].clone();
+    settings["custom_filtering"] = json!({"profiles":[{"id":"strict","name":"Strict","threshold":90.0,"require_corroboration":true,"spam":"quarantine","publicity":"deliver","review":"deliver","quarantine_days":14}],"bindings":[{"scope":"*","profile":"strict"}],"rules":[]});
+    let payload = json!({"revision":0,"settings":settings});
+    assert_eq!(
+        request(&app, &reader, "/admin/config", Some(payload.clone()))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "", "/admin/config", Some(payload.clone()))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, &token, "/admin/config", Some(payload.clone()))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&app, &token, "/admin/config", Some(payload))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let snapshot = control.snapshot();
+    assert_eq!(snapshot.config.filter.threshold, cfg.filter.threshold);
+    assert_eq!(snapshot.config.filter.mode, cfg.filter.mode);
+    assert_eq!(
+        serde_json::to_value(&snapshot.settings.filters).unwrap(),
+        view["settings"]["filters"]
+    );
+    let resumed = Controller::load(cfg, store).await.unwrap();
+    assert_eq!(
+        resumed.snapshot().settings.custom_filtering,
+        snapshot.settings.custom_filtering
+    );
+    let preview = json!({"policy":settings["custom_filtering"],"recipient":"alice@example.test","sender":"sender@example.org","subject":"Fixture","body":"Synthetic only","score":92.0});
+    assert_eq!(
+        request(
+            &app,
+            &reader,
+            "/admin/filtering/preview",
+            Some(preview.clone())
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, simulated) =
+        request(&app, &token, "/admin/filtering/preview", Some(preview)).await;
+    assert_eq!(status, StatusCode::OK, "{simulated}");
+    assert_eq!(simulated["assessment"]["category"], "undetermined");
+    assert_eq!(simulated["assessment"]["threshold"], 90.0);
+    assert_eq!(simulated["assessment"]["action"]["effective"], "deliver");
+    settings["custom_filtering"]["profiles"][0]["threshold"] = json!(1);
+    assert_eq!(
+        request(
+            &app,
+            &token,
+            "/admin/config",
+            Some(json!({"revision":1,"settings":settings}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(control.snapshot().revision, 1);
+}
+
 async fn account(store: &Store, name: &str, admin: bool, grants: Vec<&str>) -> String {
     let name = name.to_owned();
     let grants: Vec<String> = grants.into_iter().map(str::to_owned).collect();

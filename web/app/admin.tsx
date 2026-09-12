@@ -1,5 +1,10 @@
 'use client';
 import { CustomFiltering, type CustomPolicy } from './custom-filtering';
+import { FilterSensitivity } from './filter-sensitivity-control';
+import {
+  sensitivityChanges,
+  type SensitivityLevel,
+} from './filter-sensitivity';
 import { Invitations } from './onboarding';
 import { deliveryPolicy, restoreDefaults } from './policies';
 import { SectionTabs } from './console-ui';
@@ -85,6 +90,8 @@ type Configuration = {
   settings: Settings;
   available: Filters;
   threshold_locked: boolean;
+  sensitivity_locked: boolean;
+  sensitivity_levels: SensitivityLevel[];
   tag_ready: boolean;
   pub_tag_ready: boolean;
   mailing_available: boolean;
@@ -889,7 +896,8 @@ export function AdminConsole({
               domains={draft.domains
                 .filter((d) => d.enabled)
                 .map((d) => d.name)}
-              locked={config.threshold_locked}
+              locked={config.sensitivity_locked}
+              levels={config.sensitivity_levels}
               csrf={user.csrf}
             />
           </div>
@@ -900,6 +908,19 @@ export function AdminConsole({
             hidden={filterSection !== 'policy'}
             className="filter-section"
           >
+            <FilterSensitivity
+              policy={draft.custom_filtering}
+              onChange={(custom_filtering) =>
+                setDraft({ ...draft, custom_filtering })
+              }
+              domains={draft.domains
+                .filter((d) => d.enabled)
+                .map((d) => d.name)}
+              actions={deliveryPolicy(draft)}
+              levels={config.sensitivity_levels}
+              locked={config.sensitivity_locked}
+              modelThreshold={draft.filters.threshold}
+            />
             <div className="panel filter-policy">
               <div>
                 <h2>Comportement du filtre</h2>
@@ -932,7 +953,7 @@ export function AdminConsole({
                   </select>
                 </label>
                 <label className="field" htmlFor="filter-threshold">
-                  Seuil de classement / 100
+                  Seuil de référence du modèle / 100
                   <Input
                     id="filter-threshold"
                     type="number"
@@ -1575,6 +1596,26 @@ export function AdminConsole({
             <section className="change-review">
               <h2>Vérifier les modifications</h2>
               <ul>
+                {sensitivityChanges(
+                  config.settings.custom_filtering,
+                  draft.custom_filtering,
+                ).map((change) => (
+                  <li key={`sensitivity:${change.scope}`}>
+                    Sensibilité{' '}
+                    <strong>
+                      {change.scope === '*' ? 'organisation' : change.scope}
+                    </strong>{' '}
+                    :{' '}
+                    {change.before === null
+                      ? 'héritée'
+                      : `seuil ${change.before}`}{' '}
+                    →{' '}
+                    {change.after === null
+                      ? 'héritée'
+                      : `seuil ${change.after}`}
+                    . Les actions et le mode de livraison se règlent séparément.
+                  </li>
+                ))}
                 {JSON.stringify(draft.custom_filtering) !==
                   JSON.stringify(config.settings.custom_filtering) && (
                   <li>

@@ -88,6 +88,7 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         "available":Settings::from_config(&control.base).filters,
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
         "threshold_locked":control.base.filter.semantic.is_some() || control.base.fusion.as_ref().is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision),"tag_ready":tag_ready,
+        "sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config),"sensitivity_levels":crate::custom_filtering::LEVELS,
         "mailing_available":control.base.mailing.is_some(),"pub_tag_ready":pub_tag_ready,
         "hostname":control.base.hostname,"version":env!("CARGO_PKG_VERSION"),
         "tls_required":true,"max_connections":control.base.smtp.max_connections,

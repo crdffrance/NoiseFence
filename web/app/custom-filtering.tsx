@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from './client';
 import { actionLabel, type DeliveryAction } from './actions';
+import { SensitivitySelect } from './filter-sensitivity-control';
+import type { SensitivityLevel } from './filter-sensitivity';
 type Category = 'spam' | 'publicity' | 'legitimate' | 'undetermined';
 type Field =
   | 'envelope_from'
@@ -29,7 +31,7 @@ type Operator =
   | 'at_least'
   | 'at_most';
 type Condition = { field: Field; op: Operator; value: string };
-type Profile = {
+export type Profile = {
   id: string;
   name: string;
   threshold: number | null;
@@ -175,12 +177,14 @@ export function CustomFiltering({
   onChange,
   domains,
   locked,
+  levels,
   csrf,
 }: {
   policy: CustomPolicy | null | undefined;
   onChange: (p: CustomPolicy | null) => void;
   domains: string[];
   locked: boolean;
+  levels: SensitivityLevel[];
   csrf: string;
 }) {
   const p = policy || empty;
@@ -277,57 +281,20 @@ export function CustomFiltering({
                 onChange={(e) => updateProfile(i, { name: e.target.value })}
               />
             </label>
-            <label>
-              Sensibilité
-              <select
-                disabled={locked}
-                value={
-                  profile.threshold === null
-                    ? 'inherit'
-                    : profile.threshold === 98
-                      ? 'prudent'
-                      : profile.threshold === 95
-                        ? 'balanced'
-                        : profile.threshold === 90
-                          ? 'strict'
-                          : 'custom'
-                }
-                onChange={(e) =>
-                  updateProfile(i, {
-                    threshold: {
-                      inherit: null,
-                      prudent: 98,
-                      balanced: 95,
-                      strict: 90,
-                      custom: profile.threshold || 95,
-                    }[e.target.value as 'inherit'],
-                  })
-                }
-              >
-                <option value="inherit">Hériter du moteur calibré</option>
-                <option value="prudent">Prudent · seuil 98</option>
-                <option value="balanced">Équilibré · seuil 95</option>
-                <option value="strict">Strict · seuil 90</option>
-                <option value="custom">Seuil personnalisé</option>
-              </select>
-            </label>
-            {profile.threshold !== null && (
-              <label htmlFor={`custom-filtering-2-${i}`}>
-                Seuil
-                <Input
-                  id={`custom-filtering-2-${i}`}
-                  type="number"
-                  min={50}
-                  max={100}
-                  step={0.1}
-                  disabled={locked}
-                  value={profile.threshold}
-                  onChange={(e) =>
-                    updateProfile(i, { threshold: Number(e.target.value) })
-                  }
-                />
-              </label>
-            )}
+            <SensitivitySelect
+              label="Sensibilité du profil"
+              levels={levels}
+              locked={locked}
+              threshold={profile.threshold}
+              onChange={(threshold) =>
+                updateProfile(i, {
+                  threshold,
+                  require_corroboration:
+                    threshold !== null || profile.require_corroboration,
+                })
+              }
+              inheritedLabel="Hériter du niveau de la portée parente"
+            />
             <label htmlFor={`custom-filtering-3-${i}`}>
               Quarantaine (jours)
               <Input
@@ -361,7 +328,10 @@ export function CustomFiltering({
           <label className="check">
             <input
               type="checkbox"
-              checked={profile.require_corroboration}
+              checked={
+                profile.threshold !== null || profile.require_corroboration
+              }
+              disabled={profile.threshold !== null}
               onChange={(e) =>
                 updateProfile(i, { require_corroboration: e.target.checked })
               }
@@ -370,7 +340,8 @@ export function CustomFiltering({
           </label>
           {locked && (
             <p className="muted small">
-              Le seuil hérité est verrouillé par la calibration du modèle actif.
+              La fusion validée impose son propre seuil. Les niveaux ne
+              modifient pas sa calibration.
             </p>
           )}
           <Button

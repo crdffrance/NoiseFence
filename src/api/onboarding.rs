@@ -273,6 +273,7 @@ async fn preview(
         &scan,
         cfg.filter.threshold,
     ));
+    crate::decision::apply(&mut scan, cfg.filter.require_corroboration);
     let mut facts = crate::custom_filtering::Facts::default();
     use crate::custom_filtering::Field;
     facts.put(Field::EnvelopeFrom, &body.sender);
