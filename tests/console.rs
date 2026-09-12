@@ -1613,3 +1613,371 @@ async fn quality_sampling_and_dual_labels_enforce_sessions_csrf_and_recipient_ac
         "A later old-style correction invalidates its prior dual annotation"
     );
 }
+
+#[tokio::test]
+async fn web_detection_parameters_are_validated_hot_applied_and_restored_without_paths_or_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.native_filter = Some(Default::default());
+    cfg.smtp_policy = Some(Default::default());
+    cfg.vision = Some(Default::default());
+    cfg.protection = Some(Default::default());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let (_, view) = request(&app, &admin, "/admin/config", None).await;
+    let mut settings = view["settings"].clone();
+    let raw = settings["detection"].to_string();
+    for forbidden in [
+        "socket",
+        "bayes_model",
+        "api_key_env",
+        "encoder_dir",
+        "data_dir",
+    ] {
+        assert!(!raw.contains(forbidden), "{forbidden}");
+    }
+    settings["detection"]["modules"]["native"]["timeout_ms"] = json!(800);
+    settings["detection"]["modules"]["native"]["max_parallel"] = json!(1);
+    settings["detection"]["modules"]["native"]["content_rules"]["disabled"] =
+        json!(["NF_HTML_PASSWORD_FORM"]);
+    settings["detection"]["modules"]["vision"]["max_parts"] = json!(3);
+    settings["detection"]["modules"]["smtp_policy"]["timeout_ms"] = json!(500);
+    settings["detection"]["modules"]["protection"]["url_resolution"]["max_redirects"] = json!(2);
+    settings["rbl"]["timeout_ms"] = json!(900);
+    let result = request(
+        &app,
+        &admin,
+        "/admin/config",
+        Some(json!({"revision":0,"settings":settings})),
+    )
+    .await;
+    assert_eq!(result.0, StatusCode::OK, "{}", result.1);
+    let s = control.snapshot();
+    assert_eq!(s.config.native_filter.as_ref().unwrap().timeout_ms, 800);
+    assert_eq!(s.config.vision.as_ref().unwrap().max_parts, 3);
+    assert_eq!(
+        s.config
+            .protection
+            .as_ref()
+            .unwrap()
+            .url_resolution
+            .max_redirects,
+        2
+    );
+    let resumed = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    assert_eq!(resumed.snapshot().settings, s.settings);
+    let mut bad = settings.clone();
+    bad["detection"]["modules"]["vision"]["socket"] = json!("/tmp/exfil.sock");
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/config/validate",
+            Some(json!({"settings":bad}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut bad = settings.clone();
+    bad["detection"]["modules"]["native"]["content_rules"]["weights"] =
+        json!({"NF_HTML_PASSWORD_FORM":999});
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/config",
+            Some(json!({"revision":s.revision,"settings":bad}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(control.snapshot().revision, s.revision);
+}
+
+#[tokio::test]
+async fn preferences_are_scoped_revocable_durable_and_cannot_update_global_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let bob = account(&store, "bob", false, vec!["bob@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let preference = json!({"profile":{"id":"personal","name":"Personnel","threshold":95.0,"require_corroboration":true,"spam":"quarantine","publicity":"deliver","review":"deliver","quarantine_days":14},"rules":[]});
+    let edit =
+        |revision, scope: &str, p: Value| json!({"revision":revision,"scope":scope,"preference":p});
+    for scope in [
+        "*",
+        "*@example.test",
+        "bob@example.test",
+        "alice@foreign.test",
+    ] {
+        assert_eq!(
+            request(
+                &app,
+                &alice,
+                "/preferences",
+                Some(edit(0, scope, preference.clone()))
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let mut bad = preference.clone();
+    bad["profile"]["threshold"] = json!(60);
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            "/preferences",
+            Some(edit(0, "alice@example.test", bad))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let result = request(
+        &app,
+        &alice,
+        "/preferences",
+        Some(edit(0, "alice@example.test", preference.clone())),
+    )
+    .await;
+    assert_eq!(result.0, StatusCode::OK, "{}", result.1);
+    let id = result.1["revision"].as_i64().unwrap();
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            "/preferences",
+            Some(edit(0, "alice@example.test", preference.clone()))
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (_, visible) = request(&app, &alice, "/preferences", None).await;
+    assert_eq!(
+        visible["settings"]["mailboxes"]["alice@example.test"],
+        preference
+    );
+    assert!(!visible.to_string().contains("bob@example.test"));
+    let (_, hidden) = request(&app, &bob, "/preferences", None).await;
+    assert_eq!(hidden["settings"]["mailboxes"], json!({}));
+    assert!(!hidden.to_string().contains("alice@example.test"));
+    assert_eq!(
+        control.snapshot().config.filter.threshold,
+        cfg.filter.threshold
+    );
+    assert_eq!(control.snapshot().config.filter.mode, cfg.filter.mode);
+    assert_eq!(
+        Controller::load(cfg.clone(), store.clone())
+            .await
+            .unwrap()
+            .snapshot()
+            .settings
+            .preferences,
+        control.snapshot().settings.preferences
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        control
+            .apply_preferences(
+                id,
+                "alice@example.test".into(),
+                None,
+                "alice".into(),
+                noisefence::message::digest(alice.as_bytes())
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            "/preferences",
+            Some(edit(id, "alice@example.test", Value::Null))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (_, mut global) = request(&app, &admin, "/admin/config", None).await;
+    global["settings"]["preferences"]["enabled"] = json!(false);
+    let result = request(
+        &app,
+        &admin,
+        "/admin/config",
+        Some(json!({"revision":id,"settings":global["settings"]})),
+    )
+    .await;
+    assert_eq!(result.0, StatusCode::OK);
+    assert_eq!(
+        request(
+            &app,
+            &bob,
+            "/preferences",
+            Some(edit(
+                result.1["revision"].as_i64().unwrap(),
+                "bob@example.test",
+                preference
+            ))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[tokio::test]
+async fn old_revisions_inherit_bootstrap_rbl_while_explicit_empty_lists_survive_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.rbl=Some(serde_json::from_value(json!({"lists":[{"id":"psbl","provider":"psbl","zone":"psbl.surriel.com","listed_codes":["127.0.0.2"]}]})).unwrap());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    account(&store, "admin", true, vec![]).await;
+    let mut old = serde_json::to_value(noisefence::control::Settings::from_config(&cfg)).unwrap();
+    for k in ["rbl", "detection", "preferences"] {
+        old.as_object_mut().unwrap().remove(k);
+    }
+    store
+        .run(move |db| {
+            db.execute(
+                "INSERT INTO console_revisions(created,username,settings) VALUES(0,'admin',?1)",
+                [old.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    assert_eq!(
+        control
+            .snapshot()
+            .settings
+            .rbl
+            .as_ref()
+            .unwrap()
+            .lists
+            .len(),
+        1
+    );
+    assert!(control.snapshot().settings.rbl.as_ref().unwrap().lists[0].enabled);
+    let mut settings = control.snapshot().settings.clone();
+    settings.rbl.as_mut().unwrap().lists.clear();
+    let id = control.snapshot().revision;
+    control.apply(id, settings, "admin".into()).await.unwrap();
+    assert!(
+        Controller::load(cfg, store)
+            .await
+            .unwrap()
+            .snapshot()
+            .config
+            .rbl
+            .as_ref()
+            .unwrap()
+            .lists
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn managed_keys_are_private_admin_only_and_cannot_leak_in_configuration_or_audit() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let user = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg, store.clone(), Some(control.clone())).unwrap();
+    let invalid = request(
+        &app,
+        &admin,
+        "/admin/keys",
+        Some(json!({"revision":0,"provider":"spamhaus","key":"bad"})),
+    )
+    .await;
+    assert_eq!(invalid.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!dir.path().join("credentials/spamhaus.key").exists());
+    let key = "SYNTHETIC_DQS_KEY_123456".replace('_', "");
+    let body = json!({"revision":0,"provider":"spamhaus","key":key});
+    assert_eq!(
+        request(&app, &user, "/admin/keys", Some(body.clone()))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let saved = request(&app, &admin, "/admin/keys", Some(body)).await;
+    assert_eq!(saved.0, StatusCode::OK, "{}", saved.1);
+    assert_eq!(saved.1["active"], true);
+    let (_, view) = request(&app, &admin, "/admin/config", None).await;
+    assert_eq!(view["available"]["reputation"], true);
+    assert_eq!(view["settings"]["filters"]["reputation"], false);
+    assert!(!view.to_string().contains(&key));
+    let (_, audit) = request(&app, &admin, "/admin/audit", None).await;
+    assert!(!audit.to_string().contains(&key));
+    assert_eq!(
+        std::fs::metadata(dir.path().join("credentials/spamhaus.key"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let mut settings = view["settings"].clone();
+    settings["filters"]["reputation"] = json!(true);
+    let result = request(
+        &app,
+        &admin,
+        "/admin/config",
+        Some(json!({"revision":view["revision"],"settings":settings})),
+    )
+    .await;
+    assert_eq!(result.0, StatusCode::OK, "{}", result.1);
+    assert_eq!(
+        control.snapshot().config.filter.spamhaus_key_env.as_deref(),
+        Some(noisefence::management::WEB_DQS)
+    );
+}
+
+#[tokio::test]
+async fn configuration_apply_rechecks_the_administrative_session_at_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let token = account(&store, "admin", true, vec![]).await;
+    let hash = noisefence::message::digest(token.as_bytes());
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut settings = control.snapshot().settings.clone();
+    settings.filters.threshold = 96.;
+    store
+        .run(|db| {
+            db.execute("DELETE FROM sessions WHERE username='admin'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        control
+            .apply_session(0, settings, "admin".into(), hash)
+            .await
+            .is_err()
+    );
+    assert_eq!(control.snapshot().revision, 0);
+}

@@ -5,6 +5,10 @@ pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
+        .route("/admin/rbl/test", post(test_rbl))
+        .route("/admin/config/validate", post(validate_configuration))
+        .route("/admin/keys", get(managed_keys).post(save_managed_key))
+        .route("/preferences", get(preferences).post(save_preferences))
         .route("/admin/revisions", get(revisions))
         .route("/admin/revisions/{id}", get(revision))
         .route("/admin/users", get(users).post(save_user))
@@ -85,8 +89,9 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
     });
     let pub_tag_ready = pub_tag.effective(&control.base).is_ok();
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
-        "available":Settings::from_config(&control.base).filters,
+        "available":Settings::available(&control.base),
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
+        "native_rules":crate::native_filter::content_rules::RULES,
         "threshold_locked":control.base.filter.semantic.is_some() || control.base.fusion.as_ref().is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision),"tag_ready":tag_ready,
         "sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config),"sensitivity_levels":crate::custom_filtering::LEVELS,
         "mailing_available":control.base.mailing.is_some(),"pub_tag_ready":pub_tag_ready,
@@ -115,7 +120,12 @@ async fn apply(
         ));
     }
     let id = control
-        .apply(body.revision, body.settings, user.username)
+        .apply_session(
+            body.revision,
+            body.settings,
+            user.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
         .await
         .map_err(|e| {
             tracing::warn!(error=%e,"console configuration refused");
@@ -157,9 +167,9 @@ async fn revision(
         })
         .await?
         .ok_or(Error(StatusCode::NOT_FOUND, "Révision introuvable.".into()))?;
-    Ok(Json(
-        serde_json::from_str(&raw).map_err(anyhow::Error::from)?,
-    ))
+    let mut settings: Settings = serde_json::from_str(&raw).map_err(anyhow::Error::from)?;
+    settings.hydrate(&control.base);
+    Ok(Json(json!(settings)))
 }
 async fn users(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
@@ -361,4 +371,208 @@ async fn protection_key(
         tx.commit()?;Ok(())
     }).await?;
     Ok(Json(json!({"saved":true})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RblTest {
+    settings: crate::rbl::Settings,
+    ip: std::net::IpAddr,
+}
+async fn test_rbl(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<RblTest>,
+) -> ApiResult<Json<Value>> {
+    administrator(&app, &h, true).await?;
+    let c = controller(&app)?;
+    crate::management::validate_rbl(&body.settings, &c.base)
+        .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    static TEST: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+    let _permit = TEST.try_acquire().map_err(|_| {
+        Error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Un test DNS est déjà en cours.".into(),
+        )
+    })?;
+    let runtime = crate::rbl::Runtime::new(Some(&body.settings), None)?;
+    let report = runtime
+        .check(body.ip, crate::config::Mode::Observe, false)
+        .await;
+    Ok(Json(json!({"report":report,"draft":true})))
+}
+async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &h).await?;
+    let c = controller(&app)?;
+    let s = c.snapshot();
+    let global = crate::actions::Policy::from_config(&s.config);
+    let default_profile = crate::custom_filtering::Profile {
+        id: "personal".into(),
+        name: "Préférences personnelles".into(),
+        threshold: None,
+        require_corroboration: true,
+        spam: global.spam,
+        publicity: global.publicity,
+        review: crate::actions::Action::Deliver,
+        quarantine_days: global.quarantine_days,
+    };
+    let mut defaults = std::collections::BTreeMap::from([("*".to_owned(), default_profile)]);
+    if let Some(policy) = &s.config.custom_filtering {
+        for binding in &policy.bindings {
+            if (binding.scope == "*"
+                || binding.scope.strip_prefix("*@").is_some_and(|d| {
+                    user.addresses
+                        .iter()
+                        .any(|a| a.rsplit_once('@').is_some_and(|(_, domain)| domain == d))
+                })
+                || crate::preferences::permitted(&binding.scope, user.admin, &user.addresses))
+                && let Some(profile) = policy.profiles.iter().find(|p| p.id == binding.profile)
+            {
+                defaults.insert(binding.scope.clone(), profile.clone());
+            }
+        }
+    }
+    let mut settings = s.settings.preferences.clone();
+    settings
+        .mailboxes
+        .retain(|scope, _| crate::preferences::permitted(scope, user.admin, &user.addresses));
+    let scopes: Vec<_> = if user.admin {
+        s.config
+            .domains
+            .iter()
+            .map(|d| format!("*@{}", d.name))
+            .collect()
+    } else {
+        user.addresses
+    };
+    Ok(Json(
+        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreferenceEdit {
+    revision: i64,
+    scope: String,
+    preference: Option<crate::preferences::Preference>,
+}
+async fn save_preferences(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<PreferenceEdit>,
+) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &h).await?;
+    origin(&app, &h)?;
+    csrf(&user, &h)?;
+    if !crate::preferences::permitted(&body.scope, user.admin, &user.addresses) {
+        return Err(Error(
+            StatusCode::FORBIDDEN,
+            "Cette adresse n’est pas autorisée.".into(),
+        ));
+    }
+    let c = controller(&app)?;
+    if c.snapshot().revision != body.revision {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Configuration modifiée. Rechargez les préférences.".into(),
+        ));
+    }
+    let id = c
+        .apply_preferences(
+            body.revision,
+            body.scope,
+            body.preference,
+            user.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    Ok(Json(json!({"revision":id})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ValidateConfiguration {
+    settings: Settings,
+}
+async fn validate_configuration(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(mut body): Json<ValidateConfiguration>,
+) -> ApiResult<Json<Value>> {
+    administrator(&app, &h, true).await?;
+    let c = controller(&app)?;
+    body.settings.hydrate(&c.base);
+    body.settings
+        .effective(&c.base)
+        .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    Ok(Json(json!({"settings":body.settings})))
+}
+async fn managed_keys(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    administrator(&app, &h, false).await?;
+    let c = controller(&app)?;
+    Ok(Json(
+        json!({"spamhaus":crate::management::key_present(&c.base.data_dir,"spamhaus") || c.base.filter.spamhaus_key_env.is_some(),"scaleway":crate::management::key_present(&c.base.data_dir,"scaleway") || c.base.llm.is_some(),"scaleway_available":c.base.llm.is_some()}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManagedKey {
+    revision: i64,
+    provider: String,
+    key: String,
+}
+async fn save_managed_key(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<ManagedKey>,
+) -> ApiResult<Json<Value>> {
+    let user = administrator(&app, &h, true).await?;
+    if !matches!(body.provider.as_str(), "spamhaus" | "scaleway")
+        || !(16..=256).contains(&body.key.len())
+        || !body.key.bytes().all(|b| {
+            if body.provider == "spamhaus" {
+                b.is_ascii_alphanumeric()
+            } else {
+                b.is_ascii_graphic()
+            }
+        })
+    {
+        return Err(Error(StatusCode::UNPROCESSABLE_ENTITY,"Fournisseur ou format de clé invalide (16 à 256 caractères sans espace ; DQS : lettres et chiffres).".into()));
+    }
+
+    let c = controller(&app)?;
+    if c.snapshot().revision != body.revision {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Configuration modifiée. Rechargez les réglages.".into(),
+        ));
+    }
+    if body.provider == "scaleway" && c.base.llm.is_none() {
+        return Err(Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Connecteur Scaleway non installé.".into(),
+        ));
+    }
+    let hash = message::digest(token(&h).unwrap().as_bytes());
+    let root = c.base.data_dir.clone();
+    let username = user.username.clone();
+    app.store.run(move|db|{let tx=db.transaction()?;
+        let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![username,hash,now()],|r|r.get(0))?;
+        anyhow::ensure!(allowed,"Administrative session expired");
+        let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;anyhow::ensure!(current==body.revision,"Configuration modifiée.");
+        crate::management::save_key(&root,&body.provider,&body.key)?;
+        tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),username,body.provider])?;tx.commit()?;Ok(())}).await?;
+    let snapshot = c.snapshot();
+    match c
+        .apply(snapshot.revision, snapshot.settings.clone(), user.username)
+        .await
+    {
+        Ok(revision) => Ok(Json(
+            json!({"saved":true,"active":true,"revision":revision}),
+        )),
+        Err(_) => Ok(Json(
+            json!({"saved":true,"active":false,"message":"Clé enregistrée. Réappliquez la configuration pour la charger dans le moteur."}),
+        )),
+    }
 }

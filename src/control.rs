@@ -53,6 +53,12 @@ pub struct Filters {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default)]
+    pub rbl: Option<crate::rbl::Settings>,
+    #[serde(default)]
+    pub detection: Option<crate::management::Detection>,
+    #[serde(default)]
+    pub preferences: crate::preferences::Settings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_filtering: Option<crate::custom_filtering::Policy>,
     pub gateways: Vec<Gateway>,
@@ -103,6 +109,9 @@ impl Settings {
             })
             .collect();
         Self {
+            rbl: Some(config.rbl.clone().unwrap_or_default()),
+            detection: Some(crate::management::Detection::from_config(config)),
+            preferences: config.preferences.clone(),
             custom_filtering: config.custom_filtering.clone(),
             gateways,
             domains,
@@ -136,6 +145,18 @@ impl Settings {
             },
         }
     }
+    pub fn available(base: &Config) -> Filters {
+        let mut f = Self::from_config(base).filters;
+        f.reputation |= crate::management::key_present(&base.data_dir, "spamhaus");
+        f.llm = base.llm.is_some();
+        f
+    }
+    pub fn hydrate(&mut self, base: &Config) {
+        self.rbl
+            .get_or_insert_with(|| base.rbl.clone().unwrap_or_default());
+        self.detection
+            .get_or_insert_with(|| crate::management::Detection::from_config(base));
+    }
     pub fn effective(&self, base: &Config) -> Result<Config> {
         ensure!(
             self.domains.len() <= 100 && self.gateways.len() <= 100,
@@ -168,6 +189,9 @@ impl Settings {
             );
         }
         let mut cfg = base.clone();
+        if let Some(d) = &self.detection {
+            d.apply(&mut cfg)?;
+        }
         let mut names = HashSet::new();
         let mut active = Vec::new();
         for d in &self.domains {
@@ -225,7 +249,7 @@ impl Settings {
         }
         cfg.domains = active;
         let f = &self.filters;
-        let available = Self::from_config(base).filters;
+        let available = Self::available(base);
         for (enabled, exists, name) in [
             (f.antivirus, available.antivirus, "antivirus"),
             (f.signatures, available.signatures, "signatures"),
@@ -265,6 +289,9 @@ impl Settings {
         if !f.smtp_policy {
             cfg.smtp_policy = None;
         }
+        if f.reputation && cfg.filter.spamhaus_key_env.is_none() {
+            cfg.filter.spamhaus_key_env = Some(crate::management::WEB_DQS.into());
+        }
         if !f.reputation {
             cfg.filter.spamhaus_key_env = None;
         }
@@ -289,12 +316,18 @@ impl Settings {
             }
             (None, _) => cfg.mailing = None,
         }
+        if let Some(rbl) = &self.rbl {
+            crate::management::validate_rbl(rbl, base)?;
+            cfg.rbl = Some(rbl.clone());
+        }
+        cfg.preferences = self.preferences.clone();
         cfg.validate()?;
         Ok(cfg)
     }
 }
 
 pub struct Snapshot {
+    pub rbl: Arc<crate::rbl::Runtime>,
     pub revision: i64,
     pub settings: Settings,
     pub config: Arc<Config>,
@@ -320,10 +353,11 @@ impl Controller {
                     .optional()?)
             })
             .await?;
-        let (revision, settings) = match saved {
+        let (revision, mut settings): (i64, Settings) = match saved {
             Some((id, raw)) => (id, serde_json::from_str(&raw)?),
             None => (0, Settings::from_config(&base)),
         };
+        settings.hydrate(&base);
         let effective = if revision == 0 {
             (*base).clone()
         } else {
@@ -342,11 +376,17 @@ impl Controller {
             Ok((template, engine))
         })
         .await??;
+        let rbl = Arc::new(crate::rbl::Runtime::with_dqs_key(
+            config.rbl.as_ref(),
+            crate::management::dqs_key(&config)?.as_deref(),
+        )?);
+        engine.activate_limits();
         Ok(Arc::new(Self {
             base,
             store,
             template,
             active: RwLock::new(Arc::new(Snapshot {
+                rbl,
                 revision,
                 settings,
                 config,
@@ -365,11 +405,59 @@ impl Controller {
         settings: Settings,
         username: String,
     ) -> Result<i64> {
+        self.apply_authorized(revision, settings, username, None)
+            .await
+    }
+    pub async fn apply_session(
+        self: &Arc<Self>,
+        revision: i64,
+        settings: Settings,
+        username: String,
+        token_hash: String,
+    ) -> Result<i64> {
+        self.apply_authorized(revision, settings, username, Some(("*".into(), token_hash)))
+            .await
+    }
+    pub async fn apply_preferences(
+        self: &Arc<Self>,
+        revision: i64,
+        scope: String,
+        preference: Option<crate::preferences::Preference>,
+        username: String,
+        token_hash: String,
+    ) -> Result<i64> {
+        let snapshot = self.snapshot();
+        ensure!(
+            snapshot.revision == revision,
+            "Configuration modifiée. Rechargez les préférences."
+        );
+        ensure!(
+            snapshot.settings.preferences.enabled,
+            "Personnalisation désactivée par l’administrateur."
+        );
+        let mut settings = snapshot.settings.clone();
+        if let Some(p) = preference {
+            settings.preferences.mailboxes.insert(scope.clone(), p);
+        } else {
+            settings.preferences.mailboxes.remove(&scope);
+        }
+        self.apply_authorized(revision, settings, username, Some((scope, token_hash)))
+            .await
+    }
+    async fn apply_authorized(
+        self: &Arc<Self>,
+        revision: i64,
+        mut settings: Settings,
+        username: String,
+        delegated: Option<(String, String)>,
+    ) -> Result<i64> {
+        settings.hydrate(&self.base);
         let this = self.clone();
         tokio::spawn(async move {
             let _permit=this.applying.clone().try_acquire_owned().context("Une modification est déjà en cours.")?;
             ensure!(revision==this.snapshot().revision,"Configuration modifiée dans une autre session. Rechargez avant d’enregistrer.");
             let config=Arc::new(settings.effective(&this.base)?);
+            let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
             let template=this.template.clone(); let cfg=config.clone();
             let engine=Arc::new(tokio::task::spawn_blocking(move||template.reconfigure(cfg)).await??);
             let raw=serde_json::to_string(&settings)?;
@@ -378,15 +466,23 @@ impl Controller {
                 let tx=db.transaction()?;
                 let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
                 ensure!(current==revision,"Configuration modifiée dans une autre session.");
+                if let Some((scope,hash))=&delegated {
+                    let admin:Option<bool>=tx.query_row("SELECT u.admin FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND s.token_hash=?2 AND s.expires>?3 AND u.disabled=0",params![username,hash,crate::now()],|r|r.get(0)).optional()?;
+                    let admin=admin.context("Session expirée ou compte désactivé.")?;
+                    let grants=tx.prepare("SELECT address FROM grants WHERE username=?1")?.query_map([&username],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+                    ensure!(if scope=="*" {admin}else{crate::preferences::permitted(scope,admin,&grants)},"Cette adresse n’est pas autorisée.");
+                } else {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
                 ensure!(enabled,"Droits administrateur révoqués.");
+                }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;
                 let id=tx.last_insert_rowid();
                 tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'configuration',?3)",params![crate::now(),username,id.to_string()])?;
                 tx.execute("DELETE FROM console_revisions WHERE id NOT IN (SELECT id FROM console_revisions ORDER BY id DESC LIMIT 100)",[])?;
                 tx.commit()?;Ok(id)
             }).await?;
-            *this.active.write().unwrap()=Arc::new(Snapshot{revision:id,settings,config,engine});
+            engine.activate_limits();rbl.activate();
+            *this.active.write().unwrap()=Arc::new(Snapshot{revision:id,settings,config,engine,rbl});
             Ok(id)
         }).await?
     }

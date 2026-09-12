@@ -9,6 +9,8 @@ use std::{
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(skip)]
+    pub preferences: crate::preferences::Settings,
     pub hostname: String,
     pub data_dir: PathBuf,
     pub smtp: Smtp,
@@ -454,15 +456,18 @@ impl Config {
         if let Some(p) = &self.custom_filtering {
             p.validate(self)?;
         }
+        self.preferences.validate(self)?;
+        let personal_tags = self.preferences.tags();
         let custom_tags = self
             .custom_filtering
             .as_ref()
             .map(|p| p.tags())
             .unwrap_or_default();
-        let spam_tag = actions.spam_tag() || custom_tags.0;
+        let spam_tag = actions.spam_tag() || custom_tags.0 || personal_tags.0;
         let pub_tag = ((self.mailing.is_some() || self.custom_filtering.is_some())
             && actions.publicity == crate::actions::Action::Tag)
-            || custom_tags.1;
+            || custom_tags.1
+            || personal_tags.1;
         ensure!(
             self.filter.mode == Mode::Observe || !pub_tag || self.mailing.is_some(),
             "PUB tagging requires a validated mailing configuration"

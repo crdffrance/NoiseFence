@@ -230,8 +230,8 @@ pub struct Client {
     config: Settings,
     http: reqwest::Client,
     db: Arc<Mutex<Connection>>,
-    gate: Arc<tokio::sync::Semaphore>,
-    requests: Arc<tokio::sync::Semaphore>,
+    gate: Arc<crate::capacity::Capacity>,
+    requests: Arc<crate::capacity::Capacity>,
     #[cfg(test)]
     endpoint_override: Option<String>,
 }
@@ -261,9 +261,26 @@ impl Client {
                 .user_agent("NoiseFence/1 Reputation-check")
                 .build()?,
             db: Arc::new(Mutex::new(db)),
-            gate: Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
-            requests: Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
+            gate: crate::capacity::Capacity::new(config.max_parallel),
+            requests: crate::capacity::Capacity::new(config.max_parallel),
         })
+    }
+    pub(super) fn reconfigure(&self, config: &Settings) -> Result<Self> {
+        let mut next = self.clone();
+        next.config = config.clone();
+        next.http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .retry(reqwest::retry::never())
+            .connect_timeout(Duration::from_millis(500))
+            .timeout(Duration::from_millis(config.timeout_ms))
+            .user_agent("NoiseFence/1 Reputation-check")
+            .build()?;
+        Ok(next)
+    }
+    pub(super) fn activate(&self) {
+        self.gate.set_limit(self.config.max_parallel);
+        self.requests.set_limit(self.config.max_parallel);
     }
     async fn reserve(
         &self,

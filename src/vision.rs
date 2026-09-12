@@ -8,7 +8,6 @@ use std::{collections::BTreeSet, path::PathBuf, time::Instant};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
-    sync::Semaphore,
 };
 
 pub const PROTOCOL: &str = "noisefence-vision-1";
@@ -393,15 +392,23 @@ fn select(raw: &[u8], settings: &Settings) -> (Vec<Part>, Vec<String>) {
 
 pub struct Client {
     settings: Settings,
-    slots: Semaphore,
+    slots: std::sync::Arc<crate::capacity::Capacity>,
 }
 impl Client {
     pub fn new(settings: Settings) -> Result<Self> {
         settings.validate()?;
         Ok(Self {
-            slots: Semaphore::new(settings.max_parallel),
+            slots: crate::capacity::Capacity::new(settings.max_parallel),
             settings,
         })
+    }
+    pub(crate) fn reconfigure(&self, settings: Settings) -> Result<Self> {
+        let mut next = Self::new(settings)?;
+        next.slots = self.slots.clone();
+        Ok(next)
+    }
+    pub(crate) fn activate(&self) {
+        self.slots.set_limit(self.settings.max_parallel);
     }
     pub async fn inspect(&self, raw: &[u8]) -> Inspection {
         let started = Instant::now();

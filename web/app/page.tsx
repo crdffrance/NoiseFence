@@ -1,4 +1,5 @@
 'use client';
+import { MyFilters } from './preferences';
 import { OnboardingGate } from './onboarding';
 import { AdaptiveDetails } from './adaptive';
 import type { AdaptiveReport, AdaptiveClass } from './adaptive-types';
@@ -247,7 +248,7 @@ function Home() {
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const [section, setSection] = useState<
-    Section | 'account' | 'quality' | 'reliability'
+    Section | 'account' | 'quality' | 'reliability' | 'preferences'
   >('messages');
   const [mobileMenu, setMobileMenu] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -430,9 +431,15 @@ function Home() {
     return () => window.removeEventListener('keydown', focusSearch);
   }, [user, section, selected, confirmation]);
   function navigate(
-    next: Section | 'account' | 'quality' | 'reliability',
+    next: Section | 'account' | 'quality' | 'reliability' | 'preferences',
     nextFilter = 'all',
   ) {
+    if (
+      configDirty &&
+      !window.confirm('Abandonner les réglages non enregistrés ?')
+    )
+      return;
+    setConfigDirty(false);
     setSection(next);
     setFilter(nextFilter);
     setOffset(0);
@@ -743,6 +750,14 @@ function Home() {
           <nav className="navigation" aria-label="Espace personnel">
             <Button
               variant="ghost"
+              className={`nav-item ${section === 'preferences' ? 'nav-active' : ''}`}
+              aria-current={section === 'preferences' ? 'page' : undefined}
+              onClick={() => navigate('preferences')}
+            >
+              <ShieldCheck size={18} /> Mes filtres
+            </Button>
+            <Button
+              variant="ghost"
               className={`nav-item ${section === 'reliability' ? 'nav-active' : ''}`}
               aria-current={section === 'reliability' ? 'page' : undefined}
               onClick={() => navigate('reliability')}
@@ -813,15 +828,17 @@ function Home() {
             <strong>
               {selected
                 ? 'Décision du filtre'
-                : section === 'reliability'
-                  ? 'Fiabilité'
-                  : section === 'quality'
-                    ? 'Qualité du filtre'
-                    : section === 'account'
-                      ? 'Mon compte'
-                      : section === 'messages' && filter === 'quarantined'
-                        ? 'Quarantaine'
-                        : navigation.find((n) => n.id === section)?.label}
+                : section === 'preferences'
+                  ? 'Mes filtres'
+                  : section === 'reliability'
+                    ? 'Fiabilité'
+                    : section === 'quality'
+                      ? 'Qualité du filtre'
+                      : section === 'account'
+                        ? 'Mon compte'
+                        : section === 'messages' && filter === 'quarantined'
+                          ? 'Quarantaine'
+                          : navigation.find((n) => n.id === section)?.label}
             </strong>
           </span>
           <span
@@ -845,6 +862,7 @@ function Home() {
           <div
             hidden={
               section === 'messages' ||
+              section === 'preferences' ||
               section === 'account' ||
               section === 'quality' ||
               section === 'reliability'
@@ -853,6 +871,7 @@ function Home() {
             <AdminConsole
               user={user}
               section={
+                section === 'preferences' ||
                 section === 'account' ||
                 section === 'quality' ||
                 section === 'reliability'
@@ -869,6 +888,9 @@ function Home() {
               }}
             />
           </div>
+        )}
+        {section === 'preferences' && (
+          <MyFilters user={user} onDirty={setConfigDirty} />
         )}
         {section === 'quality' && <QualityConsole user={user} />}
         {section === 'reliability' && (

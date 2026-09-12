@@ -203,3 +203,11 @@ une migration du candidat qualité et des seuils sous contrainte empirique.
 
 La console propose une [recherche avancée dans les messages](docs/message-search.md)
 par objet, adresse, règle, date, score et état de livraison, dans les métadonnées conservées.
+
+### Configuration de la messagerie
+
+L’administration Web couvre les RBL, fournisseurs, budgets, moteurs, règles,
+domaines, alias et relais. L’espace **Mes filtres** permet aux utilisateurs de
+personnaliser les niveaux, actions et règles de leurs adresses autorisées.
+Voir [le guide de configuration Web](docs/web-configuration.md) pour les droits,
+l’héritage, l’application des changements et la migration depuis une version antérieure.

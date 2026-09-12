@@ -130,3 +130,92 @@ async fn rbl_denies_before_data_storage_and_scanning_and_observe_preserves_deliv
         let _ = dns.await;
     }
 }
+
+#[tokio::test]
+async fn a_web_revision_changes_rbl_only_at_the_next_mail_transaction() {
+    use crate::control::Controller;
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg: Config = toml::from_str(include_str!("../../config/development.toml")).unwrap();
+    cfg.data_dir = root.path().into();
+    cfg.smtp.minimum_free_bytes = 0;
+    cfg.rbl=Some(serde_json::from_value(serde_json::json!({"lists":[{"id":"old","provider":"fixture","zone":"rbl.example.test","listed_codes":["127.0.0.2"],"ipv6":false}]})).unwrap());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(root.path()).unwrap();
+    store
+        .run(|db| {
+            db.execute(
+                "INSERT INTO users(username,password,admin) VALUES('admin','unused',1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = State {
+        config: cfg,
+        store: store.clone(),
+        engine: control.snapshot().engine.clone(),
+        processing: Arc::new(Semaphore::new(2)),
+    };
+    let c = control.clone();
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        session(
+            socket,
+            "[2001:4860:4860::8888]:40000".parse().unwrap(),
+            state,
+            None,
+            Some(c.clone()),
+            c.snapshot().rbl.clone(),
+        )
+        .await
+    });
+    let mut wire: Wire = BufReader::new(Box::new(TcpStream::connect(address).await.unwrap()));
+    assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 220);
+    for command in [
+        "EHLO sender.example.test\r\n",
+        "MAIL FROM:<sender@example.org>\r\n",
+        "RCPT TO:<alice@example.test>\r\n",
+    ] {
+        reply(&mut wire, command).await.unwrap();
+        assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 250);
+    }
+    let mut settings = control.snapshot().settings.clone();
+    settings.rbl.as_mut().unwrap().lists.clear();
+    control.apply(0, settings, "admin".into()).await.unwrap();
+    for n in 0..2 {
+        if n == 1 {
+            for command in [
+                "MAIL FROM:<sender@example.org>\r\n",
+                "RCPT TO:<alice@example.test>\r\n",
+            ] {
+                reply(&mut wire, command).await.unwrap();
+                assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 250);
+            }
+        }
+        reply(&mut wire, "DATA\r\n").await.unwrap();
+        assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 354);
+        reply(&mut wire,&format!("From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Revision {n}\r\n\r\nBonjour\r\n.\r\n")).await.unwrap();
+        assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 250);
+    }
+    reply(&mut wire, "QUIT\r\n").await.unwrap();
+    assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 221);
+    server.await.unwrap().unwrap();
+    let scans = store
+        .run(|db| {
+            Ok(db
+                .prepare("SELECT scan FROM messages ORDER BY rowid")?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(scans.len(), 2);
+    let old: crate::engine::Scan = serde_json::from_str(&scans[0]).unwrap();
+    let new: crate::engine::Scan = serde_json::from_str(&scans[1]).unwrap();
+    assert_eq!(old.early_rbl.unwrap().checks[0].id, "old");
+    assert!(new.early_rbl.is_none());
+}

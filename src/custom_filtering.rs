@@ -160,12 +160,12 @@ pub struct Assessment {
     pub unavailable_conditions: usize,
     pub action: Applied,
 }
-fn scope_rank(scope: &str, recipient: &Recipient) -> Option<u8> {
+pub(crate) fn scope_rank(scope: &str, recipient: &Recipient) -> Option<u8> {
     if scope == "*" {
         return Some(0);
     }
-    let original = recipient.address.to_ascii_lowercase();
-    let destination = recipient.destination.to_ascii_lowercase();
+    let original = recipient.address.clone();
+    let destination = recipient.destination.clone();
     if scope == original {
         return Some(4);
     }
@@ -187,13 +187,13 @@ fn scope_rank(scope: &str, recipient: &Recipient) -> Option<u8> {
 }
 fn valid_scope(scope: &str, cfg: &Config) -> bool {
     scope == "*"
-        || (scope == scope.to_ascii_lowercase()
-            && if let Some(d) = scope.strip_prefix("*@") {
-                cfg.domains.iter().any(|domain| domain.name == d)
-            } else {
-                cfg.recipient(scope).is_some()
-            })
+        || if let Some(d) = scope.strip_prefix("*@") {
+            cfg.domains.iter().any(|domain| domain.name == d)
+        } else {
+            cfg.recipient(scope).is_some_and(|r| r.address == scope)
+        }
 }
+
 fn text_valid(s: &str, max: usize) -> bool {
     !s.trim().is_empty() && s.len() <= max && !s.chars().any(char::is_control)
 }

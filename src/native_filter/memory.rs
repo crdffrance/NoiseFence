@@ -43,7 +43,7 @@ pub(super) async fn inspect_with_permit(
     features: &Features,
     scopes: &[String],
     raw_sha256: &str,
-    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    permit: Option<crate::capacity::Permit>,
 ) -> Report {
     if scopes.len() != 1 || features.text_shingles < 24 {
         return Report::default();

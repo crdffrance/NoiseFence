@@ -507,6 +507,7 @@ pub struct Engine {
     smtp_policy: Option<crate::smtp_policy::Policy>,
     dqs_cache: Mutex<HashMap<String, (Instant, Vec<std::net::Ipv4Addr>)>>,
     llm: Option<Arc<crate::llm::Client>>,
+    llm_capacity: Arc<crate::capacity::Capacity>,
     vision: Option<Arc<crate::vision::Client>>,
     protection: Option<Arc<crate::protection::Runtime>>,
     native_filter: Option<Arc<crate::native_filter::Runtime>>,
@@ -514,6 +515,23 @@ pub struct Engine {
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
 impl Engine {
+    pub(crate) fn activate_limits(&self) {
+        if let Some(c) = &self.protection {
+            c.activate();
+        }
+        if let Some(c) = &self.native_filter {
+            c.activate();
+        }
+        if let Some(c) = &self.smtp_policy {
+            c.activate();
+        }
+        if let Some(c) = &self.vision {
+            c.activate();
+        }
+        if let Some(client) = &self.llm {
+            client.activate();
+        }
+    }
     pub fn new(config: Arc<Config>) -> Result<Self> {
         Self::build(config, None)
     }
@@ -528,11 +546,7 @@ impl Engine {
             .as_ref()
             .map(|settings| {
                 if let Some(runtime) = template.and_then(|t| t.native_filter.as_ref()) {
-                    ensure!(
-                        &runtime.settings == settings,
-                        "Changing native filter settings requires a restart"
-                    );
-                    Ok(runtime.clone())
+                    runtime.reconfigure(settings.clone())
                 } else {
                     crate::native_filter::Runtime::new(settings.clone())
                 }
@@ -545,13 +559,19 @@ impl Engine {
             .map(crate::quality::Model::load)
             .transpose()?;
         let quality_policy = crate::quality::policy_hash(&config);
+        let llm_capacity = template.map(|t| t.llm_capacity.clone()).unwrap_or_else(|| {
+            crate::capacity::Capacity::new(config.llm.as_ref().map_or(1, |c| c.max_parallel))
+        });
         let llm = config
             .llm
             .as_ref()
             .filter(|c| c.monthly_budget_micro_eur > 0)
             .map(|c| match template.and_then(|t| t.llm.clone()) {
-                Some(client) => Ok(client),
-                None => crate::llm::Client::new(c.clone(), &config.data_dir).map(Arc::new),
+                Some(client) => client
+                    .reconfigure(c.clone(), &config.data_dir)
+                    .map(Arc::new),
+                None => crate::llm::Client::new(c.clone(), &config.data_dir)
+                    .map(|client| Arc::new(client.with_capacity(llm_capacity.clone()))),
             })
             .transpose()?;
         let (model, model_hash) = if let Some(template) = template {
@@ -620,14 +640,7 @@ impl Engine {
         if let Some(key) = &arc_key {
             rsa_key(key).context("ARC key must be an RSA PEM key")?;
         }
-        let dqs_key = config
-            .filter
-            .spamhaus_key_env
-            .as_ref()
-            .map(|name| {
-                std::env::var(name).with_context(|| format!("missing environment variable {name}"))
-            })
-            .transpose()?;
+        let dqs_key = crate::management::dqs_key(&config)?;
         if let Some(key) = &dqs_key {
             ensure!(
                 !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric()),
@@ -637,14 +650,19 @@ impl Engine {
         let smtp_policy = config
             .smtp_policy
             .clone()
-            .map(crate::smtp_policy::Policy::new)
+            .map(
+                |settings| match template.and_then(|t| t.smtp_policy.as_ref()) {
+                    Some(p) => p.reconfigure(settings),
+                    None => crate::smtp_policy::Policy::new(settings),
+                },
+            )
             .transpose()?;
         let protection = config
             .protection
             .as_ref()
             .map(
                 |settings| match template.and_then(|t| t.protection.clone()) {
-                    Some(runtime) => Ok(runtime),
+                    Some(runtime) => runtime.reconfigure(settings).map(Arc::new),
                     None => {
                         crate::protection::Runtime::new(settings, &config.data_dir).map(Arc::new)
                     }
@@ -655,7 +673,7 @@ impl Engine {
             .vision
             .clone()
             .map(|settings| match template.and_then(|t| t.vision.clone()) {
-                Some(client) => Ok(client),
+                Some(client) => client.reconfigure(settings).map(Arc::new),
                 None => crate::vision::Client::new(settings).map(Arc::new),
             })
             .transpose()?;
@@ -684,6 +702,7 @@ impl Engine {
             dqs_key,
             dqs_cache: Mutex::new(HashMap::new()),
             llm,
+            llm_capacity,
             vision,
             protection,
             #[cfg(feature = "semantic")]
@@ -1548,7 +1567,7 @@ impl Engine {
         let mut variants: Vec<QueueVariant> = Vec::new();
         let mut base = scan.clone();
         base.action = Some(crate::actions::evaluate(scan, &self.config));
-        if let Some(policy) = &self.config.custom_filtering
+        if (self.config.custom_filtering.is_some() || !self.config.preferences.mailboxes.is_empty())
             && !recipients.is_empty()
         {
             let facts = crate::custom_filtering::Facts::message(
@@ -1557,13 +1576,24 @@ impl Engine {
                 scan,
                 self.config.filter.max_analysis_bytes,
             );
-            let prepared = crate::custom_filtering::Prepared::new(policy, &facts);
+            let empty = crate::custom_filtering::Policy::default();
+            let policy = self.config.custom_filtering.as_ref().unwrap_or(&empty);
+            let common_prepared = crate::custom_filtering::Prepared::new(policy, &facts);
             for recipient in recipients {
+                let effective = self.config.preferences.policy(policy, recipient);
+                let own_prepared = match &effective {
+                    std::borrow::Cow::Owned(p) => {
+                        Some(crate::custom_filtering::Prepared::new(p, &facts))
+                    }
+                    std::borrow::Cow::Borrowed(_) => None,
+                };
+                let policy = effective.as_ref();
+                let prepared = own_prepared.as_ref().unwrap_or(&common_prepared);
                 let assessment = crate::custom_filtering::assess_prepared(
                     policy,
                     &self.config,
                     scan,
-                    &prepared,
+                    prepared,
                     recipient,
                     crate::now(),
                 );

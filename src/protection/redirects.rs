@@ -101,7 +101,7 @@ pub struct Report {
 pub struct Resolver {
     settings: Settings,
     dns: Arc<MessageAuthenticator>,
-    slots: Arc<tokio::sync::Semaphore>,
+    slots: Arc<crate::capacity::Capacity>,
     #[cfg(test)]
     test_dns: Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<IpAddr>>>>,
     #[cfg(test)]
@@ -112,7 +112,7 @@ impl Resolver {
         settings.validate()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         Ok(Self {
-            slots: Arc::new(tokio::sync::Semaphore::new(settings.max_parallel)),
+            slots: crate::capacity::Capacity::new(settings.max_parallel),
             settings,
             dns: Arc::new(MessageAuthenticator::new_system_conf()?),
             #[cfg(test)]
@@ -120,6 +120,15 @@ impl Resolver {
             #[cfg(test)]
             test_peer: None,
         })
+    }
+    pub(super) fn reconfigure(&self, settings: Settings) -> Result<Self> {
+        settings.validate()?;
+        let mut next = self.clone();
+        next.settings = settings;
+        Ok(next)
+    }
+    pub(super) fn activate(&self) {
+        self.slots.set_limit(self.settings.max_parallel);
     }
     async fn addresses(&self, host: &str) -> std::result::Result<Vec<IpAddr>, Detail> {
         if let Ok(ip) = host.trim_matches(['[', ']']).parse() {

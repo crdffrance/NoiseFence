@@ -8,6 +8,7 @@ pub mod learning;
 pub mod memory;
 pub mod rules;
 
+use crate::capacity::Capacity;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,7 +19,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
 
 pub const VERSION: &str = "native-filter-2";
 
@@ -129,14 +129,14 @@ pub struct Observation {
 
 pub struct Runtime {
     pub settings: Settings,
-    adaptive: Option<crate::adaptive::Runtime>,
+    adaptive: Option<Arc<crate::adaptive::Runtime>>,
     matcher: rules::Matcher,
     composites: rules::Composites,
-    model: Option<bayes::Model>,
+    model: Option<Arc<bayes::Model>>,
     model_sha256: Option<String>,
     policy_sha256: String,
-    permits: Arc<Semaphore>,
-    memory_permits: Arc<Semaphore>,
+    permits: Arc<Capacity>,
+    memory_permits: Arc<Capacity>,
 }
 impl Runtime {
     pub fn new(settings: Settings) -> Result<Arc<Self>> {
@@ -147,13 +147,13 @@ impl Runtime {
             .map(bayes::Model::load)
             .transpose()?;
         let (model, model_sha256) = match model {
-            Some((m, h)) => (Some(m), Some(h)),
+            Some((m, h)) => (Some(Arc::new(m)), Some(h)),
             None => (None, None),
         };
         let adaptive = settings
             .adaptive
             .clone()
-            .map(|s| crate::adaptive::Runtime::new(s, &settings.patterns))
+            .map(|s| crate::adaptive::Runtime::new(s, &settings.patterns).map(Arc::new))
             .transpose()?;
         let matcher = rules::Matcher::compile(&settings.patterns)?;
         let composites = rules::Composites::compile(&settings.composites, &settings.patterns)?;
@@ -161,8 +161,8 @@ impl Runtime {
             &serde_json::json!({"version":VERSION,"detector_build":crate::compatibility::DETECTOR_BUILD_SHA256,"content":input::PROTOCOL,"settings":settings,"bayes":model_sha256}),
         )?);
         Ok(Arc::new(Self {
-            permits: Arc::new(Semaphore::new(settings.max_parallel)),
-            memory_permits: Arc::new(Semaphore::new(settings.max_parallel)),
+            permits: Capacity::new(settings.max_parallel),
+            memory_permits: Capacity::new(settings.max_parallel),
             settings,
             matcher,
             adaptive,
@@ -171,6 +171,37 @@ impl Runtime {
             model_sha256,
             policy_sha256,
         }))
+    }
+    pub(crate) fn reconfigure(&self, settings: Settings) -> Result<Arc<Self>> {
+        settings.validate()?;
+        ensure!(
+            settings.bayes_model == self.settings.bayes_model
+                && settings.adaptive == self.settings.adaptive,
+            "Les modèles entraînés nécessitent leur procédure de validation."
+        );
+        // Adaptive vectors depend on exact pattern order; never silently change their protocol.
+        ensure!(
+            self.settings.adaptive.is_none() || settings.patterns == self.settings.patterns,
+            "Les motifs sont liés au protocole adaptatif ; modifier les règles de contenu ou les composites."
+        );
+        let policy_sha256 = crate::message::digest(&serde_json::to_vec(
+            &serde_json::json!({"version":VERSION,"detector_build":crate::compatibility::DETECTOR_BUILD_SHA256,"content":input::PROTOCOL,"settings":settings,"bayes":self.model_sha256}),
+        )?);
+        Ok(Arc::new(Self {
+            matcher: rules::Matcher::compile(&settings.patterns)?,
+            composites: rules::Composites::compile(&settings.composites, &settings.patterns)?,
+            settings,
+            adaptive: self.adaptive.clone(),
+            model: self.model.clone(),
+            model_sha256: self.model_sha256.clone(),
+            policy_sha256,
+            permits: self.permits.clone(),
+            memory_permits: self.memory_permits.clone(),
+        }))
+    }
+    pub(crate) fn activate(&self) {
+        self.permits.set_limit(self.settings.max_parallel);
+        self.memory_permits.set_limit(self.settings.max_parallel);
     }
     fn empty(&self, status: Status) -> Observation {
         Observation {
@@ -272,7 +303,7 @@ impl Runtime {
         let Some(features) = &observation.features else {
             return;
         };
-        let Ok(permit) = self.memory_permits.clone().try_acquire_owned() else {
+        let Ok(permit) = self.memory_permits.clone().try_acquire() else {
             observation.report.fuzzy.status = Status::Busy;
             return;
         };

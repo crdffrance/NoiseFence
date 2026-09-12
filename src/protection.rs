@@ -97,7 +97,7 @@ impl Quota {
             || (self.day != 0 && day_used >= i64::from(self.day))
     }
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub policy: Policy,
@@ -275,7 +275,7 @@ pub struct Targets {
 pub struct Runtime {
     providers: Arc<providers::Client>,
     root: std::path::PathBuf,
-    feed: std::sync::Mutex<(Instant, Arc<Feed>)>,
+    feed: Arc<std::sync::Mutex<(Instant, Arc<Feed>)>>,
     redirects: redirects::Resolver,
 }
 impl Runtime {
@@ -285,8 +285,24 @@ impl Runtime {
             redirects: redirects::Resolver::new(config.url_resolution.clone())?,
             providers: Arc::new(providers::Client::new(config, root)?),
             root: root.into(),
-            feed: std::sync::Mutex::new((Instant::now(), Arc::new(Feed::load(root)))),
+            feed: Arc::new(std::sync::Mutex::new((
+                Instant::now(),
+                Arc::new(Feed::load(root)),
+            ))),
         })
+    }
+    pub(crate) fn reconfigure(&self, config: &Settings) -> Result<Self> {
+        config.validate()?;
+        Ok(Self {
+            providers: Arc::new(self.providers.reconfigure(config)?),
+            root: self.root.clone(),
+            feed: self.feed.clone(),
+            redirects: self.redirects.reconfigure(config.url_resolution.clone())?,
+        })
+    }
+    pub(crate) fn activate(&self) {
+        self.providers.activate();
+        self.redirects.activate();
     }
     pub fn local(
         &self,

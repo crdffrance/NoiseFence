@@ -1,4 +1,14 @@
 'use client';
+import {
+  RblEditor,
+  DetectionSettings,
+  DelegationSettings,
+  ConfigurationTransfer,
+  ManagedKeys,
+  type RblSettings,
+  type Detection,
+  type Preferences,
+} from './management';
 import { CustomFiltering, type CustomPolicy } from './custom-filtering';
 import { FilterSensitivity } from './filter-sensitivity-control';
 import {
@@ -76,6 +86,9 @@ type Filters = {
   reputation: boolean;
 };
 type Settings = {
+  rbl: RblSettings;
+  detection: Detection;
+  preferences: Preferences;
   custom_filtering?: CustomPolicy | null;
   domains: Domain[];
   gateways: Gateway[];
@@ -85,6 +98,7 @@ type Settings = {
   mailing: MailingPolicy | null;
 };
 type Configuration = {
+  native_rules: import('./management').NativeRule[];
   revision: number;
   actions: ActionPolicy;
   rules: Rule[];
@@ -143,6 +157,24 @@ type Metrics = {
   };
 };
 const filterSections = [
+  {
+    id: 'rbl',
+    label: 'Réputation IP · RBL',
+    description: 'Listes DNS et réponses SMTP',
+    icon: <Globe2 size={19} />,
+  },
+  {
+    id: 'parameters',
+    label: 'Paramètres avancés',
+    description: 'LLM, budget, OCR et moteur natif',
+    icon: <SlidersHorizontal size={19} />,
+  },
+  {
+    id: 'delegation',
+    label: 'Préférences des utilisateurs',
+    description: 'Droits, niveaux et actions personnelles',
+    icon: <Users size={19} />,
+  },
   {
     id: 'policy',
     label: 'Politique & actions',
@@ -914,6 +946,58 @@ export function AdminConsole({
             onChange={setFilterSection}
           />
           <div
+            id="filters-panel-rbl"
+            role="tabpanel"
+            aria-labelledby="filters-tab-rbl"
+            hidden={filterSection !== 'rbl'}
+            className="filter-section"
+          >
+            <RblEditor
+              value={draft.rbl}
+              onChange={(rbl) => setDraft({ ...draft, rbl })}
+              csrf={user.csrf}
+            />
+          </div>
+          <div
+            id="filters-panel-parameters"
+            role="tabpanel"
+            aria-labelledby="filters-tab-parameters"
+            hidden={filterSection !== 'parameters'}
+            className="filter-section"
+          >
+            <DetectionSettings
+              nativeRules={config.native_rules}
+              value={draft.detection}
+              onChange={(detection) => setDraft({ ...draft, detection })}
+            />
+            <ManagedKeys
+              csrf={user.csrf}
+              revision={config.revision}
+              onSaved={async () => {
+                const fresh = await api<Configuration>('/admin/config');
+                setConfig(fresh);
+                setEpoch((v) => v + 1);
+              }}
+            />
+            <ConfigurationTransfer
+              csrf={user.csrf}
+              value={draft}
+              onChange={(v) => setDraft(v as Settings)}
+            />
+          </div>
+          <div
+            id="filters-panel-delegation"
+            role="tabpanel"
+            aria-labelledby="filters-tab-delegation"
+            hidden={filterSection !== 'delegation'}
+            className="filter-section"
+          >
+            <DelegationSettings
+              value={draft.preferences}
+              onChange={(preferences) => setDraft({ ...draft, preferences })}
+            />
+          </div>
+          <div
             id="filters-panel-custom"
             role="tabpanel"
             aria-labelledby="filters-tab-custom"
@@ -1628,6 +1712,29 @@ export function AdminConsole({
             <section className="change-review">
               <h2>Vérifier les modifications</h2>
               <ul>
+                {(['rbl', 'detection', 'preferences'] as const)
+                  .filter(
+                    (k) =>
+                      JSON.stringify(draft[k]) !==
+                      JSON.stringify(config.settings[k]),
+                  )
+                  .map((k) => (
+                    <li key={k}>
+                      <strong>
+                        {k === 'rbl'
+                          ? 'Réputation IP et RBL'
+                          : k === 'detection'
+                            ? 'Paramètres des moteurs et budgets'
+                            : 'Préférences et droits personnels'}
+                      </strong>
+                      <details>
+                        <summary>Voir les valeurs proposées</summary>
+                        <pre className="management-result">
+                          {JSON.stringify(draft[k], null, 2)}
+                        </pre>
+                      </details>
+                    </li>
+                  ))}
                 {sensitivityChanges(
                   config.settings.custom_filtering,
                   draft.custom_filtering,

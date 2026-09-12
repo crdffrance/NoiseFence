@@ -17,6 +17,7 @@ impl Resolver for Dns {
 fn zone(id: &str, provider: &str) -> Zone {
     Zone {
         list: List {
+            enabled: true,
             id: id.into(),
             provider: provider.into(),
             zone: format!("{id}.example.test"),
@@ -44,7 +45,7 @@ fn runtime(codes: &[&str]) -> Runtime<Dns> {
             },
             delay: Duration::ZERO,
         },
-        slots: Semaphore::new(8),
+        slots: Capacity::new(8),
         cache: Mutex::new(HashMap::new()),
     }
 }
@@ -140,7 +141,9 @@ async fn deadlines_busy_partial_results_and_cancellation_fail_open() {
     assert_eq!(r.slots.available_permits(), 8);
     assert!(r.cache.lock().unwrap().is_empty());
     let r = runtime(&["127.0.0.2"]);
-    let _held = r.slots.acquire_many(8).await.unwrap();
+    let _held = (0..8)
+        .map(|_| r.slots.try_acquire().unwrap())
+        .collect::<Vec<_>>();
     assert!(
         r.check(IP.parse().unwrap(), Mode::Enforce, true)
             .await
@@ -152,7 +155,9 @@ async fn deadlines_busy_partial_results_and_cancellation_fail_open() {
     drop(_held);
     r.check(IP.parse().unwrap(), Mode::Observe, true).await;
     // Positive cache remains useful when no query slots are available.
-    let _held = r.slots.acquire_many(8).await.unwrap();
+    let _held = (0..8)
+        .map(|_| r.slots.try_acquire().unwrap())
+        .collect::<Vec<_>>();
     let report = r.check(IP.parse().unwrap(), Mode::Observe, true).await;
     assert!(
         report
@@ -385,7 +390,7 @@ pub(crate) async fn dns_fixture() -> (Runtime, tokio::task::JoinHandle<()>) {
         resolver: SystemDns(
             MessageAuthenticator::new(ResolverConfig::from_name_servers(vec![ns]), opts).unwrap(),
         ),
-        slots: Semaphore::new(8),
+        slots: Capacity::new(8),
         cache: Mutex::new(HashMap::new()),
     };
     (r, task)

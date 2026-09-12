@@ -1,4 +1,5 @@
 //! IP DNSBL checks before DATA. No message headers, content or recipient data enter DNS.
+use crate::capacity::Capacity;
 use anyhow::{Result, ensure};
 use mail_auth::{
     MessageAuthenticator,
@@ -15,10 +16,9 @@ use std::{
     collections::{BTreeSet, HashMap},
     future::Future,
     net::{IpAddr, Ipv4Addr},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
 
 pub const VERSION: &str = "early-rbl-1";
 
@@ -31,7 +31,7 @@ pub enum Action {
     Reject,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub action: Action,
@@ -55,9 +55,11 @@ impl Default for Settings {
         }
     }
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct List {
+    #[serde(default = "enabled")]
+    pub enabled: bool,
     pub id: String,
     /// Lists from the same operator count as one vote, even across several zones.
     pub provider: String,
@@ -68,6 +70,9 @@ pub struct List {
     pub observe_codes: Vec<Ipv4Addr>,
     #[serde(default)]
     pub ipv6: bool,
+}
+fn enabled() -> bool {
+    true
 }
 fn label(s: &str) -> bool {
     !s.is_empty()
@@ -260,15 +265,31 @@ pub struct Runtime<R = SystemDns> {
     settings: Settings,
     zones: Vec<Zone>,
     resolver: R,
-    slots: Semaphore,
+    slots: Arc<Capacity>,
     cache: Mutex<HashMap<String, (Instant, Answer)>>,
 }
 impl Runtime {
+    pub(crate) fn reconfigure(
+        &self,
+        settings: Option<&Settings>,
+        dqs_key: Option<&str>,
+    ) -> Result<Self> {
+        let mut next = Self::with_dqs_key(settings, dqs_key)?;
+        next.slots = self.slots.clone();
+        Ok(next)
+    }
+    pub(crate) fn activate(&self) {
+        self.slots.set_limit(self.settings.max_parallel);
+    }
     pub fn new(settings: Option<&Settings>, dqs_env: Option<&str>) -> Result<Self> {
+        let dqs_key = dqs_env.map(key).transpose()?;
+        Self::with_dqs_key(settings, dqs_key.as_deref())
+    }
+    pub(crate) fn with_dqs_key(settings: Option<&Settings>, dqs_key: Option<&str>) -> Result<Self> {
         let settings = settings.cloned().unwrap_or_default();
         settings.validate()?;
         let mut zones = Vec::new();
-        for list in &settings.lists {
+        for list in settings.lists.iter().filter(|l| l.enabled) {
             let suffix = match &list.key_env {
                 Some(env) => format!("{}.{}", key(env)?, list.zone),
                 None => list.zone.clone(),
@@ -279,9 +300,14 @@ impl Runtime {
                 dqs: false,
             });
         }
-        if let Some(env) = dqs_env {
+        if let Some(dqs_key) = dqs_key {
+            ensure!(
+                !dqs_key.is_empty() && dqs_key.bytes().all(|b| b.is_ascii_alphanumeric()),
+                "Invalid DQS key"
+            );
             zones.push(Zone {
                 list: List {
+                    enabled: true,
                     id: "spamhaus_zen".into(),
                     provider: "spamhaus".into(),
                     zone: "zen.dq.spamhaus.net".into(),
@@ -290,12 +316,12 @@ impl Runtime {
                     observe_codes: Vec::new(),
                     ipv6: true,
                 },
-                suffix: format!("{}.zen.dq.spamhaus.net", key(env)?),
+                suffix: format!("{dqs_key}.zen.dq.spamhaus.net"),
                 dqs: true,
             });
         }
         Ok(Self {
-            slots: Semaphore::new(settings.max_parallel),
+            slots: Capacity::new(settings.max_parallel),
             settings,
             zones,
             resolver: SystemDns(MessageAuthenticator::new_system_conf()?),

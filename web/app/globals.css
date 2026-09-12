@@ -316,24 +316,292 @@ body {
 }
 
 /* Recipient-scoped reliability dashboard. */
-.reliability-console { grid-template-columns:minmax(0,1fr); min-width:0; }
-.reliability-console > .panel,.reliability-columns > * { min-width:0; }
-.reliability-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
-.reliability-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
-.reliability-stat { display:flex; flex-direction:column; gap:6px; padding:16px; border:1px solid var(--border); border-radius:12px; }
-.reliability-stat strong { font-size:1.7rem; font-variant-numeric:tabular-nums; }
-.reliability-stat span,.reliability-measures dt { color:var(--muted-foreground); font-size:.85rem; }
-.reliability-measures { display:grid; gap:16px; }
-.reliability-measures dd { margin:4px 0 0; font-variant-numeric:tabular-nums; }
-.reliability-table { overflow-x:auto; margin:16px 0; }
-.reliability-table table { width:100%; border-collapse:collapse; font-size:.85rem; }
-.reliability-table th,.reliability-table td { text-align:left; padding:12px; border-bottom:1px solid var(--border); vertical-align:top; }
-.reliability-table small { display:block; margin-top:4px; }
-.reliability-checklist { list-style:none; padding:0; }
-.reliability-checklist li { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); font-size:.85rem; }
-.reliability-console code { overflow-wrap:anywhere; }
-.reliability-console summary { cursor:pointer; padding:8px 0; }
-@media(max-width:900px) { .reliability-columns {grid-template-columns:1fr;} .reliability-grid {grid-template-columns:repeat(2,minmax(0,1fr));} }
+.reliability-console {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.reliability-console > .panel,
+.reliability-columns > * {
+  min-width: 0;
+}
+.reliability-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.reliability-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.reliability-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.reliability-stat strong {
+  font-size: 1.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.reliability-stat span,
+.reliability-measures dt {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+.reliability-measures {
+  display: grid;
+  gap: 16px;
+}
+.reliability-measures dd {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.reliability-table {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+.reliability-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.reliability-table th,
+.reliability-table td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.reliability-table small {
+  display: block;
+  margin-top: 4px;
+}
+.reliability-checklist {
+  list-style: none;
+  padding: 0;
+}
+.reliability-checklist li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.reliability-console code {
+  overflow-wrap: anywhere;
+}
+.reliability-console summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+@media (max-width: 900px) {
+  .reliability-columns {
+    grid-template-columns: 1fr;
+  }
+  .reliability-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 
-.adaptive-scores { width: 100%; }
-.adaptive-scores th, .adaptive-scores td { padding: .45rem .6rem; height: auto; text-align: left; }
+.adaptive-scores {
+  width: 100%;
+}
+.adaptive-scores th,
+.adaptive-scores td {
+  padding: 0.45rem 0.6rem;
+  height: auto;
+  text-align: left;
+}
+
+/* Messaging configuration, shared by administrators and mailbox owners. */
+.management-settings {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.management-settings h2 {
+  font-size: 1.3rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+.management-settings h3 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin-bottom: 14px;
+}
+.management-settings p {
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  max-width: 90ch;
+}
+.management-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  min-width: 0;
+}
+.management-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr));
+  gap: 18px;
+  margin: 16px 0;
+}
+.management-settings label,
+.configuration-import {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 550;
+  min-width: 0;
+}
+.management-settings select,
+.management-settings textarea {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  width: 100%;
+  min-width: 0;
+  color: var(--foreground);
+}
+.management-settings .setting-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+}
+.setting-toggle input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+.management-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.management-toolbar > input {
+  flex: 1;
+  min-width: 180px;
+}
+.management-result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 380px;
+  overflow: auto;
+  background: var(--muted);
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 0.78rem;
+  margin-top: 12px;
+}
+.advanced-setting {
+  grid-column: 1/-1;
+  min-width: 0;
+}
+.advanced-setting summary,
+details.management-card summary {
+  cursor: pointer;
+  font-weight: 550;
+  padding: 8px 0;
+}
+.json-setting textarea {
+  font-family: monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+.configuration-import input {
+  max-width: 260px;
+}
+.personal-filters {
+  padding: 26px;
+  max-width: 1250px;
+  margin: 0 auto;
+}
+.personal-filters h1 {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 2rem;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+.personal-controls {
+  display: grid;
+  gap: 18px;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.personal-controls:disabled {
+  opacity: 0.6;
+}
+.personal-condition {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr auto;
+  gap: 12px;
+  align-items: end;
+  margin: 18px 0;
+}
+.personal-save {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 6px 24px #0001;
+  z-index: 3;
+}
+.personal-save > span {
+  margin-right: auto;
+  font-size: 0.85rem;
+}
+@media (max-width: 650px) {
+  .personal-filters {
+    padding: 16px;
+  }
+  .management-card {
+    padding: 16px;
+  }
+  .personal-condition {
+    grid-template-columns: 1fr 1fr;
+  }
+  .personal-condition label:last-of-type {
+    grid-column: 1/-1;
+  }
+  .personal-save > span {
+    width: 100%;
+  }
+}
+.management-settings input:not([type='checkbox']):not([type='file']) {
+  width: 100%;
+  min-width: 0;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.management-settings input:focus-visible,
+.management-settings select:focus-visible,
+.management-settings textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.0 — 2026-09-12
+
+- Configuration Web des listes RBL, tests DNS des brouillons et paramètres détaillés des moteurs, du LLM, des budgets, de l’OCR et des redirections.
+- Gestion privée des clés Spamhaus DQS et Scaleway, export/import validé et historique des changements sans secrets.
+- Espace « Mes filtres » : niveaux, actions, règles et héritage par boîte ou domaine, dans les limites accordées par l’administrateur.
+- Application aux nouvelles transactions SMTP, limites de concurrence partagées entre révisions et maintien des budgets persistants.
+- Vérification des accès au moment d’enregistrer, protection des références de clés DNS, priorité des règles globales et isolation des boîtes dont la casse diffère.
+- Migration automatique des anciennes révisions sans changement de politique ; retour arrière des réglages documenté dans `docs/web-configuration.md`.
+
 ## 0.12.0 — 2026-09-12
 
 - Recherche locale indexée des objets, expéditeurs et règles ; mots combinés,

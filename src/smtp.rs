@@ -128,9 +128,9 @@ pub async fn serve_controlled(
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let tls = tls_acceptor(&state.config)?;
-    let rbl = Arc::new(crate::rbl::Runtime::new(
+    let rbl = Arc::new(crate::rbl::Runtime::with_dqs_key(
         state.config.rbl.as_ref(),
-        state.config.filter.spamhaus_key_env.as_deref(),
+        crate::management::dqs_key(&state.config)?.as_deref(),
     )?);
     let slots = Arc::new(Semaphore::new(state.config.smtp.max_connections));
     let peers = Arc::new(Mutex::new(HashMap::<IpAddr, usize>::new()));
@@ -203,7 +203,7 @@ async fn session(
     mut state: State,
     tls: Option<TlsAcceptor>,
     control: Option<Arc<crate::control::Controller>>,
-    rbl: Arc<crate::rbl::Runtime>,
+    mut rbl: Arc<crate::rbl::Runtime>,
 ) -> Result<()> {
     let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
@@ -241,6 +241,7 @@ async fn session(
             let snapshot = control.snapshot();
             state.config = snapshot.config.clone();
             state.engine = snapshot.engine.clone();
+            rbl = snapshot.rbl.clone();
         }
         let cfg = state.config.clone();
         match verb.to_ascii_uppercase().as_str() {

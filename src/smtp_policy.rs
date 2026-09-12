@@ -2,6 +2,7 @@
 //! Inputs come from the socket and SMTP envelope, never from message trace headers.
 #[cfg(test)]
 mod tests;
+use crate::capacity::Capacity;
 use anyhow::{Result, ensure};
 use mail_auth::{
     MessageAuthenticator,
@@ -21,13 +22,12 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
 
 pub const VERSION: &str = "smtp-policy-1";
 const MAX_RECORDS: usize = 32;
 const MAX_PTR: usize = 4;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PolicyConfig {
     /// Collect evidence first; applying these experimental weights is explicit.
@@ -206,10 +206,18 @@ impl Resolver for SystemDns {
 pub struct Policy<R = SystemDns> {
     config: PolicyConfig,
     resolver: R,
-    slots: Semaphore,
+    slots: std::sync::Arc<Capacity>,
     cache: Mutex<HashMap<Query, (Instant, Answer)>>,
 }
 impl Policy<SystemDns> {
+    pub(crate) fn reconfigure(&self, config: PolicyConfig) -> Result<Self> {
+        let mut next = Self::new(config)?;
+        next.slots = self.slots.clone();
+        Ok(next)
+    }
+    pub(crate) fn activate(&self) {
+        self.slots.set_limit(self.config.max_parallel);
+    }
     pub fn new(config: PolicyConfig) -> Result<Self> {
         config.validate()?;
         Ok(Self::with_resolver(
@@ -223,7 +231,7 @@ impl Policy<SystemDns> {
 impl<R: Resolver> Policy<R> {
     fn with_resolver(config: PolicyConfig, resolver: R) -> Self {
         Self {
-            slots: Semaphore::new(config.max_parallel),
+            slots: Capacity::new(config.max_parallel),
             config,
             resolver,
             cache: Mutex::new(HashMap::new()),

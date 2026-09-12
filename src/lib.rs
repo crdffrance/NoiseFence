@@ -48,4 +48,8 @@ pub mod search;
 
 pub mod custom_filtering;
 
+mod capacity;
+pub mod management;
+pub mod preferences;
+
 pub mod reliability;
