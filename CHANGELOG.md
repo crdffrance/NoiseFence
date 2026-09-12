@@ -3,6 +3,19 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.11.1 — 2026-09-12
+
+- En-têtes SMTP de schéma 2 : score disponible, qualification partielle/indicative,
+  source/modèle et score de décision distinct, alignés sur la console.
+- Diagnostics bornés des contrôles, causes d’incomplétude, arbitrage, règles et
+  poids, antivirus, OCR/QR, LLM, CRDF/VirusTotal, RBL et moteur natif consultatif.
+- Les résultats RBL sont transmis depuis la session au rendu, y compris en analyse
+  incomplète, sans changer le score ni les étapes de classification.
+- Champs ASCII repliés et couverts par ARC lorsque le scellement est possible ;
+  suppression des résultats reçus et exclusion des contenus privés.
+- Migration de `X-NoiseFence-Score` documentée. Les classements, modèles, réglages
+  et messages déjà préparés sont conservés. La version 0.11.0 n’a pas été déployée.
+
 ## 0.11.0 — 2026-09-12
 
 - En-têtes SMTP de schéma 2 : score disponible aligné sur la console, qualification

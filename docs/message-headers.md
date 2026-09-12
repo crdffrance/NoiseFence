@@ -1,6 +1,6 @@
 # En-têtes des messages transmis
 
-Depuis **0.11.0**, les nouveaux messages analysés utilisent
+Depuis **0.11.1**, les nouveaux messages analysés utilisent
 `X-NoiseFence-Header-Version: 2`. Les messages déjà transmis et ceux déjà préparés
 dans la file gardent leurs en-têtes d’origine : aucune réanalyse ni réexpédition.
 
@@ -32,7 +32,7 @@ la priorité antivirus. Ces indices ne sont pas des probabilités calibrées de 
 Un score fusion `decision` concerne uniquement la population de validation de ce
 modèle. `internal` désigne une valeur interne de notification, pas un email entrant.
 
-**Migration des consommateurs d’en-têtes :** avant 0.11.0, `Score: unavailable`
+**Migration des consommateurs d’en-têtes :** avant 0.11.1, `Score: unavailable`
 pouvait traduire une abstention malgré un indice brut disponible. Avec le schéma 2,
 consulter `Decision`, `Decision-Score`, `Score-Type` et `Status` pour cette distinction.
 Ne pas classer ou bloquer un message à partir du seul `Score`. Le champ numérique

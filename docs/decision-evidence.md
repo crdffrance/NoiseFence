@@ -22,7 +22,7 @@ profitent de cette présentation sans réanalyse ni modification de leur histori
 
 ## Observations des moteurs
 
-Les [en-têtes SMTP détaillés](message-headers.md), depuis 0.11.0, exposent également
+Les [en-têtes SMTP détaillés](message-headers.md), depuis 0.11.1, exposent également
 le score disponible avec sa qualification et les contrôles incomplets. Ce format
 concerne les nouveaux messages préparés, contrairement à l’affichage de l’historique.
 

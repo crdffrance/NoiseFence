@@ -3,7 +3,11 @@ use crate::config::Mode;
 
 #[tokio::test]
 async fn rbl_denies_before_data_storage_and_scanning_and_observe_preserves_delivery() {
-    for mode in [Mode::Enforce, Mode::Observe] {
+    for (mode, limited) in [
+        (Mode::Enforce, false),
+        (Mode::Observe, false),
+        (Mode::Observe, true),
+    ] {
         let root = tempfile::tempdir().unwrap();
         let mut cfg: Config =
             toml::from_str(include_str!("../../config/development.toml")).unwrap();
@@ -80,7 +84,12 @@ async fn rbl_denies_before_data_storage_and_scanning_and_observe_preserves_deliv
             }
         } else {
             assert_eq!(code, 354);
-            reply(&mut wire, "From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Bonjour\r\nX-NoiseFence-RBL: forged\r\n\r\nBonjour.\r\n.\r\n").await.unwrap();
+            let signatures = if limited {
+                "DKIM-Signature: invalid\r\n".repeat(17)
+            } else {
+                String::new()
+            };
+            reply(&mut wire, &format!("From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Bonjour\r\nX-NoiseFence-RBL: forged\r\n{signatures}\r\nBonjour.\r\n.\r\n")).await.unwrap();
             assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 250);
             let job = store.claim().await.unwrap().unwrap();
             let scan: String = rusqlite::Connection::open(root.path().join("state.sqlite3"))
@@ -97,6 +106,22 @@ async fn rbl_denies_before_data_storage_and_scanning_and_observe_preserves_deliv
             assert_eq!(rbl.effective_action, crate::rbl::Action::Observe);
             assert_eq!(rbl.listed_providers, 2);
             assert!(!scan.tagged);
+            assert_eq!(scan.complete, !limited);
+            assert_eq!(
+                scan.score, 0.7,
+                "admission diagnostics must not add content score"
+            );
+            let bytes = std::fs::read(store.raw_path(&job.message_id)).unwrap();
+            let wire = String::from_utf8(bytes).unwrap().replace("\r\n\t", " ");
+            assert!(wire.contains("X-NoiseFence-RBL: checks=2; listed-providers=2;"));
+            assert!(wire.contains("action=observe;"));
+            assert!(!wire.contains("X-NoiseFence-RBL: forged"));
+            assert!(!wire.contains("X-NoiseFence-RBL: not_recorded"));
+            assert_eq!(wire.matches("X-NoiseFence-RBL:").count(), 1);
+            if limited {
+                assert!(wire.contains("X-NoiseFence-Score-Type: partial"));
+                assert!(wire.contains("X-NoiseFence-Decision: undetermined"));
+            }
         }
         reply(&mut wire, "QUIT\r\n").await.unwrap();
         assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 221);

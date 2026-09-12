@@ -1014,7 +1014,7 @@ impl Engine {
                 helo,
                 sender,
                 id,
-                (crate::evidence::Source::SuppliedEnvelope, &[], &[]),
+                (crate::evidence::Source::SuppliedEnvelope, &[], &[], None),
             )
             .await?;
         let variant = variants.remove(0);
@@ -1027,8 +1027,9 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        recipients: &[crate::config::Recipient],
+        context: (&[crate::config::Recipient], &crate::rbl::Report),
     ) -> Result<Vec<crate::store::QueueVariant>> {
+        let (recipients, early_rbl) = context;
         let scopes: Vec<_> = recipients
             .iter()
             .filter_map(|r| {
@@ -1045,7 +1046,12 @@ impl Engine {
             helo,
             sender,
             id,
-            (crate::evidence::Source::SmtpSession, &scopes, recipients),
+            (
+                crate::evidence::Source::SmtpSession,
+                &scopes,
+                recipients,
+                Some(early_rbl),
+            ),
         )
         .await
     }
@@ -1060,6 +1066,7 @@ impl Engine {
             crate::evidence::Source,
             &[String],
             &[crate::config::Recipient],
+            Option<&crate::rbl::Report>,
         ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
         let started = Instant::now();
@@ -1230,7 +1237,14 @@ impl Engine {
         // reputation checks. Keep completeness false and the delivery fallback.
         // Extraction and signature limits still bound parsing/authentication work.
         if !scan.features_complete.unwrap_or(scan.complete) || excessive_signatures {
-            return self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2));
+            return self.finish_unchecked(
+                raw,
+                scan,
+                ip,
+                id,
+                started,
+                (sender, context.2, context.3),
+            );
         }
         let work = async {
             let authenticated =
@@ -1480,7 +1494,7 @@ impl Engine {
                     subject_tag,
                     &format!(
                         "{}{}",
-                        self.headers(ip, variant_id, scan),
+                        self.headers(ip, variant_id, scan, context.3),
                         results.to_header()
                     ),
                 )?;
@@ -1517,7 +1531,7 @@ impl Engine {
                     detail: "Vérifications incomplètes ou délai dépassé".into(),
                     weight: 0.0,
                 });
-                self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2))
+                self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2, context.3))
             }
         }
     }
@@ -1593,8 +1607,14 @@ impl Engine {
         anyhow::ensure!(variants.len() <= 6, "too many policy wire variants");
         Ok(variants)
     }
-    fn headers(&self, ip: IpAddr, id: &str, scan: &Scan) -> String {
-        crate::scan_headers::render(&self.config, ip, id, scan)
+    fn headers(
+        &self,
+        ip: IpAddr,
+        id: &str,
+        scan: &Scan,
+        early_rbl: Option<&crate::rbl::Report>,
+    ) -> String {
+        crate::scan_headers::render(&self.config, ip, id, scan, early_rbl)
     }
     fn finish_unchecked(
         &self,
@@ -1603,7 +1623,11 @@ impl Engine {
         ip: IpAddr,
         id: &str,
         started: Instant,
-        context: (&str, &[crate::config::Recipient]),
+        context: (
+            &str,
+            &[crate::config::Recipient],
+            Option<&crate::rbl::Report>,
+        ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
         self.score(&mut scan);
         scan.tagged = false;
@@ -1612,7 +1636,7 @@ impl Engine {
         scan.action = Some(crate::actions::evaluate(&scan, &self.config));
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
         self.variants(raw, &scan, context.0, id, context.1, |scan, variant_id| {
-            message::rewrite(raw, false, &self.headers(ip, variant_id, scan))
+            message::rewrite(raw, false, &self.headers(ip, variant_id, scan, context.2))
         })
     }
 }

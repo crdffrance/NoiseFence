@@ -160,7 +160,13 @@ fn provider(name: &str, p: &crate::protection::ProviderReport) -> String {
     )
 }
 
-pub(crate) fn render(config: &Config, ip: IpAddr, id: &str, scan: &Scan) -> String {
+pub(crate) fn render(
+    config: &Config,
+    ip: IpAddr,
+    id: &str,
+    scan: &Scan,
+    early_rbl: Option<&crate::rbl::Report>,
+) -> String {
     let id = token(id).unwrap_or("invalid");
     let mut h = Writer(format!(
         "Received: from [{}] by {} with ESMTP id {};\r\n\t{}\r\n",
@@ -428,7 +434,9 @@ pub(crate) fn render(config: &Config, ip: IpAddr, id: &str, scan: &Scan) -> Stri
                 .into()
             }),
     );
-    h.field("X-NoiseFence-RBL", scan.early_rbl.as_ref().map(|r| {
+    // Admission observations reach the renderer separately; the classifier
+    // never receives them as additional evidence or counts their score twice.
+    h.field("X-NoiseFence-RBL", early_rbl.or(scan.early_rbl.as_ref()).map(|r| {
         use crate::rbl::Status;
         let count = |status| r.checks.iter().filter(|c| c.status == status).count();
         format!("checks={}; listed-providers={}; not-listed={}; listed={}; policy={}; unavailable={}; skipped={}; action={};",
@@ -507,7 +515,13 @@ mod tests {
         }
     }
     fn headers(scan: &Scan) -> std::collections::BTreeMap<String, String> {
-        let wire = render(&config(), "192.0.2.1".parse().unwrap(), "test-id", scan);
+        let wire = render(
+            &config(),
+            "192.0.2.1".parse().unwrap(),
+            "test-id",
+            scan,
+            None,
+        );
         let wire = format!("{wire}From: sender@example.test\r\n\r\nBody\r\n");
         crate::message::validate(wire.as_bytes()).unwrap();
         assert!(wire.len() < 12 * 1024);

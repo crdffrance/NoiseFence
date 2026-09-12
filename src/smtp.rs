@@ -473,7 +473,14 @@ async fn session(
                 let recipient_count = recipients.len();
                 let result = state
                     .engine
-                    .process_smtp(&raw, peer.ip(), &helo, &sender, &id, &recipients)
+                    .process_smtp(
+                        &raw,
+                        peer.ip(),
+                        &helo,
+                        &sender,
+                        &id,
+                        (&recipients, &early_rbl),
+                    )
                     .await;
                 let result = match result {
                     Ok(mut variants) => {
