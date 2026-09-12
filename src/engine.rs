@@ -1450,6 +1450,9 @@ impl Engine {
                 Self::check_llm(&mut scan);
             }
             self.decide(&mut scan);
+            // Header timing is the completed analysis, before wire rendering/ARC.
+            // The stored elapsed time below additionally includes these operations.
+            scan.elapsed_ms = started.elapsed().as_millis() as u64;
             self.variants(raw, &scan, sender, id, context.2, |scan, variant_id| {
                 let subject_tag = if scan
                     .action
@@ -1489,22 +1492,7 @@ impl Engine {
                     let signature = ArcSealer::from_key(rsa_key(key)?)
                         .domain(self.config.filter.arc_domain.as_deref().unwrap())
                         .selector(self.config.filter.arc_selector.as_deref().unwrap())
-                        .headers([
-                            "From",
-                            "To",
-                            "Subject",
-                            "Date",
-                            "Message-ID",
-                            "MIME-Version",
-                            "Content-Type",
-                            "Content-Transfer-Encoding",
-                            "DKIM-Signature",
-                            "X-NoiseFence-Score",
-                            "X-NoiseFence-Status",
-                            "X-NoiseFence-Decision",
-                            "X-NoiseFence-Decision-Source",
-                            "X-NoiseFence-Category",
-                        ])
+                        .headers(crate::scan_headers::signed_fields())
                         .seal(&changed, &results, &arc)?;
                     bytes = [signature.to_header().as_bytes(), &bytes].concat();
                 }
@@ -1606,45 +1594,7 @@ impl Engine {
         Ok(variants)
     }
     fn headers(&self, ip: IpAddr, id: &str, scan: &Scan) -> String {
-        use crate::fusion::runtime::{DecisionSource, Outcome};
-        let outcome = match scan.decision.as_ref().map(|d| d.outcome) {
-            Some(Outcome::Legitimate) => "legitimate",
-            Some(Outcome::Unwanted) => "unwanted",
-            _ => "undetermined",
-        };
-        let source = match scan.decision.as_ref().map(|d| d.source) {
-            Some(DecisionSource::Fusion) => "fusion",
-            Some(DecisionSource::Antivirus) => "antivirus",
-            _ => "legacy",
-        };
-        let score = scan
-            .decision
-            .as_ref()
-            .map(|d| d.score)
-            .unwrap_or(Some(scan.score))
-            .map(|s| format!("{s:.1}"))
-            .unwrap_or_else(|| "unavailable".into());
-        format!(
-            "Received: from [{}] by {} with ESMTP id {};\r\n\t{}\r\nX-NoiseFence-Id: {}\r\nX-NoiseFence-Score: {}\r\nX-NoiseFence-Status: {}\r\nX-NoiseFence-Decision: {}\r\nX-NoiseFence-Decision-Source: {}\r\nX-NoiseFence-Category: {}\r\n",
-            ip,
-            self.config.hostname,
-            id,
-            mail_parser::DateTime::from_timestamp(crate::now()).to_rfc822(),
-            id,
-            score,
-            if !scan.complete {
-                "incomplete"
-            } else if scan.tagged {
-                "spam"
-            } else if scan.pub_tagged {
-                "pub"
-            } else {
-                "observed"
-            },
-            outcome,
-            source,
-            crate::mailing::category(scan, self.config.filter.threshold).as_str(),
-        )
+        crate::scan_headers::render(&self.config, ip, id, scan)
     }
     fn finish_unchecked(
         &self,

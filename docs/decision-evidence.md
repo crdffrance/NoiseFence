@@ -22,6 +22,10 @@ profitent de cette présentation sans réanalyse ni modification de leur histori
 
 ## Observations des moteurs
 
+Les [en-têtes SMTP détaillés](message-headers.md), depuis 0.11.0, exposent également
+le score disponible avec sa qualification et les contrôles incomplets. Ce format
+concerne les nouveaux messages préparés, contrairement à l’affichage de l’historique.
+
 Depuis 0.3.0-dev.8, les nouvelles analyses conservent un champ `evidence` de schéma
 `noisefence-evidence-1`. Il prépare l’apprentissage d’une combinaison des moteurs.
 Il n’active pas cette combinaison et ne transforme pas le score actuel en

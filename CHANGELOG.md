@@ -3,6 +3,17 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.11.0 — 2026-09-12
+
+- En-têtes SMTP de schéma 2 : score disponible aligné sur la console, qualification
+  partielle/indicative, source/modèle et score de décision distinct.
+- Diagnostics bornés des contrôles, causes d’incomplétude, arbitrage, règles et
+  poids, antivirus, OCR/QR, LLM, CRDF/VirusTotal, RBL et moteur natif consultatif.
+- Champs ASCII repliés et intégralement couverts par ARC lorsque le scellement
+  est possible ; suppression des résultats reçus et exclusion des contenus privés.
+- Migration documentée de `X-NoiseFence-Score`, sans modification des classements,
+  modèles, réglages ou messages déjà livrés/en file.
+
 ## 0.10.4 — 2026-09-12
 
 - Le journal, sa vue mobile et le détail affichent les scores déjà enregistrés

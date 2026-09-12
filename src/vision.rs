@@ -153,7 +153,7 @@ impl Summary {
         Ok(())
     }
 }
-fn valid_error(value: &str) -> bool {
+pub(crate) fn valid_error(value: &str) -> bool {
     matches!(
         value,
         "invalid_request"

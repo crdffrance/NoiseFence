@@ -124,6 +124,9 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 assert_eq!(headers.iter().filter(|h| h.starts_with(name)).count(), 1);
             }
             let decision = scan.decision.as_ref().unwrap();
+            let displayed = decision.score.unwrap_or(scan.score);
+            assert!(rendered.contains(&format!("X-NoiseFence-Score: {displayed:.1}\r\n")));
+            assert!(rendered.contains("X-NoiseFence-Header-Version: 2\r\n"));
             assert!(rendered.contains(&format!(
                     "X-NoiseFence-Decision: {}\r\n",
                     serde_json::to_value(decision.outcome)
@@ -139,6 +142,8 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
             assert_eq!(rendered.contains("Subject: [SPAM]"), scan.tagged);
             assert_eq!(scan.complete, !limited);
             if limited {
+                assert!(rendered.contains("X-NoiseFence-Score-Type: partial\r\n"));
+                assert!(rendered.contains("X-NoiseFence-Decision-Score: unavailable\r\n"));
                 assert_eq!(decision.outcome, Outcome::Undetermined);
                 assert!(decision.score.is_none());
                 assert!(!scan.evidence.as_ref().unwrap().analysis_complete);
