@@ -1,4 +1,5 @@
 //! Joint, versioned observations and shadow predictions. Never changes delivery.
+pub mod behavior;
 pub mod evaluation;
 pub mod history;
 use crate::{engine::Scan, fusion, message, protection::Status};
@@ -88,7 +89,8 @@ impl Report {
             "complete_features":self.complete_features,"prediction":self.prediction,
             "sender":{"status":self.sender.status,"established":self.sender.established,
                 "conflict":self.sender.conflict,"legitimate_campaigns":self.sender.legitimate_campaigns,
-                "unwanted_campaigns":self.sender.unwanted_campaigns,"observed_days":self.sender.observed_days}})
+                "unwanted_campaigns":self.sender.unwanted_campaigns,"observed_days":self.sender.observed_days,
+                "behavior":self.sender.behavior.as_ref().map(|b|serde_json::json!({"status":b.status,"new_recipient":b.new_recipient,"new_link_domain":b.new_link_domain,"new_request":b.new_request,"observation_only":true}))}})
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -430,6 +432,19 @@ pub fn snapshot_bound(scan: &Scan, model: Option<&Model>, policy: Option<&str>) 
         "sender.observed_days".into(),
         history.observed_days.min(30) as f64,
     );
+    let behavior = history.behavior.as_ref();
+    let state = behavior.map_or("not_run", |b| b.status.as_str());
+    values.insert(format!("behavior.{state}"), 1.0);
+    report.availability_profile.push_str(&format!("/{state}"));
+    if let Some(b) = behavior.filter(|b| b.status == "complete") {
+        for (name, value) in [
+            ("new_recipient", b.new_recipient),
+            ("new_link_domain", b.new_link_domain),
+            ("new_request", b.new_request),
+        ] {
+            values.insert(format!("behavior.{name}"), f64::from(value));
+        }
+    }
     if let Some(mailing) = &scan.mailing {
         report
             .availability_profile

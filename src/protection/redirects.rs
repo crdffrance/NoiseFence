@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     net::{IpAddr, SocketAddr},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -96,12 +97,13 @@ pub struct Report {
     #[serde(default)]
     pub local_inventory_available: Option<bool>,
 }
+#[derive(Clone)]
 pub struct Resolver {
     settings: Settings,
-    dns: MessageAuthenticator,
-    slots: tokio::sync::Semaphore,
+    dns: Arc<MessageAuthenticator>,
+    slots: Arc<tokio::sync::Semaphore>,
     #[cfg(test)]
-    test_dns: std::sync::Mutex<std::collections::HashMap<String, Vec<IpAddr>>>,
+    test_dns: Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<IpAddr>>>>,
     #[cfg(test)]
     test_peer: Option<SocketAddr>,
 }
@@ -110,9 +112,9 @@ impl Resolver {
         settings.validate()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         Ok(Self {
-            slots: tokio::sync::Semaphore::new(settings.max_parallel),
+            slots: Arc::new(tokio::sync::Semaphore::new(settings.max_parallel)),
             settings,
-            dns: MessageAuthenticator::new_system_conf()?,
+            dns: Arc::new(MessageAuthenticator::new_system_conf()?),
             #[cfg(test)]
             test_dns: Default::default(),
             #[cfg(test)]
@@ -299,7 +301,7 @@ impl Resolver {
     pub async fn inspect(&self, urls: &[String], truncated: bool) -> (Report, BTreeSet<String>) {
         let start = Instant::now();
         let mut report = Report {
-            version: "url-resolution-2".into(),
+            version: "url-resolution-3".into(),
             settings_sha256: crate::message::digest(
                 &serde_json::to_vec(&self.settings).expect("URL settings"),
             ),
@@ -309,35 +311,53 @@ impl Resolver {
             local_inventory_available: None,
         };
         let mut visited = BTreeSet::new();
-        let permit = self.slots.try_acquire();
         let own = local_addresses();
         report.local_inventory_available = Some(own.is_ok());
+        let own = Arc::new(own);
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(self.settings.timeout_ms);
-        for original in urls.iter().take(self.settings.max_urls) {
-            let mut chain = Chain {
+        let mut tasks = tokio::task::JoinSet::new();
+        for (index, original) in urls.iter().take(self.settings.max_urls).enumerate() {
+            let chain = Chain {
                 source_sha256: crate::message::digest(original.as_bytes()),
                 hops: vec![],
                 complete: false,
-                detail: None,
+                detail: Some(Detail::Network),
             };
-            chain.detail = if permit.is_err() {
-                Some(Detail::Busy)
-            } else if own.is_err() {
-                Some(Detail::Network)
-            } else {
-                match tokio::time::timeout_at(
-                    deadline,
-                    self.follow(original, &mut chain, &mut visited, own.as_ref().unwrap()),
-                )
-                .await
-                {
-                    Ok(Ok(())) => None,
-                    Ok(Err(detail)) => Some(detail),
-                    Err(_) => Some(Detail::Deadline),
-                }
-            };
-            report.chains.push(chain);
+            report.chains.push(chain.clone());
+            let (resolver, own, original) = (self.clone(), own.clone(), original.clone());
+            tasks.spawn(async move {
+                let mut chain = chain;
+                let mut visited = BTreeSet::new();
+                chain.detail = match own.as_ref() {
+                    Err(_) => Some(Detail::Network),
+                    Ok(own) => {
+                        match tokio::time::timeout_at(deadline, resolver.slots.acquire()).await {
+                            Ok(Ok(_permit)) => match tokio::time::timeout_at(
+                                deadline,
+                                resolver.follow(&original, &mut chain, &mut visited, own),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => None,
+                                Ok(Err(detail)) => Some(detail),
+                                Err(_) => Some(Detail::Deadline),
+                            },
+                            _ => Some(Detail::Busy),
+                        }
+                    }
+                };
+                (index, chain, visited)
+            });
+        }
+        // One stalled chain cannot consume the other chains' whole budget. The
+        // semaphore bounds active chains globally, and dropping this JoinSet
+        // cancels every request if the SMTP analysis itself is cancelled.
+        while let Some(result) = tasks.join_next().await {
+            if let Ok((index, chain, seen)) = result {
+                report.chains[index] = chain;
+                visited.extend(seen);
+            }
         }
         report.elapsed_ms = start.elapsed().as_millis() as u64;
         (report, visited)

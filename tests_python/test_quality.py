@@ -72,6 +72,52 @@ class QualityTests(unittest.TestCase):
         data.append({'type':'footer','rows':1020})
         return data
 
+    def test_thresholds_respect_inclusive_ties_and_finite_error_budgets(self):
+        ham=np.array([.8]*3+[.1]*1997)
+        spam=np.array([.2]*2+[.9]*198)
+        (lower,upper),report=self.q.select_thresholds(np.r_[ham,spam],np.r_[np.zeros(len(ham)),np.ones(len(spam))])
+        self.assertGreater(upper,.8) # three ties cannot fit a two-error budget
+        self.assertEqual(int(np.sum(ham>=upper)),0)
+        self.assertLessEqual(int(np.sum(spam<=lower)),2)
+        self.assertEqual(report['allowed_fp'],2)
+        self.assertFalse(report['population_guarantee'])
+        thresholds,small=self.q.select_thresholds([.7,.9],[0,1])
+        self.assertGreater(thresholds[1],.7)
+        self.assertEqual(small['allowed_fp'],0)
+        with self.assertRaises(self.q.NoFeasibleThreshold):
+            self.q.select_thresholds([1.,.9],[0,1])
+        with self.assertRaises(self.q.NoFeasibleThreshold):
+            self.q.select_thresholds([.1,0.],[0,1])
+        for p,y in [([float('nan'),.9],[0,1]),([.1,.9],[0,0]),([.1],[0,1])]:
+            with self.assertRaises(ValueError): self.q.select_thresholds(p,y)
+
+    def test_selected_tied_threshold_keeps_a_serialization_guard_in_rust(self):
+        if not os.environ.get('NOISEFENCE_BINARY'): self.skipTest('Native parity binary required')
+        model=json.loads((self.root/'candidate/model.json').read_text())
+        observation=self.data[1]['quality']
+        model['risk']['weights']=[0.]*len(self.q.PROTOCOL['features'])
+        model['calibration']=[1.,0.]
+        path=self.root/'guard-model.json'; probe=self.root/'guard-observation.json';probe.write_text(json.dumps(observation))
+        for p in [.5,.6,.7,.8,.9,.9999]:
+            model['risk']['bias']=float(np.log(p/(1-p)))
+            model['thresholds'],selection=self.q.select_thresholds([p,.99999],[0,1])
+            self.assertEqual(selection['numerical_guard'],1e-9)
+            path.write_text(json.dumps(model))
+            result=json.loads(subprocess.check_output([str(Path(os.environ['NOISEFENCE_BINARY']).resolve()),'quality-predict','--model',str(path),'--observation',str(probe)],text=True))
+            self.assertNotEqual(result['risk'],'spam')
+
+    def test_threshold_selection_does_not_read_test_scores(self):
+        header,rows,_,_,_=self.q.load_dataset(self.path)
+        parts,_=self.q.partition(rows,'risk',header['partition_cuts'])
+        baseline=self.q.fit_risk(parts)
+        changed=copy.deepcopy(parts)
+        for row in changed['test']:
+            row['values']=[-v for v in row['values']]
+        different=self.q.fit_risk(changed)
+        self.assertEqual(baseline[:3],different[:3])
+        self.assertEqual(baseline[4]['threshold_selection'],different[4]['threshold_selection'])
+        self.assertNotEqual(baseline[4]['test']['recall'],different[4]['test']['recall'])
+
     def test_native_features_can_be_learned_and_removed_without_legacy_feature_leakage(self):
         data=copy.deepcopy(self.data)
         names=[f['name'] for f in self.q.PROTOCOL['features']]
@@ -94,7 +140,7 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(report['status'],'candidate_prepared')
         self.assertFalse(report['eligible'])
         self.assertTrue(report['observation_only'])
-        self.assertEqual(len(report['ablations']),11)
+        self.assertEqual(len(report['ablations']),12)
         self.assertIn('without_native',report['ablations'])
         self.assertIn('without_native_bayes',report['ablations'])
         self.assertIsNotNone(report['risk']['test']['fpr_ci95'])

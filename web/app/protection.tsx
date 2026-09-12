@@ -387,6 +387,7 @@ const statuses: Record<string, string> = {
   stale: 'données trop anciennes',
 };
 type ProviderReport = {
+  request_count?:number;http_status_counts?:Record<string,number>;failure_counts?:Record<string,number>;retry_after_seconds?:number|null;
   failure?: string | null;
   omitted?: number;
   status: string;
@@ -462,6 +463,8 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
             {r.elapsed_ms} ms
           </p>
           {r.failure && <p className="notice">{checkFailure(r.failure)}.</p>}
+          {r.request_count!=null && <p className="muted small">{r.request_count} requêtes réseau · {Object.entries(r.http_status_counts ?? {}).map(([code,n])=>`HTTP ${code} : ${n}`).join(' · ') || 'aucune réponse HTTP enregistrée'}{r.retry_after_seconds ? ` · pause demandée : ${r.retry_after_seconds} s` : ''}</p>}
+          {Object.entries(r.failure_counts ?? {}).map(([reason,n])=><p className="muted small" key={reason}>{checkFailure(reason)} : {n} incident(s), y compris ceux récupérés.</p>)}
           {r.cache_hits > 0 && (
             <p className="muted small">
               {r.cache_hits} résultat(s) réutilisé(s) du cache, sans nouvelle

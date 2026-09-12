@@ -3,10 +3,14 @@ use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -145,6 +149,53 @@ struct Lookup {
     cached: bool,
     failure: Option<Failure>,
 }
+#[derive(Default)]
+struct TransportMetrics {
+    requests: AtomicUsize,
+    statuses: Mutex<BTreeMap<u16, usize>>,
+    failures: Mutex<BTreeMap<String, usize>>,
+    retry_after: Mutex<Option<u64>>,
+}
+impl TransportMetrics {
+    fn failure(&self, failure: Failure) {
+        let token = serde_json::to_value(failure).expect("failure token");
+        *self
+            .failures
+            .lock()
+            .unwrap()
+            .entry(token.as_str().unwrap().into())
+            .or_default() += 1;
+    }
+    fn copy_to(&self, report: &mut ProviderReport) {
+        report.request_count = self.requests.load(Ordering::Relaxed);
+        report.http_status_counts = self.statuses.lock().unwrap().clone();
+        report.failure_counts = self.failures.lock().unwrap().clone();
+        report.retry_after_seconds = *self.retry_after.lock().unwrap();
+    }
+}
+struct TransportError {
+    failure: Failure,
+    cooldown: Option<u64>,
+    retryable: bool,
+}
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    if headers.get_all(reqwest::header::RETRY_AFTER).iter().count() != 1 {
+        return None;
+    }
+    let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+    if raw.len() > 128 {
+        return None;
+    }
+    let seconds = raw.parse::<u64>().ok().or_else(|| {
+        let date = httpdate::parse_http_date(raw).ok()?;
+        Some(
+            date.duration_since(std::time::SystemTime::now())
+                .map(|d| d.as_secs().saturating_add(1))
+                .unwrap_or(1),
+        )
+    })?;
+    Some(seconds.clamp(1, 7 * 86400))
+}
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
@@ -204,6 +255,7 @@ impl Client {
             http: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .no_proxy()
+                .retry(reqwest::retry::never())
                 .connect_timeout(Duration::from_millis(500))
                 .timeout(Duration::from_millis(config.timeout_ms))
                 .user_agent("NoiseFence/1 Reputation-check")
@@ -287,12 +339,24 @@ impl Client {
         verdict: Option<Verdict>,
         backoff: bool,
     ) -> Result<()> {
+        self.remember_for(key, credential, verdict, backoff.then_some(300))
+            .await
+    }
+    async fn remember_for(
+        &self,
+        key: String,
+        credential: String,
+        verdict: Option<Verdict>,
+        cooldown: Option<u64>,
+    ) -> Result<()> {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move||->Result<()>{
             let db=db.lock().map_err(|_|anyhow::anyhow!("Provider cache lock"))?;let now=crate::now();
             db.execute("DELETE FROM cache WHERE expires<=?1",[now])?;
             db.execute("DELETE FROM cooldown WHERE expires<=?1",[now])?;
-            if backoff {db.execute("INSERT OR REPLACE INTO cooldown VALUES(?1,?2)",params![credential,now+300])?;}
+            if let Some(seconds) = cooldown {
+                db.execute("INSERT INTO cooldown VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET expires=MAX(expires,excluded.expires)",params![credential,now+seconds.min(7*86400) as i64])?;
+            }
             if let Some(verdict)=verdict {
                 db.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY expires LIMIT MAX(0,(SELECT COUNT(*) FROM cache)-9999))",[])?;
                 db.execute("INSERT OR REPLACE INTO cache VALUES(?1,?2,?3)",params![key,now+if matches!(verdict,Verdict::Unknown|Verdict::Stale){300}else{1800},serde_json::to_string(&verdict)?])?;
@@ -324,6 +388,88 @@ impl Client {
             Provider::Virustotal => self.http.get(endpoint).header("x-apikey", key),
         }
     }
+    async fn cached_many(&self, keys: Vec<String>) -> Result<Vec<Option<Verdict>>> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let db = db
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Provider cache lock"))?;
+            let now = crate::now();
+            keys.iter()
+                .map(|key| {
+                    let value: Option<String> = db
+                        .query_row(
+                            "SELECT verdict FROM cache WHERE key=?1 AND expires>?2",
+                            params![key, now],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    value
+                        .map(|v| serde_json::from_str(&v))
+                        .transpose()
+                        .map_err(Into::into)
+                })
+                .collect()
+        })
+        .await?
+    }
+    async fn fetch_json(
+        &self,
+        request: reqwest::RequestBuilder,
+        provider: Provider,
+        metrics: &TransportMetrics,
+    ) -> std::result::Result<Option<serde_json::Value>, TransportError> {
+        let network = |error: reqwest::Error| TransportError {
+            failure: network_failure(&error).0,
+            cooldown: None,
+            retryable: error.is_connect(),
+        };
+        metrics.requests.fetch_add(1, Ordering::Relaxed);
+        let mut response = request.send().await.map_err(network)?;
+        let code = response.status().as_u16();
+        *metrics.statuses.lock().unwrap().entry(code).or_default() += 1;
+        if code == 404 && provider == Provider::Virustotal {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            let delay = retry_after(response.headers());
+            if let Some(seconds) = delay {
+                let mut saved = metrics.retry_after.lock().unwrap();
+                *saved = Some(saved.unwrap_or(0).max(seconds));
+            }
+            return Err(TransportError {
+                failure: match code {
+                    401 | 403 => Failure::Authentication,
+                    429 => Failure::RateLimit,
+                    _ => Failure::Http,
+                },
+                cooldown: match code {
+                    401 | 403 | 429 => Some(delay.unwrap_or(300)),
+                    503 => delay,
+                    _ => None,
+                },
+                retryable: matches!(code, 502..=504) && delay.is_none(),
+            });
+        }
+        let invalid = |failure| TransportError {
+            failure,
+            cooldown: None,
+            retryable: false,
+        };
+        if response.content_length().is_some_and(|n| n > 256 * 1024) {
+            return Err(invalid(Failure::ResponseLimit));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(network)? {
+            if bytes.len() + chunk.len() > 256 * 1024 {
+                return Err(invalid(Failure::ResponseLimit));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| invalid(Failure::InvalidResponse))
+    }
     async fn query(
         &self,
         provider: Provider,
@@ -331,104 +477,172 @@ impl Client {
         indicator: &str,
         file: bool,
         quota: Quota,
+        metrics: Arc<TransportMetrics>,
     ) -> Lookup {
-        let credential = crate::message::digest(format!("{}:{key}", provider.name()).as_bytes());
-        let cache_indicator = match provider {
-            Provider::Crdf => crdf_url(indicator),
-            Provider::Virustotal => indicator.to_owned(),
-        };
-        let cache_key = crate::message::digest(
-            format!("target-bound-1:{credential}:{file}:{cache_indicator}").as_bytes(),
-        );
-        match self
-            .reserve(provider, cache_key.clone(), credential.clone(), quota)
-            .await
-        {
-            Ok(Reservation::Cached(verdict)) => {
-                return Lookup {
-                    verdict: Some(verdict),
-                    status: Status::Complete,
-                    cached: true,
-                    failure: None,
-                };
-            }
-            Ok(Reservation::Quota) => {
-                return Lookup {
-                    verdict: None,
-                    status: Status::Quota,
-                    cached: false,
-                    failure: None,
-                };
-            }
-            Err(_) => {
-                return Lookup {
-                    verdict: None,
-                    status: Status::Unavailable,
-                    cached: false,
-                    failure: Some(Failure::Storage),
-                };
-            }
-            Ok(Reservation::Fetch) => {}
-        }
-        let request = self.request(provider, key, indicator, file);
-        let result = async {
-            let _slot = self
-                .requests
-                .acquire()
+        let credential = credential_id(provider, key);
+        let cache_key = target_key(provider, &credential, indicator, file);
+        for attempt in 0..2 {
+            // Do not consume a quota reservation while waiting behind other requests.
+            let Ok(_slot) = self.requests.acquire().await else {
+                return failed(Status::Unavailable, Some(Failure::Network));
+            };
+            match self
+                .reserve(provider, cache_key.clone(), credential.clone(), quota)
                 .await
-                .map_err(|_| (Failure::Network, false))?;
-            let mut response = request.send().await.map_err(|e| network_failure(&e))?;
-            let status = response.status();
-            if status == reqwest::StatusCode::NOT_FOUND && provider == Provider::Virustotal {
-                return Ok(Some(Verdict::Unknown));
+            {
+                Ok(Reservation::Cached(verdict)) => return cached(verdict),
+                Ok(Reservation::Quota) => return failed(Status::Quota, None),
+                Err(_) => return failed(Status::Unavailable, Some(Failure::Storage)),
+                Ok(Reservation::Fetch) => {}
             }
-            if !status.is_success() {
-                return Err(match status.as_u16() {
-                    401 | 403 => (Failure::Authentication, true),
-                    429 => (Failure::RateLimit, true),
-                    _ => (Failure::Http, false),
+            let result = self
+                .fetch_json(
+                    self.request(provider, key, indicator, file),
+                    provider,
+                    &metrics,
+                )
+                .await;
+            let result = result.and_then(|body| match body {
+                None => Ok(Verdict::Unknown),
+                Some(body) => match provider {
+                    Provider::Crdf => parse_crdf(&body, indicator),
+                    Provider::Virustotal => parse_vt_for(&body, indicator, file),
+                }
+                .map_err(|_| TransportError {
+                    failure: Failure::InvalidResponse,
+                    cooldown: Some(300),
+                    retryable: false,
+                }),
+            });
+            drop(_slot);
+            match result {
+                Ok(verdict) => {
+                    let _ = self
+                        .remember(cache_key, credential, Some(verdict), false)
+                        .await;
+                    return Lookup {
+                        verdict: Some(verdict),
+                        status: Status::Complete,
+                        cached: false,
+                        failure: None,
+                    };
+                }
+                Err(error) => {
+                    metrics.failure(error.failure);
+                    if let Some(seconds) = error.cooldown {
+                        let _ = self
+                            .remember_for(
+                                cache_key.clone(),
+                                credential.clone(),
+                                None,
+                                Some(seconds),
+                            )
+                            .await;
+                    }
+                    if attempt == 0 && error.retryable {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        continue;
+                    }
+                    return failed(Status::Unavailable, Some(error.failure));
+                }
+            }
+        }
+        unreachable!("bounded retries return")
+    }
+    async fn query_crdf_batch(
+        &self,
+        key: &str,
+        indicators: &[String],
+        quota: Quota,
+        metrics: Arc<TransportMetrics>,
+    ) -> Vec<Lookup> {
+        let credential = credential_id(Provider::Crdf, key);
+        // This reservation key is never cached; individual, target-bound results are.
+        let reservation = crate::message::digest(
+            format!("crdf-batch-1:{credential}:{}", indicators.join("\0")).as_bytes(),
+        );
+        let mut failure = failed(Status::Unavailable, Some(Failure::Network));
+        for attempt in 0..2 {
+            let Ok(slot) = self.requests.acquire().await else {
+                break;
+            };
+            match self
+                .reserve(
+                    Provider::Crdf,
+                    reservation.clone(),
+                    credential.clone(),
+                    quota,
+                )
+                .await
+            {
+                Ok(Reservation::Fetch) => {}
+                Ok(Reservation::Quota) => {
+                    failure = failed(Status::Quota, None);
+                    break;
+                }
+                _ => {
+                    failure = failed(Status::Unavailable, Some(Failure::Storage));
+                    break;
+                }
+            }
+            let request=self.request(Provider::Crdf,key,&indicators[0],false)
+                .json(&serde_json::json!({"method":"search_urls","urls":indicators.iter().map(|s|crdf_url(s)).collect::<Vec<_>>()}));
+            let result = self
+                .fetch_json(request, Provider::Crdf, &metrics)
+                .await
+                .and_then(|body| {
+                    body.ok_or_else(|| anyhow::anyhow!("CRDF missing body"))
+                        .and_then(|body| parse_crdf_batch(&body, indicators))
+                        .map_err(|_| TransportError {
+                            failure: Failure::InvalidResponse,
+                            cooldown: Some(300),
+                            retryable: false,
+                        })
                 });
-            }
-            if response.content_length().is_some_and(|n| n > 256 * 1024) {
-                return Err((Failure::ResponseLimit, false));
-            }
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|e| network_failure(&e))? {
-                if bytes.len() + chunk.len() > 256 * 1024 {
-                    return Err((Failure::ResponseLimit, false));
+            drop(slot);
+            match result {
+                Ok(verdicts) => {
+                    for (indicator, verdict) in indicators.iter().zip(&verdicts) {
+                        let cache_key = target_key(Provider::Crdf, &credential, indicator, false);
+                        let _ = self
+                            .remember(cache_key, credential.clone(), Some(*verdict), false)
+                            .await;
+                    }
+                    return verdicts
+                        .into_iter()
+                        .map(|verdict| Lookup {
+                            verdict: Some(verdict),
+                            status: Status::Complete,
+                            cached: false,
+                            failure: None,
+                        })
+                        .collect();
                 }
-                bytes.extend_from_slice(&chunk);
+                Err(error) => {
+                    metrics.failure(error.failure);
+                    if let Some(seconds) = error.cooldown {
+                        let _ = self
+                            .remember_for(
+                                reservation.clone(),
+                                credential.clone(),
+                                None,
+                                Some(seconds),
+                            )
+                            .await;
+                    }
+                    failure = failed(Status::Unavailable, Some(error.failure));
+                    if attempt == 0 && error.retryable {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        continue;
+                    }
+                    break;
+                }
             }
-            let body: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(|_| (Failure::InvalidResponse, false))?;
-            match provider {
-                Provider::Crdf => parse_crdf(&body, indicator),
-                Provider::Virustotal => parse_vt_for(&body, indicator, file),
-            }
-            .map(Some)
-            .map_err(|_| (Failure::InvalidResponse, true))
         }
-        .await;
-        match result {
-            Ok(verdict) => {
-                let _ = self.remember(cache_key, credential, verdict, false).await;
-                Lookup {
-                    verdict,
-                    status: Status::Complete,
-                    cached: false,
-                    failure: None,
-                }
-            }
-            Err((failure, backoff)) => {
-                let _ = self.remember(cache_key, credential, None, backoff).await;
-                Lookup {
-                    verdict: None,
-                    status: Status::Unavailable,
-                    cached: false,
-                    failure: Some(failure),
-                }
-            }
-        }
+        indicators
+            .iter()
+            .map(|_| failed(failure.status.clone(), failure.failure))
+            .collect()
     }
     pub async fn inspect(
         &self,
@@ -441,61 +655,98 @@ impl Client {
             return (Default::default(), vec![]);
         }
         let started = Instant::now();
+        let mut seen = std::collections::BTreeSet::new();
+        let indicators: Vec<(String, bool)> = targets
+            .destination_domains
+            .iter()
+            .chain(targets.domains.iter())
+            .filter(|s| super::local::public_domain(s))
+            .filter(|s| seen.insert(s.as_str()))
+            .map(|s| (s.clone(), false))
+            .chain(
+                targets
+                    .hashes
+                    .iter()
+                    .filter(|s| {
+                        provider == Provider::Virustotal
+                            && s.len() == 64
+                            && s.bytes().all(|b| b.is_ascii_hexdigit())
+                    })
+                    .map(|s| (s.clone(), true)),
+            )
+            .collect();
+        let total = indicators.len();
+        let indicators: Vec<_> = indicators.into_iter().take(12).collect();
         let mut report = ProviderReport {
-            status: Status::NotConfigured,
+            status: Status::Complete,
             ..Default::default()
         };
-        let root = self.root.clone();
-        let key = tokio::task::spawn_blocking(move || read_key(&root, provider)).await;
-        let Ok(Ok(key)) = key else {
-            return (report, vec![]);
-        };
-        let Ok(_permit) = self.gate.try_acquire() else {
-            report.status = Status::Busy;
-            return (report, vec![]);
-        };
         let mut hits = Vec::new();
-        report.status = Status::Complete;
-        let mut planned = 0;
+        let metrics = Arc::new(TransportMetrics::default());
         let work = async {
-            let mut seen = std::collections::BTreeSet::new();
-            let indicators: Vec<_> = targets
-                .destination_domains
+            if indicators.is_empty() {
+                return;
+            }
+            let root = self.root.clone();
+            let Ok(Ok(key)) = tokio::task::spawn_blocking(move || read_key(&root, provider)).await
+            else {
+                report.status = Status::NotConfigured;
+                return;
+            };
+            let credential = credential_id(provider, &key);
+            let keys = indicators
                 .iter()
-                .chain(targets.domains.iter())
-                .filter(|s| super::local::public_domain(s))
-                .filter(|s| seen.insert(s.as_str()))
-                .map(|s| (s, false))
-                .chain(
-                    targets
-                        .hashes
-                        .iter()
-                        .filter(|s| {
-                            provider == Provider::Virustotal
-                                && s.len() == 64
-                                && s.bytes().all(|b| b.is_ascii_hexdigit())
-                        })
-                        .map(|s| (s, true)),
-                )
+                .map(|(indicator, file)| target_key(provider, &credential, indicator, *file))
                 .collect();
-            report.omitted = indicators.len().saturating_sub(12);
-            planned = indicators.len().min(12);
-            let priority_end = indicators
+            let Ok(values) = self.cached_many(keys).await else {
+                report.status = Status::Unavailable;
+                report.failure = Some(Failure::Storage);
+                return;
+            };
+            let mut pending = Vec::new();
+            // Cache coverage is independent of quota, provider health and request capacity.
+            for ((indicator, file), value) in indicators.iter().zip(values) {
+                if let Some(value) = value {
+                    apply_lookup(
+                        &mut report,
+                        &mut hits,
+                        provider,
+                        indicator,
+                        *file,
+                        cached(value),
+                    );
+                } else {
+                    pending.push((indicator.clone(), *file));
+                }
+            }
+            if pending.is_empty() {
+                return;
+            }
+            let Ok(_permit) = self.gate.try_acquire() else {
+                report.status = Status::Busy;
+                return;
+            };
+            let quota = self.config.quota(provider, policy);
+            if provider == Provider::Crdf {
+                let names: Vec<_> = pending.iter().map(|(s, _)| s.clone()).collect();
+                for ((indicator, file), value) in pending.iter().zip(
+                    self.query_crdf_batch(&key, &names, quota, metrics.clone())
+                        .await,
+                ) {
+                    apply_lookup(&mut report, &mut hits, provider, indicator, *file, value);
+                }
+                return;
+            }
+            let priority_end = pending
                 .iter()
-                .take(planned)
-                .take_while(|(indicator, file)| {
-                    !file && targets.destination_domains.contains(*indicator)
-                })
+                .take_while(|(s, file)| !file && targets.destination_domains.contains(s))
                 .count();
             let mut priority_finished = priority_end == 0;
             let mut scheduled = 0;
-            let mut remaining = indicators.into_iter().take(12);
-            let quota = self.config.quota(provider, policy);
+            let mut remaining = pending.into_iter();
             let mut tasks = tokio::task::JoinSet::new();
-            let mut may_schedule = true;
             loop {
-                while may_schedule && tasks.len() < 3 {
-                    // Final destinations reserve scarce quota before origins.
+                while tasks.len() < 3 {
                     if !priority_finished && scheduled == priority_end {
                         break;
                     }
@@ -503,12 +754,12 @@ impl Client {
                         break;
                     };
                     scheduled += 1;
-                    let client = self.clone();
-                    let key = key.clone();
-                    let indicator = indicator.clone();
+                    let (client, key, metrics) = (self.clone(), key.clone(), metrics.clone());
                     tasks.spawn(async move {
-                        let result = client.query(provider, &key, &indicator, file, quota).await;
-                        (indicator, file, result)
+                        let value = client
+                            .query(provider, &key, &indicator, file, quota, metrics)
+                            .await;
+                        (indicator, file, value)
                     });
                 }
                 let Some(completed) = tasks.join_next().await else {
@@ -517,68 +768,14 @@ impl Client {
                 if tasks.is_empty() && scheduled == priority_end {
                     priority_finished = true;
                 }
-                let Ok((indicator, file, result)) = completed else {
-                    report.status = Status::Unavailable;
-                    report.failure = Some(Failure::Network);
-                    may_schedule = false;
-                    continue;
-                };
-                if result.status != Status::Complete {
-                    report.status = result.status;
-                    report.failure = result.failure;
-                    may_schedule = false;
-                    continue;
-                }
-                report.checked += 1;
-                report.cache_hits += usize::from(result.cached);
-                if let Some(verdict) = result.verdict {
-                    let cache_age = if result.cached {
-                        if matches!(verdict, Verdict::Unknown | Verdict::Stale) {
-                            300
-                        } else {
-                            1800
-                        }
-                    } else {
-                        0
-                    };
-                    report.observations.push(super::ProviderObservation {
-                        indicator_sha256: crate::message::digest(indicator.as_bytes()),
-                        scope: if file {
-                            "file"
-                        } else if provider == Provider::Crdf {
-                            "host_lookup"
-                        } else {
-                            "domain"
-                        }
-                        .into(),
-                        verdict: serde_json::to_value(verdict)
-                            .expect("verdict")
-                            .as_str()
-                            .unwrap()
-                            .into(),
-                        queried_at: crate::now(),
-                        cached: result.cached,
-                        cache_max_age_seconds: cache_age,
-                        analysis_max_age_seconds: (provider == Provider::Virustotal
-                            && verdict != Verdict::Stale
-                            && verdict != Verdict::Unknown)
-                            .then_some(7 * 86400 + cache_age),
-                    });
-                }
-                match result.verdict {
-                    Some(Verdict::Malicious) => {
-                        report.malicious += 1;
-                        hits.push((indicator, file));
+                match completed {
+                    Ok((indicator, file, value)) => {
+                        apply_lookup(&mut report, &mut hits, provider, &indicator, file, value)
                     }
-                    Some(Verdict::Suspicious) => report.suspicious += 1,
-                    Some(Verdict::Unknown) => report.unknown += 1,
-                    Some(Verdict::Stale) => {
-                        report.unknown += 1;
-                        if report.status == Status::Complete {
-                            report.status = Status::Stale;
-                        }
+                    Err(_) => {
+                        report.status = Status::Unavailable;
+                        report.failure = Some(Failure::Network);
                     }
-                    _ => {}
                 }
             }
         };
@@ -588,15 +785,160 @@ impl Client {
         {
             report.status = Status::Unavailable;
             report.failure = Some(Failure::Timeout);
+            metrics.failure(Failure::Timeout);
         }
-        report.omitted += planned.saturating_sub(report.checked);
+        report.omitted = total.saturating_sub(report.checked);
         if report.omitted > 0 && report.status == Status::Complete {
             report.status = Status::Limited;
         }
         report.elapsed_ms = started.elapsed().as_millis() as u64;
+        metrics.copy_to(&mut report);
+        if let Some(failure) = report.failure {
+            let token = serde_json::to_value(failure).expect("failure token");
+            report
+                .failure_counts
+                .entry(token.as_str().unwrap().into())
+                .or_insert(1);
+        }
+        report.observations.sort_by(|a, b| {
+            a.indicator_sha256
+                .cmp(&b.indicator_sha256)
+                .then(a.scope.cmp(&b.scope))
+        });
         hits.sort();
         (report, hits)
     }
+}
+
+fn credential_id(provider: Provider, key: &str) -> String {
+    crate::message::digest(format!("{}:{key}", provider.name()).as_bytes())
+}
+fn target_key(provider: Provider, credential: &str, indicator: &str, file: bool) -> String {
+    let target = if provider == Provider::Crdf {
+        crdf_url(indicator)
+    } else {
+        indicator.into()
+    };
+    crate::message::digest(format!("target-bound-1:{credential}:{file}:{target}").as_bytes())
+}
+fn cached(verdict: Verdict) -> Lookup {
+    Lookup {
+        verdict: Some(verdict),
+        status: Status::Complete,
+        cached: true,
+        failure: None,
+    }
+}
+fn failed(status: Status, failure: Option<Failure>) -> Lookup {
+    Lookup {
+        verdict: None,
+        status,
+        cached: false,
+        failure,
+    }
+}
+fn apply_lookup(
+    report: &mut ProviderReport,
+    hits: &mut Vec<(String, bool)>,
+    provider: Provider,
+    indicator: &str,
+    file: bool,
+    result: Lookup,
+) {
+    if result.status != Status::Complete {
+        let severity = |s: &Status| match s {
+            Status::Unavailable => 5,
+            Status::Busy => 4,
+            Status::Quota => 3,
+            Status::Stale => 2,
+            Status::Limited => 1,
+            _ => 0,
+        };
+        if severity(&result.status) > severity(&report.status) {
+            report.status = result.status;
+        }
+        if result.failure.map(|f| f as u8) > report.failure.map(|f| f as u8) {
+            report.failure = result.failure;
+        }
+        return;
+    }
+    report.checked += 1;
+    report.cache_hits += usize::from(result.cached);
+    let Some(verdict) = result.verdict else {
+        return;
+    };
+    let cache_age = if result.cached {
+        if matches!(verdict, Verdict::Unknown | Verdict::Stale) {
+            300
+        } else {
+            1800
+        }
+    } else {
+        0
+    };
+    report.observations.push(super::ProviderObservation {
+        indicator_sha256: crate::message::digest(indicator.as_bytes()),
+        scope: if file {
+            "file"
+        } else if provider == Provider::Crdf {
+            "host_lookup"
+        } else {
+            "domain"
+        }
+        .into(),
+        verdict: serde_json::to_value(verdict)
+            .expect("verdict")
+            .as_str()
+            .unwrap()
+            .into(),
+        queried_at: crate::now(),
+        cached: result.cached,
+        cache_max_age_seconds: cache_age,
+        analysis_max_age_seconds: (provider == Provider::Virustotal
+            && !matches!(verdict, Verdict::Stale | Verdict::Unknown))
+        .then_some(7 * 86400 + cache_age),
+    });
+    match verdict {
+        Verdict::Malicious => {
+            report.malicious += 1;
+            hits.push((indicator.into(), file));
+        }
+        Verdict::Suspicious => report.suspicious += 1,
+        Verdict::Unknown => report.unknown += 1,
+        Verdict::Stale => {
+            report.unknown += 1;
+            if report.status == Status::Complete {
+                report.status = Status::Stale;
+            }
+        }
+        Verdict::NoHit => {}
+    }
+}
+fn parse_crdf_batch(body: &serde_json::Value, indicators: &[String]) -> Result<Vec<Verdict>> {
+    ensure!(body["error"].as_bool() == Some(false), "CRDF error");
+    let entries = body["data"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("CRDF schema"))?;
+    ensure!(
+        !indicators.is_empty() && indicators.len() <= 12 && entries.len() == indicators.len(),
+        "CRDF count mismatch"
+    );
+    let mut by_url = BTreeMap::new();
+    for entry in entries {
+        let url = entry["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("CRDF target missing"))?;
+        ensure!(by_url.insert(url, entry).is_none(), "CRDF duplicate target");
+    }
+    indicators
+        .iter()
+        .map(|indicator| {
+            let entry = by_url
+                .get(crdf_url(indicator).as_str())
+                .ok_or_else(|| anyhow::anyhow!("CRDF target mismatch"))?;
+            parse_crdf_entry(entry, indicator)
+        })
+        .collect()
 }
 // CRDF validates URL syntax even for a domain lookup. Never send message paths,
 // parameters or fragments: this synthetic root contains only the public host.
@@ -612,7 +954,9 @@ fn parse_crdf(body: &serde_json::Value, indicator: &str) -> Result<Verdict> {
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("CRDF schema"))?;
     ensure!(entries.len() == 1, "CRDF count mismatch");
-    let entry = &entries[0];
+    parse_crdf_entry(&entries[0], indicator)
+}
+fn parse_crdf_entry(entry: &serde_json::Value, indicator: &str) -> Result<Verdict> {
     ensure!(
         entry["url"].as_str() == Some(crdf_url(indicator).as_str())
             && entry["error"].as_bool() == Some(false),
@@ -705,6 +1049,9 @@ fn parse_vt_for(body: &serde_json::Value, indicator: &str, file: bool) -> Result
     );
     parse_vt(body)
 }
+
+#[cfg(test)]
+mod coverage_tests;
 
 #[cfg(test)]
 mod tests {
@@ -828,7 +1175,10 @@ mod tests {
             .inspect(
                 Provider::Crdf,
                 true,
-                &Targets::default(),
+                &Targets {
+                    domains: ["example.org".into()].into(),
+                    ..Default::default()
+                },
                 &Policy::default(),
             )
             .await;
@@ -1197,7 +1547,7 @@ mod transport_tests {
         );
     }
     #[tokio::test]
-    async fn discovered_destination_precedes_original_domains_under_quota() {
+    async fn crdf_batch_keeps_destination_priority_and_cap_under_one_request_quota() {
         let root = tempfile::tempdir().unwrap();
         let settings = Settings {
             crdf_per_minute: 1,
@@ -1211,7 +1561,20 @@ mod transport_tests {
             "synthetic-key-for-transport-1234",
         )
         .unwrap();
-        let (url, task) = server("200 OK", serde_json::json!({"error":false,"data":[{"url":"https://z-final.example.com/","error":false,"in_database":false}]}).to_string(), 0).await;
+        let mut expected = vec!["z-final.example.com".to_string()];
+        let mut originals: Vec<_> = (0..13).map(|i| format!("a{i}.example.com")).collect();
+        originals.sort();
+        expected.extend(originals.into_iter().take(11));
+        let entries: Vec<_> = expected
+            .iter()
+            .map(|s| serde_json::json!({"url":crdf_url(s),"error":false,"in_database":false}))
+            .collect();
+        let (url, task) = server(
+            "200 OK",
+            serde_json::json!({"error":false,"data":entries}).to_string(),
+            0,
+        )
+        .await;
         client.endpoint_override = Some(url);
         let mut targets = Targets::default();
         for i in 0..13 {
@@ -1224,16 +1587,21 @@ mod transport_tests {
         let (report, hits) = client
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
             .await;
-        assert_eq!(report.checked, 1);
-        assert_eq!(report.omitted, 13); // Includes both cap exclusions and quota skips.
-        assert_eq!(report.status, Status::Quota);
+        assert_eq!(report.checked, 12);
+        assert_eq!(report.omitted, 2);
+        assert_eq!(report.status, Status::Limited);
+        assert_eq!(report.request_count, 1);
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            1
+        );
         assert!(hits.is_empty());
         let request = task.await.unwrap();
         let body: serde_json::Value =
             serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(
             body["urls"],
-            serde_json::json!(["https://z-final.example.com/"])
+            serde_json::json!(expected.iter().map(|s| crdf_url(s)).collect::<Vec<_>>())
         );
     }
     #[tokio::test]
@@ -1337,7 +1705,7 @@ mod transport_tests {
                 c.fetch_add(1,Ordering::SeqCst);
                 b.wait().await;
                 a.fetch_sub(1,Ordering::SeqCst);
-                axum::Json(serde_json::json!({"error":false,"data":[{"url":input["urls"][0],"error":false,"in_database":false}]}))
+                axum::Json(serde_json::json!({"error":false,"data":input["urls"].as_array().unwrap().iter().map(|url|serde_json::json!({"url":url,"error":false,"in_database":false})).collect::<Vec<_>>()}))
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1363,20 +1731,27 @@ mod transport_tests {
         for i in 0..6 {
             targets.domains.insert(format!("a{i}.example.com"));
         }
-        let (report, hits) = client
-            .inspect(Provider::Crdf, true, &targets, &Policy::default())
-            .await;
+        let mut other = Targets::default();
+        for i in 0..6 {
+            other.domains.insert(format!("b{i}.example.com"));
+        }
+        let policy = Policy::default();
+        let ((report, hits), (second, _)) = tokio::join!(
+            client.inspect(Provider::Crdf, true, &targets, &policy),
+            client.inspect(Provider::Crdf, true, &other, &policy)
+        );
+        assert_eq!(second.checked, 6);
         assert_eq!(report.status, Status::Complete);
         assert_eq!(report.checked, 6);
         assert_eq!(report.omitted, 0);
         assert!(hits.is_empty());
         assert_eq!(peak.load(Ordering::SeqCst), 2);
-        assert_eq!(count.load(Ordering::SeqCst), 6);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
         let (cached, _) = client
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
             .await;
         assert_eq!(cached.cache_hits, 6);
-        assert_eq!(count.load(Ordering::SeqCst), 6);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
         assert_eq!(client.requests.available_permits(), 2);
         server.abort();
     }

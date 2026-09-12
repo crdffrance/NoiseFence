@@ -12,3 +12,12 @@ test('availability is explicit and unknown provider content is never echoed',()=
   assert.equal(stateLabel('<script>private</script>'),'État indéterminé');
   assert.notEqual(stateLabel('clean'),stateLabel('disabled'));
 });
+
+test('coverage and missed-message diagnostics use fixed labels',async()=>{
+  const {detailLabel,diagnosticLabel}=await import('../app/reliability-types.ts');
+  assert.equal(detailLabel('client_script'),'Destination dépendante de JavaScript');
+  assert.equal(detailLabel('forbidden_address'),'Adresse réseau interdite');
+  assert.equal(diagnosticLabel('decision_disagreement'),'Désaccord entre les avis');
+  assert.equal(detailLabel('PRIVATE URL'),'Limite non reconnue');
+  assert.equal(diagnosticLabel('<script>private</script>'),'Contexte non reconnu');
+});

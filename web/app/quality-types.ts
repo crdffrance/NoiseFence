@@ -23,5 +23,5 @@ export type QualityReport = {
   candidate_status: string; complete_features: boolean;
   prediction?: {model:string;observation_only:boolean;risk_probability:number;risk:string;kind:MailKind|'unavailable';kind_status?:string;
     kind_probabilities:number[];contributions:{family:string;value:number}[]} | null;
-  sender: {status:string;established:boolean;conflict:boolean;legitimate_campaigns:number;unwanted_campaigns:number;observed_days:number};
+  sender: {behavior?:{status:string;new_recipient:boolean;new_link_domain:boolean;new_request:boolean;observation_only:boolean}|null;status:string;established:boolean;conflict:boolean;legitimate_campaigns:number;unwanted_campaigns:number;observed_days:number};
 };

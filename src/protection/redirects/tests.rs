@@ -64,8 +64,9 @@ async fn real_dns_adapter_checks_both_families_and_rejects_partial_failure() {
     options.attempts = 1;
     options.timeout = Duration::from_millis(100);
     let mut resolver = Resolver::new(Settings::default()).unwrap();
-    resolver.dns =
-        MessageAuthenticator::new(ResolverConfig::from_name_servers(vec![ns]), options).unwrap();
+    resolver.dns = Arc::new(
+        MessageAuthenticator::new(ResolverConfig::from_name_servers(vec![ns]), options).unwrap(),
+    );
     let addresses = resolver.addresses("public.example.org").await.unwrap();
     assert_eq!(addresses.len(), 2);
     assert!(addresses.into_iter().all(public_ip));
@@ -564,5 +565,45 @@ async fn url_budget_and_legacy_configuration_remain_explicit() {
     let old: crate::protection::Report = serde_json::from_value(old).unwrap();
     assert!(old.url_resolution.is_none());
     assert_eq!(old.crdf.omitted, 0);
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_stalled_chain_does_not_starve_other_urls_within_the_same_deadline() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = axum::Router::new().fallback(any(|request: Request<Body>| async move {
+        if request.uri().path() == "/slow" {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+        Response::builder()
+            .header("content-type", "text/html")
+            .body(Body::from("<p>done</p>"))
+            .unwrap()
+    }));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let mut resolver = Resolver::new(Settings {
+        timeout_ms: 300,
+        max_parallel: 2,
+        ..Default::default()
+    })
+    .unwrap();
+    resolver.test_peer = Some(address);
+    resolver
+        .test_dns
+        .lock()
+        .unwrap()
+        .insert("start.example.com".into(), vec!["8.8.8.8".parse().unwrap()]);
+    let urls = ["slow", "fast1", "fast2"].map(|p| format!("http://start.example.com/{p}"));
+    let (report, _) = resolver.inspect(&urls, false).await;
+    assert_eq!(report.chains.len(), 3);
+    assert_eq!(report.chains[0].detail, Some(Detail::Deadline));
+    assert!(report.chains[1].complete && report.chains[2].complete);
+    assert_eq!(resolver.slots.available_permits(), 2);
+    for (chain, url) in report.chains.iter().zip(urls) {
+        assert_eq!(chain.source_sha256, crate::message::digest(url.as_bytes()));
+    }
     server.abort();
 }

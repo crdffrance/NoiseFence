@@ -88,9 +88,9 @@ La régression logistique est régularisée. Le risque reçoit une calibration d
 Platt et une zone d’abstention ; les six types reçoivent une calibration de température.
 Le rapport mesure rappel, faux positifs, précision et intervalles binomiaux exacts
 à 95 %, abstentions, Brier, matrice des types, résultats par type, comparaison au
-classement appliqué et neuf ablations prédéfinies : sans LLM, réputation,
-historique, modèle lexical, modèle sémantique, identité/authentification,
-vision, type de courrier, puis contenu seul. Chaque variante est réentraînée
+classement appliqué et douze ablations prédéfinies : sans LLM, réputation,
+historique, comportement, moteur natif, Bayes natif, modèle lexical, modèle
+sémantique, identité/authentification, vision, type de courrier, puis contenu seul. Chaque variante est réentraînée
 et calibrée sur les mêmes périodes ; elle ne se règle pas sur le test final.
 Retirer une famille mesure son apport conditionnel, pas son indépendance causale.
 Les profils de contrôles non rencontrés à l’entraînement sont des abstentions.
@@ -243,3 +243,15 @@ les budgets externes et les règles de livraison ne sont pas changés par 0.4.13
 Depuis 0.5.0, les entrées natives et leur disponibilité complètent le candidat.
 Le tableau **Fiabilité** décrit les groupes de collecte et les comparaisons.
 Voir [la procédure et la migration](reliability.md).
+
+
+Depuis 0.6.0, les seuils utilisent les effectifs exacts de la période réservée :
+`floor(n_légitimes × 0,001)` faux positifs et `floor(n_spams × 0,01)` faux négatifs
+maximum sur cette période. Le seuil supérieur est le plus bas admissible à partir
+de 0,5, avec une garde numérique de 10⁻⁹ pour la parité Python/Rust ;
+le seuil inférieur étend la couverture légitime jusqu’à 0,5 avec la même garde. Les
+comparaisons inclusives et ex æquo sont comptés. Une saturation à 0 ou 1 qui rend
+ces contraintes impossibles interrompt la préparation ; une ablation impossible
+est indiquée séparément. Ce choix empirique ne valide pas un taux dans le trafic :
+le test indépendant, la couverture, les intervalles et les règles d’activation
+restent nécessaires. Voir [couverture et mémoire comportementale](capture-coverage.md).

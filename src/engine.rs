@@ -1360,8 +1360,15 @@ impl Engine {
             scan.smtp_policy = policy_result;
             let (arc, results) = auth_result?;
             scan.sender_history = Some(
-                crate::quality::history::inspect(&self.config.data_dir, raw, &scan, context.1)
-                    .await,
+                crate::quality::history::inspect_with_context(
+                    &self.config.data_dir,
+                    raw,
+                    &scan,
+                    context.1,
+                    context.2,
+                    &targets,
+                )
+                .await,
             );
             if let (Some(runtime), Some(observation)) =
                 (&self.native_filter, &mut scan.native_filter)

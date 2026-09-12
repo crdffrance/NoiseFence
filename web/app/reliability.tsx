@@ -1,5 +1,6 @@
 'use client';
 import { useEffect,useState } from 'react';
+import { CoverageDetails, MissedDetails } from './coverage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from './client';
@@ -26,6 +27,7 @@ export function ReliabilityConsole() {
   const [request,setRequest]=useState({days:7,domain:'',revision:0});
   const [report,setReport]=useState<ReliabilityReport|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(true);
   const [symbolSearch,setSymbolSearch]=useState('');
+  const [coverageScope,setCoverageScope]=useState('current');
   useEffect(()=>{
     const controller=new AbortController();
     api<ReliabilityReport>(`/quality/reliability?days=${request.days}&domain=${encodeURIComponent(request.domain)}`,undefined,undefined,{signal:controller.signal,cache:'no-store'})
@@ -53,6 +55,12 @@ export function ReliabilityConsole() {
         <div className="reliability-table"><table><thead><tr><th>Contrôle</th><th>États enregistrés</th></tr></thead><tbody>{Object.entries(report.last_24h.detector_status).map(([name,states])=><tr key={name}><td>{detectorLabels[name] || 'Contrôle'}</td><td>{Object.entries(states).map(([s,n])=>`${stateLabel(s)} : ${n}`).join(' · ')}</td></tr>)}</tbody></table></div>
         {!report.last_24h.messages && <p>Aucun message récent dans ce périmètre.</p>}
       </section>
+      <section className="panel"><h2>Couverture réseau</h2>
+        <label>Version des observations<select value={coverageScope} onChange={e=>setCoverageScope(e.target.value)}><option value="current">Moteur courant · dernières 24 h</option><option value="all">Toutes versions · dernières 24 h</option></select></label>
+        <p className="muted">{coverageScope==='current'?(report.current_build_last_24h?.messages ?? 0):report.last_24h.messages} messages dans ce groupe. Les incidents des anciennes versions ne décrivent pas nécessairement le moteur courant.</p>
+        <CoverageDetails data={(coverageScope==='current'?report.current_build_last_24h:report.last_24h)?.coverage}/>
+      </section>
+      {report.missed_diagnostics && <section className="panel"><h2>Comprendre les spams manqués</h2><div className="reliability-columns"><MissedDetails title="Échantillons de qualité" data={report.missed_diagnostics.quality}/><MissedDetails title="Corrections ciblées" data={report.missed_diagnostics.targeted}/></div><p className="muted small">Contexte enregistré sur les messages annotés spam. Plusieurs situations peuvent coexister ; ce bilan ne démontre pas leur rôle causal. Les cas ciblés servent au diagnostic, les lots aléatoires restent nécessaires à l’évaluation.</p></section>}
       {report.system && <section className="panel"><h2>État des services de signatures</h2><div className="reliability-columns"><Freshness title="Antivirus" value={report.system.antivirus}/><Freshness title="Signatures consultatives" value={report.system.signatures}/></div></section>}
       <section className="panel"><h2>Collecte pour la calibration</h2><p>{report.current_build_observations} observations liées au moteur courant · {report.current_protocol_observations} au protocole courant · {report.unlabelled} sans annotation exploitable.</p>
         <p className="muted">Chaque groupe ci-dessous lie les mêmes contrôles, modèles et paramètres. Les anciennes corrections restent utiles pour l’audit ; elles ne sont pas converties en observations nouvelles. Créez les lots dans « Qualité du filtre » et vérifiez les originaux dans votre messagerie.</p>

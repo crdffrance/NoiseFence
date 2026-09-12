@@ -150,6 +150,17 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
     let mut scan = observed(&cfg);
     scan.subject = "PRIVATE SUBJECT".into();
     scan.quality = Some(quality::snapshot(&scan, None));
+    scan.quality.as_mut().unwrap().sender.behavior = Some(quality::behavior::Report {
+        status: "insufficient_history".into(),
+        sample: Some(quality::behavior::Sample {
+            protocol: "sender-behavior-1".into(),
+            policy: digest(b"policy"),
+            recipient: digest(b"PRIVATE RECIPIENT"),
+            links: [digest(b"PRIVATE LINK")].into(),
+            requests: Default::default(),
+        }),
+        ..Default::default()
+    });
     let first = insert(&store, &scan, "alice@example.test", now - 100).await;
     scan.quality = None;
     scan.complete = false;
@@ -253,6 +264,8 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
         .unwrap();
     let raw = std::fs::read_to_string(&output).unwrap();
     assert!(!raw.contains("PRIVATE SUBJECT"));
+    assert!(!raw.contains(&digest(b"PRIVATE RECIPIENT")));
+    assert!(!raw.contains(&digest(b"PRIVATE LINK")));
     assert!(!raw.contains("private-correspondent"));
     assert!(!raw.contains(&first));
     assert!(raw.contains("newsletter"));
@@ -462,4 +475,145 @@ fn native_observations_are_calibration_inputs_without_recounting_the_legacy_mode
         model(&after).predict(&limited).is_err(),
         "a missing control is a different availability profile"
     );
+}
+
+#[tokio::test]
+async fn behavior_uses_authorized_past_quality_labels_and_stays_out_of_delivery() {
+    use noisefence::{
+        config::Recipient,
+        evidence::{AuthResult, State},
+        native_filter, protection,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "reviewer", true, "").await;
+    let mut scan = observed(&cfg);
+    scan.evidence.as_mut().unwrap().authentication.dmarc_state = State::Complete;
+    scan.evidence.as_mut().unwrap().authentication.dmarc_dkim = Some(AuthResult::Pass);
+    {
+        let a = &mut scan.evidence.as_mut().unwrap().authentication;
+        a.state = State::Complete;
+        a.spf_state = State::Complete;
+        a.spf = Some(AuthResult::Pass);
+        a.dkim_state = State::Complete;
+        a.dkim = Some(vec![AuthResult::Pass]);
+        a.dmarc_spf = Some(AuthResult::Pass);
+    }
+    scan.native_filter = Some(
+        native_filter::Runtime::new(Default::default())
+            .unwrap()
+            .inspect(common::MESSAGE, &["example.test".into()])
+            .await,
+    );
+    scan.protection = Some(protection::Report {
+        local_status: protection::Status::Complete,
+        ..Default::default()
+    });
+    let scope = vec!["example.test".into()];
+    let recipient = Recipient {
+        address: "alice@example.test".into(),
+        destination: "alice@example.test".into(),
+        hosts: vec![],
+    };
+    let mut targets = protection::Targets {
+        urls: vec!["https://known.example.org/PRIVATE-PATH".into()],
+        ..Default::default()
+    };
+    let initial = quality::history::inspect_with_context(
+        root.path(),
+        common::MESSAGE,
+        &scan,
+        &scope,
+        std::slice::from_ref(&recipient),
+        &targets,
+    )
+    .await;
+    assert_eq!(
+        initial.behavior.as_ref().unwrap().status,
+        "insufficient_history"
+    );
+    let now = noisefence::now();
+    for i in 0..5 {
+        let mut previous = scan.clone();
+        previous.fingerprint = digest(format!("behavior campaign {i}").as_bytes());
+        previous.sender_history = Some(initial.clone());
+        let id = insert(&store, &previous, &recipient.address, now - (i + 1) * 86400).await;
+        store
+            .run(move |db| {
+                db.execute(
+                    "INSERT INTO quality_labels VALUES('reviewer',?1,'legitimate',NULL,?2)",
+                    params![id, now - 1],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+    targets.urls = vec!["https://new.example.org/PRIVATE-PATH".into()];
+    let mut bob = recipient.clone();
+    bob.address = "bob@example.test".into();
+    let history = quality::history::inspect_with_context(
+        root.path(),
+        common::MESSAGE,
+        &scan,
+        &scope,
+        std::slice::from_ref(&bob),
+        &targets,
+    )
+    .await;
+    let b = history.behavior.as_ref().unwrap();
+    assert_eq!(b.status, "complete");
+    assert!(b.new_link_domain && b.new_recipient);
+    scan.sender_history = Some(history);
+    let before = serde_json::to_value(&scan).unwrap();
+    let q = quality::snapshot(&scan, None);
+    let at = |name: &str| {
+        q.values[quality::specs()
+            .iter()
+            .position(|s| s.name == name)
+            .unwrap()]
+    };
+    assert_eq!(at("behavior.new_link_domain"), 1.0);
+    assert_eq!(at("behavior.new_recipient"), 1.0);
+    assert_eq!(serde_json::to_value(&scan).unwrap(), before);
+    let public = q.public().to_string();
+    for private in [
+        "PRIVATE-PATH",
+        "example.org",
+        "bob@example.test",
+        "recipient\":\"",
+        "sample",
+    ] {
+        assert!(!public.contains(private));
+    }
+    let shared = quality::history::inspect_with_context(
+        root.path(),
+        common::MESSAGE,
+        &scan,
+        &scope,
+        &[recipient, bob],
+        &targets,
+    )
+    .await;
+    assert!(shared.behavior.unwrap().sample.is_none());
+    let scoped = quality::history::inspect_with_context(
+        root.path(),
+        common::MESSAGE,
+        &scan,
+        &["elsewhere.test".into()],
+        &[],
+        &targets,
+    )
+    .await;
+    assert_eq!(scoped.legitimate_campaigns, 0);
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='reviewer'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let revoked = quality::history::inspect(root.path(), common::MESSAGE, &scan, &scope).await;
+    assert_eq!(revoked.legitimate_campaigns, 0);
 }

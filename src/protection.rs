@@ -3,6 +3,7 @@ mod campaign;
 mod context;
 mod local;
 mod providers;
+pub use providers::Failure as ProviderFailure;
 pub mod redirects;
 use anyhow::{Result, ensure};
 pub use local::{Feed, canonical_url, local_checks};
@@ -192,6 +193,15 @@ pub struct ProviderReport {
     /// Per-target observations. A host-root lookup never attests a particular page.
     #[serde(default)]
     pub observations: Vec<ProviderObservation>,
+    /// Transport events, not message verdicts. No response body or credential is retained.
+    #[serde(default)]
+    pub request_count: usize,
+    #[serde(default)]
+    pub http_status_counts: std::collections::BTreeMap<u16, usize>,
+    #[serde(default)]
+    pub failure_counts: std::collections::BTreeMap<String, usize>,
+    #[serde(default)]
+    pub retry_after_seconds: Option<u64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderObservation {

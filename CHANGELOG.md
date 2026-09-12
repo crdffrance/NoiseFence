@@ -5,6 +5,16 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-09-12
+
+- Recherches CRDF groupées (douze domaines maximum), résultats associés strictement aux cibles et cache consulté avant les limites réseau. Une cible déjà en cache reste utilisable pendant un quota ou une indisponibilité.
+- Quotas réservés après obtention d’une capacité de requête ; une seule reprise bornée sur certaines erreurs temporaires. Prise en compte persistante de `Retry-After`, comptage des requêtes, codes HTTP et incidents sans conserver les réponses privées.
+- Redirections exécutées concurremment dans le délai global avec un plafond partagé : une URL lente ne prive plus systématiquement les autres de contrôle. DNS épinglé, TLS, protections SSRF et limites de lecture conservés.
+- Diagnostics de couverture par version courante ou historique et contexte des spams annotés non capturés, séparant échantillons qualité et corrections ciblées. Une association ne prouve pas la cause d’une erreur.
+- Observation des changements de destinataire, domaines de liens et types de demandes sur des expéditeurs DKIM alignés, à partir de campagnes humaines légitimes récentes. Données cloisonnées, hachées et bornées ; les enveloppes partagées et historiques insuffisants s’abstiennent.
+- Sélection exacte des seuils sous budgets empiriques de faux positifs et faux négatifs, comparaisons inclusives et ex æquo pris en compte. Douze ablations, dont le contexte comportemental, avec test futur indépendant et intervalles toujours requis.
+- Nouveau protocole de candidat qualité : les anciens candidats optionnels doivent être retirés avant mise à niveau et réentraînés sur une collecte compatible. Modèles lexicaux/sémantiques et schéma SQLite 2 inchangés ; aucun candidat activé automatiquement. Voir [le détail et la migration](docs/capture-coverage.md).
+
 ## [0.5.0] — 2026-09-12
 
 - Console Fiabilité pour administrateurs et utilisateurs : historique cloisonné, annotations et corrections ciblées séparées, métriques avec intervalles, disponibilité des contrôles, variations du trafic et groupes de collecte.

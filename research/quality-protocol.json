@@ -1989,6 +1989,48 @@
       "family": "native_campaign",
       "minimum": 0,
       "maximum": 1
+    },
+    {
+      "name": "behavior.not_run",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "behavior.unavailable",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "behavior.insufficient_history",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "behavior.complete",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "behavior.new_recipient",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "behavior.new_link_domain",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "name": "behavior.new_request",
+      "family": "sender_behavior",
+      "minimum": 0,
+      "maximum": 1
     }
   ]
 }

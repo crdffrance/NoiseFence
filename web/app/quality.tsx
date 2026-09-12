@@ -19,6 +19,9 @@ export function QualityDetails({report}:{report:QualityReport}) {
     <p className="muted small">Cette analyse candidate ne modifie ni le classement appliqué ni la livraison.</p>
     <p>{report.sender.established ? 'Correspondant authentifié avec un historique validé.' : report.sender.conflict ? 'Corrections contradictoires dans l’historique du correspondant.' : 'Confiance historique non établie.'}</p>
     {report.sender.status === 'complete' && <p className="muted small">{report.sender.legitimate_campaigns} campagnes légitimes, {report.sender.unwanted_campaigns} indésirables · {report.sender.observed_days} jours distincts. Aucun contrôle de sécurité n’est contourné.</p>}
+    {report.sender.behavior && <p className="muted small">Habitudes du correspondant : {report.sender.behavior.status==='complete'
+      ? [report.sender.behavior.new_recipient && 'destinataire non rencontré',report.sender.behavior.new_link_domain && 'nouveau domaine de lien',report.sender.behavior.new_request && 'nouveau type de demande'].filter(Boolean).join(' · ') || 'aucun changement observé'
+      : report.sender.behavior.status==='insufficient_history'?'historique annoté insuffisant':'comparaison indisponible'}. Observation consultative ; une nouveauté ne prouve pas une fraude.</p>}
   </section>;
 }
 function Annotation({member,user,onSaved}:{member:Member;user:User;onSaved:()=>void}) {

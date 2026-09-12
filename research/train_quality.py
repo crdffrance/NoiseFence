@@ -154,6 +154,40 @@ def matrix(rows):
     return np.array([r['values'] for r in rows], dtype=float), np.array([r['risk'] == 'spam' for r in rows], dtype=int)
 
 
+class NoFeasibleThreshold(ValueError):
+    """Inclusive runtime thresholds cannot satisfy the empirical error budget."""
+
+
+def select_thresholds(probability, labels, fpr=.001, fnr=.01):
+    """Choose coverage under finite-sample budgets on the threshold fold.
+
+    Ties use the runtime's inclusive comparisons. This is an empirical operating
+    point, not a population guarantee: the future evaluation and its confidence
+    bounds remain mandatory. No test-fold score participates in selection.
+    """
+    p, y = np.asarray(probability, dtype=float), np.asarray(labels)
+    require(p.ndim == y.ndim == 1 and len(p) == len(y) and len(p) > 0
+            and np.all(np.isfinite(p)) and np.all((p >= 0) & (p <= 1))
+            and set(y.tolist()) == {0, 1} and 0 <= fpr < 1 and 0 <= fnr < 1,
+            'Invalid threshold selection sample')
+    ham, spam = np.sort(p[y == 0]), np.sort(p[y == 1])
+    allowed_fp, allowed_fn = math.floor(len(ham)*fpr), math.floor(len(spam)*fnr)
+    # Keep an explicit guard beyond the excluded tied score: Python BLAS and
+    # Rust scalar accumulation can differ by a few ulps after model serialization.
+    guard = 1e-9
+    high, low = ham[-allowed_fp-1], spam[allowed_fn]
+    upper = max(.5, min(1., float(high+guard)), float(np.nextafter(high, np.inf)))
+    lower = min(.5, max(0., float(low-guard)), float(np.nextafter(low, -np.inf)), upper-guard)
+    if not 0 <= lower < upper <= 1:
+        raise NoFeasibleThreshold('Saturated probabilities prevent a feasible threshold; no candidate can be validated')
+    fp, fn = int(np.sum(ham >= upper)), int(np.sum(spam <= lower))
+    require(fp <= allowed_fp and fn <= allowed_fn, 'Threshold error budget exceeded')
+    return [lower, upper], {'method':'finite_sample_inclusive_v1', 'fold':'threshold',
+        'fpr_target':fpr, 'fnr_target':fnr, 'legitimate':len(ham), 'spam':len(spam),
+        'allowed_fp':allowed_fp, 'allowed_fn':allowed_fn, 'fp':fp, 'fn':fn,
+        'population_guarantee':False, 'numerical_guard':guard}
+
+
 def fit_risk(parts, families=None):
     data = {name: matrix(rows) for name, rows in parts.items()}
     mask = np.array([families is None or s['family'] in families for s in PROTOCOL['features']])
@@ -177,15 +211,14 @@ def fit_risk(parts, families=None):
     a, b = float(np.exp(calibrated.x[0])), float(calibrated.x[1])
     probabilities = {s: expit(np.clip(a*logits[s]+b, -40, 40)) for s in SPLITS}
     threshold_p, threshold_y = probabilities['threshold'], data['threshold'][1]
-    upper = min(1., max(.5, float(np.quantile(threshold_p[threshold_y == 0], .999)) + 1e-9))
-    lower = max(0., min(upper-1e-6, .5, float(np.quantile(threshold_p[threshold_y == 1], .01))-1e-9))
+    (lower, upper), selection = select_thresholds(threshold_p, threshold_y)
     weights = np.zeros(len(mask))
     weights[mask] = fitted.coef_[0] / scaler.scale_
     bias = float(fitted.intercept_[0] - np.sum(fitted.coef_[0]*scaler.mean_/scaler.scale_))
     profiles = {r['quality']['availability_profile'] for r in parts['train']}
     available = np.array([r['quality']['availability_profile'] in profiles for r in parts['test']])
     return {'bias': bias, 'weights': weights.tolist()}, [a,b], [lower,upper], probabilities, {
-        'regularization': regularization, 'test': metrics(data['test'][1], probabilities['test'], lower, upper, available)}
+        'regularization': regularization, 'threshold_selection':selection, 'test': metrics(data['test'][1], probabilities['test'], lower, upper, available)}
 
 
 def fit_kinds(parts):
@@ -257,14 +290,20 @@ def train(dataset, destination, version, base_history=None):
     report.update(status='candidate_prepared',risk=risk_report,mail_kind=kind_report)
     families={f['family'] for f in PROTOCOL['features']}
     variants={'without_llm':families-{'llm'},'without_providers':families-{'external_reputation','reputation'},
-              'without_sender_history':families-{'sender_history','campaign','native_campaign'},
+              'without_sender_history':families-{'sender_history','sender_behavior','campaign','native_campaign'},
+              'without_behavior':families-{'sender_behavior'},
               'without_native':families-{'native_content','native_campaign','native_bayes'},
               'without_native_bayes':families-{'native_bayes'},
               'without_semantic':families-{'semantic'},'without_lexical':families-{'lexical'},
               'without_identity':families-{'identity_context','authentication'},
               'without_vision':families-{'vision'},'without_mail_type':families-{'mail_type'},
               'content_only':{'lexical','semantic','llm','mail_type','native_content','native_bayes'}}
-    report['ablations']={name:fit_risk(parts,selected)[4] for name,selected in variants.items()}
+    report['ablations']={}
+    for name, selected in variants.items():
+        try:
+            report['ablations'][name]=fit_risk(parts,selected)[4]
+        except NoFeasibleThreshold:
+            report['ablations'][name]={'status':'no_feasible_threshold','test':None}
     report['baseline']=dict(Counter((r.get('legacy_decision') or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
     report['slices']={}
     y=matrix(parts['test'])[1]

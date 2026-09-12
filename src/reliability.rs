@@ -1,4 +1,5 @@
 //! Recipient-scoped quality and health accounting, never a delivery policy.
+mod coverage;
 pub mod health;
 pub mod proton;
 use crate::{
@@ -116,6 +117,7 @@ struct Window {
     legitimate: usize,
     disagreements: usize,
     detector_status: BTreeMap<String, BTreeMap<String, usize>>,
+    coverage: coverage::Coverage,
     #[serde(skip)]
     latencies: Vec<u64>,
     p95_ms: Option<u64>,
@@ -123,6 +125,7 @@ struct Window {
 impl Window {
     fn add(&mut self, scan: &Scan) {
         self.messages += 1;
+        self.coverage.add(scan);
         self.incomplete += usize::from(!scan.complete);
         match outcome(scan) {
             Outcome::Unwanted => self.spam += 1,
@@ -209,6 +212,9 @@ struct Cohort {
 struct Accumulator {
     all: Window,
     recent: Window,
+    current_recent: Window,
+    quality_misses: coverage::Misses,
+    targeted_misses: coverage::Misses,
     reference: Window,
     days: BTreeMap<i64, Window>,
     cohorts: BTreeMap<String, Cohort>,
@@ -314,6 +320,13 @@ impl Accumulator {
             },
         };
         if let Some((spam, quality)) = label {
+            if spam {
+                if quality {
+                    self.quality_misses.add(scan);
+                } else {
+                    self.targeted_misses.add(scan);
+                }
+            }
             if quality {
                 self.quality.add(outcome(scan), spam);
             } else {
@@ -328,6 +341,9 @@ impl Accumulator {
             .and_then(|e| e.artifacts.compatibility_hash())
             == Some(crate::compatibility::DETECTOR_BUILD_SHA256);
         self.compatible_observations += usize::from(current);
+        if current && created >= now - 86400 {
+            self.current_recent.add(scan);
+        }
         if let Some(q) = &scan.quality {
             self.current_protocol +=
                 usize::from(q.protocol_sha256 == crate::quality::protocol_hash());
@@ -452,6 +468,7 @@ impl Accumulator {
     fn report(mut self, options: &Options, now: i64, truncated: bool) -> Value {
         self.all.finish();
         self.recent.finish();
+        self.current_recent.finish();
         self.reference.finish();
         for day in self.days.values_mut() {
             day.finish();
@@ -531,6 +548,7 @@ impl Accumulator {
         json!({"schema":"noisefence-reliability-1","version":env!("CARGO_PKG_VERSION"),"checked_at":now,"since":now-i64::from(options.days)*86400,
             "scope":{"domain":options.domain,"days":options.days},"status":if truncated {"limited"} else {"complete"},
             "observations":self.all,"last_24h":self.recent,"reference":self.reference,"days":self.days,
+            "current_build_last_24h":self.current_recent,"missed_diagnostics":{"quality":self.quality_misses,"targeted":self.targeted_misses},
             "cohorts":self.cohorts,"current_build_observations":self.compatible_observations,"current_protocol_observations":self.current_protocol,
             "missing_cohorts":self.missing_cohorts,"quality_labels":self.quality.report(),"targeted_feedback":self.targeted.report(),
             "unlabelled":self.unlabelled,"invalid_labels":self.invalid_labels,"invalid_scans":self.invalid_scans,"saturated_scores":self.saturation,

@@ -17,6 +17,8 @@ pub struct Report {
     pub observed_days: usize,
     pub conflict: bool,
     pub established: bool,
+    #[serde(default)]
+    pub behavior: Option<super::behavior::Report>,
 }
 impl Default for Report {
     fn default() -> Self {
@@ -28,10 +30,21 @@ impl Default for Report {
             observed_days: 0,
             conflict: false,
             established: false,
+            behavior: None,
         }
     }
 }
 pub async fn inspect(root: &Path, raw: &[u8], scan: &Scan, scopes: &[String]) -> Report {
+    inspect_with_context(root, raw, scan, scopes, &[], &Default::default()).await
+}
+pub async fn inspect_with_context(
+    root: &Path,
+    raw: &[u8],
+    scan: &Scan,
+    scopes: &[String],
+    recipients: &[crate::config::Recipient],
+    targets: &crate::protection::Targets,
+) -> Report {
     let mut report = Report::default();
     let Some(e) = &scan.evidence else {
         return report;
@@ -77,6 +90,8 @@ pub async fn inspect(root: &Path, raw: &[u8], scan: &Scan, scopes: &[String]) ->
         .as_bytes(),
     );
     report.key = Some(key.clone());
+    let behavior = super::behavior::capture(&key, scan, recipients, targets);
+    report.behavior = Some(behavior.clone());
     let path = root.join("state.sqlite3");
     let (send, receive) = tokio::sync::oneshot::channel();
     let task = tokio::task::spawn_blocking(move || -> anyhow::Result<Report> {
@@ -89,8 +104,8 @@ pub async fn inspect(root: &Path, raw: &[u8], scan: &Scan, scopes: &[String]) ->
             anyhow::bail!("cancelled sender memory");
         }
         let now = crate::now();
-        let mut query=db.prepare("SELECT json_extract(m.scan,'$.fingerprint'),m.created,MIN(f.spam),MAX(f.spam)
-          FROM messages m JOIN feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username
+        let mut query=db.prepare("SELECT json_extract(m.scan,'$.fingerprint'),m.created,MIN(f.spam),MAX(f.spam), json_extract(m.scan,'$.sender_history.behavior.sample')
+          FROM messages m JOIN (SELECT username,message_id,spam,created FROM feedback UNION ALL SELECT username,message_id,CASE risk WHEN 'spam' THEN 1 ELSE 0 END,created FROM quality_labels WHERE risk IN ('spam','legitimate')) f ON f.message_id=m.id JOIN users u ON u.username=f.username
           WHERE m.created>=?1 AND m.created<?2 AND m.is_dsn=0 AND f.created<?2 AND u.admin=1 AND u.disabled=0
           AND (CASE WHEN json_valid(m.scan) THEN json_extract(m.scan,'$.sender_history.key') END)=?3
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=f.username)
@@ -98,6 +113,7 @@ pub async fn inspect(root: &Path, raw: &[u8], scan: &Scan, scopes: &[String]) ->
         let mut result = Report {
             status: "complete".into(),
             key: Some(key.clone()),
+            behavior: Some(behavior),
             ..Default::default()
         };
         let rows = query.query_map(params![now - 30 * 86400, now, key], |r| {
@@ -106,24 +122,28 @@ pub async fn inspect(root: &Path, raw: &[u8], scan: &Scan, scopes: &[String]) ->
                 r.get::<_, i64>(1)?,
                 r.get::<_, bool>(2)?,
                 r.get::<_, bool>(3)?,
+                r.get::<_, Option<String>>(4)?,
             ))
         })?;
         let mut campaigns: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+        let mut behavior_history = super::behavior::History::default();
         let mut days = std::collections::BTreeSet::new();
         for (index, row) in rows.enumerate() {
             if index == 2000 {
                 result.status = "limited".into();
                 return Ok(result);
             }
-            let (fingerprint, created, min, max) = row?;
+            let (fingerprint, created, min, max, sample) = row?;
             if fingerprint.len() != 64 {
                 continue;
             }
+            behavior_history.add(fingerprint.clone(), created, !min, max, sample);
             let entry = campaigns.entry(fingerprint).or_default();
             entry.0 |= !min;
             entry.1 |= max;
             days.insert(created / 86400);
         }
+        behavior_history.finish(result.behavior.as_mut().unwrap());
         result.observed_days = days.len();
         for (legit, spam) in campaigns.values() {
             result.conflict |= *legit && *spam;
@@ -156,6 +176,9 @@ pub async fn inspect(root: &Path, raw: &[u8], scan: &Scan, scopes: &[String]) ->
         Ok(Ok(Ok(Ok(result)))) => result,
         _ => {
             report.status = "unavailable".into();
+            if let Some(b) = &mut report.behavior {
+                b.status = "unavailable".into();
+            }
             report
         }
     }
