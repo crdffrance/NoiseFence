@@ -118,6 +118,13 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         iterations: usize,
     },
+    /// Query configured IP DNSBLs without a message, model, queue or SMTP delivery.
+    RblCheck {
+        #[arg(long)]
+        source_ip: std::net::IpAddr,
+        #[arg(long, default_value_t = 1)]
+        iterations: usize,
+    },
     /// Run configured analysis once without queueing or delivering the message.
     Analyze {
         message: PathBuf,
@@ -515,6 +522,31 @@ async fn main() -> Result<()> {
             "{}",
             serde_json::to_string_pretty(&client.inspect(&raw).await)?
         );
+        return Ok(());
+    }
+    if let Command::RblCheck {
+        source_ip,
+        iterations,
+    } = &cli.command
+    {
+        ensure!((1..=100).contains(iterations), "iterations must be 1..100");
+        let rbl = noisefence::rbl::Runtime::new(
+            config.rbl.as_ref(),
+            config.filter.spamhaus_key_env.as_deref(),
+        )?;
+        for _ in 0..*iterations {
+            println!(
+                "{}",
+                serde_json::to_string(
+                    &rbl.check(
+                        *source_ip,
+                        config.filter.mode,
+                        config.filter.spamhaus_key_env.is_some()
+                    )
+                    .await
+                )?
+            );
+        }
         return Ok(());
     }
     if let Command::SmtpCheck {

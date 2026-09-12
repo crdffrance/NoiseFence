@@ -85,6 +85,7 @@ dans le guide d'exploitation.
 | Module | Responsabilité |
 |---|---|
 | `smtp` | Machine à états SMTP, STARTTLS, réception en flux, limites et destinataires |
+| `rbl` | Réputation IP avant DATA, DNSBL configurables, cache et refus explicites |
 | `store` | Spool sur disque, SQLite WAL, transactions, reprise et droits par adresse |
 | `relay` | SMTP sortant, validation TLS, tentatives par destinataire et notifications d’échec |
 | `engine` | MIME, signaux, SPF/DKIM/DMARC/ARC, réputation, classification et marquage |
@@ -176,6 +177,11 @@ Les tests SMTP utilisent exclusivement des sockets loopback et des destinataires
 Les [contrôles de cohérence SMTP/DNS](docs/smtp-policy.md) ajoutent HELO, PTR
 confirmé et domaine d’enveloppe, avec poids plafonnés et observation initiale.
 La commande `smtp-check` permet de les essayer sans envoyer d’email.
+
+Les [listes IP RBL avant DATA](docs/early-rbl.md) permettent d’observer la
+réputation du pair avant l’analyse, puis d’appliquer explicitement un refus
+temporaire ou définitif. La commande `rbl-check` les teste sans email ; sans
+liste autorisée configurée, aucun appel DNSBL n’est effectué.
 
 ### Protections complémentaires
 

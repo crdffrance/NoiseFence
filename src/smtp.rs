@@ -23,6 +23,8 @@ use tokio_rustls::TlsAcceptor;
 pub trait Transport: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Transport for T {}
 pub type Wire = BufReader<Box<dyn Transport>>;
+#[cfg(test)]
+mod rbl_tests;
 #[derive(Clone)]
 pub struct State {
     pub config: Arc<Config>,
@@ -126,6 +128,10 @@ pub async fn serve_controlled(
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
     let tls = tls_acceptor(&state.config)?;
+    let rbl = Arc::new(crate::rbl::Runtime::new(
+        state.config.rbl.as_ref(),
+        state.config.filter.spamhaus_key_env.as_deref(),
+    )?);
     let slots = Arc::new(Semaphore::new(state.config.smtp.max_connections));
     let peers = Arc::new(Mutex::new(HashMap::<IpAddr, usize>::new()));
     let mut tasks = JoinSet::new();
@@ -138,8 +144,8 @@ pub async fn serve_controlled(
                 let permit=slots.clone().try_acquire_owned();
                 let allowed={let mut counts=peers.lock().unwrap();let n=counts.get(&peer.ip()).copied().unwrap_or(0);if n>=state.config.smtp.max_connections_per_ip || permit.is_err(){false}else{counts.insert(peer.ip(),n+1);true}};
                 if !allowed {let _=tokio::time::timeout(Duration::from_secs(1),socket.write_all(b"421 4.3.2 Server busy\r\n")).await;continue;}
-                let state=state.clone();let tls=tls.clone();let control=control.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
-                tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls,control).await{tracing::debug!(error=%error,"SMTP session ended");}});
+                let state=state.clone();let tls=tls.clone();let control=control.clone();let rbl=rbl.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
+                tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls,control,rbl).await{tracing::debug!(error=%error,"SMTP session ended");}});
             }
         }
     }
@@ -197,6 +203,7 @@ async fn session(
     mut state: State,
     tls: Option<TlsAcceptor>,
     control: Option<Arc<crate::control::Controller>>,
+    rbl: Arc<crate::rbl::Runtime>,
 ) -> Result<()> {
     let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
@@ -378,6 +385,24 @@ async fn session(
                     reply(&mut io, "503 5.5.1 MAIL and RCPT required\r\n").await?;
                     continue;
                 }
+                // Recipient authorization comes first. DNS admission happens before body
+                // storage, processing capacity acquisition, OCR, models or external APIs.
+                let early_rbl = rbl
+                    .check(
+                        peer.ip(),
+                        cfg.filter.mode,
+                        cfg.filter.spamhaus_key_env.is_some(),
+                    )
+                    .await;
+                if !early_rbl.checks.is_empty() {
+                    tracing::info!(peer=%peer, report=?early_rbl, "SMTP early RBL check");
+                }
+                if let Some(response) = early_rbl.smtp_reply() {
+                    reply(&mut io, response).await?;
+                    from = None;
+                    recipients.clear();
+                    continue;
+                }
                 let permit = match state.processing.clone().try_acquire_owned() {
                     Ok(p) => p,
                     Err(_) => {
@@ -451,7 +476,10 @@ async fn session(
                     .process_smtp(&raw, peer.ip(), &helo, &sender, &id, &recipients)
                     .await;
                 let result = match result {
-                    Ok(variants) => {
+                    Ok(mut variants) => {
+                        for variant in &mut variants {
+                            early_rbl.attach(&mut variant.scan);
+                        }
                         let scan = &variants[0].scan;
                         tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
                         state.store.enqueue_variants(sender, variants).await

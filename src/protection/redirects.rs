@@ -485,7 +485,7 @@ fn html_next(base: &Url, body: &str) -> std::result::Result<Option<Url>, Detail>
 
 /// Conservative globally-routable policy: transition/translation IPv6 ranges
 /// are excluded so an embedded IPv4 address cannot bypass the IPv4 boundary.
-fn public_ip(ip: IpAddr) -> bool {
+pub(crate) fn public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();

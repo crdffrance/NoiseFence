@@ -18,6 +18,7 @@ pub struct Config {
     pub custom_filtering: Option<crate::custom_filtering::Policy>,
     pub fusion: Option<crate::fusion::runtime::Settings>,
     pub smtp_policy: Option<crate::smtp_policy::PolicyConfig>,
+    pub rbl: Option<crate::rbl::Settings>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
     pub signatures: Option<crate::antivirus::AntivirusConfig>,
     pub llm: Option<crate::llm::LlmConfig>,
@@ -243,6 +244,9 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(rbl) = &self.rbl {
+            rbl.validate()?;
+        }
         if let Some(native) = &self.native_filter {
             native.validate()?;
         }

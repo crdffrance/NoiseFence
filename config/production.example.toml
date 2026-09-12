@@ -31,6 +31,8 @@ secure_cookies = true
 # Switch filter.mode to "enforce" to apply them; tagging still requires Proton/ARC.
 
 [filter]
+# Optional IP DNSBL admission before DATA: see docs/early-rbl.md for [rbl].
+# The existing spamhaus_key_env also enables early ZEN in observation by default.
 mode = "observe"
 threshold = 95.0
 # Score alone does not decide Spam; see docs/confirmation.md for recall tradeoffs.

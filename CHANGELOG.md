@@ -5,6 +5,14 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-09-12
+
+- Contrôles IP DNSBL avant DATA, stockage et analyse : connecteur Spamhaus ZEN DQS existant et jusqu’à sept listes IP supplémentaires, avec codes explicites et regroupement par fournisseur.
+- Observation par défaut, consensus de deux fournisseurs distincts et refus SMTP 451/550 configurables uniquement en mode application. PBL/BCL, erreurs DNS, codes inconnus et contrôles incomplets ne provoquent pas de refus.
+- Requêtes concurrentes, capacité partagée, budget global et cache borné respectant les TTL. IPv4/IPv6, normalisation des adresses mappées, exclusion des adresses privées et diagnostics sans clé ni contenu.
+- Commande `rbl-check`, rapports avant réception dans les journaux et fiches des messages acceptés ; aucun poids supplémentaire dans le score. Les contrôles de domaines/URL après DATA restent distincts.
+- Tests DNS/SMTP locaux couvrant consensus, erreurs, cache, annulation, refus avant stockage et livraison en observation. Mode observation et modèles actifs conservés. Empreinte de détecteur renouvelée, SQLite reste au schéma 2 ; voir [configuration et migration](docs/early-rbl.md).
+
 ## [0.6.0] — 2026-09-12
 
 - Recherches CRDF groupées (douze domaines maximum), résultats associés strictement aux cibles et cache consulté avant les limites réseau. Une cible déjà en cache reste utilisable pendant un quota ou une indisponibilité.

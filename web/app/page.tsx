@@ -1,5 +1,7 @@
 'use client';
 import { OnboardingGate } from './onboarding';
+import { EarlyRblDetails } from './rbl';
+import type { EarlyRbl } from './rbl-types';
 import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
 import { ConfirmDialog } from './console-ui';
@@ -173,6 +175,7 @@ type Mail = {
     applied_weight: number;
     scoring_enabled: boolean;
   };
+  early_rbl?: EarlyRbl;
   semantic?: {
     status: 'disabled' | 'complete' | 'busy' | 'unavailable';
     model: string;
@@ -980,6 +983,7 @@ function Home() {
                               )}
                           </div>
                         )}
+                      {selected.early_rbl && <EarlyRblDetails report={selected.early_rbl} />}
                       {selected.smtp_policy &&
                         selected.smtp_policy.status !== 'disabled' && (
                           <p className="muted">

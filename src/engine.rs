@@ -102,6 +102,9 @@ pub struct Scan {
     pub semantic: SemanticResult,
     #[serde(default)]
     pub smtp_policy: crate::smtp_policy::PolicyResult,
+    /// Socket-IP checks before DATA; diagnostic only, never counted again in scoring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub early_rbl: Option<crate::rbl::Report>,
     #[serde(default)]
     pub vision: crate::vision::Summary,
     #[serde(default)]

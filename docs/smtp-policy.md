@@ -76,7 +76,9 @@ Le module s'exécute après DATA, en parallèle des contrôles d'authentificatio
 dans leur délai global de cinq secondes. Il ne change aucune réponse de refus
 fondée sur le score et ne rejette pas un message à cause du HELO, conformément à
 [RFC 5321 §4.1.4](https://www.rfc-editor.org/rfc/rfc5321.html#section-4.1.4).
-Cette version ne cherche donc pas à économiser le transfert du corps avant DATA.
+Ce module ne cherche donc pas à économiser le transfert du corps avant DATA.
+Les [contrôles IP RBL précoces](early-rbl.md) assurent cette étape séparément,
+avec observation par défaut et refus SMTP configurables.
 
 Son délai propre est de 800 ms par défaut, au plus 2 000 ms. Au maximum huit
 analyses de politique sont actives par défaut ; une saturation rend le contrôle
