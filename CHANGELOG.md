@@ -3,6 +3,21 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.10.4 — 2026-09-12
+
+- Le journal, sa vue mobile et le détail affichent les scores déjà enregistrés
+  des messages « À vérifier » et « Analyse incomplète », avec les mentions
+  « Score indicatif » ou « Score partiel » et les contrôles manquants connus.
+- L’affichage distingue le score, l’incertitude du moteur et les règles du
+  destinataire. Les valeurs absentes ou invalides ne deviennent jamais zéro.
+- Aucun recalcul historique ni changement des décisions, actions de livraison,
+  modèles, délais ou paramètres des fournisseurs en production.
+- Deux tests fonctionnels CRDF disposent d’un délai de fixture borné adapté aux
+  écritures SQLite sur les machines CI. Les assertions sur les quotas, le cache,
+  la concurrence et les tests spécifiques de dépassement de délai sont conservés.
+- Cette version regroupe les corrections préparées dans 0.10.2 et 0.10.3,
+  qui n’ont pas été déployées en production.
+
 ## 0.10.3 — 2026-09-12
 
 - L’explication d’un score indicatif décrit l’incertitude du moteur tout en

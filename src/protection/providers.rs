@@ -1397,6 +1397,11 @@ mod tests {
 mod transport_tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    // Batch/cache semantics include multiple FULL-synchronous SQLite writes.
+    // A loaded CI disk can exceed the production request budget before these
+    // assertions run. Keep a bounded fixture budget separate from the explicit
+    // 100 ms timeout test below; production defaults and validation are unchanged.
+    const FUNCTIONAL_TIMEOUT_MS: u64 = 10_000;
     async fn server(
         status: &str,
         body: String,
@@ -1550,6 +1555,7 @@ mod transport_tests {
     async fn crdf_batch_keeps_destination_priority_and_cap_under_one_request_quota() {
         let root = tempfile::tempdir().unwrap();
         let settings = Settings {
+            timeout_ms: FUNCTIONAL_TIMEOUT_MS,
             crdf_per_minute: 1,
             crdf_per_day: 1,
             ..Default::default()
@@ -1587,7 +1593,7 @@ mod transport_tests {
         let (report, hits) = client
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
             .await;
-        assert_eq!(report.checked, 12);
+        assert_eq!(report.checked, 12, "{report:?}");
         assert_eq!(report.omitted, 2);
         assert_eq!(report.status, Status::Limited);
         assert_eq!(report.request_count, 1);
@@ -1714,7 +1720,7 @@ mod transport_tests {
         let root = tempfile::tempdir().unwrap();
         let settings = Settings {
             max_parallel: 2,
-            timeout_ms: 2000,
+            timeout_ms: FUNCTIONAL_TIMEOUT_MS,
             crdf_per_minute: 0,
             crdf_per_day: 0,
             ..Default::default()
@@ -1740,7 +1746,7 @@ mod transport_tests {
             client.inspect(Provider::Crdf, true, &targets, &policy),
             client.inspect(Provider::Crdf, true, &other, &policy)
         );
-        assert_eq!(second.checked, 6);
+        assert_eq!(second.checked, 6, "second: {second:?}; first: {report:?}");
         assert_eq!(report.status, Status::Complete);
         assert_eq!(report.checked, 6);
         assert_eq!(report.omitted, 0);
