@@ -200,3 +200,6 @@ La page **Fiabilité** et son [guide](docs/reliability.md) expliquent les métri
 les limites des comparaisons et la collecte stable. La version 0.6.0 ajoute la
 [couverture réseau et le contexte comportemental](docs/capture-coverage.md), avec
 une migration du candidat qualité et des seuils sous contrainte empirique.
+
+La console propose une [recherche avancée dans les messages](docs/message-search.md)
+par objet, adresse, règle, date, score et état de livraison, dans les métadonnées conservées.

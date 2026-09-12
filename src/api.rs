@@ -5,6 +5,7 @@ mod quality;
 use crate::{
     config::Config,
     message, now,
+    search::Search,
     store::{Store, User},
 };
 use anyhow::{Result, ensure};
@@ -271,54 +272,26 @@ async fn logout(State(app): State<App>, h: HeaderMap) -> ApiResult<Response> {
     )
         .into_response())
 }
-#[derive(Deserialize)]
-struct Search {
-    #[serde(default)]
-    q: String,
-    #[serde(default = "all")]
-    filter: String,
-    #[serde(default)]
-    offset: u32,
-    #[serde(default)]
-    domain: String,
-}
-fn all() -> String {
-    "all".into()
-}
 async fn messages(
     State(app): State<App>,
     h: HeaderMap,
-    Query(q): Query<Search>,
+    Query(q): Query<crate::search::Search>,
 ) -> ApiResult<Json<Vec<crate::store::VisibleMail>>> {
+    Ok(Json(
+        search_messages(State(app), h, Query(q)).await?.0.messages,
+    ))
+}
+async fn search_messages(
+    State(app): State<App>,
+    h: HeaderMap,
+    Query(q): Query<crate::search::Search>,
+) -> ApiResult<Json<crate::search::Page>> {
     let user = authenticated(&app, &h).await?;
-    if q.q.len() > 600
-        || q.offset > 10_000_000
-        || (!q.domain.is_empty() && !crate::config::valid_domain(&q.domain))
-        || ![
-            "all",
-            "spam",
-            "publicity",
-            "publicity_signal",
-            "review",
-            "incomplete",
-            "pending",
-            "quarantined",
-            "legitimate",
-        ]
-        .contains(&q.filter.as_str())
-    {
-        return Err(Error(StatusCode::BAD_REQUEST, "Recherche invalide.".into()));
-    }
+    q.validate()
+        .map_err(|e| Error(StatusCode::BAD_REQUEST, e.to_string()))?;
     Ok(Json(
         app.store
-            .list_scoped(
-                user.username,
-                q.q,
-                q.filter,
-                q.offset,
-                app.effective().filter.threshold,
-                q.domain,
-            )
+            .search_messages(user.username, q, app.effective().filter.threshold)
             .await?,
     ))
 }
@@ -584,6 +557,7 @@ pub fn router_controlled(
         .route("/logout", post(logout))
         .route("/me", get(me))
         .route("/messages", get(messages))
+        .route("/search/messages", get(search_messages))
         .route("/messages/{id}/diagnostics", get(diagnostics))
         .route("/messages/{id}/feedback", post(feedback))
         .route("/messages/{id}/quarantine", post(quarantine))

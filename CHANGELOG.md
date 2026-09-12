@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0 — 2026-09-12
+
+- Recherche locale indexée des objets, expéditeurs et règles ; mots combinés,
+  accents, préfixes et expressions exactes, identifiants et destinataires autorisés.
+- Recherche avancée par adresse, objet, règle, identifiant, période, score et
+  livraison, avec total exact et pagination dans la console.
+- Indexation transactionnelle de l’historique et purge synchronisée ; aucune
+  conservation supplémentaire des corps ni modification des décisions du filtre.
+- Vérifications de l’isolation entre utilisateurs, des copies cachées, des droits
+  révoqués, des migrations, des requêtes invalides et des scores partiels.
+
+
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 

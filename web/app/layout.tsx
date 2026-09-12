@@ -5,6 +5,7 @@ import './workspace.css';
 import './diagnostics.css';
 import './interface.css';
 import './workspace-refinement.css';
+import './message-search.css';
 
 export const metadata: Metadata = {
   title: 'NoiseFence — Console de messagerie',

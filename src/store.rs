@@ -133,6 +133,7 @@ impl Store {
         let migration = db.transaction()?;
         migration.execute_batch(include_str!("control-schema.sql"))?;
         migration.execute_batch("PRAGMA user_version=2")?;
+        crate::search::migrate(&migration)?;
         migration.commit()?;
         Ok(Self {
             root: root.into(),
@@ -492,20 +493,60 @@ impl Store {
         threshold: f64,
         domain: String,
     ) -> Result<Vec<VisibleMail>> {
+        Ok(self
+            .search_messages(
+                username,
+                crate::search::Search {
+                    q: query,
+                    filter,
+                    offset,
+                    domain,
+                    ..Default::default()
+                },
+                threshold,
+            )
+            .await?
+            .messages)
+    }
+    pub async fn search_messages(
+        &self,
+        username: String,
+        options: crate::search::Search,
+        threshold: f64,
+    ) -> Result<crate::search::Page> {
+        let terms = options.validate()?;
+        let crate::search::Search {
+            filter,
+            offset,
+            domain,
+            ..
+        } = &options;
+        let (filter, offset, domain) = (filter.clone(), *offset, domain.clone());
+        let mut values = vec![
+            username.clone().into(),
+            filter.into(),
+            offset.into(),
+            (now() - 30 * 86400).into(),
+            threshold.into(),
+            domain.clone().into(),
+        ];
+        let search_sql = options.predicate(&terms, &mut values);
         self.read(move|db| {
-            let sql=format!("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1),(SELECT category FROM feedback_categories c WHERE c.message_id=m.id AND c.username=?1) FROM messages m WHERE (m.created>=?5 OR m.raw_present=1) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1 AND (?7='' OR lower(substr(d.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(d.destination,-length(?7)-1))='@'||lower(?7))) AND (?2='' OR instr(lower(m.sender),lower(?2))>0 OR instr(lower(json_extract(m.scan,'$.subject')),lower(?2))>0 OR EXISTS(SELECT 1 FROM deliveries sd JOIN console_access sg ON sg.delivery_id=sd.id WHERE sd.message_id=m.id AND sg.username=?1 AND instr(lower(sd.address),lower(?2))>0)) AND (?3='all' OR (?3='spam' AND COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?6)) OR (?3='review' AND json_extract(m.scan,'$.complete')=1 AND COALESCE(json_extract(m.scan,'$.delivery_classification')='undetermined',json_extract(m.scan,'$.decision.outcome')='undetermined')) OR (?3='incomplete' AND json_extract(m.scan,'$.complete')=0) OR (?3='quarantined' AND EXISTS(SELECT 1 FROM deliveries qd JOIN console_access qg ON qg.delivery_id=qd.id WHERE qd.message_id=m.id AND qg.username=?1 AND qd.status='quarantined' AND (?7='' OR lower(substr(qd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(qd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending') AND (?7='' OR lower(substr(pd.address,-length(?7)-1))='@'||lower(?7) OR lower(substr(pd.destination,-length(?7)-1))='@'||lower(?7)))) OR (?3='legitimate' AND COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND NOT {publicity}) OR (?3='publicity' AND COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?6) AND {publicity}) OR (?3='publicity_signal' AND {signal})) ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?4", publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL);
+            let predicate=format!(include_str!("search-filter.sql"), publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL,search=search_sql);
+            let total=db.query_row(&format!("SELECT COUNT(*) FROM messages m WHERE {predicate} AND ?3>=0"),rusqlite::params_from_iter(&values),|r|r.get::<_,u64>(0))?;
+            let sql=format!("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1),(SELECT category FROM feedback_categories c WHERE c.message_id=m.id AND c.username=?1) FROM messages m WHERE {predicate} ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?3");
             let mut q=db.prepare(&sql)?;
-            let rows=q.query_map(params![username,query,filter,offset,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?,r.get::<_,Option<String>>(5)?)))?;
+            let rows=q.query_map(rusqlite::params_from_iter(&values),|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?,r.get::<_,Option<String>>(5)?)))?;
             let mut out=Vec::new();
             for row in rows {
                 let (id,created,sender,scan,feedback,feedback_category)=row?;
                 let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
                 let category=crate::mailing::category(&s,threshold);
                 let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
-                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2")?;
-                let recipients=recipients.query_map(params![id,username],|r|Ok(VisibleRecipient{filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
+                let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 out.push(VisibleMail{adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
-            }Ok(out)
+            }Ok(crate::search::Page { has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
         }).await
     }
     pub async fn feedback(&self, user: String, id: String, spam: bool) -> Result<()> {

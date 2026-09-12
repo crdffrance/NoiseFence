@@ -10,6 +10,12 @@ import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
 import { BrandMark, LoginStory } from './brand';
 import { MessageScore, MessageScoreDetails } from './message-score';
+import { MessageSearchControls } from './message-search-controls';
+import {
+  emptySearch,
+  searchFilterCount,
+  searchParameters,
+} from './message-search';
 import {
   classification,
   deliverySummary,
@@ -263,6 +269,9 @@ function Home() {
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('all'),
     [offset, setOffset] = useState(0);
+  const [searchFilters, setSearchFilters] = useState(emptySearch);
+  const [searchTotal, setSearchTotal] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [compact, setCompact] = useState(false);
   const [mails, setMails] = useState<Mail[]>([]),
     [selected, setSelected] = useState<Mail | null>(null),
@@ -293,6 +302,9 @@ function Home() {
     setLoading(!!next);
     setBusy(false);
     setSearch('');
+    setSearchFilters(emptySearch);
+    setSearchTotal(null);
+    setHasMore(false);
     setFilter('all');
     setOffset(0);
     setSection('messages');
@@ -359,15 +371,17 @@ function Home() {
     setLoading(true);
     try {
       const [messages, totals, scope] = await Promise.all([
-        api<Mail[]>(
-          `/messages?q=${encodeURIComponent(search)}&filter=${filter}&offset=${offset}&domain=${encodeURIComponent(domain)}`,
+        api<{ messages: Mail[]; total: number; has_more: boolean }>(
+          `/search/messages?${searchParameters(search, filter, domain, offset, searchFilters)}`,
         ),
         api<Stats>(`/stats?domain=${encodeURIComponent(domain)}`),
         api<string[]>('/domains'),
       ]);
       if (user !== activeUser.current || requestId !== latestRequest.current)
         return;
-      setMails(messages);
+      setMails(messages.messages);
+      setSearchTotal(messages.total);
+      setHasMore(messages.has_more);
       setStats(totals);
       setDomains(scope);
       setUpdatedAt(new Date());
@@ -379,11 +393,17 @@ function Home() {
       if (user === activeUser.current && requestId === latestRequest.current)
         setLoading(false);
     }
-  }, [user, search, filter, offset, domain]);
+  }, [user, search, filter, offset, domain, searchFilters]);
   useEffect(() => {
-    const timer = setTimeout(refresh, 200);
+    latestRequest.current += 1;
+    const timer = setTimeout(() => {
+      setMails([]);
+      setSearchTotal(null);
+      setHasMore(false);
+      void refresh();
+    }, 250);
     return () => clearTimeout(timer);
-  }, [refresh]);
+  }, [refresh, user]);
   useEffect(() => {
     if (!user || section !== 'messages' || selected || confirmation || busy)
       return;
@@ -1510,14 +1530,14 @@ function Home() {
                       <Search size={18} />
                       <Input
                         ref={searchInput}
-                        aria-label="Rechercher par objet, expéditeur ou destinataire"
+                        aria-label="Rechercher dans les objets, adresses, règles et identifiants"
                         placeholder="Rechercher un message…"
                         value={search}
                         onChange={(e) => {
                           setSearch(e.target.value);
                           setOffset(0);
                         }}
-                        maxLength={150}
+                        maxLength={600}
                       />
                       {!search && (
                         <kbd
@@ -1542,7 +1562,17 @@ function Home() {
                       )}
                     </div>
                   </div>
-                  {(search || domain || filter !== 'all') && (
+                  <MessageSearchControls
+                    value={searchFilters}
+                    onChange={(value) => {
+                      setSearchFilters(value);
+                      setOffset(0);
+                    }}
+                  />
+                  {(search ||
+                    domain ||
+                    filter !== 'all' ||
+                    searchFilterCount(searchFilters) > 0) && (
                     <div
                       className="search-context"
                       aria-label="Critères actifs"
@@ -1574,9 +1604,15 @@ function Home() {
                           {search}
                         </span>
                       )}
+                      {searchFilterCount(searchFilters) > 0 && (
+                        <span className="filter-chip">
+                          {searchFilterCount(searchFilters)} critères avancés
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
+                          setSearchFilters(emptySearch);
                           setSearch('');
                           setFilter('all');
                           setDomain('');
@@ -1592,7 +1628,9 @@ function Home() {
                     <span>
                       {loading
                         ? 'Actualisation des messages…'
-                        : `${mails.length} message${mails.length > 1 ? 's' : ''} sur cette page`}
+                        : searchTotal === null
+                          ? 'Recherche indisponible'
+                          : `${searchTotal} résultat${searchTotal > 1 ? 's' : ''}${mails.length ? ` · ${offset + 1}–${offset + mails.length}` : ''}`}
                       {domain && ` · ${domain}`}
                     </span>
                     <span>
@@ -1800,28 +1838,38 @@ function Home() {
                       </button>
                     ))}
                   </div>
-                  {!mails.length && !loading && (
+                  {!mails.length && !loading && searchTotal !== null && (
                     <div className="empty">
                       <ShieldCheck size={32} />
                       <h2>
                         {filter === 'quarantined'
                           ? 'Aucun message en quarantaine'
-                          : search || domain || filter !== 'all'
+                          : search ||
+                              domain ||
+                              filter !== 'all' ||
+                              searchFilterCount(searchFilters) > 0
                             ? 'Aucun résultat pour ces critères'
                             : 'Votre historique est prêt'}
                       </h2>
                       <p>
                         {filter === 'quarantined'
                           ? 'Les messages retenus pour vos destinataires apparaîtront ici.'
-                          : search || domain || filter !== 'all'
+                          : search ||
+                              domain ||
+                              filter !== 'all' ||
+                              searchFilterCount(searchFilters) > 0
                             ? 'Modifiez la recherche ou affichez tous les messages.'
                             : 'Les prochains messages traités pour vos adresses apparaîtront ici.'}
                       </p>
-                      {(search || domain || filter !== 'all') && (
+                      {(search ||
+                        domain ||
+                        filter !== 'all' ||
+                        searchFilterCount(searchFilters) > 0) && (
                         <Button
                           variant="outline"
                           onClick={() => {
                             setSearch('');
+                            setSearchFilters(emptySearch);
                             setFilter('all');
                             setDomain('');
                             setOffset(0);
@@ -1843,7 +1891,7 @@ function Home() {
                     <span>Page {Math.floor(offset / 50) + 1}</span>
                     <Button
                       variant="ghost"
-                      disabled={loading || mails.length < 50}
+                      disabled={loading || !hasMore}
                       onClick={() => setOffset(offset + 50)}
                     >
                       Suivant
