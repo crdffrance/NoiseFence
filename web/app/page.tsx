@@ -59,6 +59,7 @@ import {
   EyeOff,
   Globe2,
   SlidersHorizontal,
+  Rows3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -244,9 +245,9 @@ export default function Page() {
 function Home() {
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
-  const [section, setSection] = useState<Section | 'account' | 'quality' | 'reliability'>(
-    'messages',
-  );
+  const [section, setSection] = useState<
+    Section | 'account' | 'quality' | 'reliability'
+  >('messages');
   const [mobileMenu, setMobileMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -267,6 +268,7 @@ function Home() {
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('all'),
     [offset, setOffset] = useState(0);
+  const [compact, setCompact] = useState(false);
   const [mails, setMails] = useState<Mail[]>([]),
     [selected, setSelected] = useState<Mail | null>(null),
     [stats, setStats] = useState<Stats | null>(null),
@@ -412,7 +414,10 @@ function Home() {
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, [user, section, selected, confirmation]);
-  function navigate(next: Section | 'account' | 'quality' | 'reliability', nextFilter = 'all') {
+  function navigate(
+    next: Section | 'account' | 'quality' | 'reliability',
+    nextFilter = 'all',
+  ) {
     setSection(next);
     setFilter(nextFilter);
     setOffset(0);
@@ -423,8 +428,17 @@ function Home() {
   const [feedbackRevision, setFeedbackRevision] = useState(0);
   function adaptiveCorrect(id: string, value: AdaptiveClass | null) {
     if (value) {
-      const category = value === 'phishing' || value === 'scam' ? 'spam' : value;
-      setSelected(previous => previous?.id === id ? {...previous,feedback:category === 'spam',feedback_category:category} : previous);
+      const category =
+        value === 'phishing' || value === 'scam' ? 'spam' : value;
+      setSelected((previous) =>
+        previous?.id === id
+          ? {
+              ...previous,
+              feedback: category === 'spam',
+              feedback_category: category,
+            }
+          : previous,
+      );
     }
     void refresh();
   }
@@ -432,7 +446,7 @@ function Home() {
     async (id: string, category: FeedbackCategory) => {
       if (!user) throw new Error('Connexion requise.');
       await api(`/messages/${id}/feedback`, { category }, user.csrf);
-      setFeedbackRevision(r=>r+1);
+      setFeedbackRevision((r) => r + 1);
       if (user !== activeUser.current) return;
       setSelected((previous) =>
         previous?.id === id
@@ -712,7 +726,12 @@ function Home() {
           )}
           <div className="rail-label admin-label">ESPACE PERSONNEL</div>
           <nav className="navigation" aria-label="Espace personnel">
-            <Button variant="ghost" className={`nav-item ${section === 'reliability' ? 'nav-active' : ''}`} aria-current={section === 'reliability' ? 'page' : undefined} onClick={() => navigate('reliability')}>
+            <Button
+              variant="ghost"
+              className={`nav-item ${section === 'reliability' ? 'nav-active' : ''}`}
+              aria-current={section === 'reliability' ? 'page' : undefined}
+              onClick={() => navigate('reliability')}
+            >
               <ShieldCheck size={18} /> Fiabilité
             </Button>
             <Button
@@ -781,13 +800,13 @@ function Home() {
                 ? 'Décision du filtre'
                 : section === 'reliability'
                   ? 'Fiabilité'
-                : section === 'quality'
-                  ? 'Qualité du filtre'
-                  : section === 'account'
-                    ? 'Mon compte'
-                    : section === 'messages' && filter === 'quarantined'
-                      ? 'Quarantaine'
-                      : navigation.find((n) => n.id === section)?.label}
+                  : section === 'quality'
+                    ? 'Qualité du filtre'
+                    : section === 'account'
+                      ? 'Mon compte'
+                      : section === 'messages' && filter === 'quarantined'
+                        ? 'Quarantaine'
+                        : navigation.find((n) => n.id === section)?.label}
             </strong>
           </span>
           <span
@@ -812,13 +831,16 @@ function Home() {
             hidden={
               section === 'messages' ||
               section === 'account' ||
-              section === 'quality' || section === 'reliability'
+              section === 'quality' ||
+              section === 'reliability'
             }
           >
             <AdminConsole
               user={user}
               section={
-                section === 'account' || section === 'quality' || section === 'reliability'
+                section === 'account' ||
+                section === 'quality' ||
+                section === 'reliability'
                   ? 'messages'
                   : section
               }
@@ -834,7 +856,9 @@ function Home() {
           </div>
         )}
         {section === 'quality' && <QualityConsole user={user} />}
-        {section === 'reliability' && <ReliabilityConsole key={user.username} />}
+        {section === 'reliability' && (
+          <ReliabilityConsole key={user.username} />
+        )}
         {section === 'account' && (
           <MyAccount
             key={user.username}
@@ -903,9 +927,10 @@ function Home() {
                       {selected.decision?.source === 'antivirus'
                         ? 'Malware'
                         : (displayedScore(selected)?.toFixed(1) ?? '—')}
-                      {displayedScore(selected) !== null && selected.decision?.source !== 'antivirus' && (
-                        <span>/ 100</span>
-                      )}
+                      {displayedScore(selected) !== null &&
+                        selected.decision?.source !== 'antivirus' && (
+                          <span>/ 100</span>
+                        )}
                     </div>
                     <p className="muted">
                       {selected.decision?.source === 'antivirus'
@@ -922,8 +947,10 @@ function Home() {
                     </p>
                     {selected.arbitration && (
                       <p className="notice">
-                        {arbitrationExplanation(selected.arbitration)?.detail}
-                        {' '}Indice historique : {selected.arbitration.baseline.score?.toFixed(1) ?? '—'} / 100.
+                        {arbitrationExplanation(selected.arbitration)?.detail}{' '}
+                        Indice historique :{' '}
+                        {selected.arbitration.baseline.score?.toFixed(1) ?? '—'}{' '}
+                        / 100.
                       </p>
                     )}
                     {selected.decision?.source === 'antivirus' && (
@@ -995,7 +1022,9 @@ function Home() {
                               )}
                           </div>
                         )}
-                      {selected.early_rbl && <EarlyRblDetails report={selected.early_rbl} />}
+                      {selected.early_rbl && (
+                        <EarlyRblDetails report={selected.early_rbl} />
+                      )}
                       {selected.smtp_policy &&
                         selected.smtp_policy.status !== 'disabled' && (
                           <p className="muted">
@@ -1200,7 +1229,16 @@ function Home() {
                       PUB désigne une publicité ou une newsletter légitime. Une
                       publicité frauduleuse doit être signalée comme spam.
                     </p>
-                    <AdaptiveDetails key={`${user.username}-${selected.id}`} id={selected.id} csrf={user.csrf} report={selected.adaptive} feedbackRevision={feedbackRevision} onCorrect={value=>adaptiveCorrect(selected.id,value)} blocked={busy} onBusy={setBusy} />
+                    <AdaptiveDetails
+                      key={`${user.username}-${selected.id}`}
+                      id={selected.id}
+                      csrf={user.csrf}
+                      report={selected.adaptive}
+                      feedbackRevision={feedbackRevision}
+                      onCorrect={(value) => adaptiveCorrect(selected.id, value)}
+                      blocked={busy}
+                      onBusy={setBusy}
+                    />
                     <h2 className="subheading">Livraison</h2>
                     {selected.action && (
                       <p className="small muted">
@@ -1299,6 +1337,11 @@ function Home() {
                     variant="outline"
                     onClick={() => void refresh()}
                     disabled={loading}
+                    aria-label={
+                      loading
+                        ? 'Actualisation des messages en cours'
+                        : 'Actualiser les messages'
+                    }
                   >
                     <RefreshCw size={16} className={loading ? 'spin' : ''} />
                     {loading ? 'Actualisation…' : 'Actualiser'}
@@ -1405,7 +1448,10 @@ function Home() {
                     )}
                   </div>
                 )}
-                <section className="messages" aria-busy={loading}>
+                <section
+                  className={`messages ${compact ? 'messages-compact' : ''}`}
+                  aria-busy={loading}
+                >
                   <div className="journal-heading">
                     <div>
                       <h2>
@@ -1415,9 +1461,14 @@ function Home() {
                       </h2>
                       <p>Les décisions et la livraison, au même endroit.</p>
                     </div>
-                    <span className="journal-period">
-                      <Clock3 size={14} /> Historique disponible
-                    </span>
+                    <Button
+                      variant="outline"
+                      className="density-toggle"
+                      aria-pressed={compact}
+                      onClick={() => setCompact((v) => !v)}
+                    >
+                      <Rows3 size={16} /> Vue compacte
+                    </Button>
                   </div>
                   <div className="toolbar">
                     <fieldset
@@ -1447,13 +1498,18 @@ function Home() {
                         </Button>
                       ))}
                       <label
-                        className={`more-filters ${['pending', 'review', 'incomplete'].includes(filter) ? 'has-filter' : ''}`}
+                        className={`more-filters ${['pending', 'review', 'publicity_signal', 'incomplete'].includes(filter) ? 'has-filter' : ''}`}
                       >
                         <SlidersHorizontal size={14} />
                         <select
                           aria-label="Autres filtres de messages"
                           value={
-                            ['pending', 'review', 'incomplete'].includes(filter)
+                            [
+                              'pending',
+                              'review',
+                              'publicity_signal',
+                              'incomplete',
+                            ].includes(filter)
                               ? filter
                               : ''
                           }
@@ -1512,6 +1568,52 @@ function Home() {
                       )}
                     </div>
                   </div>
+                  {(search || domain || filter !== 'all') && (
+                    <div
+                      className="search-context"
+                      aria-label="Critères actifs"
+                    >
+                      <span>Affichage</span>
+                      {domain && (
+                        <span className="filter-chip">
+                          <Globe2 size={13} />
+                          {domain}
+                        </span>
+                      )}
+                      {filter !== 'all' && (
+                        <span className="filter-chip">
+                          {{
+                            spam: 'Spam détecté',
+                            publicity: 'Publicités',
+                            legitimate: 'Légitimes',
+                            quarantined: 'Quarantaine',
+                            pending: 'En attente',
+                            review: 'À vérifier',
+                            publicity_signal: 'Indices PUB',
+                            incomplete: 'Analyse incomplète',
+                          }[filter] ?? filter}
+                        </span>
+                      )}
+                      {search && (
+                        <span className="filter-chip search-term">
+                          <Search size={13} />
+                          {search}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearch('');
+                          setFilter('all');
+                          setDomain('');
+                          setOffset(0);
+                        }}
+                      >
+                        <X size={13} />
+                        Réinitialiser
+                      </button>
+                    </div>
+                  )}
                   <div className="results-meta">
                     <span>
                       {loading
@@ -1526,6 +1628,20 @@ function Home() {
                         : 'Chargement…'}
                     </span>
                   </div>
+                  {loading && !mails.length && (
+                    <div className="message-skeleton" aria-hidden="true">
+                      {[0, 1, 2, 3].map((n) => (
+                        <div key={n}>
+                          <i />
+                          <span>
+                            <b />
+                            <b />
+                          </span>
+                          <em />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="desktop-messages">
                     <Table>
                       <TableHeader>
@@ -1540,7 +1656,12 @@ function Home() {
                       </TableHeader>
                       <TableBody>
                         {mails.map((m) => (
-                          <TableRow key={m.id}>
+                          <TableRow
+                            key={m.id}
+                            data-classification={
+                              classification(m, stats?.threshold ?? 95).tone
+                            }
+                          >
                             <TableCell>
                               <button
                                 className="message-link"
@@ -1648,6 +1769,9 @@ function Home() {
                       <button
                         key={m.id}
                         className="mobile-message"
+                        data-classification={
+                          classification(m, stats?.threshold ?? 95).tone
+                        }
                         onClick={() => {
                           setSelected(m);
                           setNotice('');
@@ -1704,23 +1828,24 @@ function Home() {
                       <h2>
                         {filter === 'quarantined'
                           ? 'Aucun message en quarantaine'
-                          : search || filter !== 'all'
+                          : search || domain || filter !== 'all'
                             ? 'Aucun résultat pour ces critères'
                             : 'Votre historique est prêt'}
                       </h2>
                       <p>
                         {filter === 'quarantined'
                           ? 'Les messages retenus pour vos destinataires apparaîtront ici.'
-                          : search || filter !== 'all'
+                          : search || domain || filter !== 'all'
                             ? 'Modifiez la recherche ou affichez tous les messages.'
                             : 'Les prochains messages traités pour vos adresses apparaîtront ici.'}
                       </p>
-                      {(search || filter !== 'all') && (
+                      {(search || domain || filter !== 'all') && (
                         <Button
                           variant="outline"
                           onClick={() => {
                             setSearch('');
                             setFilter('all');
+                            setDomain('');
                             setOffset(0);
                           }}
                         >

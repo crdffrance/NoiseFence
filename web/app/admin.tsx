@@ -35,6 +35,7 @@ import {
   Trash2,
   CheckCircle2,
   Search,
+  Mail,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -142,12 +143,42 @@ type Metrics = {
   };
 };
 const filterSections = [
-  { id: 'policy', label: 'Politique & actions' },
-  { id: 'detectors', label: 'Moteurs de détection' },
-  { id: 'rules', label: 'Poids des règles' },
-  { id: 'custom', label: 'Règles & profils' },
-  { id: 'protection', label: 'Protection & réputation' },
-  { id: 'mailing', label: 'Publicités & newsletters' },
+  {
+    id: 'policy',
+    label: 'Politique & actions',
+    description: 'Niveaux, marquage et quarantaine',
+    icon: <SlidersHorizontal size={19} />,
+  },
+  {
+    id: 'detectors',
+    label: 'Moteurs de détection',
+    description: 'Les contrôles de chaque message',
+    icon: <ShieldCheck size={19} />,
+  },
+  {
+    id: 'rules',
+    label: 'Poids des règles',
+    description: 'Ajuster la contribution des signaux',
+    icon: <Activity size={19} />,
+  },
+  {
+    id: 'custom',
+    label: 'Règles & profils',
+    description: 'Exceptions par domaine ou adresse',
+    icon: <Users size={19} />,
+  },
+  {
+    id: 'protection',
+    label: 'Protection & réputation',
+    description: 'Liens, identité et fournisseurs',
+    icon: <Globe2 size={19} />,
+  },
+  {
+    id: 'mailing',
+    label: 'Publicités & newsletters',
+    description: 'Reconnaître les messages de diffusion',
+    icon: <Mail size={19} />,
+  },
 ] as const;
 type FilterSection = (typeof filterSections)[number]['id'];
 const modules: {
@@ -877,6 +908,7 @@ export function AdminConsole({
           <SectionTabs
             id="filters"
             label="Rubriques des filtres"
+            presentation="cards"
             items={filterSections}
             value={filterSection}
             onChange={setFilterSection}

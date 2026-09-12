@@ -3,6 +3,17 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.10.1 — 2026-09-12
+
+- Console : navigation contrastée, textes et statuts plus lisibles, cartes de
+  réglages avec descriptions, niveaux de sensibilité plus compacts sur mobile.
+- Journal : vue compacte, recherche sur toute la largeur, critères actifs
+  visibles et réinitialisation du périmètre, états de chargement plus explicites.
+- Le filtre « Indices PUB » reste correctement sélectionné dans le menu avancé.
+  Une recherche vide dans un domaine permet de revenir à tous les accès autorisés.
+- Les décisions, autorisations, actions de livraison et configurations des
+  fournisseurs restent inchangées.
+
 ## 0.10.0 — 2026-09-12
 
 - Cinq niveaux de sensibilité dans l’administration, avec un choix général,

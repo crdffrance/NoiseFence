@@ -9,15 +9,26 @@ export function SectionTabs<T extends string>({
   items,
   value,
   onChange,
+  presentation = 'line',
 }: {
   id: string;
   label: string;
-  items: readonly { id: T; label: string }[];
+  items: readonly {
+    id: T;
+    label: string;
+    description?: string;
+    icon?: ReactNode;
+  }[];
   value: T;
   onChange: (value: T) => void;
+  presentation?: 'line' | 'cards';
 }) {
   return (
-    <div className="section-tabs" role="tablist" aria-label={label}>
+    <div
+      className={`section-tabs ${presentation === 'cards' ? 'section-tabs-cards' : ''}`}
+      role="tablist"
+      aria-label={label}
+    >
       {items.map((item, index) => (
         <button
           key={item.id}
@@ -45,7 +56,19 @@ export function SectionTabs<T extends string>({
             document.getElementById(`${id}-tab-${items[next].id}`)?.focus();
           }}
         >
-          {item.label}
+          {presentation === 'cards' ? (
+            <>
+              <span className="section-tab-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span className="section-tab-copy">
+                <strong>{item.label}</strong>
+                <small>{item.description}</small>
+              </span>
+            </>
+          ) : (
+            item.label
+          )}
         </button>
       ))}
     </div>

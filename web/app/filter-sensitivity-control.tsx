@@ -143,10 +143,24 @@ export function FilterSensitivity({
             <span className="sensitivity-step">{i + 1}</span>
             <strong>{l.label}</strong>
             <span className="small">Seuil {l.threshold} / 100</span>
-            <span className="small muted">{l.description}</span>
           </button>
         ))}
       </fieldset>
+      <output className="sensitivity-explanation">
+        <strong>
+          {threshold === null
+            ? 'Hériter du moteur'
+            : (levels.find((l) => l.threshold === threshold)?.label ??
+              'Personnalisé')}{' '}
+          · seuil {threshold ?? modelThreshold}
+        </strong>
+        <span>
+          {threshold === null
+            ? 'Le niveau suit le seuil de référence du moteur.'
+            : (levels.find((l) => l.threshold === threshold)?.description ??
+              'Le seuil personnalisé conserve les mêmes contrôles de confirmation.')}
+        </span>
+      </output>
       <SensitivitySelect
         label="Niveau général"
         levels={levels}
