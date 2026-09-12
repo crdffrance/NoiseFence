@@ -176,7 +176,7 @@ pub struct TrainingReport {
 
 // MinHash LSH buckets only propose candidates; actual similarity is checked.
 // Exact duplicate campaigns are collapsed first to bound large repeated sends.
-fn groups(rows: &[Example]) -> Result<Vec<Vec<usize>>> {
+pub(crate) fn groups(rows: &[Example]) -> Result<Vec<Vec<usize>>> {
     let mut exact: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
     for (index, row) in rows.iter().enumerate() {
         exact

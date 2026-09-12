@@ -5,6 +5,15 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-09-12
+
+- Apprentissage natif Rust de cinq catégories : légitime, publicité, spam, phishing et escroquerie. Bayes OSB multiclasse et réseau neuronal local 16×16×5 régularisé, distincts du moteur binaire de livraison.
+- Modèles et politiques propres à chaque domaine, seuils et marges par classe, abstention en cas de désaccord, de modèle expiré ou d’enveloppe partagée entre domaines. Actions simulées uniquement : aucun nouveau score, marquage ni mise en quarantaine automatique.
+- Annotations détaillées dans la console, contrôles d’accès et protection CSRF côté serveur. Les corrections générales ultérieures invalident les annotations détaillées devenues obsolètes.
+- Export privé de caractéristiques, entraînement Rust hors ligne, périodes chronologiques séparées, déduplication des campagnes exactes et similaires, exclusion des conflits et des annotations tardives. Sélection sur validation seulement, test indépendant, matrice de confusion et intervalles de confiance.
+- Commandes `adaptive-export`, `adaptive-train`, `adaptive-evaluate` et `adaptive-check`, avec mesure locale des latences. Modèles bornés, expiration à trente jours, aucune analyse externe ajoutée et aucune performance réelle présumée.
+- SQLite conserve le schéma 2 avec une table additive d’annotations. Nouvelle empreinte du détecteur ; configuration et procédure de retour dans [le guide](docs/adaptive-filtering.md). Les modèles lexicaux et sémantiques existants restent indépendants.
+
 ## [0.7.0] — 2026-09-12
 
 - Contrôles IP DNSBL avant DATA, stockage et analyse : connecteur Spamhaus ZEN DQS existant et jusqu’à sept listes IP supplémentaires, avec codes explicites et regroupement par fournisseur.

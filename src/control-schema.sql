@@ -88,3 +88,20 @@ CREATE TABLE IF NOT EXISTS console_invitations(
  revoked INTEGER, accepted INTEGER
 );
 CREATE INDEX IF NOT EXISTS invitation_expiry ON console_invitations(expires);
+
+-- Optional local category learning. Existing binary feedback remains authoritative.
+CREATE TABLE IF NOT EXISTS adaptive_labels(
+ username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+ message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ domain TEXT NOT NULL,
+ class TEXT NOT NULL CHECK(class IN ('legitimate','publicity','spam','phishing','scam')),
+ created INTEGER NOT NULL,
+ PRIMARY KEY(username,message_id,domain)
+);
+CREATE INDEX IF NOT EXISTS adaptive_labels_domain ON adaptive_labels(domain,created);
+CREATE TRIGGER IF NOT EXISTS adaptive_label_invalidate AFTER UPDATE OF spam,created ON feedback BEGIN
+ DELETE FROM adaptive_labels WHERE username=NEW.username AND message_id=NEW.message_id;
+END;
+CREATE TRIGGER IF NOT EXISTS adaptive_label_withdraw AFTER DELETE ON feedback BEGIN
+ DELETE FROM adaptive_labels WHERE username=OLD.username AND message_id=OLD.message_id;
+END;

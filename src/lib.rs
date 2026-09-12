@@ -1,3 +1,4 @@
+pub mod adaptive;
 pub mod antivirus;
 pub mod api;
 pub mod compatibility;

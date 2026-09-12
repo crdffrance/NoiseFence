@@ -334,3 +334,6 @@ body {
 .reliability-console code { overflow-wrap:anywhere; }
 .reliability-console summary { cursor:pointer; padding:8px 0; }
 @media(max-width:900px) { .reliability-columns {grid-template-columns:1fr;} .reliability-grid {grid-template-columns:repeat(2,minmax(0,1fr));} }
+
+.adaptive-scores { width: 100%; }
+.adaptive-scores th, .adaptive-scores td { padding: .45rem .6rem; height: auto; text-align: left; }

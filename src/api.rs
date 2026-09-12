@@ -1,3 +1,4 @@
+mod adaptive;
 mod admin;
 mod onboarding;
 mod quality;
@@ -591,7 +592,8 @@ pub fn router_controlled(
         .route("/metrics", get(metrics))
         .merge(admin::routes())
         .merge(onboarding::routes())
-        .merge(quality::routes());
+        .merge(quality::routes())
+        .merge(adaptive::routes());
     Ok(Router::new()
         .nest("/api/v1", api)
         .route("/healthz", get(health))

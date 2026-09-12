@@ -35,6 +35,7 @@ pub struct Settings {
     pub timeout_ms: u64,
     pub fuzzy_memory: bool,
     pub bayes_model: Option<PathBuf>,
+    pub adaptive: Option<crate::adaptive::Settings>,
     pub patterns: Vec<rules::Pattern>,
     pub composites: Vec<rules::Composite>,
     pub caps: BTreeMap<rules::Family, rules::Bounds>,
@@ -48,6 +49,7 @@ impl Default for Settings {
             timeout_ms: 500,
             fuzzy_memory: true,
             bayes_model: None,
+            adaptive: None,
             patterns: rules::default_patterns(),
             composites: rules::default_composites(),
             caps: rules::default_caps(),
@@ -56,6 +58,9 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
+        if let Some(adaptive) = &self.adaptive {
+            adaptive.validate()?;
+        }
         ensure!(
             (1024..=2 * 1024 * 1024).contains(&self.max_bytes)
                 && (1..=8).contains(&self.max_parallel)
@@ -104,6 +109,8 @@ pub struct Report {
     pub fuzzy: memory::Report,
     pub calibrated: bool,
     pub affects_delivery: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive: Option<crate::adaptive::Report>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Observation {
@@ -112,10 +119,13 @@ pub struct Observation {
     pub features: Option<input::Features>,
     /// Original local symbols allow idempotent recalculation after external checks.
     pub local_symbols: Vec<rules::Symbol>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive_vector: Option<Vec<f64>>,
 }
 
 pub struct Runtime {
     pub settings: Settings,
+    adaptive: Option<crate::adaptive::Runtime>,
     matcher: rules::Matcher,
     composites: rules::Composites,
     model: Option<bayes::Model>,
@@ -136,6 +146,11 @@ impl Runtime {
             Some((m, h)) => (Some(m), Some(h)),
             None => (None, None),
         };
+        let adaptive = settings
+            .adaptive
+            .clone()
+            .map(|s| crate::adaptive::Runtime::new(s, &settings.patterns))
+            .transpose()?;
         let matcher = rules::Matcher::compile(&settings.patterns)?;
         let composites = rules::Composites::compile(&settings.composites, &settings.patterns)?;
         let policy_sha256 = crate::message::digest(&serde_json::to_vec(
@@ -146,6 +161,7 @@ impl Runtime {
             memory_permits: Arc::new(Semaphore::new(settings.max_parallel)),
             settings,
             matcher,
+            adaptive,
             composites,
             model,
             model_sha256,
@@ -166,9 +182,11 @@ impl Runtime {
                 fuzzy: memory::Report::default(),
                 calibrated: false,
                 affects_delivery: false,
+                adaptive: None,
             },
             features: None,
             local_symbols: vec![],
+            adaptive_vector: None,
         }
     }
     pub fn offline(&self, raw: &[u8], scopes: &[String]) -> Observation {
@@ -177,6 +195,11 @@ impl Runtime {
             Ok(input) => {
                 let mut out = self.empty(Status::Complete);
                 out.local_symbols = self.matcher.inspect(&input);
+                if let Some(runtime) = &self.adaptive {
+                    let (report, vector) = runtime.predict(&input, &out.local_symbols, scopes);
+                    out.report.adaptive = Some(report);
+                    out.adaptive_vector = vector;
+                }
                 if let Some(model) = &self.model {
                     out.report.bayes = model.predict(&input.features, scopes, crate::now());
                 }

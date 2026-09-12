@@ -51,6 +51,8 @@ et une identité authentifiée. Aucun gain de capture n’est revendiqué sans m
 
 Les mécanismes natifs Rust de comparaison (composites, similarité des campagnes,
 OSB Bayes et motifs groupés) sont documentés dans [ce guide](docs/native-filtering.md).
+Le [module adaptatif Rust](docs/adaptive-filtering.md) ajoute des catégories humaines,
+un Bayes à cinq classes et un petit réseau neuronal par domaine, en observation.
 
 ## Démarrage local
 

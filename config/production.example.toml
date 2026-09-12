@@ -55,6 +55,13 @@ max_analysis_bytes = 2097152
 # timeout_ms = 500
 # fuzzy_memory = true
 # bayes_model = "/var/lib/noisefence/native/candidate/model.json"
+# Optional five-class collection; requires [native_filter] above. No automatic training.
+# [native_filter.adaptive.domains."example.org"]
+# model = "/var/lib/noisefence/adaptive/example.org/candidate/model.json"
+# [native_filter.adaptive.domains."example.org".classes.phishing]
+# min_strength = 0.95
+# min_margin = 0.25
+# proposed_action = "quarantine" # simulated only; see docs/adaptive-filtering.md
 
 # Optional isolated local OCR/QR service; install deploy/install-vision.sh first.
 # See docs/vision.md. Incomplete checks prevent subject tagging.

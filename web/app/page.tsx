@@ -1,5 +1,7 @@
 'use client';
 import { OnboardingGate } from './onboarding';
+import { AdaptiveDetails } from './adaptive';
+import type { AdaptiveReport, AdaptiveClass } from './adaptive-types';
 import { EarlyRblDetails } from './rbl';
 import type { EarlyRbl } from './rbl-types';
 import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
@@ -176,6 +178,7 @@ type Mail = {
     scoring_enabled: boolean;
   };
   early_rbl?: EarlyRbl;
+  adaptive?: AdaptiveReport;
   semantic?: {
     status: 'disabled' | 'complete' | 'busy' | 'unavailable';
     model: string;
@@ -417,10 +420,19 @@ function Home() {
     setNotice('');
     setMobileMenu(false);
   }
+  const [feedbackRevision, setFeedbackRevision] = useState(0);
+  function adaptiveCorrect(id: string, value: AdaptiveClass | null) {
+    if (value) {
+      const category = value === 'phishing' || value === 'scam' ? 'spam' : value;
+      setSelected(previous => previous?.id === id ? {...previous,feedback:category === 'spam',feedback_category:category} : previous);
+    }
+    void refresh();
+  }
   const recordFeedback = useCallback(
     async (id: string, category: FeedbackCategory) => {
       if (!user) throw new Error('Connexion requise.');
       await api(`/messages/${id}/feedback`, { category }, user.csrf);
+      setFeedbackRevision(r=>r+1);
       if (user !== activeUser.current) return;
       setSelected((previous) =>
         previous?.id === id
@@ -1188,6 +1200,7 @@ function Home() {
                       PUB désigne une publicité ou une newsletter légitime. Une
                       publicité frauduleuse doit être signalée comme spam.
                     </p>
+                    <AdaptiveDetails key={`${user.username}-${selected.id}`} id={selected.id} csrf={user.csrf} report={selected.adaptive} feedbackRevision={feedbackRevision} onCorrect={value=>adaptiveCorrect(selected.id,value)} blocked={busy} onBusy={setBusy} />
                     <h2 className="subheading">Livraison</h2>
                     {selected.action && (
                       <p className="small muted">

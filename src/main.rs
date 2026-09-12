@@ -30,6 +30,47 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect local adaptive candidates for a supplied domain; no DNS or delivery.
+    AdaptiveCheck {
+        message: PathBuf,
+        #[arg(long)]
+        domain: String,
+        #[arg(long, default_value_t = 1)]
+        iterations: usize,
+    },
+    /// Export explicit five-class annotations and private features from one domain.
+    AdaptiveExport {
+        #[arg(long)]
+        username: String,
+        #[arg(long)]
+        domain: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Train local multiclass Bayes and neural candidates; never activates delivery.
+    AdaptiveTrain {
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        train_until: i64,
+        #[arg(long)]
+        validation_until: i64,
+    },
+    /// Evaluate the frozen candidate on later independent human annotations.
+    AdaptiveEvaluate {
+        input: PathBuf,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        training_report: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Measure native Rust filtering with concurrent local tasks; no network or database.
     NativeBenchmark {
         message: PathBuf,
@@ -301,6 +342,84 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::AdaptiveCheck {
+            message,
+            domain,
+            iterations,
+        } => {
+            ensure!(
+                (1..=10000).contains(iterations),
+                "adaptive iterations must be 1..10000"
+            );
+            let config = Config::load(&cli.config)?;
+            let settings = config
+                .native_filter
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("native_filter is not configured"))?;
+            ensure!(
+                settings
+                    .adaptive
+                    .as_ref()
+                    .is_some_and(|a| a.domains.contains_key(domain)),
+                "adaptive domain is not configured"
+            );
+            let raw = noisefence::native_filter::read_bounded(message, settings.max_bytes)?;
+            let runtime = noisefence::native_filter::Runtime::new(settings)?;
+            let mut elapsed = Vec::new();
+            let mut last = None;
+            for _ in 0..*iterations {
+                let started = std::time::Instant::now();
+                let observation = runtime.offline(&raw, std::slice::from_ref(domain));
+                elapsed.push(started.elapsed().as_micros() as u64);
+                last = observation.report.adaptive;
+            }
+            elapsed.sort_unstable();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"report":last,"iterations":iterations,"source":"supplied_domain","p95_microseconds":elapsed[(elapsed.len()*95).div_ceil(100)-1],"affects_delivery":false})
+                )?
+            );
+            return Ok(());
+        }
+        Command::AdaptiveTrain {
+            input,
+            output,
+            version,
+            train_until,
+            validation_until,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::adaptive::training::train(
+                    input,
+                    output,
+                    version,
+                    *train_until,
+                    *validation_until
+                )?)?
+            );
+            return Ok(());
+        }
+        Command::AdaptiveEvaluate {
+            input,
+            model,
+            manifest,
+            training_report,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::adaptive::training::evaluate(
+                    input,
+                    model,
+                    manifest,
+                    training_report,
+                    output
+                )?)?
+            );
+            return Ok(());
+        }
         Command::NativeBenchmark {
             message,
             iterations,
@@ -764,6 +883,18 @@ async fn main() -> Result<()> {
                 serde_json::to_string_pretty(
                     &noisefence::native_filter::learning::export(&store, username, domain, &output)
                         .await?
+                )?
+            );
+        }
+        Command::AdaptiveExport {
+            username,
+            domain,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &noisefence::adaptive::data::export(&store, username, domain, &output).await?
                 )?
             );
         }

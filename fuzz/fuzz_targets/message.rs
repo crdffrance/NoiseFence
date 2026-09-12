@@ -12,7 +12,8 @@ fuzz_target!(|data: &[u8]| {
         assert!(input.features.validate().is_ok());
         static MATCHER:std::sync::OnceLock<noisefence::native_filter::rules::Matcher>=std::sync::OnceLock::new();
         let matcher=MATCHER.get_or_init(||noisefence::native_filter::rules::Matcher::compile(&noisefence::native_filter::rules::default_patterns()).unwrap());
-        let _=matcher.inspect(&input);
+        let symbols=matcher.inspect(&input);
+        assert!(noisefence::adaptive::valid_vector(&noisefence::adaptive::vector(&input,&symbols)));
     }
     let _=noisefence::engine::domains_in_message(data);
 });
