@@ -8,7 +8,8 @@ import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
-import { BrandMark, LoginStory, ScoreMeter } from './brand';
+import { BrandMark, LoginStory } from './brand';
+import { MessageScore, MessageScoreDetails } from './message-score';
 import {
   classification,
   deliverySummary,
@@ -100,6 +101,7 @@ type Mail = {
   score: number;
   tagged: boolean;
   complete: boolean;
+  evidence?: { lexical_state?: string } | null;
   model: string;
   decision?: {
     source: 'legacy' | 'fusion' | 'antivirus';
@@ -207,13 +209,6 @@ type Stats = {
   threshold: number;
   decision_source?: 'legacy' | 'fusion';
 };
-function displayedScore(mail: Mail) {
-  return mail.decision
-    ? mail.decision.score
-    : mail.complete
-      ? mail.score
-      : null;
-}
 const fusionFamilies: Record<string, string> = {
   lexical: 'Contenu textuel',
   semantic: 'Sens du message',
@@ -923,28 +918,7 @@ function Home() {
                 <div className="detail-grid">
                   <section className="panel analysis-panel">
                     <h2>Pourquoi ce classement ?</h2>
-                    <div className="score-large">
-                      {selected.decision?.source === 'antivirus'
-                        ? 'Malware'
-                        : (displayedScore(selected)?.toFixed(1) ?? '—')}
-                      {displayedScore(selected) !== null &&
-                        selected.decision?.source !== 'antivirus' && (
-                          <span>/ 100</span>
-                        )}
-                    </div>
-                    <p className="muted">
-                      {selected.decision?.source === 'antivirus'
-                        ? 'Malware détecté · décision antivirus, sans score probabiliste'
-                        : selected.decision?.outcome === 'undetermined'
-                          ? selected.complete
-                            ? `À vérifier · ${selected.arbitration && ['disagreement', 'ambiguous'].includes(selected.arbitration.resolution) ? arbitrationExplanation(selected.arbitration)?.title : 'confirmation insuffisante'}`
-                            : 'Décision indéterminée'
-                          : selected.decision?.source === 'fusion'
-                            ? 'Estimation calibrée'
-                            : 'Indice de suspicion'}
-                      {' · '}
-                      {selected.decision?.model ?? selected.model}
-                    </p>
+                    <MessageScoreDetails mail={selected} />
                     {selected.arbitration && (
                       <p className="notice">
                         {arbitrationExplanation(selected.arbitration)?.detail}{' '}
@@ -1650,7 +1624,7 @@ function Home() {
                           <TableHead>Destinataires</TableHead>
                           <TableHead>Classement</TableHead>
                           <TableHead>Livraison</TableHead>
-                          <TableHead>Indice spam</TableHead>
+                          <TableHead>Score / 100</TableHead>
                           <TableHead>Reçu le</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1727,8 +1701,8 @@ function Home() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              <ScoreMeter
-                                score={displayedScore(m)}
+                              <MessageScore
+                                mail={m}
                                 tone={
                                   classification(m, stats?.threshold ?? 95).tone
                                 }
@@ -1808,6 +1782,10 @@ function Home() {
                         <small>
                           À : {m.recipients.map((r) => r.address).join(', ')}
                         </small>
+                        <MessageScore
+                          mail={m}
+                          tone={classification(m, stats?.threshold ?? 95).tone}
+                        />
                         <span className="delivery-line">
                           <span
                             className={`status ${deliverySummary(m.recipients).tone}`}

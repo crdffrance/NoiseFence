@@ -80,9 +80,11 @@ export function LoginStory() {
 export function ScoreMeter({
   score,
   tone = '',
+  label = 'Indice de suspicion',
 }: {
   score: number | null;
   tone?: string;
+  label?: string;
 }) {
   if (score === null || !Number.isFinite(score))
     return (
@@ -96,7 +98,7 @@ export function ScoreMeter({
       <span className="score">{score.toFixed(1)}</span>
       <meter
         className="score-track"
-        aria-label="Indice de suspicion"
+        aria-label={label}
         min={0}
         max={100}
         value={bounded}

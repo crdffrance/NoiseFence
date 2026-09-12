@@ -1,5 +1,27 @@
 # Résultats conservés pour une décision commune
 
+## Score visible et décision
+
+Depuis 0.10.2, le journal, sa vue mobile et le détail affichent aussi le score des
+messages « À vérifier » et « Analyse incomplète ». Le champ `score` conserve
+l’indice calculé par le moteur ; `decision.score` peut être nul lorsque la
+décision s’abstient. Cette absence ne signifie pas que le moteur n’a rien calculé.
+
+La console privilégie le score de décision lorsqu’il existe, puis l’indice
+enregistré du contenu. Elle indique « Score indicatif » pour une abstention et
+« Score partiel » pour une analyse incomplète, avec les contrôles manquants connus
+et une mention si l’extraction locale est limitée. Un indice partiel n’est pas
+une estimation validée de l’ensemble du message. Les valeurs absentes ou invalides
+restent indisponibles ; elles ne sont jamais remplacées par zéro.
+
+Ce choix d’affichage ne change ni le classement, ni la confirmation, ni les
+actions appliquées. Un malware reste prioritaire même avec un faible indice de
+contenu. Une notification de livraison générée par le serveur possède une valeur
+interne, distincte d’une analyse de trafic entrant. Les messages déjà livrés
+profitent de cette présentation sans réanalyse ni modification de leur historique.
+
+## Observations des moteurs
+
 Depuis 0.3.0-dev.8, les nouvelles analyses conservent un champ `evidence` de schéma
 `noisefence-evidence-1`. Il prépare l’apprentissage d’une combinaison des moteurs.
 Il n’active pas cette combinaison et ne transforme pas le score actuel en

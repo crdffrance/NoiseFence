@@ -3,6 +3,19 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.10.2 — 2026-09-12
+
+- Les messages « À vérifier » conservent un score visible, même lorsque les avis
+  sont contradictoires ou incertains. Le classement reste distinct du score.
+- Les analyses incomplètes affichent le score déjà calculé avec la mention
+  « Score partiel » et les contrôles manquants connus. Une extraction limitée
+  est explicitement signalée ; aucune indisponibilité ne devient un score zéro.
+- Le journal mobile affiche également les scores. La liste et le détail utilisent
+  la même présentation, qui distingue fusion, indice de contenu et valeur interne.
+- Aucun recalcul des messages historiques, changement de politique de livraison
+  ou appel supplémentaire aux fournisseurs : cette correction révèle les
+  résultats déjà conservés par le moteur et l’API.
+
 ## 0.10.1 — 2026-09-12
 
 - Console : navigation contrastée, textes et statuts plus lisibles, cartes de
