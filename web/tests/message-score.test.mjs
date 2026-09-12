@@ -175,6 +175,25 @@ test('internal delivery notifications do not present their stored zero as an inc
   assert.match(shown.detail, /ne correspond pas à l’analyse/);
 });
 
+test('an advisory score describes detector uncertainty without contradicting a recipient rule', () => {
+  for (const [category, label] of [
+    ['spam', 'Spam'],
+    ['legitimate', 'Légitime'],
+    ['publicity', 'PUB'],
+  ]) {
+    const mail = {
+      ...base,
+      decision: decision('legacy', 'undetermined', null),
+      delivery_classification: category,
+    };
+    const shown = scorePresentation(mail);
+    assert.equal(shown.value, 99.4);
+    assert.match(shown.detail, /décision du moteur est indéterminée/);
+    assert.doesNotMatch(shown.detail, /message reste À vérifier/);
+    assert.equal(classification(mail).label, label);
+  }
+});
+
 async function compileComponent(name, imports = {}) {
   const source = await readFile(
     new URL(`../app/${name}.tsx`, import.meta.url),

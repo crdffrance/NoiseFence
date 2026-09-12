@@ -3,6 +3,13 @@
 Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
 incompatible demande une version mineure et une migration documentée.
 
+## 0.10.3 — 2026-09-12
+
+- L’explication d’un score indicatif décrit l’incertitude du moteur tout en
+  respectant le classement appliqué par une règle personnalisée du destinataire.
+- Cette version finalise la correction des scores de 0.10.2, qui n’a pas été
+  déployée en production.
+
 ## 0.10.2 — 2026-09-12
 
 - Les messages « À vérifier » conservent un score visible, même lorsque les avis

@@ -139,12 +139,36 @@ test('account search combines access scope and role without dropping disabled ac
 });
 
 test('recipient classification is visible without rewriting the detector decision', () => {
-  const original={...mail,decision:{source:'fusion',outcome:'unwanted',score:99}};
-  assert.equal(classification({...original,delivery_classification:'publicity'}).label,'PUB');
-  assert.equal(classification({...original,delivery_classification:'legitimate'}).label,'Légitime');
-  assert.equal(original.decision.outcome,'unwanted');
-  assert.equal(classification({...original,complete:false,delivery_classification:'publicity'}).label,'Analyse incomplète');
-  assert.equal(classification({...original,decision:{source:'antivirus',outcome:'unwanted',score:null},delivery_classification:'legitimate'}).label,'Malware');
+  const original = {
+    ...mail,
+    decision: { source: 'fusion', outcome: 'unwanted', score: 99 },
+  };
+  assert.equal(
+    classification({ ...original, delivery_classification: 'publicity' }).label,
+    'PUB',
+  );
+  assert.equal(
+    classification({ ...original, delivery_classification: 'legitimate' })
+      .label,
+    'Légitime',
+  );
+  assert.equal(original.decision.outcome, 'unwanted');
+  assert.equal(
+    classification({
+      ...original,
+      complete: false,
+      delivery_classification: 'publicity',
+    }).label,
+    'Analyse incomplète',
+  );
+  assert.equal(
+    classification({
+      ...original,
+      decision: { source: 'antivirus', outcome: 'unwanted', score: null },
+      delivery_classification: 'legitimate',
+    }).label,
+    'Malware',
+  );
 });
 
 test('an advisory disagreement is review, not a corrected legitimate decision', async () => {
@@ -152,14 +176,22 @@ test('an advisory disagreement is review, not a corrected legitimate decision', 
   const report = {
     version: 'decision-policy-2',
     baseline: { outcome: 'unwanted', score: 99.99 },
-    opinion: 'legitimate', resolution: 'disagreement',
+    opinion: 'legitimate',
+    resolution: 'disagreement',
     decision: { outcome: 'undetermined', score: null },
   };
   const text = arbitrationExplanation(report);
   assert.equal(text.title, 'Avis contradictoires');
   assert.match(text.detail, /historique : Spam/);
   assert.match(text.detail, /Second avis : Légitime/);
-  assert.match(text.detail, /n’est pas déclaré légitime/);
-  assert.equal(classification({ ...mail, decision: { source: 'legacy', ...report.decision } }).label, 'À vérifier');
+  assert.match(text.detail, /Le moteur ne conclut pas/);
+  assert.match(text.detail, /règles du destinataire/);
+  assert.equal(
+    classification({
+      ...mail,
+      decision: { source: 'legacy', ...report.decision },
+    }).label,
+    'À vérifier',
+  );
   assert.equal(arbitrationExplanation(null), null);
 });

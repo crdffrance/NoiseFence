@@ -111,7 +111,7 @@ export function scorePresentation(mail: ScoreInput) {
       model,
       kind: 'advisory',
       label: 'Score indicatif',
-      detail: `${reason} Le score reste visible, mais le message reste À vérifier. Cet indice n’est pas une probabilité de spam.`,
+      detail: `${reason} Le score reste visible, mais la décision du moteur est indéterminée. Les éventuelles règles personnalisées restent distinctes. Cet indice n’est pas une probabilité de spam.`,
     };
   }
   if (useDecision && mail.decision?.source === 'fusion')
@@ -154,7 +154,7 @@ export function arbitrationExplanation(report?: Arbitration | null) {
       ambiguous: 'Second avis incertain',
       corroborated: 'Autres signaux concordants',
     }[report.resolution],
-    detail: `Classement historique : ${label(report.baseline.outcome)}. Second avis : ${label(report.opinion)}. ${report.decision.outcome === 'undetermined' ? 'Une vérification reste nécessaire ; le message n’est pas déclaré légitime.' : 'Ces avis ne constituent pas des preuves indépendantes.'}`,
+    detail: `Classement historique : ${label(report.baseline.outcome)}. Second avis : ${label(report.opinion)}. ${report.decision.outcome === 'undetermined' ? 'Le moteur ne conclut pas ; les règles du destinataire peuvent déterminer le classement et la livraison.' : 'Ces avis ne constituent pas des preuves indépendantes.'}`,
   };
 }
 
