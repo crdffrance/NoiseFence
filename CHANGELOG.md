@@ -5,6 +5,13 @@ incompatible demande une version mineure et une migration documentée.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-09-12
+
+- Douze règles locales HTML, MIME et d’identité affichée inspirées des sources de Rspamd, transposées en Rust : formulaires de mot de passe, destinations externes ou HTTP, texte masqué, liens HTTPS trompeurs, URL data actives, redirections HTML, extensions exécutables/doubles, binaires déguisés et noms de fichiers obfusqués.
+- Deux composites regroupent les preuves liées aux formulaires et aux pièces jointes. Désactivation et pondération par règle, plafonds de famille, limites MIME/HTML/DOM et diagnostic sans contenu privé.
+- Commande `native-rules` pour consulter la banque ou examiner un fichier local sans réseau ni livraison. Cas adverses et contre-exemples légitimes, ajout de l’inspection au harnais de fuzzing MIME.
+- Le module reste en observation : aucun nouveau signal ne modifie le score de livraison ou les appels LLM. Les modèles, le schéma SQLite 2 et les caractéristiques Bayes/adaptatives restent compatibles ; l’empreinte du détecteur distingue la nouvelle collecte. Provenance, configuration et limites dans [le guide](docs/rspamd-rules.md).
+
 ## [0.8.0] — 2026-09-12
 
 - Apprentissage natif Rust de cinq catégories : légitime, publicité, spam, phishing et escroquerie. Bayes OSB multiclasse et réseau neuronal local 16×16×5 régularisé, distincts du moteur binaire de livraison.

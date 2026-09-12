@@ -121,6 +121,38 @@ pub fn default_patterns() -> Vec<Pattern> {
 pub fn default_composites() -> Vec<Composite> {
     vec![
         Composite {
+            id: "NF_REMOTE_LOGIN_FORM".into(),
+            label: "Saisie d’un mot de passe vers un domaine externe".into(),
+            family: Family::Content,
+            weight: 1.2,
+            all: vec![
+                "NF_HTML_PASSWORD_FORM".into(),
+                "NF_HTML_REMOTE_PASSWORD_FORM".into(),
+            ],
+            any: vec![],
+            none: vec![],
+            replace: vec![
+                "NF_HTML_PASSWORD_FORM".into(),
+                "NF_HTML_REMOTE_PASSWORD_FORM".into(),
+            ],
+        },
+        Composite {
+            id: "NF_DISGUISED_ATTACHMENT".into(),
+            label: "Binaire déguisé et extension exécutable".into(),
+            family: Family::Content,
+            weight: 1.5,
+            all: vec![
+                "NF_MIME_EXECUTABLE_DISGUISED".into(),
+                "NF_MIME_DOUBLE_EXTENSION".into(),
+            ],
+            any: vec![],
+            none: vec![],
+            replace: vec![
+                "NF_MIME_EXECUTABLE_DISGUISED".into(),
+                "NF_MIME_DOUBLE_EXTENSION".into(),
+            ],
+        },
+        Composite {
             id: "NF_AUTH_FAILURE".into(),
             label: "Échecs SPF et DMARC regroupés".into(),
             family: Family::Authentication,
@@ -435,6 +467,7 @@ fn context_symbols() -> BTreeSet<&'static str> {
         "caps_subject",
     ]
     .into_iter()
+    .chain(super::content_rules::RULES.iter().map(|r| r.id))
     .collect()
 }
 pub fn context(scan: &crate::engine::Scan) -> Vec<Symbol> {

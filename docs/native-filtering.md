@@ -8,6 +8,11 @@ L'implémentation est propre à NoiseFence : ses résultats et ses formats ne so
 pas interchangeables avec ceux de Rspamd. Les modules Lua et règles `.cf` ne se
 chargent pas dans ce moteur.
 
+Depuis 0.9.0, une [banque structurée de douze règles](rspamd-rules.md) complète
+les motifs : HTML, métadonnées MIME et identité affichée. Les noms et premières
+signatures binaires des pièces jointes sont examinés localement ; ils ne sont pas
+ajoutés aux caractéristiques textuelles ou aux appels externes.
+
 ## Activer la collecte
 
 Ajouter cette table au fichier de configuration et redémarrer le service après

@@ -129,6 +129,14 @@ max_analysis_bytes = 2097152
 # review_unconfirmed_high = true # Second avis au-dessus de score_high sans corroboration ; budget inchangé.
 # max_parallel = 2
 
+# La banque locale HTML/MIME est incluse quand [native_filter] est configuré.
+# Voir docs/rspamd-rules.md pour les douze identifiants et leurs limites.
+# [native_filter.content_rules]
+# enabled = true
+# disabled = ["NF_HTML_HIDDEN_TEXT"]
+# [native_filter.content_rules.weights]
+# NF_MIME_DOUBLE_EXTENSION = 0.8
+
 [relay]
 workers = 8
 require_tls = true

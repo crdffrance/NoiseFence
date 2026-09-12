@@ -142,7 +142,7 @@ pub async fn run(path: &Path, iterations: usize, concurrency: usize) -> Result<R
         regex_set_ms,
         individual_regex_ms,
         identical_matches: true,
-        includes: "MIME normalization, OSB features, text/HTML sketches, patterns, composites and caps",
+        includes: "MIME normalization, OSB features, text/HTML sketches, patterns, structured HTML/MIME rules, composites and caps",
         excludes: "Trained Bayes inference, fuzzy database, historical engine, SMTP, disk persistence, OCR, DNS and external services",
     })
 }

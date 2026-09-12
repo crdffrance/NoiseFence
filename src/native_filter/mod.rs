@@ -2,6 +2,7 @@
 //! This independent observation NEVER participates in delivery or model selection.
 pub mod bayes;
 pub mod benchmark;
+pub mod content_rules;
 pub mod input;
 pub mod learning;
 pub mod memory;
@@ -19,7 +20,7 @@ use std::{
 };
 use tokio::sync::Semaphore;
 
-pub const VERSION: &str = "native-filter-1";
+pub const VERSION: &str = "native-filter-2";
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +37,7 @@ pub struct Settings {
     pub fuzzy_memory: bool,
     pub bayes_model: Option<PathBuf>,
     pub adaptive: Option<crate::adaptive::Settings>,
+    pub content_rules: content_rules::Settings,
     pub patterns: Vec<rules::Pattern>,
     pub composites: Vec<rules::Composite>,
     pub caps: BTreeMap<rules::Family, rules::Bounds>,
@@ -50,6 +52,7 @@ impl Default for Settings {
             fuzzy_memory: true,
             bayes_model: None,
             adaptive: None,
+            content_rules: content_rules::Settings::default(),
             patterns: rules::default_patterns(),
             composites: rules::default_composites(),
             caps: rules::default_caps(),
@@ -58,6 +61,7 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
+        self.content_rules.validate()?;
         if let Some(adaptive) = &self.adaptive {
             adaptive.validate()?;
         }
@@ -191,10 +195,16 @@ impl Runtime {
     }
     pub fn offline(&self, raw: &[u8], scopes: &[String]) -> Observation {
         let started = Instant::now();
-        let mut out = match input::extract(raw, self.settings.max_bytes) {
-            Ok(input) => {
+        let mut out = match input::extract(raw, self.settings.max_bytes).and_then(|input| {
+            self.settings
+                .content_rules
+                .inspect(raw)
+                .map(|symbols| (input, symbols))
+        }) {
+            Ok((input, content_symbols)) => {
                 let mut out = self.empty(Status::Complete);
                 out.local_symbols = self.matcher.inspect(&input);
+                out.local_symbols.extend(content_symbols);
                 if let Some(runtime) = &self.adaptive {
                     let (report, vector) = runtime.predict(&input, &out.local_symbols, scopes);
                     out.report.adaptive = Some(report);

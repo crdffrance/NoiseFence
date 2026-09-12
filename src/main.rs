@@ -30,6 +30,10 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Show configured local HTML/MIME rules, optionally inspecting a file; no network or delivery.
+    NativeRules {
+        message: Option<PathBuf>,
+    },
     /// Inspect local adaptive candidates for a supplied domain; no DNS or delivery.
     AdaptiveCheck {
         message: PathBuf,
@@ -342,6 +346,20 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::NativeRules { message } => {
+            let config = Config::load(&cli.config)?;
+            let enabled = config.native_filter.is_some();
+            let native = config.native_filter.unwrap_or_default();
+            let mut report = native.content_rules.catalog();
+            report["module_enabled"] = serde_json::json!(enabled);
+            if let Some(path) = message {
+                ensure!(enabled, "native_filter is not configured");
+                let raw = noisefence::native_filter::read_bounded(path, native.max_bytes)?;
+                report["matches"] = serde_json::to_value(native.content_rules.inspect(&raw)?)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            return Ok(());
+        }
         Command::AdaptiveCheck {
             message,
             domain,

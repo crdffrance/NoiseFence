@@ -8,6 +8,7 @@ fuzz_target!(|data: &[u8]| {
     let _=noisefence::message::rewrite_with_tag(data,Some(noisefence::message::SubjectTag::Publicity),"");
     let _=noisefence::engine::extract(data,64*1024);
     let _=noisefence::features::extract(data,64*1024);
+    let _=noisefence::native_filter::content_rules::Settings::default().inspect(data);
     if let Ok(input)=noisefence::native_filter::input::extract(data,64*1024) {
         assert!(input.features.validate().is_ok());
         static MATCHER:std::sync::OnceLock<noisefence::native_filter::rules::Matcher>=std::sync::OnceLock::new();

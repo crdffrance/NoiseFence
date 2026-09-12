@@ -39,3 +39,11 @@ sa licence MIT/Apache-2.0. Les notices présentes dans les crates sont collecté
 avec celles des autres dépendances. Les API CRDF et VirusTotal et les flux de
 phishing sont facultatifs, soumis aux licences des fournisseurs ; aucun jeu
 de données, secret ou droit de redistribution n’est inclus dans NoiseFence.
+
+Les règles structurées Rust de `src/native_filter/content_rules.rs` sont une
+implémentation indépendante, inspirée des contrôles HTML, MIME et d’en-têtes de
+Rspamd (Apache-2.0). Les sources consultées sont épinglées à la révision
+`e2de26d28ce857d5c48ac82703cf26b681bd1d89` ; leurs correspondances et les différences
+sont documentées dans `docs/rspamd-rules.md`. La notice amont est conservée dans
+`licenses/rspamd-Apache-2.0.md`. Aucun code Lua/C, liste distante, prompt GPT ni poids
+d’un modèle Rspamd n’est embarqué ou exécuté.
