@@ -1,5 +1,5 @@
 -- Shared predicate for rows and exact totals, in one read snapshot.
-(m.created>=?4 OR m.raw_present=1) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1
+(m.created>=?4 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?1
  AND (?6='' OR lower(substr(d.address,-length(?6)-1))='@'||lower(?6) OR lower(substr(d.destination,-length(?6)-1))='@'||lower(?6))) AND ({search})
  AND (?2='all'
  OR (?2='spam' AND COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?5))

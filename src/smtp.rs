@@ -134,6 +134,19 @@ pub async fn serve_controlled(
     )?);
     let slots = Arc::new(Semaphore::new(state.config.smtp.max_connections));
     let peers = Arc::new(Mutex::new(HashMap::<IpAddr, usize>::new()));
+    let State {
+        config,
+        store,
+        engine,
+        processing,
+    } = state;
+    // A controlled listener must not pin a retired model for its entire lifetime.
+    let standalone = if control.is_none() {
+        Some(engine)
+    } else {
+        drop(engine);
+        None
+    };
     let mut tasks = JoinSet::new();
     loop {
         tokio::select! {
@@ -142,9 +155,11 @@ pub async fn serve_controlled(
             accepted=listener.accept()=>{
                 let (mut socket,peer)=accepted?;
                 let permit=slots.clone().try_acquire_owned();
-                let allowed={let mut counts=peers.lock().unwrap();let n=counts.get(&peer.ip()).copied().unwrap_or(0);if n>=state.config.smtp.max_connections_per_ip || permit.is_err(){false}else{counts.insert(peer.ip(),n+1);true}};
+                let allowed={let mut counts=peers.lock().unwrap();let n=counts.get(&peer.ip()).copied().unwrap_or(0);if n>=config.smtp.max_connections_per_ip || permit.is_err(){false}else{counts.insert(peer.ip(),n+1);true}};
                 if !allowed {let _=tokio::time::timeout(Duration::from_secs(1),socket.write_all(b"421 4.3.2 Server busy\r\n")).await;continue;}
-                let state=state.clone();let tls=tls.clone();let control=control.clone();let rbl=rbl.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
+                let snapshot=control.as_ref().map(|c|c.snapshot());
+                let state=State{config:snapshot.as_ref().map_or_else(||config.clone(),|s|s.config.clone()),store:store.clone(),engine:snapshot.as_ref().map_or_else(||standalone.as_ref().unwrap().clone(),|s|s.engine.clone()),processing:processing.clone()};
+                let tls=tls.clone();let control=control.clone();let rbl=rbl.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
                 tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls,control,rbl).await{tracing::debug!(error=%error,"SMTP session ended");}});
             }
         }
@@ -238,6 +253,14 @@ async fn session(
             && verb.eq_ignore_ascii_case("MAIL")
             && let Some(control) = &control
         {
+            if !control.cluster_ready() {
+                reply(
+                    &mut io,
+                    "451 4.3.2 Node configuration unavailable or expired; retry another MX\r\n",
+                )
+                .await?;
+                continue;
+            }
             let snapshot = control.snapshot();
             state.config = snapshot.config.clone();
             state.engine = snapshot.engine.clone();

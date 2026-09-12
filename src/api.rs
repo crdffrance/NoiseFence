@@ -1,5 +1,6 @@
 mod adaptive;
 mod admin;
+mod cluster;
 mod onboarding;
 mod quality;
 use crate::{
@@ -38,6 +39,7 @@ pub struct App {
     control: Option<Arc<crate::control::Controller>>,
     limiter: Arc<Mutex<HashMap<String, (i64, u32)>>>,
     hashing: Arc<tokio::sync::Semaphore>,
+    cluster_capacity: Arc<tokio::sync::Semaphore>,
     dummy_hash: Arc<String>,
 }
 #[derive(Debug)]
@@ -339,6 +341,7 @@ async fn quarantine(
             crate::quarantine::Command::Release => "pending",
             crate::quarantine::Command::Delete => "discarded",
         }}))),
+        crate::quarantine::Change::Queued(command_id) => Ok(Json(json!({"ok":true,"status":"queued","command_id":command_id}))),
         crate::quarantine::Change::NotFound => Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into())),
         crate::quarantine::Change::Conflict => Err(Error(StatusCode::CONFLICT, "Ce destinataire n’est plus en quarantaine ou sa conservation a expiré. Rechargez les messages.".into())),
     }
@@ -395,7 +398,7 @@ async fn stats(
     let config = app.effective();
     let threshold = config.filter.threshold;
     let domain = q.domain;
-    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
+    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
     result["decision_source"] = json!(if config
@@ -478,8 +481,8 @@ async fn password(
         .await?;
     Ok(Json(json!({"ok":true})))
 }
-async fn health() -> Json<Value> {
-    Json(json!({"status":"ok"}))
+async fn health(State(app): State<App>) -> Json<Value> {
+    Json(json!({"status":"ok","smtp_ready":app.control.as_ref().is_none_or(|c|c.cluster_ready())}))
 }
 async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     let user = authenticated(&app, &h).await?;
@@ -550,8 +553,12 @@ pub fn router_controlled(
         control,
         limiter: Arc::new(Mutex::new(HashMap::new())),
         hashing: Arc::new(tokio::sync::Semaphore::new(4)),
+        cluster_capacity: Arc::new(tokio::sync::Semaphore::new(8)),
         dummy_hash: Arc::new(hash_password(&random_token())?),
     };
+    if crate::cluster::is_worker(&config) {
+        return Ok(Router::new().route("/healthz", get(health)).with_state(app));
+    }
     let api = Router::new()
         .route("/login", post(login))
         .route("/logout", post(logout))
@@ -564,6 +571,7 @@ pub fn router_controlled(
         .route("/stats", get(stats))
         .route("/password", post(password))
         .route("/metrics", get(metrics))
+        .merge(cluster::routes(app.clone()))
         .merge(admin::routes())
         .merge(onboarding::routes())
         .merge(quality::routes())

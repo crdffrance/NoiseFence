@@ -6,9 +6,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub cluster: Option<crate::cluster::Settings>,
     #[serde(skip)]
     pub preferences: crate::preferences::Settings,
     pub hostname: String,
@@ -32,7 +33,7 @@ pub struct Config {
     pub relay: Relay,
     pub domains: Vec<Domain>,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Smtp {
     pub listen: SocketAddr,
@@ -75,7 +76,7 @@ fn default_rcpts() -> usize {
 fn default_free() -> u64 {
     1024 * 1024 * 1024
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Web {
     pub listen: SocketAddr,
@@ -95,7 +96,7 @@ pub enum Mode {
     Tag,
     Enforce,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
     #[serde(default)]
@@ -118,7 +119,7 @@ pub struct Filter {
     #[serde(default = "analysis_limit")]
     pub max_analysis_bytes: usize,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SemanticFilter {
     pub encoder_dir: PathBuf,
@@ -140,7 +141,7 @@ fn threshold() -> f64 {
 fn analysis_limit() -> usize {
     2 * 1024 * 1024
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Relay {
     #[serde(default = "workers")]
@@ -165,7 +166,7 @@ fn port() -> u16 {
 fn max_age() -> i64 {
     5 * 86400
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Domain {
     pub name: String,
@@ -246,6 +247,9 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(cluster) = &self.cluster {
+            cluster.validate()?;
+        }
         if let Some(rbl) = &self.rbl {
             rbl.validate()?;
         }
@@ -308,7 +312,13 @@ impl Config {
             "message size must be 1 KiB..100 MiB"
         );
         ensure!(
-            self.smtp.max_recipients > 0 && self.smtp.max_recipients <= 1000,
+            self.smtp.max_recipients > 0
+                && self.smtp.max_recipients
+                    <= if crate::cluster::is_worker(self) {
+                        100
+                    } else {
+                        1000
+                    },
             "invalid recipient limit"
         );
         ensure!(self.smtp.command_timeout_seconds > 0, "invalid timeout");

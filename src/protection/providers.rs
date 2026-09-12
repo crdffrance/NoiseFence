@@ -93,7 +93,7 @@ fn key_path(root: &Path, provider: Provider) -> PathBuf {
 pub fn key_present(root: &Path, provider: Provider) -> bool {
     read_key(root, provider).is_ok()
 }
-fn read_key(root: &Path, provider: Provider) -> Result<String> {
+pub(crate) fn read_key(root: &Path, provider: Provider) -> Result<String> {
     let file = std::fs::File::open(key_path(root, provider))?;
     ensure!(
         file.metadata()?.permissions().mode() & 0o077 == 0,
@@ -247,6 +247,7 @@ impl Client {
         CREATE TABLE IF NOT EXISTS quota(provider TEXT PRIMARY KEY,day INTEGER,day_used INTEGER,minute INTEGER,minute_used INTEGER);
         CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,expires INTEGER,verdict TEXT);
         CREATE TABLE IF NOT EXISTS cooldown(key TEXT PRIMARY KEY,expires INTEGER);")?;
+        db.execute_batch(crate::cluster::budget::SCHEMA)?;
         Ok(Self {
             #[cfg(test)]
             endpoint_override: None,
@@ -294,7 +295,7 @@ impl Client {
             let mut db = db
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Provider budget lock"))?;
-            let tx = db.transaction()?;
+            let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let now = crate::now();
             let cached: Option<String> = tx
                 .query_row(
@@ -331,7 +332,30 @@ impl Client {
                     )
                 })
                 .unwrap_or((0, 0));
-            if quota.exhausted(used_minute, used_day) {
+            let day_cap = crate::cluster::budget::ceiling(
+                &tx,
+                &format!("{}-day", provider.name()),
+                &day.to_string(),
+                if quota.day == 0 {
+                    u64::MAX
+                } else {
+                    u64::from(quota.day)
+                },
+            )?;
+            let minute_cap = crate::cluster::budget::ceiling(
+                &tx,
+                &format!("{}-minute", provider.name()),
+                &minute.to_string(),
+                if quota.minute == 0 {
+                    u64::MAX
+                } else {
+                    u64::from(quota.minute)
+                },
+            )?;
+            if quota.exhausted(used_minute, used_day)
+                || used_day as u64 >= day_cap
+                || used_minute as u64 >= minute_cap
+            {
                 return Ok(Reservation::Quota);
             }
             tx.execute(

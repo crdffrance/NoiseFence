@@ -1,0 +1,12 @@
+# Append to a fresh node's local production configuration, at top-level.
+# Use its OWN hostname, SMTP certificate, signing key and EMPTY data directory.
+# Install any local OCR/antivirus/signature services enabled by the coordinator.
+# The daemon defers MAIL until the first validated configuration arrives.
+[cluster]
+role = "worker"
+node_id = "mx2"
+coordinator_url = "https://mx1.example.org"
+credential_file = "/etc/noisefence/cluster/node.key"
+poll_seconds = 10
+max_stale_seconds = 86400
+allow_loopback_http = false

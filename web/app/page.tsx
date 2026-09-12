@@ -1,5 +1,6 @@
 'use client';
 import { MyFilters } from './preferences';
+import { ClusterConsole } from './cluster';
 import { OnboardingGate } from './onboarding';
 import { AdaptiveDetails } from './adaptive';
 import type { AdaptiveReport, AdaptiveClass } from './adaptive-types';
@@ -87,6 +88,8 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  node_id?: string | null;
+  node_updated_at?: number | null;
   arbitration?: Arbitration | null;
   delivery_classification?: string | null;
   action?: {
@@ -138,6 +141,7 @@ type Mail = {
   recipients: {
     filtering?: FilteringAssessment | null;
     delivery_id?: number;
+    pending_command?: string | null;
     address: string;
     status: string;
     held_until?: number | null;
@@ -260,7 +264,10 @@ function Home() {
   const [confirmationError, setConfirmationError] = useState('');
   const [domain, setDomain] = useState('');
   const [domains, setDomains] = useState<string[]>([]);
-  const [configDirty, setConfigDirty] = useState(false);
+  const [adminDirty, setAdminDirty] = useState(false);
+  const [clusterDirty, setClusterDirty] = useState(false);
+  const [preferenceDirty, setPreferenceDirty] = useState(false);
+  const configDirty = adminDirty || clusterDirty || preferenceDirty;
   const [user, setUser] = useState<User | null>(null),
     [ready, setReady] = useState(false),
     [error, setError] = useState(''),
@@ -311,7 +318,9 @@ function Home() {
     setSection('messages');
     setDomain('');
     setDomains([]);
-    setConfigDirty(false);
+    setAdminDirty(false);
+    setClusterDirty(false);
+    setPreferenceDirty(false);
   }, []);
   const diagnosticsLoaded = useCallback(
     (data: MessageDiagnostics) => {
@@ -439,7 +448,9 @@ function Home() {
       !window.confirm('Abandonner les réglages non enregistrés ?')
     )
       return;
-    setConfigDirty(false);
+    setAdminDirty(false);
+    setClusterDirty(false);
+    setPreferenceDirty(false);
     setSection(next);
     setFilter(nextFilter);
     setOffset(0);
@@ -512,7 +523,7 @@ function Home() {
     setNotice('');
     setConfirmationError('');
     try {
-      const result = await api<{ status: string }>(
+      const result = await api<{ status: string; command_id?: string }>(
         `/messages/${id}/quarantine`,
         { recipient, action },
         user.csrf,
@@ -523,7 +534,14 @@ function Home() {
           ? {
               ...previous,
               recipients: previous.recipients.map((r) =>
-                r.address === recipient ? { ...r, status: result.status } : r,
+                r.address === recipient
+                  ? {
+                      ...r,
+                      status:
+                        result.status === 'queued' ? r.status : result.status,
+                      pending_command: result.command_id ?? null,
+                    }
+                  : r,
               ),
             }
           : previous,
@@ -531,9 +549,11 @@ function Home() {
       setConfirmation(null);
       setDiagnosticsRevision((value) => value + 1);
       setNotice(
-        action === 'release'
-          ? 'Message libéré : livraison en attente pour ce destinataire.'
-          : 'Livraison retenue supprimée pour ce destinataire.',
+        result.status === 'queued'
+          ? 'Commande transmise au serveur propriétaire : exécution en attente.'
+          : action === 'release'
+            ? 'Message libéré : livraison en attente pour ce destinataire.'
+            : 'Livraison retenue supprimée pour ce destinataire.',
       );
       await refresh();
     } catch (e) {
@@ -734,13 +754,14 @@ function Home() {
                     >
                       <n.icon size={18} />
                       {n.label}
-                      {configDirty &&
-                        ['domains', 'gateways', 'filters'].includes(n.id) && (
-                          <span
-                            className="draft-dot"
-                            aria-label="Brouillon non enregistré"
-                          />
-                        )}
+                      {((adminDirty &&
+                        ['domains', 'gateways', 'filters'].includes(n.id)) ||
+                        (clusterDirty && n.id === 'cluster')) && (
+                        <span
+                          className="draft-dot"
+                          aria-label="Brouillon non enregistré"
+                        />
+                      )}
                     </button>
                   ))}
               </nav>
@@ -862,6 +883,7 @@ function Home() {
           <div
             hidden={
               section === 'messages' ||
+              section === 'cluster' ||
               section === 'preferences' ||
               section === 'account' ||
               section === 'quality' ||
@@ -871,6 +893,7 @@ function Home() {
             <AdminConsole
               user={user}
               section={
+                section === 'cluster' ||
                 section === 'preferences' ||
                 section === 'account' ||
                 section === 'quality' ||
@@ -878,7 +901,7 @@ function Home() {
                   ? 'messages'
                   : section
               }
-              onDirty={setConfigDirty}
+              onDirty={setAdminDirty}
               onApplied={refresh}
               onDomain={(name) => {
                 setDomain(name);
@@ -889,8 +912,15 @@ function Home() {
             />
           </div>
         )}
+        {section === 'cluster' && user.admin && (
+          <ClusterConsole
+            key={user.username}
+            user={user}
+            onDirty={setClusterDirty}
+          />
+        )}
         {section === 'preferences' && (
-          <MyFilters user={user} onDirty={setConfigDirty} />
+          <MyFilters user={user} onDirty={setPreferenceDirty} />
         )}
         {section === 'quality' && <QualityConsole user={user} />}
         {section === 'reliability' && (
@@ -952,6 +982,16 @@ function Home() {
                     )}
                   </div>
                   <h1>{selected.subject || '(Sans objet)'}</h1>
+                  {selected.node_id && (
+                    <p className="mail-node-label">
+                      Serveur {selected.node_id} · dernier état reçu{' '}
+                      {selected.node_updated_at
+                        ? new Date(
+                            selected.node_updated_at * 1000,
+                          ).toLocaleString('fr-FR')
+                        : 'inconnu'}
+                    </p>
+                  )}
                   <p className="muted">
                     {selected.sender || 'Expéditeur d’enveloppe vide'} ·{' '}
                     {new Date(selected.created * 1000).toLocaleString('fr-FR')}
@@ -1275,6 +1315,11 @@ function Home() {
                         {r.filtering && (
                           <FilteringDetails value={r.filtering} />
                         )}
+                        {r.pending_command && (
+                          <p className="notice">
+                            Commande en attente de confirmation du serveur MX.
+                          </p>
+                        )}
                         {r.status === 'quarantined' && (
                           <>
                             <p className="small muted">
@@ -1284,7 +1329,7 @@ function Home() {
                             </p>
                             <div className="feedback-actions">
                               <Button
-                                disabled={busy}
+                                disabled={busy || !!r.pending_command}
                                 onClick={() => (
                                   setConfirmationError(''),
                                   setConfirmation({
@@ -1298,7 +1343,7 @@ function Home() {
                               <Button
                                 variant="outline"
                                 className="danger"
-                                disabled={busy}
+                                disabled={busy || !!r.pending_command}
                                 onClick={() => (
                                   setConfirmationError(''),
                                   setConfirmation({
@@ -1715,6 +1760,11 @@ function Home() {
                                 </span>
                                 <span className="message-copy">
                                   <strong>{m.subject || '(Sans objet)'}</strong>
+                                  {m.node_id && (
+                                    <span className="mail-node-label">
+                                      {m.node_id}
+                                    </span>
+                                  )}
                                   <span>
                                     {m.sender || 'Notification de livraison'}
                                   </span>
@@ -1838,6 +1888,9 @@ function Home() {
                           </time>
                         </span>
                         <strong>{m.subject || '(Sans objet)'}</strong>
+                        {m.node_id && (
+                          <span className="mail-node-label">{m.node_id}</span>
+                        )}
                         <small>{m.sender || 'Notification de livraison'}</small>
                         <small>
                           À : {m.recipients.map((r) => r.address).join(', ')}

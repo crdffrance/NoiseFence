@@ -1,0 +1,7 @@
+# Append this section to the local production configuration, at top-level.
+# Keep the existing SMTP, TLS, storage, routes and observe policy.
+[cluster]
+role = "coordinator"
+node_id = "mx1"
+poll_seconds = 10
+max_stale_seconds = 86400

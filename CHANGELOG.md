@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0 — 2026-09-13
+
+- Passerelles SMTP autonomes avec console centrale, configuration versionnée et modèles vérifiés via HTTPS.
+- Historique multi-MX et recherche par nœud ; les corps et files restent sur leur serveur d’origine.
+- Identités de nœuds révocables, commandes distantes de quarantaine et relance avec confirmation durable.
+- Crédits LLM et quotas CRDF/VirusTotal partagés, persistants et protégés contre une double attribution.
+- Politique en cache pendant une panne du coordinateur, puis refus SMTP temporaire après expiration ; observation conservée.
+- Migration au schéma 3 à l’activation du cluster ; pas de réplication des files ni de bascule automatique de la console. Installation et retour arrière : `docs/multi-mx.md`.
+
 ## 0.13.0 — 2026-09-12
 
 - Configuration Web des listes RBL, tests DNS des brouillons et paramètres détaillés des moteurs, du LLM, des budgets, de l’OCR et des redirections.

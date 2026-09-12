@@ -172,6 +172,13 @@ impl Runtime {
             policy_sha256,
         }))
     }
+    pub(crate) fn reload_cluster(&self, settings: Settings) -> Result<Arc<Self>> {
+        let mut next = Self::new(settings)?;
+        let next_mut = Arc::get_mut(&mut next).expect("new native runtime");
+        next_mut.permits = self.permits.clone();
+        next_mut.memory_permits = self.memory_permits.clone();
+        Ok(next)
+    }
     pub(crate) fn reconfigure(&self, settings: Settings) -> Result<Arc<Self>> {
         settings.validate()?;
         ensure!(

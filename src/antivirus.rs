@@ -7,7 +7,7 @@ use tokio::{
     net::UnixStream,
 };
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AntivirusConfig {
     pub socket: PathBuf,

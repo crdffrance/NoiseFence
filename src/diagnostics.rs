@@ -115,7 +115,7 @@ impl Store {
             // The same read snapshot checks both message visibility and every
             // recipient. Knowing a queue id never grants transcript access.
             let scan: Option<String> = db.query_row(
-                "SELECT m.scan FROM messages m WHERE m.id=?1 AND (m.created>=?3 OR m.raw_present=1) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?2 AND (?4 IS NULL OR d.id=?4))",
+                "SELECT m.scan FROM messages m WHERE m.id=?1 AND (m.created>=?3 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=?2 AND (?4 IS NULL OR d.id=?4))",
                 params![id, username, now()-30*86400,delivery_id], |r| r.get(0),
             ).optional()?;
             let Some(scan) = scan else { return Ok(None) };

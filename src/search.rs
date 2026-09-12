@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Search {
+    pub node: String,
     pub q: String,
     pub filter: String,
     pub offset: u32,
@@ -24,6 +25,7 @@ pub struct Search {
 impl Default for Search {
     fn default() -> Self {
         Self {
+            node: String::new(),
             q: String::new(),
             filter: "all".into(),
             offset: 0,
@@ -111,6 +113,10 @@ fn terms(text: &str) -> Result<Vec<Term>> {
 }
 impl Search {
     pub fn validate(&self) -> Result<Vec<Term>> {
+        ensure!(
+            self.node.is_empty() || self.node == "local" || crate::cluster::valid_id(&self.node),
+            "Nœud invalide."
+        );
         ensure!(self.offset <= 10_000_000, "Page hors limites.");
         ensure!(
             self.domain.is_empty() || crate::config::valid_domain(&self.domain),
@@ -188,6 +194,15 @@ impl Search {
             format!("?{}", values.len())
         }
         let mut predicates = vec!["1".to_owned()];
+        if self.node == "local" {
+            predicates
+                .push("NOT EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id)".into());
+        } else if !self.node.is_empty() {
+            let p = bind(values, self.node.clone());
+            predicates.push(format!(
+                "EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.node_id={p})"
+            ));
+        }
         let scope = "d.message_id=m.id AND g.username=?1 AND (?6='' OR lower(substr(d.address,-length(?6)-1))='@'||lower(?6) OR lower(substr(d.destination,-length(?6)-1))='@'||lower(?6))";
         for term in terms {
             let fts = bind(values, term.fts.clone());

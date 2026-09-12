@@ -333,10 +333,113 @@ pub struct Snapshot {
     pub config: Arc<Config>,
     pub engine: Arc<Engine>,
 }
+
+impl Controller {
+    pub fn cluster_digest(&self) -> String {
+        self.cluster_hash.read().unwrap().clone()
+    }
+    pub fn cluster_ready(&self) -> bool {
+        !crate::cluster::is_worker(&self.base)
+            || self
+                .cluster_until
+                .load(std::sync::atomic::Ordering::Acquire)
+                >= crate::now()
+    }
+    pub async fn publication(&self) -> Result<Arc<crate::cluster::artifacts::Publication>> {
+        ensure!(
+            self.base
+                .cluster
+                .as_ref()
+                .is_some_and(|c| c.role == crate::cluster::Role::Coordinator),
+            "Not a coordinator"
+        );
+        let mut cache = self.publication.lock().await;
+        let snapshot = self.snapshot();
+        if let Some(value) = &*cache
+            && value.bundle.revision == snapshot.revision
+        {
+            return Ok(value.clone());
+        }
+        let publication = tokio::task::spawn_blocking(move || {
+            let publication = crate::cluster::artifacts::capture(
+                &snapshot.config,
+                snapshot.settings.clone(),
+                snapshot.revision,
+            )?;
+            snapshot.engine.validate_cluster_publication(&publication)?;
+            Ok::<_, anyhow::Error>(publication)
+        })
+        .await??;
+        let value = Arc::new(publication);
+        *cache = Some(value.clone());
+        Ok(value)
+    }
+    pub async fn apply_cluster(
+        self: &Arc<Self>,
+        bundle: crate::cluster::artifacts::Bundle,
+        keys_hash: String,
+        server_time: i64,
+    ) -> Result<()> {
+        ensure!(crate::cluster::is_worker(&self.base), "Not a worker");
+        bundle.validate()?;
+        let this = self.clone();
+        tokio::spawn(async move {
+            let _permit=this.applying.clone().acquire_owned().await?;
+            let current=this.snapshot();
+            ensure!(bundle.revision>=current.revision,"Older authority revision refused");
+            ensure!(server_time<=crate::now()+300 && server_time>=crate::now()-300,"Clock skew");
+            let changed=this.cluster_digest()!=bundle.digest || *this.cluster_keys.read().unwrap()!=keys_hash;
+            let mut next=None;
+            if changed {
+                let base=this.base.clone();let candidate=bundle.clone();
+                let config=Arc::new(tokio::task::spawn_blocking(move||crate::cluster::artifacts::materialize(&base,&candidate,false)).await??);
+                let models_changed=cluster_model_identity(&config)!=cluster_model_identity(&current.config);
+                if models_changed {
+                    let retired=this.retired.lock().unwrap();
+                    ensure!(retired.as_ref().is_none_or(|engine|engine.strong_count()==0),"Le modèle précédent termine encore des sessions SMTP ; nouvelle activation différée.");
+                }
+                let template=current.engine.clone();let cfg=config.clone();
+                let engine=Arc::new(tokio::task::spawn_blocking(move||if models_changed {template.reload_cluster_models(cfg)}else{template.reconfigure(cfg)}).await??);
+                let rbl=Arc::new(current.rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
+                next=Some((config,engine,rbl,models_changed));
+            }
+            let raw=serde_json::to_string(&bundle)?;
+            ensure!(raw.len()<=768*1024,"Configuration de cluster trop volumineuse.");
+            let keys=keys_hash.clone();
+            this.store.run(move|db|{
+                let tx=db.transaction()?;
+                for (key,value) in [("bundle",raw),("last_sync",server_time.to_string()),("keys_hash",keys)] {tx.execute("INSERT OR REPLACE INTO cluster_state VALUES(?1,?2)",params![key,value])?;}
+                tx.commit()?;Ok(())
+            }).await?;
+            if let Some((config,engine,rbl,models_changed))=next {
+                engine.activate_limits();rbl.activate();
+                if models_changed {*this.retired.lock().unwrap()=Some(Arc::downgrade(&current.engine));}
+                *this.template.write().unwrap()=engine.clone();
+                *this.active.write().unwrap()=Arc::new(Snapshot{revision:bundle.revision,settings:bundle.settings,config,engine,rbl});
+            }
+            *this.cluster_hash.write().unwrap()=bundle.digest;
+            *this.cluster_keys.write().unwrap()=keys_hash;
+            this.cluster_until.store(server_time+this.base.cluster.as_ref().unwrap().max_stale_seconds,std::sync::atomic::Ordering::Release);
+            Ok(())
+        }).await?
+    }
+}
+fn cluster_model_identity(config: &Config) -> String {
+    crate::message::digest(&serde_json::to_vec(&serde_json::json!({
+        "model":config.filter.model,"semantic":config.filter.semantic,"threshold":config.filter.threshold,
+        "native":config.native_filter.as_ref().map(|n|(&n.bayes_model,&n.adaptive)),
+        "fusion":config.fusion,"quality":config.quality,
+    })).expect("model identity"))
+}
 pub struct Controller {
     pub base: Arc<Config>,
     pub store: Store,
-    template: Arc<Engine>,
+    template: RwLock<Arc<Engine>>,
+    publication: tokio::sync::Mutex<Option<Arc<crate::cluster::artifacts::Publication>>>,
+    cluster_until: std::sync::atomic::AtomicI64,
+    cluster_hash: RwLock<String>,
+    cluster_keys: RwLock<String>,
+    retired: std::sync::Mutex<Option<std::sync::Weak<Engine>>>,
     active: RwLock<Arc<Snapshot>>,
     applying: Arc<tokio::sync::Semaphore>,
 }
@@ -358,13 +461,67 @@ impl Controller {
             None => (0, Settings::from_config(&base)),
         };
         settings.hydrate(&base);
-        let effective = if revision == 0 {
+        let clustered = if crate::cluster::is_worker(&base) {
+            store
+                .read(|db| {
+                    Ok(db
+                        .query_row(
+                            "SELECT value FROM cluster_state WHERE key='bundle'",
+                            [],
+                            |r| r.get::<_, String>(0),
+                        )
+                        .optional()?)
+                })
+                .await?
+                .map(|raw| serde_json::from_str::<crate::cluster::artifacts::Bundle>(&raw))
+                .transpose()?
+        } else {
+            None
+        };
+        let revision = clustered.as_ref().map_or(revision, |b| b.revision);
+        let effective = if let Some(bundle) = &clustered {
+            settings = bundle.settings.clone();
+            crate::cluster::artifacts::materialize(&base, bundle, true)?
+        } else if crate::cluster::is_worker(&base) {
+            crate::cluster::waiting_config(&base)
+        } else if revision == 0 {
             (*base).clone()
         } else {
             settings.effective(&base)?
         };
+        let (last_sync, key_hash) = store
+            .read(|db| {
+                let last = db
+                    .query_row(
+                        "SELECT value FROM cluster_state WHERE key='last_sync'",
+                        [],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or(0);
+                let keys = db
+                    .query_row(
+                        "SELECT value FROM cluster_state WHERE key='keys_hash'",
+                        [],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .unwrap_or_default();
+                Ok((last, keys))
+            })
+            .await?;
+        let cluster_until = if clustered.is_some() {
+            last_sync.saturating_add(base.cluster.as_ref().map_or(0, |c| c.max_stale_seconds))
+        } else {
+            0
+        };
         let config = Arc::new(effective);
-        let seed = base.clone();
+        let seed = if crate::cluster::is_worker(&base) {
+            config.clone()
+        } else {
+            base.clone()
+        };
         let cfg = config.clone();
         let (template, engine) = tokio::task::spawn_blocking(move || -> Result<_> {
             let template = Arc::new(Engine::new(seed)?);
@@ -384,7 +541,17 @@ impl Controller {
         Ok(Arc::new(Self {
             base,
             store,
-            template,
+            template: RwLock::new(template),
+            publication: tokio::sync::Mutex::new(None),
+            cluster_until: std::sync::atomic::AtomicI64::new(cluster_until),
+            cluster_hash: RwLock::new(
+                clustered
+                    .as_ref()
+                    .map(|b| b.digest.clone())
+                    .unwrap_or_default(),
+            ),
+            cluster_keys: RwLock::new(key_hash),
+            retired: std::sync::Mutex::new(None),
             active: RwLock::new(Arc::new(Snapshot {
                 rbl,
                 revision,
@@ -451,6 +618,10 @@ impl Controller {
         username: String,
         delegated: Option<(String, String)>,
     ) -> Result<i64> {
+        ensure!(
+            !crate::cluster::is_worker(&self.base),
+            "Modifiez les réglages depuis la console centrale."
+        );
         settings.hydrate(&self.base);
         let this = self.clone();
         tokio::spawn(async move {
@@ -458,7 +629,7 @@ impl Controller {
             ensure!(revision==this.snapshot().revision,"Configuration modifiée dans une autre session. Rechargez avant d’enregistrer.");
             let config=Arc::new(settings.effective(&this.base)?);
             let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
-            let template=this.template.clone(); let cfg=config.clone();
+            let template=this.template.read().unwrap().clone(); let cfg=config.clone();
             let engine=Arc::new(tokio::task::spawn_blocking(move||template.reconfigure(cfg)).await??);
             let raw=serde_json::to_string(&settings)?;
             ensure!(raw.len()<=128*1024,"Configuration trop volumineuse.");
@@ -497,6 +668,26 @@ pub fn effective_from_disk(base: Arc<Config>) -> Result<Arc<Config>> {
     let db =
         rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
+    if crate::cluster::is_worker(&base) {
+        let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state')", [], |r| r.get(0))?;
+        if exists {
+            let raw: Option<String> = db
+                .query_row(
+                    "SELECT value FROM cluster_state WHERE key='bundle'",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(raw) = raw {
+                return Ok(Arc::new(crate::cluster::artifacts::materialize(
+                    &base,
+                    &serde_json::from_str(&raw)?,
+                    true,
+                )?));
+            }
+        }
+        return Ok(Arc::new(crate::cluster::waiting_config(&base)));
+    }
     let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='console_revisions')",[],|r|r.get(0))?;
     if !exists {
         return Ok(base);

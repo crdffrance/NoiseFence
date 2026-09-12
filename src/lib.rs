@@ -53,3 +53,5 @@ pub mod management;
 pub mod preferences;
 
 pub mod reliability;
+
+pub mod cluster;

@@ -605,3 +605,152 @@ details.management-card summary {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* Autonomous mail nodes, aligned with the shared console components. */
+.cluster-console {
+  display: grid;
+  gap: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.cluster-intro,
+.cluster-toolbar,
+.cluster-authority,
+.cluster-node-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.cluster-intro h1 {
+  font-size: 32px;
+  margin: 6px 0 10px;
+  letter-spacing: -0.03em;
+}
+.cluster-authority {
+  border-left: 4px solid #ee6b32;
+}
+.cluster-authority > div {
+  flex: 1;
+}
+.cluster-authority p,
+.cluster-node h3 {
+  margin: 4px 0;
+}
+.cluster-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 20px;
+}
+.cluster-node {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cluster-node-heading > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cluster-state {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #fff1df;
+  color: #87500d;
+  font-size: 12px;
+}
+.cluster-state-ok {
+  color: #16624a;
+  background: #e5f4ec;
+}
+.cluster-facts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  border-block: 1px solid #e8eaf0;
+  padding: 18px 0;
+  margin: 0;
+}
+.cluster-facts dt {
+  color: #667085;
+  font-size: 12px;
+}
+.cluster-facts dd {
+  margin: 5px 0 0;
+  font-size: 25px;
+  font-weight: 650;
+}
+.cluster-empty {
+  text-align: center;
+  padding: 36px;
+}
+.cluster-empty > svg {
+  margin: auto;
+  color: #ee6b32;
+}
+.cluster-empty p {
+  max-width: 620px;
+  margin: 10px auto;
+}
+.cluster-editor,
+.cluster-identity {
+  display: grid;
+  gap: 20px;
+}
+.cluster-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 18px;
+}
+.cluster-form-grid label,
+.cluster-identity label {
+  display: grid;
+  gap: 8px;
+}
+.cluster-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cluster-identity textarea {
+  width: 100%;
+  overflow-wrap: anywhere;
+  font: 14px monospace;
+  padding: 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+}
+.cluster-command-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 180px;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e8eaf0;
+  font-size: 13px;
+}
+.cluster-command-list span {
+  overflow-wrap: anywhere;
+}
+.mail-node-label {
+  display: inline-block;
+  font-size: 11px;
+  color: #58647c;
+  margin: 3px 5px;
+  font-weight: 500;
+}
+@media (max-width: 680px) {
+  .cluster-intro,
+  .cluster-authority,
+  .cluster-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .cluster-form-grid,
+  .cluster-command-list > div {
+    grid-template-columns: 1fr;
+  }
+  .cluster-node-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

@@ -30,7 +30,7 @@ def main():
     shutil.copy2(args.binary,output/'noisefence')
     shutil.copytree(ROOT/'web/dist/client',output/'web')
     (output/'config').mkdir()
-    for filename in ['development.toml','production.example.toml']:
+    for filename in ['development.toml','production.example.toml','cluster-coordinator.example.toml','cluster-worker.example.toml']:
         shutil.copy2(ROOT/'config'/filename,output/'config'/filename)
     for directory in ['deploy','docs']:
         shutil.copytree(ROOT/directory,output/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
@@ -67,7 +67,7 @@ def main():
     (output/'build.json').write_text(json.dumps({
         'project':'NoiseFence','platform':args.platform,'version':version,
         'rust':'1.98.0','minimum_glibc':'2.36','commit':commit,
-        'storage_schema':2,
+        'storage_schema':3,
         'source_sha256':source.hexdigest(),
         'source_digest_schema':'noisefence-build-inputs-2',
         'source_inputs':[str(p.relative_to(ROOT)) for p in sorted(inputs)],

@@ -111,6 +111,9 @@ pub struct Hybrid {
     timeout: std::time::Duration,
 }
 impl Hybrid {
+    pub(crate) fn share_limits(&mut self, old: &Self) {
+        self.slots = old.slots.clone();
+    }
     pub fn version(&self) -> &str {
         &self.combination.version
     }

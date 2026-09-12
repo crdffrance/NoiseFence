@@ -2,7 +2,7 @@
 mod campaign;
 mod context;
 mod local;
-mod providers;
+pub(crate) mod providers;
 pub use providers::Failure as ProviderFailure;
 pub mod redirects;
 use anyhow::{Result, ensure};

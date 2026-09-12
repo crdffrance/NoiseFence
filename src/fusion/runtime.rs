@@ -19,7 +19,7 @@ pub enum Mode {
     Observe,
     Decision,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub model: PathBuf,

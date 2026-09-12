@@ -495,6 +495,7 @@ fn reputation_domains(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<S
         .collect()
 }
 pub struct Engine {
+    cluster_models: std::collections::BTreeMap<std::path::PathBuf, String>,
     config: Arc<Config>,
     pub authenticator: MessageAuthenticator,
     model: Option<Model>,
@@ -515,6 +516,19 @@ pub struct Engine {
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
 impl Engine {
+    pub(crate) fn validate_cluster_publication(
+        &self,
+        publication: &crate::cluster::artifacts::Publication,
+    ) -> Result<()> {
+        for (name, path) in &publication.paths {
+            ensure!(
+                self.cluster_models.get(path) == Some(&publication.bundle.files[name].sha256),
+                "Le modèle sur disque diffère du moteur actif ; redémarrer après validation avant de le distribuer."
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn activate_limits(&self) {
         if let Some(c) = &self.protection {
             c.activate();
@@ -533,20 +547,41 @@ impl Engine {
         }
     }
     pub fn new(config: Arc<Config>) -> Result<Self> {
-        Self::build(config, None)
+        Self::build(config, None, true)
     }
     /// Reuse loaded models and capacity gates across atomic console revisions.
     /// The controller only changes supported flags and routing, never model paths.
     pub(crate) fn reconfigure(&self, config: Arc<Config>) -> Result<Self> {
-        Self::build(config, Some(self))
+        Self::build(config, Some(self), false)
     }
-    fn build(config: Arc<Config>, template: Option<&Self>) -> Result<Self> {
+    pub(crate) fn reload_cluster_models(&self, config: Arc<Config>) -> Result<Self> {
+        Self::build(config, Some(self), true)
+    }
+    fn build(config: Arc<Config>, template: Option<&Self>, reload_models: bool) -> Result<Self> {
+        let cluster_models = if config
+            .cluster
+            .as_ref()
+            .is_some_and(|c| c.role == crate::cluster::Role::Coordinator)
+        {
+            crate::cluster::artifacts::bindings(
+                &config,
+                template
+                    .filter(|_| !reload_models)
+                    .map(|t| &t.cluster_models),
+            )?
+        } else {
+            Default::default()
+        };
         let native_filter = config
             .native_filter
             .as_ref()
             .map(|settings| {
                 if let Some(runtime) = template.and_then(|t| t.native_filter.as_ref()) {
-                    runtime.reconfigure(settings.clone())
+                    if reload_models {
+                        runtime.reload_cluster(settings.clone())
+                    } else {
+                        runtime.reconfigure(settings.clone())
+                    }
                 } else {
                     crate::native_filter::Runtime::new(settings.clone())
                 }
@@ -574,7 +609,7 @@ impl Engine {
                     .map(|client| Arc::new(client.with_capacity(llm_capacity.clone()))),
             })
             .transpose()?;
-        let (model, model_hash) = if let Some(template) = template {
+        let (model, model_hash) = if let Some(template) = template.filter(|_| !reload_models) {
             ensure!(
                 config.filter.model == template.config.filter.model,
                 "Changing model paths requires a restart"
@@ -609,7 +644,7 @@ impl Engine {
                         .is_some_and(|m| m.feature_version == crate::features::VERSION),
                     "semantic combination requires lexical feature schema 3"
                 );
-                if let Some(template) = template {
+                if let Some(template) = template.filter(|_| !reload_models) {
                     ensure!(
                         config.filter.threshold == template.config.filter.threshold,
                         "Le seuil du modèle multilingue est lié à sa calibration."
@@ -623,7 +658,12 @@ impl Engine {
                     model_hash.as_deref().unwrap(),
                     config.filter.threshold,
                 )
-                .map(Arc::new)
+                .map(|mut model| {
+                    if let Some(old) = template.and_then(|t| t.semantic.as_ref()) {
+                        model.share_limits(old);
+                    }
+                    Arc::new(model)
+                })
             })
             .transpose()?;
         #[cfg(not(feature = "semantic"))]
@@ -688,7 +728,20 @@ impl Engine {
             .as_ref()
             .map(|s| crate::fusion::runtime::Runtime::load(s, &evidence_artifacts))
             .transpose()?;
+        if !cluster_models.is_empty() {
+            ensure!(
+                cluster_models
+                    == crate::cluster::artifacts::bindings(
+                        &config,
+                        template
+                            .filter(|_| !reload_models)
+                            .map(|t| &t.cluster_models)
+                    )?,
+                "Modèles modifiés pendant leur chargement."
+            );
+        }
         Ok(Self {
+            cluster_models,
             native_filter,
             quality,
             quality_policy,

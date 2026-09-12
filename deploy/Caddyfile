@@ -1,8 +1,13 @@
 # Configure the real hostname and its DNS before starting Caddy.
 noisefence.example.org {
     encode zstd gzip
-    request_body {
-        max_size 16KB
+    @cluster path /api/v1/cluster/v1/*
+    request_body @cluster {
+        max_size 4MB
+    }
+    @console not path /api/v1/cluster/v1/*
+    request_body @console {
+        max_size 128KB
     }
     header Strict-Transport-Security "max-age=31536000"
     reverse_proxy 127.0.0.1:8080

@@ -299,6 +299,7 @@ impl Budget {
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
             CREATE TABLE IF NOT EXISTS llm_months(month TEXT PRIMARY KEY,accounted INTEGER NOT NULL,requests INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS llm_reservations(id TEXT PRIMARY KEY,month TEXT NOT NULL,cost INTEGER NOT NULL,settled INTEGER NOT NULL DEFAULT 0);")?;
+        db.execute_batch(crate::cluster::budget::SCHEMA)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(db)),
         })
@@ -318,6 +319,7 @@ impl Budget {
             )
             .optional()?
             .unwrap_or(0);
+        let maximum = crate::cluster::budget::ceiling(&tx, "llm", &month, maximum)?;
         if cost == 0 || used.saturating_add(cost) > maximum {
             return Ok(None);
         }

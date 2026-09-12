@@ -40,6 +40,7 @@ pub struct Job {
 }
 #[derive(Serialize)]
 pub struct VisibleRecipient {
+    pub pending_command: Option<String>,
     pub filtering: Option<serde_json::Value>,
     pub held_until: Option<i64>,
     pub released_at: Option<i64>,
@@ -49,6 +50,8 @@ pub struct VisibleRecipient {
 }
 #[derive(Serialize)]
 pub struct VisibleMail {
+    pub node_id: Option<String>,
+    pub node_updated_at: Option<i64>,
     pub delivery_classification: Option<crate::mailing::Category>,
     pub action: Option<crate::actions::Applied>,
     pub id: String,
@@ -115,7 +118,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version <= 2, "database is newer than this binary");
+        ensure!(version <= 3, "database is newer than this binary");
         if version == 0 {
             let tx = db.transaction()?;
             tx.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER NOT NULL,sender TEXT NOT NULL,scan TEXT NOT NULL,is_dsn INTEGER NOT NULL DEFAULT 0,raw_present INTEGER NOT NULL DEFAULT 1);
@@ -132,7 +135,10 @@ impl Store {
         }
         let migration = db.transaction()?;
         migration.execute_batch(include_str!("control-schema.sql"))?;
-        migration.execute_batch("PRAGMA user_version=2")?;
+        migration.execute_batch(include_str!("cluster-schema.sql"))?;
+        if version <= 2 {
+            migration.execute_batch("PRAGMA user_version=2")?;
+        }
         crate::search::migrate(&migration)?;
         migration.commit()?;
         Ok(Self {
@@ -216,7 +222,7 @@ impl Store {
     pub async fn recover(&self) -> Result<()> {
         self.run(|db| {
             db.execute(
-                "UPDATE deliveries SET status='pending' WHERE status='sending'",
+                "UPDATE deliveries SET status='pending' WHERE status='sending' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id)",
                 [],
             )?;
             Ok(())
@@ -338,7 +344,7 @@ impl Store {
     pub async fn claim(&self) -> Result<Option<Job>> {
         self.run(|db| {
             let tx=db.transaction()?;
-            let job=tx.query_row("SELECT d.id,m.id,COALESCE(p.released_at,m.created),m.sender,d.destination,d.hosts,d.attempts,m.is_dsn FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='pending' AND d.next_attempt<=?1 ORDER BY d.next_attempt,d.id LIMIT 1",[now()],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,u32>(6)?,r.get::<_,bool>(7)?))).optional()?;
+            let job=tx.query_row("SELECT d.id,m.id,COALESCE(p.released_at,m.created),m.sender,d.destination,d.hosts,d.attempts,m.is_dsn FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='pending' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id) AND d.next_attempt<=?1 ORDER BY d.next_attempt,d.id LIMIT 1",[now()],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,u32>(6)?,r.get::<_,bool>(7)?))).optional()?;
             let Some((delivery_id,message_id,created,sender,destination,hosts,attempts,is_dsn))=job else { return Ok(None); };
             let hosts=serde_json::from_str(&hosts)?;
             tx.execute("UPDATE deliveries SET status='sending',attempts=attempts+1 WHERE id=?1",[delivery_id])?;
@@ -390,15 +396,26 @@ impl Store {
     }
     pub async fn failed(&self) -> Result<Vec<Job>> {
         self.run(|db| {
-            let mut q=db.prepare("SELECT d.id,m.id,m.created,m.sender,d.destination,d.hosts,d.attempts,m.is_dsn FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE d.status='failed' AND d.dsn_id IS NULL LIMIT 100")?;
+            let mut q=db.prepare("SELECT d.id,m.id,m.created,m.sender,d.destination,d.hosts,d.attempts,m.is_dsn FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE d.status='failed' AND d.dsn_id IS NULL AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id) LIMIT 100")?;
             let rows=q.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,u32>(6)?,r.get::<_,bool>(7)?)))?;
             let mut jobs=Vec::new();for r in rows {let (delivery_id,message_id,created,sender,destination,hosts,attempts,is_dsn)=r?;jobs.push(Job{delivery_id,message_id,created,sender,destination,hosts:serde_json::from_str(&hosts)?,attempts,is_dsn});}Ok(jobs)
         }).await
     }
-    /// Link a durable DSN to its failure in the same SQLite transaction. The DSN's UUID
-    /// is deterministic per failed delivery, so a crash before commit is retryable.
+    /// Link a durable DSN to its failure in the same SQLite transaction. Worker IDs
+    /// include their node and original message, so queue counters cannot collide.
     pub async fn enqueue_dsn(&self, job: Job, raw: Vec<u8>, hosts: Vec<String>) -> Result<()> {
-        let id = format!("dsn-{}", job.delivery_id);
+        let delivery_id = job.delivery_id;
+        let original = job.message_id.clone();
+        let id = self.read(move |db| {
+            let node: Option<String> = db.query_row("SELECT value FROM cluster_state WHERE key='node_id' AND EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='worker')", [], |r| r.get(0)).optional()?;
+            Ok(if let Some(node) = node {
+                let hash = crate::message::digest(format!("noisefence-dsn:{node}:{original}:{delivery_id}").as_bytes());
+                let mut bytes: [u8;16] = hex::decode(&hash[..32])?.try_into().expect("16 digest bytes");
+                bytes[6] = (bytes[6] & 0x0f) | 0x80;
+                bytes[8] = (bytes[8] & 0x3f) | 0x80;
+                uuid::Uuid::from_bytes(bytes).to_string()
+            } else { format!("dsn-{delivery_id}") })
+        }).await?;
         let path = self.raw_path(&id);
         let dir = self.root.join("spool");
         tokio::task::spawn_blocking(move || -> Result<()> {
@@ -426,8 +443,8 @@ impl Store {
     pub async fn cleanup(&self) -> Result<()> {
         self.run(|db| {
             let tx = db.transaction()?;
-            tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire',CAST(d.id AS TEXT) FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1",[now()])?;
-            tx.execute("UPDATE deliveries SET status='expired' WHERE status='quarantined' AND id IN (SELECT delivery_id FROM delivery_policy WHERE held_until<=?1)",[now()])?;
+            tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire',CAST(d.id AS TEXT) FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=d.message_id)",[now()])?;
+            tx.execute("UPDATE deliveries SET status='expired' WHERE status='quarantined' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id) AND id IN (SELECT delivery_id FROM delivery_policy WHERE held_until<=?1)",[now()])?;
             tx.commit()?; Ok(())
         }).await?;
         let ids=self.run(|db| { let mut q=db.prepare("SELECT id FROM messages m WHERE raw_present=1 AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND d.status IN ('pending','sending','failed','quarantined'))")?;Ok(q.query_map([],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?) }).await?;
@@ -452,7 +469,7 @@ impl Store {
                 [now() - 30 * 86400],
             )?;
             db.execute(
-                "DELETE FROM messages WHERE created<?1 AND raw_present=0",
+                "DELETE FROM messages WHERE created<?1 AND raw_present=0 AND NOT EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=messages.id AND o.raw_present=1)",
                 [now() - 30 * 86400],
             )?;
             db.execute("DELETE FROM audit WHERE created<?1", [now() - 30 * 86400])?;
@@ -543,9 +560,10 @@ impl Store {
                 let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
                 let category=crate::mailing::category(&s,threshold);
                 let decision=s.decision.clone().unwrap_or_else(|| crate::fusion::runtime::Decision::legacy(&s,threshold));
-                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
-                let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                out.push(VisibleMail{adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
+                let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment,(SELECT c.id FROM cluster_commands c WHERE c.message_id=d.message_id AND c.recipient=d.address AND c.finished IS NULL AND c.expires>unixepoch()) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
+                let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{pending_command:r.get(6)?,filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                let origin:Option<(String,i64)>=db.query_row("SELECT node_id,updated FROM cluster_origin WHERE message_id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+                out.push(VisibleMail{node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
             }Ok(crate::search::Page { has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
         }).await
     }

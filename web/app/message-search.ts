@@ -1,4 +1,5 @@
 export type SearchFilters = {
+  node: string;
   sender: string;
   recipient: string;
   subject: string;
@@ -11,6 +12,7 @@ export type SearchFilters = {
   max_score: string;
 };
 export const emptySearch: SearchFilters = {
+  node: '',
   sender: '',
   recipient: '',
   subject: '',
@@ -54,6 +56,7 @@ export function searchParameters(
     offset: String(offset),
   });
   for (const field of [
+    'node',
     'sender',
     'recipient',
     'subject',

@@ -21,7 +21,7 @@ pub const KINDS: [&str; 6] = [
     "promotion",
     "other",
 ];
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     /// A data-only candidate, evaluated in shadow mode even if its metrics are good.
@@ -110,13 +110,13 @@ pub struct Contribution {
     pub family: String,
     pub value: f64,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Linear {
     pub bias: f64,
     pub weights: Vec<f64>,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Model {
     pub schema: String,

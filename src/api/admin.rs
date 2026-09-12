@@ -268,8 +268,8 @@ async fn audit(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
 async fn queue(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
     Ok(Json(json!(app.store.read(|db|{
-        let mut q=db.prepare("SELECT d.id,d.message_id,d.address,d.status,d.attempts,d.next_attempt,d.error,m.created FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE d.status IN ('pending','sending','failed') ORDER BY m.created LIMIT 200")?;
-        Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"message_id":r.get::<_,String>(1)?,"address":r.get::<_,String>(2)?,"status":r.get::<_,String>(3)?,"attempts":r.get::<_,i64>(4)?,"next_attempt":r.get::<_,i64>(5)?,"error":r.get::<_,Option<String>>(6)?,"created":r.get::<_,i64>(7)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut q=db.prepare("SELECT d.id,d.message_id,d.address,d.status,d.attempts,d.next_attempt,d.error,m.created,o.node_id,EXISTS(SELECT 1 FROM cluster_commands c WHERE c.message_id=m.id AND c.recipient=d.address AND c.finished IS NULL) FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN cluster_origin o ON o.message_id=m.id WHERE d.status IN ('pending','sending','failed') ORDER BY m.created LIMIT 200")?;
+        Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"message_id":r.get::<_,String>(1)?,"address":r.get::<_,String>(2)?,"status":r.get::<_,String>(3)?,"attempts":r.get::<_,i64>(4)?,"next_attempt":r.get::<_,i64>(5)?,"error":r.get::<_,Option<String>>(6)?,"created":r.get::<_,i64>(7)?,"node_id":r.get::<_,Option<String>>(8)?,"pending_command":r.get::<_,bool>(9)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await?)))
 }
 #[derive(Deserialize)]
@@ -283,7 +283,7 @@ async fn retry(
     Json(body): Json<Retry>,
 ) -> ApiResult<Json<Value>> {
     let actor = administrator(&app, &h, true).await?;
-    app.store
+    let command = app.store
         .run(move |db| {
             let tx = db.transaction()?;
             let allowed: bool = tx.query_row(
@@ -292,8 +292,20 @@ async fn retry(
                 |r| r.get(0),
             )?;
             ensure!(allowed, "Accès révoqué.");
+            let remote: Option<(String,String,String)> = tx.query_row(
+                "SELECT o.node_id,d.message_id,d.address FROM deliveries d JOIN cluster_origin o ON o.message_id=d.message_id WHERE d.id=?1 AND d.status='pending'", [body.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+            ).optional()?;
+            if let Some((node,message,recipient)) = remote {
+                ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_nodes WHERE id=?1 AND enabled=1)", [&node], |r| r.get::<_,bool>(0))?, "Nœud révoqué.");
+                tx.execute("UPDATE cluster_commands SET result='expired',finished=?1 WHERE finished IS NULL AND expires<?1", [now()])?;
+                let id = uuid::Uuid::new_v4().to_string();
+                tx.execute("INSERT INTO cluster_commands(id,node_id,message_id,recipient,command,username,created,expires) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", params![id,node,message,recipient,serde_json::to_string(&crate::cluster::history::Operation::Retry)?,actor.username,now(),now()+300])?;
+                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'cluster_retry_queued',?3)", params![now(),actor.username,id])?;
+                tx.commit()?;
+                return Ok(Some(id));
+            }
             let changed = tx.execute(
-                "UPDATE deliveries SET next_attempt=?2 WHERE id=?1 AND status='pending'",
+                "UPDATE deliveries SET next_attempt=?2 WHERE id=?1 AND status='pending' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id)",
                 params![body.id, now()],
             )?;
             ensure!(
@@ -305,11 +317,13 @@ async fn retry(
                 params![now(), actor.username, body.id.to_string()],
             )?;
             tx.commit()?;
-            Ok(())
+            Ok(None)
         })
         .await
         .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
-    Ok(Json(json!({"ok":true})))
+    Ok(Json(
+        json!({"ok":true,"status":if command.is_some(){"queued"}else{"done"},"command_id":command}),
+    ))
 }
 
 async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {

@@ -55,6 +55,7 @@ export const navigation = [
   { id: 'messages', label: 'Messages', icon: Activity },
   { id: 'domains', label: 'Domaines', icon: Globe2 },
   { id: 'gateways', label: 'Passerelles', icon: Network },
+  { id: 'cluster', label: 'Serveurs MX', icon: Server },
   { id: 'filters', label: 'Filtres', icon: SlidersHorizontal },
   { id: 'users', label: 'Comptes & accès', icon: Users },
   { id: 'server', label: 'État du serveur', icon: Server },
@@ -132,6 +133,8 @@ type Audit = {
   object: string;
 };
 type Delivery = {
+  node_id?: string | null;
+  pending_command?: boolean;
   id: number;
   message_id: string;
   address: string;
@@ -600,6 +603,7 @@ export function AdminConsole({
                   'Des accès individuels, par adresse ou pour un domaine entier.',
                 server: 'Livraisons, capacité et historique des changements.',
                 messages: '',
+                cluster: 'Configuration et supervision des serveurs MX.',
               }[section]
             }
           </p>
@@ -1559,6 +1563,10 @@ export function AdminConsole({
                       <tr key={d.id}>
                         <td className="wrap">
                           <strong>{d.address}</strong>
+                          <small>
+                            {d.node_id || 'Serveur local'}
+                            {d.pending_command ? ' · Commande en attente' : ''}
+                          </small>
                           <small className="queue-error">
                             {d.error || 'Aucune erreur enregistrée'}
                           </small>
@@ -1579,17 +1587,23 @@ export function AdminConsole({
                         <td>
                           <Button
                             variant="outline"
-                            disabled={busy || d.status !== 'pending'}
+                            disabled={
+                              busy ||
+                              d.status !== 'pending' ||
+                              d.pending_command
+                            }
                             onClick={() =>
                               void action(async () => {
-                                await api(
+                                const result = await api<{ status?: string }>(
                                   '/admin/queue/retry',
                                   { id: d.id },
                                   user.csrf,
                                 );
                                 setEpoch((e) => e + 1);
                                 setNotice(
-                                  'Livraison remise à échéance immédiate.',
+                                  result.status === 'queued'
+                                    ? 'Relance transmise au serveur d’origine ; confirmation en attente.'
+                                    : 'Livraison remise à échéance immédiate.',
                                 );
                               })
                             }

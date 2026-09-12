@@ -63,6 +63,7 @@ export function MessageSearchControls({
           <div className="search-fields-grid">
             {(
               [
+                ['node', 'Serveur MX', 'mx2 ou local'],
                 ['sender', 'Expéditeur', 'adresse ou domaine'],
                 ['recipient', 'Destinataire', 'adresse ou alias autorisé'],
                 ['subject', 'Objet', 'mots ou "expression exacte"'],

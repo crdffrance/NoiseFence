@@ -211,3 +211,10 @@ domaines, alias et relais. L’espace **Mes filtres** permet aux utilisateurs de
 personnaliser les niveaux, actions et règles de leurs adresses autorisées.
 Voir [le guide de configuration Web](docs/web-configuration.md) pour les droits,
 l’héritage, l’application des changements et la migration depuis une version antérieure.
+
+## Plusieurs MX
+
+La [configuration multi-MX](docs/multi-mx.md) réunit des passerelles autonomes autour
+d’une console centrale : réglages et modèles communs, historique agrégé et budgets
+partagés. Chaque serveur garde sa file locale ; la réplication des messages acceptés
+et la bascule de la console ne sont pas incluses.

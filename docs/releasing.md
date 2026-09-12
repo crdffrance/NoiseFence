@@ -56,4 +56,4 @@ Une release ne change ni la configuration du serveur, ni les MX, ni le mode de f
 Le déploiement et la validation Proton restent des étapes distinctes. Conserver la
 version précédente et son répertoire de configuration pour permettre un retour arrière.
 
-Depuis 0.4, les archives portent `storage_schema: 2` dans `build.json`. Un retour automatique vers une archive de schéma incompatible est refusé. Voir [la migration](actions.md#migration-de-stockage) avant toute restauration.
+Depuis 0.14, les archives portent `storage_schema: 3` dans `build.json` (schéma 2 avant 0.14). Le stockage est marqué 3 à l’activation du cluster ; voir [multi-MX](multi-mx.md). Un retour automatique vers une archive de schéma incompatible est refusé. Voir [la migration](actions.md#migration-de-stockage) avant toute restauration.

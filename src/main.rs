@@ -624,6 +624,10 @@ async fn main() -> Result<()> {
         noisefence::control::effective_from_disk(bootstrap)?
     };
     if matches!(cli.command, Command::ConsoleReset) {
+        anyhow::ensure!(
+            !noisefence::cluster::is_worker(&config),
+            "La configuration du nœud est gérée par la console centrale."
+        );
         let store = Store::open(&config.data_dir)?;
         let _lock = store.daemon_lock()?;
         let settings = serde_json::to_string(&noisefence::control::Settings::from_config(&config))?;
@@ -997,7 +1001,7 @@ async fn main() -> Result<()> {
                 uuid::Uuid::parse_str(&message_id).is_ok(),
                 "invalid message id"
             );
-            let count=store.run(move|db|Ok(db.execute("UPDATE deliveries SET next_attempt=?2 WHERE message_id=?1 AND status='pending'",rusqlite::params![message_id,noisefence::now()])?)).await?;
+            let count=store.run(move|db|Ok(db.execute("UPDATE deliveries SET next_attempt=?2 WHERE message_id=?1 AND status='pending' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id)",rusqlite::params![message_id,noisefence::now()])?)).await?;
             println!("{count} pending deliveries scheduled.");
         }
         Command::ExportLearning {
@@ -1063,6 +1067,7 @@ async fn main() -> Result<()> {
         Command::Serve => {
             let _lock = store.daemon_lock()?;
             store.recover().await?;
+            noisefence::cluster::prepare(&config, &store).await?;
             let control =
                 noisefence::control::Controller::load(config.clone(), store.clone()).await?;
             let engine = control.snapshot().engine.clone();
@@ -1089,6 +1094,7 @@ async fn main() -> Result<()> {
                 Some(control.clone()),
                 rx.clone(),
             ));
+            let mut cluster = tokio::spawn(noisefence::cluster::run(control.clone(), rx.clone()));
             let mut api = tokio::spawn(noisefence::api::serve_controlled(
                 web,
                 config,
@@ -1103,10 +1109,11 @@ async fn main() -> Result<()> {
                 r=&mut smtp=>{r??;anyhow::bail!("SMTP stopped unexpectedly");},
                 r=&mut relay=>{r??;anyhow::bail!("relay stopped unexpectedly");},
                 r=&mut api=>{r??;anyhow::bail!("API stopped unexpectedly");}
+                r=&mut cluster=>{r??;anyhow::bail!("cluster synchronization stopped unexpectedly");}
             }
             stop.send(true)?;
             let _ = tokio::time::timeout(std::time::Duration::from_secs(35), async {
-                let _ = tokio::join!(smtp, relay, api);
+                let _ = tokio::join!(smtp, relay, api, cluster);
             })
             .await;
         }
