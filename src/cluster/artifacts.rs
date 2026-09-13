@@ -193,6 +193,19 @@ pub fn capture(
     })
 }
 impl Bundle {
+    /// Preserve the unchanged protocol for an older worker during rollout.
+    /// Build participates in the digest; never rewrite it without recomputing it.
+    pub fn for_build(&self, build: &str) -> Result<Self> {
+        self.validate()?;
+        ensure!(
+            super::protocol::compatible_build(build),
+            "Unsupported worker build"
+        );
+        let mut bundle = self.clone();
+        bundle.build = build.into();
+        bundle.digest = bundle.hash()?;
+        Ok(bundle)
+    }
     pub fn hash(&self) -> Result<String> {
         Ok(crate::message::digest(&serde_json::to_vec(
             &json!({"protocol":self.protocol,"build":self.build,"revision":self.revision,"settings":self.settings,"shared":self.shared,"files":self.files}),
@@ -201,7 +214,7 @@ impl Bundle {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.protocol == "noisefence-cluster-1"
-                && self.build == env!("CARGO_PKG_VERSION")
+                && super::protocol::compatible_build(&self.build)
                 && self.revision >= 0
                 && self.digest == self.hash()?,
             "Configuration incompatible ou empreinte invalide."

@@ -125,6 +125,14 @@ arrêter son écoute SMTP tout en traitant le courrier déjà accepté.
 
 ## Stockage et retour arrière
 
+Pour passer de 0.14.0 à 0.15.1, mettre à jour **le coordinateur en premier**,
+vérifier que les anciens workers continuent à synchroniser, puis mettre à jour les
+workers un par un. Le protocole de ces versions est identique : le coordinateur
+adapte l'identifiant de version et recalcule l'empreinte pour chaque worker. Un
+worker 0.15.1 valide également son cache 0.14.0 au redémarrage. Cette compatibilité
+est une liste explicite, pas une acceptation générale des versions antérieures ou
+futures. Ne pas supprimer ni réécrire manuellement la politique en cache.
+
 L’activation du rôle marque le stockage en **schéma 3**. La version 0.14 sait ouvrir
 les schémas précédents et ajoute les tables de cluster. Un stockage de cluster exige
 son rôle et son identifiant d’origine : supprimer la section ou cloner une file vers

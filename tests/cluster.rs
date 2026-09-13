@@ -922,3 +922,86 @@ async fn cluster_prepare_never_downgrades_the_mfa_schema_guard() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changing_policy() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let cfg = config(a.path(), Role::Coordinator);
+    let store = prepare(&cfg).await;
+    let secret = node(&store, "mx2").await;
+    let authority = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let publication = authority.publication().await.unwrap();
+    let app = api::router_controlled(cfg, store, Some(authority)).unwrap();
+    let worker = config(b.path(), Role::Worker);
+    let worker_store = prepare(&worker).await;
+    let worker_control = Controller::load(worker.clone(), worker_store.clone())
+        .await
+        .unwrap();
+    for build in [
+        "0.14.0",
+        "0.15.0",
+        env!("CARGO_PKG_VERSION"),
+        "0.13.0",
+        "9.99.0",
+        "0.14.0-unknown",
+    ] {
+        let poll = json!({"build":build,"revision":0,"digest":"","budget":{"known":{},"replenish":[]},"records":[],"results":[],"status":{"hostname":"mx2.example.test"}});
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/cluster/v1/sync")
+                    .header("authorization", format!("Bearer {secret}"))
+                    .header("x-noisefence-node", "mx2")
+                    .header("content-type", "application/json")
+                    .body(Body::from(poll.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if matches!(build, "0.13.0" | "9.99.0" | "0.14.0-unknown") {
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            continue;
+        }
+        assert_eq!(response.status(), StatusCode::OK);
+        let reply: protocol::Reply =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        // The original 0.14 reader checks its exact build and the digest before materializing.
+        assert_eq!(reply.bundle.build, build);
+        assert_eq!(reply.bundle.digest, reply.bundle.hash().unwrap());
+        assert_eq!(reply.bundle.shared, publication.bundle.shared);
+        assert_eq!(
+            serde_json::to_value(&reply.bundle.settings).unwrap(),
+            serde_json::to_value(&publication.bundle.settings).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&reply.bundle.files).unwrap(),
+            serde_json::to_value(&publication.bundle.files).unwrap()
+        );
+        worker_control
+            .apply_cluster(
+                reply.bundle.clone(),
+                "unchanged-keys".into(),
+                noisefence::now(),
+            )
+            .await
+            .unwrap();
+        let restarted = Controller::load(worker.clone(), worker_store.clone())
+            .await
+            .unwrap();
+        assert!(restarted.cluster_ready());
+        assert_eq!(restarted.cluster_digest(), reply.bundle.digest);
+        let mut tampered = reply.bundle;
+        tampered.build = "9.99.0".into();
+        tampered.digest = tampered.hash().unwrap();
+        assert!(
+            restarted
+                .apply_cluster(tampered, "unchanged-keys".into(), noisefence::now())
+                .await
+                .is_err()
+        );
+    }
+}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1 — 2026-09-13
+
+- Mise à jour séquentielle du cluster depuis 0.14.0 : le coordinateur sert le protocole inchangé aux anciens workers et les nouveaux workers peuvent reprendre leur politique en cache.
+- Compatibilité limitée aux versions explicitement vérifiées ; empreintes, identités, budgets et expiration des politiques restent contrôlés. Mettre à jour le coordinateur avant les workers.
+- Inclut le durcissement et le MFA de la candidate 0.15.0, remplacée avant sa mise en production.
+
 ## 0.15.0 — 2026-09-13
 
 - Durcissement Debian des MX avec SSH par clé, pare-feu IPv4/IPv6, profils AppArmor et budgets de ressources systemd ; transactions avec retour arrière temporaire et déploiement séquentiel.

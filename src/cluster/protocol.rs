@@ -8,6 +8,13 @@ use std::{
     path::Path,
 };
 
+/// Explicitly audited wire-identical releases for a coordinator-first rollout.
+/// A future release must review its typed policies before extending this window.
+pub fn compatible_build(build: &str) -> bool {
+    build == env!("CARGO_PKG_VERSION")
+        || (env!("CARGO_PKG_VERSION") == "0.15.1" && matches!(build, "0.14.0" | "0.15.0"))
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Poll {

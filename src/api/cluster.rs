@@ -105,7 +105,7 @@ async fn sync(
 ) -> ApiResult<Json<protocol::Reply>> {
     let id = node(&app, &h).await?;
     let control = coordinator(&app)?;
-    if request.build != env!("CARGO_PKG_VERSION")
+    if !protocol::compatible_build(&request.build)
         || request.digest.len() > 64
         || request.results.len() > 32
         || !crate::config::valid_domain(&request.status.hostname)
@@ -120,6 +120,7 @@ async fn sync(
         .last_error
         .map(|s| crate::delivery_log::sanitize(&s, 400).0);
     let publication = control.publication().await?;
+    let bundle = publication.bundle.for_build(&request.build)?;
     let owner = id.clone();
     let revision = request.revision;
     let digest = request.digest;
@@ -159,7 +160,7 @@ async fn sync(
         protocol: "noisefence-cluster-1".into(),
         node_id: id,
         server_time: now(),
-        bundle: publication.bundle.clone(),
+        bundle,
         receipts,
         commands,
         credits,
