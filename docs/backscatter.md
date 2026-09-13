@@ -1,4 +1,4 @@
-# Protection contre les notifications de spam (0.15.2)
+# Protection contre les notifications de spam (0.15.3)
 
 Un expéditeur SMTP peut usurper l’adresse d’une victime. Si NoiseFence accepte
 le message puis que le fournisseur le refuse, un avis de non-livraison (DSN)
@@ -21,6 +21,8 @@ Il faut aussi une analyse complète, une décision `unwanted` et des observation
 d’authentification issues de la session SMTP réelle : SPF `fail`/`soft_fail`,
 authentification achevée, aucun succès ni résultat indéterminé DKIM/DMARC/ARC.
 Un message authentifié ou importé pour analyse ne bénéficie pas de cette exception.
+Un classement non-spam issu des règles du destinataire ou une correction
+utilisateur « Légitime »/« PUB » conserve également la notification normale.
 
 Enfin, il faut **soit** une détection de malware de l’antivirus principal,
 **soit** tous les éléments suivants :
@@ -57,8 +59,8 @@ injections de champs. Les erreurs sans code exploitable gardent `5.0.0`.
 
 ## Exploitation
 
-Déployer le coordinateur 0.15.2 avant les workers. Aucun changement de schéma SQL,
-de clé, de compte ou de budget. Le nouveau statut requiert un coordinateur 0.15.2
+Déployer le coordinateur 0.15.3 avant les workers. Aucun changement de schéma SQL,
+de clé, de compte ou de budget. Le nouveau statut requiert un coordinateur 0.15.3
 pour la remontée d’historique ; ne pas revenir à un ancien coordinateur tant que
 des workers lui transmettent cet état. Le retour arrière ne doit jamais restaurer
 une ancienne file par-dessus les messages acceptés depuis.

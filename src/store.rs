@@ -414,6 +414,11 @@ impl Store {
                 |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
             ).optional()?;
             let Some((raw,error,trace)) = row else { return Ok(false); };
+            // A recipient's legitimate/PUB correction is negative evidence,
+            // including when it arrives while delivery is being retried.
+            if tx.query_row("SELECT EXISTS(SELECT 1 FROM feedback WHERE message_id=?1 AND spam=0)",[&job.message_id],|r|r.get::<_,bool>(0))? {
+                return Ok(false);
+            }
             let scan: Scan = serde_json::from_str(&raw)?;
             let attempt: crate::delivery_log::Attempt = serde_json::from_str(&trace)?;
             if attempt.events.last().and_then(|e| e.response.as_deref()) != Some(error.as_str()) {

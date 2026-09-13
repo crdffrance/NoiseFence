@@ -944,6 +944,7 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         "0.14.0",
         "0.15.0",
         "0.15.1",
+        "0.15.2",
         env!("CARGO_PKG_VERSION"),
         "0.13.0",
         "9.99.0",

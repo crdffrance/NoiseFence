@@ -23,6 +23,9 @@ fn missing_conflicting_or_authenticated_evidence_never_suppresses_a_notice() {
         |s| s.decision = None,
         |s| s.decision.as_mut().unwrap().outcome = Outcome::Undetermined,
         |s| s.decision.as_mut().unwrap().outcome = Outcome::Legitimate,
+        |s| s.delivery_classification = Some(noisefence::mailing::Category::Legitimate),
+        |s| s.delivery_classification = Some(noisefence::mailing::Category::Publicity),
+        |s| s.delivery_classification = Some(noisefence::mailing::Category::Undetermined),
         |s| s.score = 98.99,
         |s| s.score = f64::NAN,
         |s| s.score = f64::INFINITY,
@@ -251,4 +254,65 @@ fn diagnostics_keep_codes_but_do_not_allow_header_injection_or_identifiers() {
         backscatter::failure_diagnostic("5.4.7 Delivery time expired", Some(&trace)).0,
         "5.4.7"
     );
+}
+
+#[tokio::test]
+async fn a_legitimate_correction_during_retry_preserves_the_failure_notice() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    store
+        .enqueue(
+            id.clone(),
+            "alice@example.test".into(),
+            vec![cfg.recipient("bob@example.test").unwrap()],
+            fixture::scan(cfg.clone()),
+            common::MESSAGE.to_vec(),
+        )
+        .await
+        .unwrap();
+    let job = store.claim().await.unwrap().unwrap();
+    let trace = fixture::rejection();
+    store
+        .finish_with_attempts(
+            &job,
+            "failed",
+            trace.events.last().unwrap().response.as_deref().unwrap(),
+            0,
+            std::slice::from_ref(&trace),
+        )
+        .await
+        .unwrap();
+    store
+        .run(move |db| {
+            db.execute(
+                "INSERT INTO users(username,password) VALUES('reviewer','synthetic-test-hash')",
+                [],
+            )?;
+            db.execute(
+                "INSERT INTO feedback(username,message_id,spam,created) VALUES('reviewer',?1,0,?2)",
+                rusqlite::params![id, noisefence::now()],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let engine = Engine::new(cfg.clone()).unwrap();
+    relay::notifications(&cfg, &store, &engine).await.unwrap();
+    assert!(store.claim().await.unwrap().unwrap().is_dsn);
+    store
+        .read(|db| {
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM audit WHERE action='dsn_suppressed'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
 }

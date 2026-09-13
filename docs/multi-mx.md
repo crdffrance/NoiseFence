@@ -125,11 +125,11 @@ arrêter son écoute SMTP tout en traitant le courrier déjà accepté.
 
 ## Stockage et retour arrière
 
-La version **0.15.2** ajoute l’état terminal `dsn_suppressed` pour la protection
+La version **0.15.3** ajoute l’état terminal `dsn_suppressed` pour la protection
 [anti-backscatter](backscatter.md). Mettre à jour le coordinateur avant les workers.
 Les bundles de politique 0.15.1 restent compatibles ; les nouveaux statuts exigent
-un coordinateur 0.15.2. Pour un retour arrière, arrêter d’abord les workers 0.15.2
-et conserver le coordinateur 0.15.2 tant qu’ils ont des métadonnées à synchroniser.
+un coordinateur 0.15.3. Pour un retour arrière, arrêter d’abord les workers 0.15.3
+et conserver le coordinateur 0.15.3 tant qu’ils ont des métadonnées à synchroniser.
 Ne pas modifier les états de livraison pour forcer un ancien lecteur.
 
 Pour passer de 0.14.0 à 0.15.1, mettre à jour **le coordinateur en premier**,

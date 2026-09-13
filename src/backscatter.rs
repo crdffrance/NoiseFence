@@ -37,6 +37,9 @@ pub fn suppression_reason(scan: &Scan, attempt: &Attempt) -> Option<&'static str
             ))
         || !scan.complete
         || scan.decision.as_ref()?.outcome != Outcome::Unwanted
+        || scan
+            .delivery_classification
+            .is_some_and(|c| c != crate::mailing::Category::Spam)
     {
         return None;
     }
