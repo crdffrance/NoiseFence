@@ -26,12 +26,12 @@ fn coordinator(app: &App) -> ApiResult<Arc<crate::control::Controller>> {
     {
         return Err(Error(
             StatusCode::NOT_FOUND,
-            "Service de coordination désactivé.".into(),
+            "Coordination service deactivated.".into(),
         ));
     }
     app.control.clone().ok_or(Error(
         StatusCode::SERVICE_UNAVAILABLE,
-        "Coordinateur indisponible.".into(),
+        "Coordinator unavailable.".into(),
     ))
 }
 async fn node(app: &App, h: &HeaderMap) -> ApiResult<String> {
@@ -42,7 +42,7 @@ async fn node(app: &App, h: &HeaderMap) -> ApiResult<String> {
         .filter(|v| crate::cluster::valid_id(v))
         .ok_or(Error(
             StatusCode::UNAUTHORIZED,
-            "Identité de nœud requise.".into(),
+            "Node identity required.".into(),
         ))?;
     let key = h
         .get(header::AUTHORIZATION)
@@ -51,7 +51,7 @@ async fn node(app: &App, h: &HeaderMap) -> ApiResult<String> {
         .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
         .ok_or(Error(
             StatusCode::UNAUTHORIZED,
-            "Identité de nœud requise.".into(),
+            "Node identity required.".into(),
         ))?;
     let id = id.to_owned();
     let query = id.clone();
@@ -73,7 +73,7 @@ async fn node(app: &App, h: &HeaderMap) -> ApiResult<String> {
     }) {
         return Err(Error(
             StatusCode::UNAUTHORIZED,
-            "Identité de nœud refusée.".into(),
+            "Identity of node refused.".into(),
         ));
     }
     Ok(id)
@@ -84,7 +84,7 @@ async fn node_guard(State(app): State<App>, request: Request, next: Next) -> Res
         Err(_) => {
             return Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Synchronisation occupée.".into(),
+                "Synchronization at capacity.".into(),
             )
             .into_response();
         }
@@ -97,7 +97,7 @@ async fn node_guard(State(app): State<App>, request: Request, next: Next) -> Res
         Ok(response) => response,
         Err(_) => Error(
             StatusCode::GATEWAY_TIMEOUT,
-            "Synchronisation expirée.".into(),
+            "Synchronization expired.".into(),
         )
         .into_response(),
     }
@@ -116,7 +116,7 @@ async fn sync(
     {
         return Err(Error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Version ou rapport de nœud incompatible.".into(),
+            "Incompatible node version or report.".into(),
         ));
     }
     request.status.last_error = request
@@ -157,7 +157,7 @@ async fn sync(
     if control.snapshot().revision != publication.bundle.revision {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Configuration modifiée ; reprendre la synchronisation.".into(),
+            "Modified configuration; resume synchronization.".into(),
         ));
     }
     Ok(Json(protocol::Reply {
@@ -184,7 +184,7 @@ async fn artifact(
         .iter()
         .find(|(_, f)| f.sha256 == hash)
         .map(|(name, _)| name)
-        .ok_or(Error(StatusCode::NOT_FOUND, "Modèle inconnu.".into()))?;
+        .ok_or(Error(StatusCode::NOT_FOUND, "Unknown model.".into()))?;
     let file = tokio::fs::File::open(&publication.paths[name])
         .await
         .map_err(anyhow::Error::from)?;
@@ -192,7 +192,7 @@ async fn artifact(
     if size != publication.bundle.files[name].size {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Modèle modifié ; rechargez le manifeste.".into(),
+            "Modified model; reload manifest.".into(),
         ));
     }
     Ok((
@@ -263,7 +263,7 @@ async fn save_node(
     {
         return Err(Error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Nom ou identifiant de nœud invalide.".into(),
+            "Invalid node name or identifier.".into(),
         ));
     }
     let secret = (body.version < 0 || body.rotate).then(random_token);
@@ -272,11 +272,11 @@ async fn save_node(
     let id = body.id.clone();
     let version=app.store.run(move|db| {
         let tx=db.transaction()?;
-        ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![actor.username,session_hash,now()],|r|r.get::<_,bool>(0))?,"Session administrateur expirée");
+        ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![actor.username,session_hash,now()],|r|r.get::<_,bool>(0))?,"Expiration of the admin session");
         let previous=tx.query_row("SELECT version FROM cluster_nodes WHERE id=?1",[&body.id],|r|r.get::<_,i64>(0)).optional()?;
-        ensure!(previous.unwrap_or(-1)==body.version,"Le nœud a été modifié ailleurs ; rechargez.");
+        ensure!(previous.unwrap_or(-1)==body.version,"The node has been modified elsewhere; reload.");
         if previous.is_none() {
-            ensure!(tx.query_row("SELECT COUNT(*) FROM cluster_nodes",[],|r|r.get::<_,i64>(0))?<16,"Maximum de 16 nœuds.");
+            ensure!(tx.query_row("SELECT COUNT(*) FROM cluster_nodes",[],|r|r.get::<_,i64>(0))?<16,"Maximum 16 knots.");
             tx.execute("INSERT INTO cluster_nodes(id,name,token_hash,enabled,created) VALUES(?1,?2,?3,?4,?5)",params![body.id,body.name,hash,body.enabled,now()])?;
         } else {
             tx.execute("UPDATE cluster_nodes SET name=?2,enabled=?3,token_hash=COALESCE(?4,token_hash),version=version+1 WHERE id=?1",params![body.id,body.name,body.enabled,hash])?;

@@ -1,12 +1,12 @@
 export const mailKinds = {
-  conversation: 'Conversation', transactional: 'Facture / transaction',
-  notification: 'Notification de service', newsletter: 'Newsletter',
-  promotion: 'Publicité', other: 'Autre courrier',
+  conversation: 'Conversation', transactional: "Invoice / transaction",
+  notification: "Service Notification", newsletter: 'Newsletter',
+  promotion: "Marketing", other: "Other mail",
 } as const;
 export type MailKind = keyof typeof mailKinds;
 export type Risk = 'legitimate' | 'spam' | 'uncertain';
 export function mailKindLabel(kind: string) {
-  return (mailKinds as Record<string,string>)[kind] ?? 'Type indéterminé';
+  return (mailKinds as Record<string,string>)[kind] ?? "Undetermined type";
 }
 export type SampleReadiness = {
   selected:number;available:number;labelled:number;risk_labels:number;kind_labels:number;
@@ -15,9 +15,9 @@ export type SampleReadiness = {
   training_validated:false;observation_only:true;
 };
 export function candidateLabel(status: string) {
-  return ({complete:'Candidat évalué en observation',not_configured:'En attente d’un modèle candidat',
-    incompatible:'Modèle incompatible avec ces contrôles',expired:'Modèle candidat expiré',
-    missing_evidence:'Observations historiques absentes',unsupported_evidence:'Observations insuffisantes'} as Record<string,string>)[status] ?? 'État indisponible';
+  return ({complete:"Candidate assessed for observation",not_configured:"Waiting for a candidate model",
+    incompatible:"Model incompatible with these controls",expired:"Expiration of the candidate model",
+    missing_evidence:"Historical observations absent",unsupported_evidence:"Insufficient comments"} as Record<string,string>)[status] ?? "State not available";
 }
 export type QualityReport = {
   candidate_status: string; complete_features: boolean;

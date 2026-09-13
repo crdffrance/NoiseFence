@@ -10,6 +10,7 @@ export function SectionTabs<T extends string>({
   value,
   onChange,
   presentation = 'line',
+  query = '',
 }: {
   id: string;
   label: string;
@@ -22,6 +23,7 @@ export function SectionTabs<T extends string>({
   value: T;
   onChange: (value: T) => void;
   presentation?: 'line' | 'cards';
+  query?: string;
 }) {
   return (
     <div
@@ -37,6 +39,7 @@ export function SectionTabs<T extends string>({
           id={`${id}-tab-${item.id}`}
           aria-controls={`${id}-panel-${item.id}`}
           aria-selected={value === item.id}
+          className={query && !`${item.label} ${item.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()) ? 'setting-search-muted' : undefined}
           tabIndex={value === item.id ? 0 : -1}
           onClick={() => onChange(item.id)}
           onKeyDown={(event) => {
@@ -122,7 +125,7 @@ export function ConfirmDialog({
         <h2 id={heading}>{title}</h2>
         <Button
           variant="ghost"
-          aria-label="Fermer la confirmation"
+          aria-label="Close confirmation"
           disabled={busy}
           onClick={onCancel}
         >
@@ -140,14 +143,14 @@ export function ConfirmDialog({
           disabled={busy}
           onClick={onCancel}
         >
-          Annuler
+          Cancel
         </button>
         <Button
           variant={danger ? 'destructive' : 'default'}
           disabled={busy}
           onClick={onConfirm}
         >
-          {busy ? 'Traitement…' : confirmLabel}
+          {busy ? 'Processing…' : confirmLabel}
         </Button>
       </div>
     </dialog>

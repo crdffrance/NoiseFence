@@ -1,0 +1,212 @@
+[
+  {
+    "name": "review keeps content index",
+    "scan": {
+      "score": 99.4,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "legacy",
+        "outcome": "undetermined",
+        "score": null,
+        "model": "legacy-v1"
+      }
+    },
+    "expected": {
+      "value": 99.4,
+      "kind": "advisory",
+      "source": "raw",
+      "category": "undetermined",
+      "classification_source": "recorded_decision"
+    }
+  },
+  {
+    "name": "partial high risk remains review",
+    "scan": {
+      "score": 99.4,
+      "complete": false,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "legacy",
+        "outcome": "undetermined",
+        "score": null,
+        "model": "legacy-v1"
+      },
+      "reasons": [
+        {
+          "id": "smtp_policy_unavailable",
+          "detail": "private",
+          "weight": 0
+        }
+      ]
+    },
+    "expected": {
+      "value": 99.4,
+      "kind": "partial",
+      "source": "raw",
+      "category": "undetermined",
+      "classification_source": "recorded_decision"
+    }
+  },
+  {
+    "name": "fusion uses decision scale",
+    "scan": {
+      "score": 99.4,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "fusion",
+        "outcome": "legitimate",
+        "score": 2.4,
+        "model": "fusion-v1"
+      }
+    },
+    "expected": {
+      "value": 2.4,
+      "kind": "decision",
+      "source": "decision",
+      "category": "legitimate",
+      "classification_source": "recorded_decision"
+    }
+  },
+  {
+    "name": "malware does not invent a probability",
+    "scan": {
+      "score": 1.2,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "antivirus",
+        "outcome": "unwanted",
+        "score": 100,
+        "model": "antivirus-v1"
+      }
+    },
+    "expected": {
+      "value": 1.2,
+      "kind": "advisory",
+      "source": "raw",
+      "category": "spam",
+      "classification_source": "recorded_decision"
+    }
+  },
+  {
+    "name": "recipient policy stays distinct",
+    "scan": {
+      "score": 99.4,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "legacy",
+        "outcome": "undetermined",
+        "score": null,
+        "model": "legacy-v1"
+      },
+      "delivery_classification": "legitimate"
+    },
+    "expected": {
+      "value": 99.4,
+      "kind": "advisory",
+      "source": "raw",
+      "category": "legitimate",
+      "classification_source": "recipient_policy"
+    }
+  },
+  {
+    "name": "real zero remains zero",
+    "scan": {
+      "score": 0,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "legacy",
+        "outcome": "legitimate",
+        "score": 0,
+        "model": "legacy-v1"
+      }
+    },
+    "expected": {
+      "value": 0,
+      "kind": "content",
+      "source": "decision",
+      "category": "legitimate",
+      "classification_source": "recorded_decision"
+    }
+  },
+  {
+    "name": "invalid numbers stay absent",
+    "scan": {
+      "score": 101,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "decision": {
+        "source": "legacy",
+        "outcome": "undetermined",
+        "score": -1,
+        "model": "legacy-v1"
+      }
+    },
+    "expected": {
+      "value": null,
+      "kind": "unavailable",
+      "source": "unavailable",
+      "category": "undetermined",
+      "classification_source": "recorded_decision"
+    }
+  },
+  {
+    "name": "internal DSN value is identified",
+    "scan": {
+      "score": 0,
+      "complete": true,
+      "model": "dsn",
+      "tagged": false,
+      "pub_tagged": false
+    },
+    "expected": {
+      "value": 0,
+      "kind": "internal",
+      "source": "raw",
+      "category": "legitimate",
+      "classification_source": "historical_fallback"
+    }
+  },
+  {
+    "name": "stored threshold survives setting changes",
+    "scan": {
+      "score": 90,
+      "complete": true,
+      "model": "content-v1",
+      "tagged": false,
+      "pub_tagged": false,
+      "analysis_policy": {
+        "version": "test",
+        "threshold": 95,
+        "mode": "observe",
+        "require_corroboration": true,
+        "rule_weights": {}
+      }
+    },
+    "expected": {
+      "value": 90,
+      "kind": "content",
+      "source": "raw",
+      "category": "legitimate",
+      "classification_source": "historical_fallback"
+    }
+  }
+]

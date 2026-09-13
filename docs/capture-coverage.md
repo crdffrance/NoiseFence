@@ -1,94 +1,36 @@
-# Couverture et contexte du filtrage — 0.6.0
+<a id="couverture-et-contexte-du-filtrage--060"></a>
+# Coverage and context of filtering — 0.6.0
 
-## Réputation et redirections
+<a id="réputation-et-redirections"></a>
+## Reputation and redirection
 
-Le cache des douze cibles prioritaires est consulté avant les portes de capacité,
-quotas et pauses fournisseur. Les destinations découvertes restent prioritaires.
-Les cibles supplémentaires sont comptées comme omises. Une absence d’information,
-un rapport VirusTotal ancien ou une erreur ne vaut jamais preuve de malveillance.
+The cache of the twelve priority targets is consulted before capacity doors, quotas and supplier breaks. The destinations discovered remain priority. Additional targets are counted as omitted. A lack of information, an old VirusTotal report or an error is never worth the mischief.
 
-[CRDF search_urls](https://threatcenter.crdf.fr/api/doc/) accepte une liste de
-cibles. NoiseFence regroupe jusqu’à douze racines de domaines par requête, sans
-adresses de messagerie, chemin, paramètres d’URL ou corps. Chaque réponse doit
-correspondre une seule fois à une cible demandée. Une réponse mal associée invalide
-le lot. Une détection de page ne condamne pas son domaine entier. VirusTotal utilise
-uniquement les rapports existants de domaines ou empreintes ; aucune soumission
-nouvelle de contenu ou fichier.
+[CRDF search_urls](https://threatcenter.crdf.fr/api/doc/) accepts a list of targets. NoiseFence brings together up to twelve domain roots per query, without email addresses, path, URL settings or body. Each response must correspond only once to a requested target. A poorly associated response invalidates the lot. Page detection does not condemn its entire domain. VirusTotal uses only existing domain reports or fingerprints; no new content submissions or file submissions.
 
-La limite compte les réservations de requêtes, après acquisition d’une capacité
-réseau. Une panne au moment de l’envoi peut conserver une réservation sans réponse :
-le compteur reste prudent. Les caches individuels et les compteurs UTC persistent.
-Zéro reste « illimité », sans supprimer les limites de parallélisme et de durée.
-Le client n’effectue pas de reprise implicite. Une erreur de connexion ou HTTP
-502/503/504 sans pause explicite permet au plus une reprise, après 50 ms, avec une
-nouvelle réservation et dans le même délai global. Les erreurs 429/authentification
-ne sont pas reprises. La pause `Retry-After` valide sur 429/503 est persistée et
-bornée à sept jours ; un délai plus long déjà enregistré reste prioritaire.
-Voir aussi [les erreurs VirusTotal](https://docs.virustotal.com/reference/errors).
+The limit counts query reservations, after acquiring network capacity. A failure at the time of sending can keep a reservation without an answer: the meter remains cautious. Individual caches and UTC meters persist. Zero remains "unlimited", without removing the limits of parallelism and duration. The customer does not perform an implied resumption. A connection error or HTTP 502/503/504 without explicit pause allows at most one resumption, after 50 ms, with a new reservation and within the same overall delay. Errors 429/ authentication are not repeated. The `Retry-After` pause valid on 429/503 is persistent and limited to seven days; a longer time limit already recorded remains priority. See also [virusTotal errors](https://docs.virustotal.com/reference/errors).
 
-Les chaînes de redirection utilisent les capacités partagées disponibles dans un
-délai global. Une chaîne lente ne bloque pas les autres capacités. Le client garde
-la vérification DNS de chaque saut, l’épinglage réseau, les certificats TLS, les
-adresses interdites et la limite de lecture de 64 Kio. Il n’exécute pas JavaScript.
-Les pages volumineuses ou dépendantes d’un script restent incomplètes. La fin d’une
-analyse annule ses tâches HTTP ; aucune exploration continue en arrière-plan.
+The redirect channels use the shared capabilities available within a global timeframe. A slow string does not block other capabilities. The client keeps the DNS check of each jump, network pinning, TLS certificates, prohibited addresses and the 64 KiB playback limit. It does not run JavaScript. The bulky or dependent pages of a script remain incomplete. The end of an analysis cancels its HTTP tasks; no continuous exploration in the background.
 
-## Exploiter les diagnostics
+<a id="exploiter-les-diagnostics"></a>
+## Applying diagnostics
 
-La page Fiabilité montre les requêtes, réponses HTTP, incidents récupérés ou non,
-pauses et indicateurs omis. Les raisons de redirection distinguent contraintes de
-sécurité, transport, capacité de lecture et réponses distantes. Le groupe courant
-est séparé des dernières 24 h toutes versions confondues. Les anciens messages
-n’ont pas tous les nouveaux compteurs ; zéro historique ne prouve pas zéro requête.
+The Reliability page shows requests, HTTP responses, recovered or unretrieved incidents, pauses and indicators omitted. The reasons for redirection distinguish security constraints, transport, readability and remote responses. The current group is separated from the last 24 hours all versions combined. Older messages do not have all new meters; zero history does not prove zero query.
 
-Le contexte des spams manqués et des abstentions porte exclusivement sur les cas
-annotés spam par le compte autorisé. Les corrections ciblées restent séparées des
-annotations qualité. Plusieurs incidents peuvent concerner un même message ; ils
-sont des pistes de diagnostic, pas une démonstration causale. Les jeux synthétiques
-de régression couvrent notamment les quotas avec résultat malveillant en cache,
-les reprises, les cibles mal associées, les liens lents et les changements de
-correspondant. Ils ne mesurent pas le rappel sur le trafic réel.
+The context of missed spam and omissions is exclusively about spam annotated cases by the authorized account. Targeted corrections remain separate from quality annotations. Several incidents may concern the same message; they are diagnostic tracks, not causal demonstration. Synthetic regression games cover in particular quotas with malicious cache result, recoveries, poorly associated targets, slow links and corresponding changes. They do not measure the recall on the actual traffic.
 
-## Mémoire comportementale consultative
+<a id="mémoire-comportementale-consultative"></a>
+## Consultative behavioural memory
 
-Une identité doit provenir d’une session SMTP, avec une unique adresse From et un
-DKIM aligné DMARC. La clé inclut le domaine destinataire. Les observations incluent
-une empreinte de l’unique destinataire d’enveloppe, au plus huit domaines de liens
-hachés dans ce périmètre et six types de motifs natifs, sans conserver le texte.
-Un message avec plusieurs destinataires d’enveloppe ne conserve pas ce contexte ;
-aucune identité de copie cachée n’est exposée à un autre compte.
+An identity must come from a SMTP session, with a single From address and a DMARC aligned DKIM. The key includes the recipient domain. Observations include a print of the only recipient of an envelope, no more than eight fields of links cut within that perimeter and six types of native motifs, without keeping the text. A message with multiple recipients of an envelope does not keep this context; no hidden copy identity is exposed to another account.
 
-La référence utilise uniquement les labels humains antérieurs d’administrateurs
-actifs ayant accès au message. Les corrections contradictoires sont exclues ; une
-campagne exacte contribue une fois. Les échantillons doivent partager le protocole
-et la politique native, sur trente jours, avec au moins cinq campagnes légitimes
-et trois jours distincts. Une donnée partielle, une requête expirée, un changement
-de politique ou un échantillon trop petit ne crée pas une nouveauté supposée.
-La lecture SQLite est bornée à 2 000 lignes et 200 ms ; l’interruption désactive la
-comparaison, sans bloquer la livraison.
+The reference only uses the previous human labels of active administrators having access to the message. Contradictory corrections are excluded; an exact campaign contributes once. Samples must share the protocol and native policy, over 30 days, with at least five legitimate campaigns and three separate days. Partial data, an expired request, a policy change or a too small sample does not create a supposed novelty. SQLite playback is limited to 2,000 lines and 200 ms; the interruption disables comparison, without blocking delivery.
 
-Les booléens de nouveauté alimentent uniquement le candidat qualité en observation,
-avec états indisponibles explicites et ablation dédiée. Ils ne créent pas de liste
-blanche, ne changent pas le score actif et ne concluent pas à une fraude. Les
-rapports publics et exports qualité retirent les clés et échantillons privés.
-Ces métadonnées suivent la rétention de trente jours des messages ; aucun corps
-supplémentaire n’est conservé. Les poids lexicaux, sémantiques et budgets LLM ne
-sont pas modifiés par cette version.
+Novelty booleans feed only the quality candidate into observation, with explicit unavailable states and dedicated removal. They do not create a whitelist, do not change the active score and do not conclude that there is fraud. Public reports and quality exports remove private keys and samples. These metadata follow the retention of thirty days of messages; no additional body is retained. LLM lexical, semantic and budget weights are not modified by this version.
 
-## Migration et preuve de qualité
+<a id="migration-et-preuve-de-qualité"></a>
+## Migration and proof of quality
 
-Le protocole qualité contient de nouvelles caractéristiques. Un candidat antérieur
-à 0.6.0 est refusé : retirer son chemin optionnel avant `check-config`, conserver
-le modèle privé à part et réentraîner un candidat sur de nouvelles observations
-compatibles. Ne pas mélanger les cohortes ou reconstruire des messages effacés.
-La mémoire comportementale démarre sans référence ; elle doit recueillir des
-annotations récentes. Les nouveaux champs de diagnostics sont optionnels pour
-les anciens lecteurs de messages et n’ajoutent pas de migration SQLite.
+The quality protocol contains new features. A candidate prior to 0.6.0 is refused: remove his optional path before `check-config`, keep the private model apart and retrain a candidate on new compatible observations. Do not mix cohorts or rebuild deleted messages. Behavioural memory starts without reference; it must collect recent annotations. New diagnostic fields are optional for old message readers and do not add SQLite migration.
 
-La sélection des seuils dans `train_quality.py` respecte les budgets empiriques
-sur la seule période de sélection, avec ex æquo inclus. La période de test et
-l’évaluation prospective gardent les campagnes antérieures à l’écart. Les objectifs
-95 % de rappel et 0,1 % de faux positifs restent à démontrer avec leurs intervalles ;
-une suite de tests logicielle ou un très petit lot annoté ne les établit pas.
-Aucun candidat n’est activé automatiquement. Le mode observation et les contrôles
-de validation Proton restent appliqués avant tout marquage.
+The selection of thresholds in `train_quality.py` meets the empirical budgets over the selection period only, with tied values included. The testing period and prospective evaluation keep the pre-recall campaigns away. The 95% targets and 0.1% false positives remain to be demonstrated with their intervals; a suite of software tests or a very small annotated lot does not establish them. No candidate is automatically activated. The observation mode and the Proton validation checks remain applied before any marking.

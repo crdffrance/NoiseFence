@@ -1,26 +1,25 @@
 ---
-name: Signaler un bug
-about: Décrire un problème reproductible avec NoiseFence
+name: Bug report
+about: Report a reproducible NoiseFence problem
 title: ''
 labels: bug
 assignees: ''
 ---
 
-Pour une vulnérabilité, suivre SECURITY.md et utiliser un signalement privé.
-Ne joindre aucun email réel, secret, clé API, cookie ou fichier de production.
+For security vulnerabilities, follow SECURITY.md and report privately. Do not attach real email, secrets, API keys, cookies or production databases.
 
-### Environnement
+### Environment
 
-- Version de NoiseFence et architecture :
-- Distribution Linux :
-- Mode de filtrage et modules concernés :
+- NoiseFence version and architecture:
+- Linux distribution:
+- Filtering mode and relevant modules:
 
-### Problème et comportement attendu
+### Problem and expected behavior
 
-### Étapes de reproduction
+### Reproduction steps
 
-Fournir une configuration minimale anonymisée et, si nécessaire, un message synthétique.
+Provide a minimal sanitized configuration and synthetic message where needed.
 
-### Résultat observé
+### Observed result
 
-Inclure uniquement les journaux utiles après retrait des données personnelles.
+Include relevant logs with personal information and credentials removed.

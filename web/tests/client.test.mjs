@@ -57,11 +57,11 @@ test('scoped diagnostic history uses the delivery query with authentication and 
 
 test('failed diagnostics expose an error suitable for the retry state', async (t) => {
   t.mock.method(globalThis, 'fetch', async () =>
-    Response.json({ error: 'Service indisponible' }, { status: 503 }),
+    Response.json({ error: "Service not available" }, { status: 503 }),
   );
   await assert.rejects(
     api('/messages/example/diagnostics'),
-    /Service indisponible/,
+    /Service not available/,
   );
 });
 

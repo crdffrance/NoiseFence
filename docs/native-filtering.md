@@ -1,22 +1,14 @@
-# Mécanismes de filtrage natifs Rust
+<a id="mécanismes-de-filtrage-natifs-rust"></a>
+# Rust native filtering mechanisms
 
-Depuis 0.4.15, NoiseFence dispose d'un moteur complémentaire d'observation, écrit
-en Rust. Il transpose les principes des [composites de Rspamd](https://docs.rspamd.com/configuration/composites/),
-de sa [détection de similarité](https://docs.rspamd.com/modules/fuzzy_check/) et des
-[classifieurs statistiques](https://docs.rspamd.com/configuration/statistic/).
-L'implémentation est propre à NoiseFence : ses résultats et ses formats ne sont
-pas interchangeables avec ceux de Rspamd. Les modules Lua et règles `.cf` ne se
-chargent pas dans ce moteur.
+Since 0.4.15, NoiseFence has a complementary observation engine, written in Rust. It transposes the principles of [Rspamd's components](https://docs.rspamd.com/configuration/composites/), its [similarity detection](https://docs.rspamd.com/modules/fuzzy_check/) and [statistical classifications](https://docs.rspamd.com/configuration/statistic/). The implementation is specific to NoiseFence: its results and formats are not interchangeable with those of Rspamd. The Lua modules and `.cf` rules do not load in this engine.
 
-Depuis 0.9.0, une [banque structurée de douze règles](rspamd-rules.md) complète
-les motifs : HTML, métadonnées MIME et identité affichée. Les noms et premières
-signatures binaires des pièces jointes sont examinés localement ; ils ne sont pas
-ajoutés aux caractéristiques textuelles ou aux appels externes.
+Since 0.9.0, a [structured bank of twelve rules](rspamd-rules.md) completes the patterns: HTML, MIME metadata and displayed identity. The names and first binary signatures of attachments are examined locally; they are not added to text or external calls.
 
-## Activer la collecte
+<a id="activer-la-collecte"></a>
+## Enable collection
 
-Ajouter cette table au fichier de configuration et redémarrer le service après
-`noisefence --config /etc/noisefence/config.toml check-config` :
+Add this table to the configuration file and restart service after `noisefence --config /etc/noisefence/config.toml check-config`:
 
 ```toml
 [native_filter]
@@ -28,38 +20,20 @@ fuzzy_memory = true
 # bayes_model = "/var/lib/noisefence/native/candidate/model.json"
 ```
 
-L'absence de table désactive le module. `observe` est le seul mode accepté : les
-points calculés ne modifient ni le score historique, ni la sélection du second
-avis, ni le classement, ni les actions de livraison. Un scan limité reste une
-observation indisponible. Le mode Proton existant est indépendant de cette table.
-Le modèle Bayes est facultatif ; `untrained` signifie qu'aucun poids n'est chargé.
+The absence of a table disables the module. `observe` is the only accepted mode: the calculated points do not change the historical score, nor the selection of the second review, nor the ranking, nor the delivery actions. A limited scan remains an unobserved observation. The existing Proton mode is independent of this table. The Bayes model is optional; `untrained` means that no weights are loaded.
 
-L'analyse CPU s'exécute hors des travailleurs asynchrones Tokio, avec un nombre
-borné de tâches. Les rafales attendent une place dans le budget de temps total. Une tâche annulée conserve son permis jusqu'à sa fin réelle.
-Le module ne contacte aucun service externe. La mémoire SQLite a son propre
-plafond de concurrence, un délai de 200 ms et une interruption de requête.
-La configuration impose 1 à 8 tâches, 50 à 1 000 ms, 1 Kio à 2 Mio par message.
-Les tables et les poids du module se rechargent au redémarrage ; une révision de
-la console réutilise le modèle déjà chargé et ses limites de concurrence.
+The CPU analysis is performed outside of the Tokio asynchronous workers, with a limited number of tasks. Bursts wait for capacity in the total time budget. A cancelled task retains its permit until its actual end. The module does not contact any external service. SQLite memory has its own concurrency limit, a delay of 200 ms and a request interruption. The configuration imposes 1 to 8 tasks, 50 to 1,000 ms, 1 KiB to 2 MiB per message. The model artifacts are loaded at startup. Web revisions reuse the loaded model while applying validated rule and resource settings to future messages.
 
-## Motifs et composites
+## Patterns and composites
 
-`regex::RegexSet` compile les motifs par vue : objet décodé, texte visible et HTML.
-Il s'agit d'une recherche groupée Rust, sans liaison C vers Hyperscan/Vectorscan.
-Les anciennes étiquettes SPAM/PUB sont retirées de l'objet analysé ; les anciens
-en-têtes antispam, les identités de transport et les pièces jointes n'entrent pas
-dans les caractéristiques textuelles. Les expressions s'appliquent aux vues
-bornées : 500 caractères d'objet, 32 000 de texte et 32 000 de HTML. Au maximum
-200 parties MIME sont admises. Les dépassements de ces vues limitent ce que le
-détecteur peut voir ; un rapport complet désigne les contrôles sur ces vues.
+`regex::RegexSet` compiles patterns by view: decoded object, visible text, and HTML. This is a Rust cluster search, with no C link to Hyperscan/Vectorscan. The old SPAM/PUB tags are removed from the object being analyzed; the old antispam headers, transport identities and attachments do not fit into textual features. The expressions apply to the limited views: 500 object characters, 32,000 text and 32,000 HTML. Maximum 200 MIME parts are allowed. Exceeding these views limit what the detector can see; a complete report refers to the controls on these views.
 
-Une table de motifs fournie remplace la banque par défaut, de même pour les
-composites. Exemple minimal autonome à placer après `[native_filter]` :
+A given pattern table replaces the default bank, as well as composites. An autonomous minimum example to place after `[native_filter]`:
 
 ```toml
 [[native_filter.patterns]]
 id = "ACCOUNT_REQUEST"
-label = "Demande de vérification de compte"
+label = "Account verification request"
 family = "content"
 weight = 0.5
 target = "body"
@@ -67,7 +41,7 @@ pattern = '(?i)verify your account|confirmez votre compte'
 
 [[native_filter.patterns]]
 id = "ACCOUNT_URGENCY"
-label = "Urgence liée au compte"
+label = "Account-related urgency"
 family = "content"
 weight = 0.3
 target = "body"
@@ -75,7 +49,7 @@ pattern = '(?i)immediately|immédiatement'
 
 [[native_filter.composites]]
 id = "ACCOUNT_PRESSURE"
-label = "Vérification demandée avec urgence"
+label = "Urgent verification request"
 family = "content"
 weight = 1.0
 all = ["ACCOUNT_REQUEST", "ACCOUNT_URGENCY"]
@@ -86,60 +60,27 @@ min = -0.5
 max = 1.5
 ```
 
-Les noms, poids et expressions sont validés avant le démarrage. Limites : 256
-motifs de 512 octets, 64 composites, 32 références par composite, mémoire de
-compilation bornée. Les références inconnues, collisions de noms et cycles sont
-refusés. `all` impose toutes les preuves, `any` au moins une. `none` accepte
-uniquement des motifs locaux dont la recherche est terminée : l'absence d'un
-résultat DNS ou externe ne devient jamais une preuve négative.
+Names, weights and expressions are validated before starting. Limits: 256 patterns of 512 bytes, 64 composites, 32 references per composite, limited compilation memory. Unknown references, name collisions and cycles are denied. `all` imposes all the evidence, `any` at least one. `none` accepts only local patterns whose search is complete: the absence of a DNS or external result never becomes negative proof.
 
-`replace` retire une seule fois les poids des symboles absorbés, en conservant
-leurs raisons et les composites consommateurs. Les dépendances s'évaluent dans
-un ordre déterministe. Une répétition d'un symbole ne multiplie pas son poids.
-Les familles sont `lexical`, `semantic`, `content`, `authentication`, `reputation`,
-`smtp`, `llm`, `campaign`, `bayes` et `other`. Chaque famille possède des bornes
-positives et négatives ; les familles omises dans la configuration héritent des
-valeurs par défaut. Les bornes sont limitées à [-5, 0] et [0, 5].
+`replace` removes absorbed symbol weights once while retaining their reasons and consuming composites. Dependencies use deterministic evaluation order; repeated symbols do not multiply their weight. Families are `lexical`, `semantic`, `content`, `authentication`, `reputation`, `smtp`, `llm`, `campaign`, `bayes` and `other`. Each has positive and negative caps. Omitted families inherit defaults; caps are bounded to [-5, 0] and [0, 5].
 
-La contribution lexicale est plafonnée par défaut à 1,5 point dans ce calcul
-comparatif. Le calcul actif conserve sa valeur originale. Ces plafonds sont des
-paramètres à évaluer, pas des seuils de risque calibrés. Le module ne traite
-jamais un score comme une probabilité et n'infère pas le consentement à une PUB.
+The lexical contribution is capped by default at 1.5 points in this comparative calculation. The active calculation retains its original value. These ceilings are parameters to be assessed, not calibrated risk thresholds. The module never treats a score as a probability and does not infer consent to a PUB.
 
-## Similarité et corrections humaines
+<a id="similarité-et-corrections-humaines"></a>
+## Fuzzy similarity and human corrections
 
-Le texte est normalisé, découpé en trigrammes de mots et résumé par 32 minima
-hachés. Une autre empreinte décrit l'ordre des éléments HTML, sans leurs attributs.
-Les tailles sont bornées à 2 048 tokens. La similarité compare les minima ; les
-seuils de 0,875 pour le texte et 0,9375 pour le HTML sont des seuils de recherche,
-pas des niveaux de confiance statistique.
+The text is standardized, cut into word trigrams and summarized by 32 min. chopped. Another print describes the order of the HTML elements, without their attributes. The sizes are limited to 2,048 tokens. The similarity compares the minima; the thresholds of 0.875 for text and 0.9375 for HTML are search thresholds, not statistical confidence levels.
 
-La mémoire examine au plus 1 000 messages récents avec corrections humaines
-d'administrateurs encore actifs et autorisés. Elle exige un unique domaine de
-destination et au moins 24 shingles textuels. Deux originaux distincts signalés
-spam et aucun exemple légitime correspondant permettent un symbole consultatif.
-Le message courant et ses retransmissions exactes sont exclus. Une ressemblance
-de structure HTML seule reste informative, car les newsletters et messages
-transactionnels légitimes réutilisent également des modèles.
+The submission examines up to 1,000 recent messages with human corrections of still active and authorized administrators. It requires a single destination domain and at least 24 text shingles. Two separate originals reported spam and no corresponding legitimate examples allow an advisory symbol. The current message and its exact retransmissions are excluded. A similarity of HTML structure only remains informative, as legitimate newsletters and transactional messages also reuse templates.
 
-Les corrections contradictoires empêchent le renforcement. Les originaux de
-plus de trente jours, comptes désactivés et droits retirés sont exclus. Une
-requête incomplète, saturée ou interrompue ne produit pas de symbole positif.
-Les historiques dépourvus des nouvelles caractéristiques ne sont pas reconstruits
-à partir de leurs seuls objets ou scores.
+Contradictory corrections prevent reinforcement. Originals of more than 30 days, deactivated accounts and withdrawn rights are excluded. An incomplete, saturated or interrupted request does not produce a positive symbol. Historicals lacking the new features are not rebuilt from their only objects or scores.
 
-## OSB Bayes et évaluation
+<a id="osb-bayes-et-évaluation"></a>
+## OSB Bayes and evaluation
 
-L'extraction Rust utilise des paires de mots séparées de 1 à 4 positions, dans
-deux espaces distincts pour l'objet et le corps. Les présences sont hachées dans
-65 536 cases, avec un maximum de 8 192 caractéristiques uniques par message.
-Le modèle conserve les fréquences documentaires par classe, applique un lissage
-additif et des a priori équilibrés. À l'inférence, au maximum 150 indices connus
-contribuent ; moins de cinq donne `insufficient_features`. Aucun verdict du
-filtre ne devient une annotation d'apprentissage.
+The Rust extraction uses separate word pairs of 1 to 4 positions in two distinct spaces for the object and body. Presences are chopped in 65,536 boxes, with a maximum of 8,192 unique characteristics per message. The model preserves the documentary frequencies per class, applies additive smoothing and balanced a priori. At the inference, a maximum of 150 known clues contribute; less than five gives `insufficient_features`. No verdict of the filter becomes a learning annotation.
 
-Exporter les corrections du domaine en tant qu'administrateur, puis choisir les
-frontières chronologiques **avant** de consulter les résultats :
+Export domain corrections as an administrator, then select time lines **before** to view results:
 
 ```sh
 noisefence --config /etc/noisefence/config.toml native-export \
@@ -152,20 +93,9 @@ noisefence native-train /var/lib/noisefence/native/labels.jsonl \
   --train-until "$TRAIN_UNTIL" --validation-until "$VALIDATION_UNTIL"
 ```
 
-Les deux frontières sont des secondes Unix UTC. Trois périodes : apprentissage,
-choix du seuil, test final. Le regroupement exact et par similarité précède le
-découpage : les campagnes traversant une frontière ou portant des labels
-contradictoires sont exclues et comptées. Les labels d'apprentissage/validation
-doivent avoir été disponibles avant la fin de leur période. Chaque période
-exige au moins douze campagnes, dont deux de chaque classe. Ce minimum logiciel
-est très inférieur à ce qu'exige la démonstration de 0,1 % de faux positifs.
+The two borders are UTC Unix seconds. Three periods: learning, threshold choice, final test. The exact and similarity grouping precedes the cutting: campaigns across a border or bearing contradictory labels are excluded and counted. Learning/validation labels must have been available before the end of their period. Each period requires at least 12 campaigns, two of which are in each class. This software minimum is much lower than the requirement of 0.1% false positives.
 
-Le seuil est choisi uniquement sur la validation, avec un taux empirique de faux
-positifs au plus 0,1 %. Le test final conserve ce seuil. Le rapport publie rappel,
-précision, faux positifs, résultats indisponibles et intervalles de Wilson à 95 %.
-Il conserve `may_activate: false`, même lorsque les résultats semblent bons.
-Un manifeste privé conserve toutes les campagnes consultées, y compris exclues,
-pour détecter les recouvrements lors d'un futur test indépendant :
+The threshold is selected only on validation, with an empirical rate of false positives at the most 0.1%. The final test retains this threshold. The report publishes recall, accuracy, false positives, unavailable results and 95% Wilson intervals. It keeps `may_activate: false` even when the results appear good. A private manifest keeps all the campaigns consulted, including excluded, to detect recoveries during a future independent test:
 
 ```sh
 noisefence native-evaluate /var/lib/noisefence/native/new-labels.jsonl \
@@ -175,60 +105,27 @@ noisefence native-evaluate /var/lib/noisefence/native/new-labels.jsonl \
   --output /var/lib/noisefence/native/independent-report.json
 ```
 
-L'évaluation vérifie les empreintes des fichiers, le domaine et le protocole ;
-elle exige des observations postérieures au modèle et compte les campagnes
-déjà vues, doublons et omissions. `independent` décrit cette séparation ; il ne
-certifie ni une population représentative, ni les objectifs de capture. Une
-nouvelle sélection des mêmes messages pour ajuster le modèle invaliderait leur
-usage comme test indépendant. Le classifieur ne fournit pas de probabilité
-calibrée. Ses modèles expirent trente jours après leur création. Un modèle expiré
-devient indisponible et laisse la passerelle démarrer ; aucune contribution Bayes
-n’est produite. L’évaluation indépendante exclut aussi les observations hors de
-la période de validité du modèle.
+The evaluation checks the fingerprints of the files, the domain and the protocol; it requires observations after the model and counts campaigns already seen, duplicates and omissions. `independent` describes this separation; it does not certify a representative population or capture objectives. A new selection of the same messages to adjust the model would invalidate their use as an independent test. The classifier does not provide a calibrated probability. Its models expire 30 days after their creation. An expired model becomes unavailable and leaves the gateway to start; no Bayes contribution is produced. Independent evaluation also excludes observations outside the validity period of the model.
 
-Les fichiers sont créés sans écrasement, avec permissions 0600 (répertoire 0700).
-Les vecteurs et empreintes restent privés malgré leur hachage. La rétention en
-base suit les trente jours des métadonnées ; l'exploitant doit aussi supprimer
-les exports, historiques et modèles expirés hors base.
+The files are created without crushing, with permissions 0600 (directory 0700). The vectors and fingerprints remain private despite their hashing. The retention base follows the 30 days of metadata; the operator must also delete exports, historical and models expired off base.
 
-## Diagnostic et débit
+<a id="diagnostic-et-débit"></a>
+## Diagnostics and throughput
 
-Le détail d'un message présente le résultat natif, les contributions brutes et
-plafonnées, les symboles absorbés, la disponibilité Bayes et la mémoire des
-campagnes. L'API applique les droits habituels par destinataire et expose
-uniquement le rapport, sans vecteurs, empreintes de correspondance ou texte.
+The details of a message show the native result, the gross and capped contributions, the absorbed symbols, Bayes availability and campaign memory. The API applies the usual rights per recipient and only displays the report, without vectors, correspondence or text.
 
 ```sh
 noisefence native-benchmark tests/fixtures/message.eml \
   --iterations 1000 --concurrency 4
 ```
 
-La commande est locale : normalisation MIME, extraction OSB, empreintes,
-recherche et composites. Elle rapporte débit, p50/p95/p99, tâches incomplètes et
-une comparaison de 128 motifs groupés/individuels avec vérification de parité.
-Elle exclut explicitement l'inférence d'un modèle entraîné, SQLite, SMTP, la
-persistance et les autres analyseurs. Une accélération sur cette mesure ne
-démontre donc ni le débit complet du serveur, ni un gain de qualité antispam.
-Utiliser également les tests SMTP et la mesure `pipeline_probe` pour le système
-complet, avec les modèles et services réellement déployés.
+The command is local: MIME normalization, OSB extraction, fingerprints, search and composites. It reports bitrate, p50/p95/p99, incomplete tasks and a comparison of 128 group/individual patterns with parity verification. It explicitly excludes the inference of a trained model, SQLite, SMTP, persistence and other analyzers. An acceleration on this measure therefore does not demonstrate the complete output of the server, nor an increase in antispam quality. Also use SMTP tests and `pipeline_probe` measurement for the complete system, with the models and services actually deployed.
 
-## Contexte des motifs depuis 0.5.0
+<a id="contexte-des-motifs-depuis-050"></a>
+## Context of patterns since 0.5.0
 
-La vue de recherche normalise l’ASCII pleine chasse et certains caractères de
-coupure invisibles, sans convertir les alphabets confusables en lettres latines
-ni supprimer les jointures multilingues. Les modèles lexicaux actifs conservent
-leurs entrées. Les commentaires et blocs HTML inertes ne deviennent pas des
-formulaires natifs.
+The search view normalizes the ASCII full hunt and certain invisible cut-off characters, without converting confusing alphabets into Latin letters or deleting multilingual joins. Active lexical models keep their entries. Inert HTML comments and blocks do not become native forms.
 
-Le champ facultatif `exclude_negated = true` s’applique uniquement aux motifs
-`target = "body"`. Chaque correspondance est examinée séparément : des formulations
-locales comme « never provide », « do not enter » ou « ne communiquez jamais »
-sont ignorées. La règle native de demande de phrase de récupération l’utilise par
-défaut. Un avertissement dans une phrase ne masque pas une demande explicite dans
-la suivante. Ce contrôle limité français/anglais ne constitue ni une compréhension
-générale du discours ni une liste blanche : citations, négations complexes et
-contenu dépassant la vue restent des cas à mesurer sur le corpus récent.
+The optional field `exclude_negated = true` applies only to `target = "body"` motifs. Each correspondence is examined separately: local formulations such as "never provide", "do not enter" or "never communicate" are ignored. The native rule of requesting a recovery phrase uses by default. A warning in a sentence does not mask an explicit request in the following. This limited control in English/French does not constitute a general understanding of the speech or a white list: quotations, complex denials and content beyond sight remain cases to be measured on the recent corpus.
 
-Les points natifs alimentent aussi le candidat calibré, en observation, avec des
-ablations distinctes. Voir [Fiabilité](reliability.md) pour la mesure des règles,
-la compatibilité de collecte, les limites et la migration des modèles de 0.4.x.
+The native points also feed the calibrated candidate, in observation, with separate ablation. See [Reliability](reliability.md) for rule measurement, collection compatibility, limits and migration of 0.4.x models.

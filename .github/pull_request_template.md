@@ -1,12 +1,11 @@
-### Problème et résultat
+### Problem and outcome
 
-Décrire le problème corrigé et le comportement obtenu.
+Describe the concrete problem and resulting behavior.
 
 ### Validation
 
-Indiquer les contrôles exécutés et leurs résultats.
+State the checks performed and their results.
 
-### Compatibilité
+### Compatibility
 
-Préciser toute modification des formats, de la configuration ou du stockage,
-ainsi que la migration et les limites éventuelles de retour arrière.
+Describe format, configuration or storage changes, migrations and rollback limits.

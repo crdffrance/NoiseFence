@@ -1981,3 +1981,39 @@ async fn configuration_apply_rechecks_the_administrative_session_at_commit() {
     );
     assert_eq!(control.snapshot().revision, 0);
 }
+
+#[tokio::test]
+async fn recorded_thresholds_keep_stats_search_and_assessment_consistent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let reader = account(&store, "reader", false, vec!["alice@example.test"]).await;
+    for (name, threshold) in [("historical-legitimate", 95.0), ("historical-spam", 85.0)] {
+        let id = message(&store, &config, &["alice@example.test"]).await;
+        let policy = json!({"version":"fixture", "threshold":threshold, "mode":"observe", "require_corroboration":true,"rule_weights":{}});
+        store.run(move |db| {
+            db.execute("UPDATE messages SET scan=json_remove(json_set(scan,'$.complete',json('true'),'$.score',90.0,'$.subject',?2,'$.analysis_policy',json(?3)),'$.decision') WHERE id=?1", params![id,name,policy.to_string()])?;
+            Ok(())
+        }).await.unwrap();
+    }
+    for current_threshold in [20.0, 99.0] {
+        Arc::make_mut(&mut config).filter.threshold = current_threshold;
+        let app = api::router(config.clone(), store.clone()).unwrap();
+        let (code, stats) = request(&app, &reader, "/stats", None).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(stats["received"], 2);
+        assert_eq!(stats["flagged"], 1);
+        for category in ["spam", "legitimate"] {
+            let (code, rows) =
+                request(&app, &reader, &format!("/messages?filter={category}"), None).await;
+            assert_eq!(code, StatusCode::OK);
+            assert_eq!(rows.as_array().unwrap().len(), 1);
+            let row = &rows[0];
+            assert_eq!(row["subject"], format!("historical-{category}"));
+            assert_eq!(row["assessment"]["category"], category);
+            assert_eq!(row["assessment"]["score"]["value"], 90.0);
+            assert_eq!(row["decision"], row["assessment"]["decision"]);
+            assert_eq!(row["assessment"]["decision_recorded"], false);
+        }
+    }
+}

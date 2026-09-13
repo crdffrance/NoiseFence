@@ -24,7 +24,7 @@ pub(super) async fn administrator(app: &App, h: &HeaderMap, write: bool) -> ApiR
     if !user.admin {
         return Err(Error(
             StatusCode::FORBIDDEN,
-            "Accès administrateur requis.".into(),
+            "Administrator access required.".into(),
         ));
     }
     if write {
@@ -36,7 +36,7 @@ pub(super) async fn administrator(app: &App, h: &HeaderMap, write: bool) -> ApiR
 fn controller(app: &App) -> ApiResult<Arc<Controller>> {
     app.control.clone().ok_or(Error(
         StatusCode::SERVICE_UNAVAILABLE,
-        "Administration de la configuration indisponible sur cette instance.".into(),
+        "Administration of the configuration not available on this instance.".into(),
     ))
 }
 async fn domains(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
@@ -117,7 +117,7 @@ async fn apply(
     if body.revision != control.snapshot().revision {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Configuration modifiée dans une autre session. Rechargez les réglages.".into(),
+            "Configuration modified in another session. Reload settings.".into(),
         ));
     }
     let id = control
@@ -132,7 +132,7 @@ async fn apply(
             tracing::warn!(error=%e,"console configuration refused");
             Error(
                 StatusCode::UNPROCESSABLE_ENTITY,
-                format!("Configuration refusée : {e}"),
+                format!("Setup refused: {e}"),
             )
         })?;
     Ok(Json(json!({"revision":id})))
@@ -167,7 +167,7 @@ async fn revision(
                 .optional()?)
         })
         .await?
-        .ok_or(Error(StatusCode::NOT_FOUND, "Révision introuvable.".into()))?;
+        .ok_or(Error(StatusCode::NOT_FOUND, "Revision not found.".into()))?;
     let mut settings: Settings = serde_json::from_str(&raw).map_err(anyhow::Error::from)?;
     settings.hydrate(&control.base);
     Ok(Json(json!(settings)))
@@ -203,7 +203,10 @@ async fn save_user(
 ) -> ApiResult<Json<Value>> {
     let actor = administrator(&app, &h, true).await?;
     let invalid = || {
-        Error(StatusCode::BAD_REQUEST,"Compte invalide : vérifiez l’identifiant, les accès et le mot de passe (12 à 128 octets).".into())
+        Error(
+            StatusCode::BAD_REQUEST,
+            "Invalid account: check the ID, access and password (12 to 128 bytes).".into(),
+        )
     };
     super::onboarding::grants(&app.effective(), &body.username, &mut body.addresses)
         .map_err(|_| invalid())?;
@@ -219,7 +222,7 @@ async fn save_user(
         let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
             Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Réessayez dans quelques instants.".into(),
+                "Try again in a few moments.".into(),
             )
         })?;
         Some(
@@ -237,19 +240,19 @@ async fn save_user(
     app.store.run(move|db| {
         let tx=db.transaction()?;
         let authorized:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&actor.username],|r|r.get(0))?;
-        ensure!(authorized,"Droits administrateur révoqués.");
+        ensure!(authorized,"Administrator rights revoked.");
         let current=tx.query_row("SELECT COALESCE(v.version,0) FROM users u LEFT JOIN console_user_versions v ON v.username=u.username WHERE u.username=?1",[&body.username],|r|r.get::<_,i64>(0)).optional()?;
-        ensure!(current.unwrap_or(-1)==body.version,"Compte modifié ailleurs ou déjà existant. Rechargez les comptes.");
-        ensure!(body.username!=actor.username || (body.admin && !body.disabled),"Vous ne pouvez pas désactiver votre propre accès administrateur.");
+        ensure!(current.unwrap_or(-1)==body.version,"Account modified elsewhere or already existing. Reload the accounts.");
+        ensure!(body.username!=actor.username || (body.admin && !body.disabled),"You cannot disable your own admin access.");
         if current.is_none() {
             let count:i64=tx.query_row("SELECT COUNT(*) FROM users",[],|r|r.get(0))?;
-            ensure!(count<1000,"Maximum de 1 000 comptes atteint.");
+            ensure!(count<1000,"Maximum of 1,000 accounts reached.");
             tx.execute("INSERT INTO users(username,password,admin,disabled) VALUES(?1,?2,?3,?4)",params![body.username,hash,body.admin,body.disabled])?;
         } else {
             tx.execute("UPDATE users SET admin=?2,disabled=?3,password=COALESCE(?4,password) WHERE username=?1",params![body.username,body.admin,body.disabled,hash])?;
         }
         let admins:i64=tx.query_row("SELECT COUNT(*) FROM users WHERE admin=1 AND disabled=0",[],|r|r.get(0))?;
-        ensure!(admins>0,"Le dernier administrateur doit rester actif.");
+        ensure!(admins>0,"The last administrator must remain active.");
         tx.execute("DELETE FROM grants WHERE username=?1",[&body.username])?;
         for address in body.addresses {tx.execute("INSERT INTO grants(username,address) VALUES(?1,?2)",params![body.username,address])?;}
         tx.execute("INSERT INTO console_user_versions(username,version) VALUES(?1,1) ON CONFLICT(username) DO UPDATE SET version=version+1",[&body.username])?;
@@ -292,12 +295,12 @@ async fn retry(
                 [&actor.username],
                 |r| r.get(0),
             )?;
-            ensure!(allowed, "Accès révoqué.");
+            ensure!(allowed, "Access revoked.");
             let remote: Option<(String,String,String)> = tx.query_row(
                 "SELECT o.node_id,d.message_id,d.address FROM deliveries d JOIN cluster_origin o ON o.message_id=d.message_id WHERE d.id=?1 AND d.status='pending'", [body.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
             ).optional()?;
             if let Some((node,message,recipient)) = remote {
-                ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_nodes WHERE id=?1 AND enabled=1)", [&node], |r| r.get::<_,bool>(0))?, "Nœud révoqué.");
+                ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_nodes WHERE id=?1 AND enabled=1)", [&node], |r| r.get::<_,bool>(0))?, "Node revoked.");
                 tx.execute("UPDATE cluster_commands SET result='expired',finished=?1 WHERE finished IS NULL AND expires<?1", [now()])?;
                 let id = uuid::Uuid::new_v4().to_string();
                 tx.execute("INSERT INTO cluster_commands(id,node_id,message_id,recipient,command,username,created,expires) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", params![id,node,message,recipient,serde_json::to_string(&crate::cluster::history::Operation::Retry)?,actor.username,now(),now()+300])?;
@@ -311,7 +314,7 @@ async fn retry(
             )?;
             ensure!(
                 changed == 1,
-                "Seule une livraison en attente peut être réessayée."
+                "Only a pending delivery can be tried again."
             );
             tx.execute(
                 "INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'retry',?3)",
@@ -338,7 +341,7 @@ async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Js
         use crate::protection::{Provider, key_present, quota_usage};
         (json!({"crdf":key_present(&root,Provider::Crdf),"virustotal":key_present(&root,Provider::Virustotal)}),
          json!({"crdf":quota_usage(&root,Provider::Crdf).ok(),"virustotal":quota_usage(&root,Provider::Virustotal).ok()}))
-    }).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"État des connecteurs indisponible.".into()))?;
+    }).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"Condition of the connectors not available.".into()))?;
     use crate::protection::Provider;
     Ok(Json(json!({
         "available":base.is_some(), "enabled":settings.is_some(), "revision":snapshot.revision,
@@ -364,15 +367,15 @@ async fn protection_key(
     if control.base.protection.is_none() {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Protection non installée sur le serveur.".into(),
+            "Protection not installed on the server.".into(),
         ));
     }
     let provider = crate::protection::Provider::parse(&provider)
-        .map_err(|_| Error(StatusCode::BAD_REQUEST, "Fournisseur inconnu.".into()))?;
+        .map_err(|_| Error(StatusCode::BAD_REQUEST, "Unknown provider.".into()))?;
     if !(16..=256).contains(&body.key.len()) || !body.key.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(Error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Clé attendue : 16 à 256 caractères sans espace.".into(),
+            "Expected key: 16 to 256 characters without space.".into(),
         ));
     }
     let root = app.store.root.clone();
@@ -407,7 +410,7 @@ async fn test_rbl(
     let _permit = TEST.try_acquire().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Un test DNS est déjà en cours.".into(),
+            "A DNS test is already underway.".into(),
         )
     })?;
     let runtime = crate::rbl::Runtime::new(Some(&body.settings), None)?;
@@ -423,7 +426,7 @@ async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Val
     let global = crate::actions::Policy::from_config(&s.config);
     let default_profile = crate::custom_filtering::Profile {
         id: "personal".into(),
-        name: "Préférences personnelles".into(),
+        name: "Personal preferences".into(),
         threshold: None,
         require_corroboration: true,
         spam: global.spam,
@@ -482,14 +485,14 @@ async fn save_preferences(
     if !crate::preferences::permitted(&body.scope, user.admin, &user.addresses) {
         return Err(Error(
             StatusCode::FORBIDDEN,
-            "Cette adresse n’est pas autorisée.".into(),
+            "This address is not allowed.".into(),
         ));
     }
     let c = controller(&app)?;
     if c.snapshot().revision != body.revision {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Configuration modifiée. Rechargez les préférences.".into(),
+            "Modified configuration. Reload preferences.".into(),
         ));
     }
     let id = c
@@ -553,20 +556,20 @@ async fn save_managed_key(
             }
         })
     {
-        return Err(Error(StatusCode::UNPROCESSABLE_ENTITY,"Fournisseur ou format de clé invalide (16 à 256 caractères sans espace ; DQS : lettres et chiffres).".into()));
+        return Err(Error(StatusCode::UNPROCESSABLE_ENTITY,"Invalid key provider or format (16 to 256 characters without space; DQS: letters and numbers).".into()));
     }
 
     let c = controller(&app)?;
     if c.snapshot().revision != body.revision {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Configuration modifiée. Rechargez les réglages.".into(),
+            "Modified configuration. Reload settings.".into(),
         ));
     }
     if body.provider == "scaleway" && c.base.llm.is_none() {
         return Err(Error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Connecteur Scaleway non installé.".into(),
+            "Scaleway connector not installed.".into(),
         ));
     }
     let hash = message::digest(token(&h).unwrap().as_bytes());
@@ -575,7 +578,7 @@ async fn save_managed_key(
     app.store.run(move|db|{let tx=db.transaction()?;
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![username,hash,now()],|r|r.get(0))?;
         anyhow::ensure!(allowed,"Administrative session expired");
-        let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;anyhow::ensure!(current==body.revision,"Configuration modifiée.");
+        let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;anyhow::ensure!(current==body.revision,"Configuration changed.");
         crate::management::save_key(&root,&body.provider,&body.key)?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),username,body.provider])?;tx.commit()?;Ok(())}).await?;
     let snapshot = c.snapshot();
@@ -587,7 +590,7 @@ async fn save_managed_key(
             json!({"saved":true,"active":true,"revision":revision}),
         )),
         Err(_) => Ok(Json(
-            json!({"saved":true,"active":false,"message":"Clé enregistrée. Réappliquez la configuration pour la charger dans le moteur."}),
+            json!({"saved":true,"active":false,"message":"Saved key. Reapply the configuration to load it into the engine."}),
         )),
     }
 }

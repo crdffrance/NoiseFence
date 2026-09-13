@@ -1,32 +1,29 @@
-# Première installation
+<a id="première-installation"></a>
+# First installation
 
-Ce guide installe la release 0.4.0 sur un serveur Linux dédié. Les archives incluent
-le binaire Rust, la console statique et les services systemd ; Node et Rust ne sont
-pas nécessaires sur le serveur. Aucun compte, secret ou modèle entraîné n’est fourni.
+This guide installs release 0.18.0 on a dedicated Linux server. Archive includes the Rust binary, static console and systemd services; Node and Rust are not required on the server. No account, secret or trained model is provided.
 
-## Prérequis
+<a id="prérequis"></a>
+## Prerequisites
 
-- Debian 12 ou plus récent, ou distribution avec glibc 2.36+, systemd et Python 3.11+.
-  Les archives ne ciblent pas Alpine/musl. Architectures x86-64 et ARM64.
-- Droits `sudo`, certificats TLS valides et nom DNS du serveur. Pour recevoir du
-  courrier public : port 25 entrant/sortant et enregistrements A/PTR cohérents.
-- Domaine et boîtes existantes chez le fournisseur de destination. Les routes
-  explicites de NoiseFence ne créent pas de boîtes Proton.
-- Espace pour la file, les quarantaines et les sauvegardes. Commencer avec la
-  concurrence de l’exemple et mesurer avant de l’augmenter ; voir [performances](performance.md).
+- Debian 12 or later, or distribution with glibc 2.36+, systemd and Python 3.11+. Archives do not target Alpine/musl. Architectures x86-64 and ARM64.
+- `sudo` rights, valid TLS certificates and server DNS name. To receive public mail: 25 incoming/outgoing port and consistent A/PTR records.
+- Existing domain and boxes at the destination provider. NoiseFence's explicit routes do not create Proton boxes.
+- Space for queue, quarantines and backups. Start with the concurrency limits in the example and measure before increasing; see [performances](performance.md).
 
-## Télécharger et vérifier
+<a id="télécharger-et-vérifier"></a>
+## Download and check
 
-Sur le serveur, dans un répertoire de travail vide :
+On the server, in an empty work directory:
 
 ```sh
 sudo apt-get update
 sudo apt-get install --no-install-recommends ca-certificates curl python3 openssl
-nf_version=0.4.0
+nf_version=0.18.0
 case "$(uname -m)" in
   x86_64) nf_arch=amd64 ;;
   aarch64) nf_arch=arm64 ;;
-  *) echo 'Architecture non prise en charge'; exit 1 ;;
+  *) echo 'Unsupported architecture'; exit 1 ;;
 esac
 nf_archive="noisefence-${nf_version}-linux-${nf_arch}.tar.gz"
 nf_url="https://github.com/crdffrance/NoiseFence/releases/download/v${nf_version}"
@@ -39,83 +36,56 @@ sha256sum --check --quiet SHA256SUMS
 ./noisefence --version
 ```
 
-Les deux vérifications doivent réussir. `build.json` identifie la version, le commit,
-l’architecture et le schéma de stockage. Les sources correspondantes sont disponibles
-depuis le tag GitHub ; les licences sont incluses dans l’archive.
+Both checks must succeed. `build.json` identifies the version, commit, architecture and storage schema. The corresponding sources are available from the GitHub tag; licenses are included in the archive.
 
-## Préparer le serveur et la configuration
+<a id="préparer-le-serveur-et-la-configuration"></a>
+## Prepare server and configuration
 
-Créer une copie privée de `config/production.example.toml` en dehors de l’archive,
-par exemple `../config.local.toml` avec `umask 077`. Adapter au minimum :
+Create a private copy of `config/production.example.toml` outside the archive, for example `../config.local.toml` with `umask 077`. Adapt as a minimum:
 
-| Réglage | Valeur à fournir |
+| Adjustment | Value to be provided |
 | --- | --- |
-| `hostname` | Le nom DNS de la passerelle correspondant au certificat SMTP |
-| `smtp.tls_cert`, `smtp.tls_key` | Chaîne et clé TLS lisibles par le compte système `noisefence` |
-| `web.public_origin` | L’URL HTTPS exacte de la console |
-| `domains` | Les domaines, boîtes ou alias autorisés et leurs routes explicites |
-| `relay.postmaster` | Une adresse postmaster existante et configurée |
+| `hostname` | The DNS name of the gateway corresponding to the SMTP certificate |
+| `smtp.tls_cert`, `smtp.tls_key` | TLS chain and key readable by system account `noisefence` |
+| `web.public_origin` | The exact HTTPS URL of the console |
+| `domains` | Authorized domains, boxes or aliases and their explicit routes |
+| `relay.postmaster` | An existing and configured postmaster address |
 
-Conserver `filter.mode = "observe"` pendant la validation initiale. Garder l’API
-liée à loopback et `secure_cookies = true` derrière le proxy HTTPS. Une liste de
-destinataires vide refuse le courrier : remplir `recipients`, ou activer
-`accept_all_recipients = true` pour un domaine dont la réception est prévue chez Proton.
-Déclarer aussi `postmaster@domaine` ou son alias.
+Keep `filter.mode = "observe"` during initial validation. Keep the API linked to loopback and `secure_cookies = true` behind the HTTPS proxy. An empty recipient list refuses the mail: fill in `recipients`, or activate `accept_all_recipients = true` for a domain that is scheduled to be received by Proton. Also declare `postmaster@domaine` or its alias.
 
-Pour un premier essai isolé, utiliser SMTP sur loopback/2525 sans changer les MX.
-La [procédure d’exploitation](operations.md) décrit les chemins, les permissions,
-la réception par domaine, le proxy et le renouvellement TLS. Les exemples
-`deploy/nginx.conf` et `deploy/Caddyfile` doivent être adaptés à votre domaine.
-Ne pas servir le dossier de configuration ou le répertoire de données avec le proxy.
+For an isolated first test, use loopback SMTP on port 2525 without changing public MX records. The [operations guide](operations.md) covers paths, permissions, domain routing, the reverse proxy and certificate renewal. Adapt `deploy/nginx.conf` or `deploy/Caddyfile` to your domain. Never serve configuration or data directories through the Web proxy.
 
-## Installer et créer l’administrateur
+<a id="installer-et-créer-ladministrateur"></a>
+## Install and Create Administrator
 
-L’installateur crée le compte système `noisefence`, installe la release, contrôle la
-configuration et démarre le service. Les certificats doivent être prêts à ce stade.
-Sur une installation existante, la configuration en place est conservée.
+The installer creates the system account `noisefence`, installs the release, controls the configuration and starts the service. Certificates must be ready at this stage. On an existing installation, the configuration in place is kept.
 
 ```sh
 sudo sh deploy/install.sh "$PWD" "$(realpath ../config.local.toml)"
 sudo -u noisefence /opt/noisefence/noisefence \
-  --config /etc/noisefence/config.toml user-add administrateur --admin
+  --config /etc/noisefence/config.toml user-add admin --admin
 sudo systemctl is-active noisefence
 sudo journalctl -u noisefence -n 30 --no-pager
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
-Le mot de passe de 12 caractères minimum est saisi deux fois dans le terminal.
-Il n’existe pas de mot de passe par défaut. Une fois le proxy et son certificat
-configurés, ouvrir l’URL HTTPS choisie et se connecter. Créer ensuite les comptes
-utilisateurs et leurs accès depuis [l’administration](console.md).
+The password of at least 12 characters is entered twice in the terminal. There is no default password. Once the proxy and its certificate are configured, open the chosen HTTPS URL and log in. Then create user accounts and their access from [the administration](console.md).
 
-## Vérifier le traitement
+<a id="vérifier-le-traitement"></a>
+## Check treatment
 
-Analyser d’abord un message de test local sans livraison :
+First analyze a local test message without delivery:
 
 ```sh
 sudo -u noisefence /opt/noisefence/noisefence \
-  --config /etc/noisefence/config.toml analyze /chemin/lisible/message.eml
+  --config /etc/noisefence/config.toml analyze /readable/path/message.eml
 ```
 
-Cette commande utilise les connecteurs activés mais ne crée pas d’entrée dans
-l’historique de livraison. Pour voir les décisions dans la console, faire passer
-un message par SMTP vers un destinataire de test configuré. Suivre les
-[essais Proton et le domaine pilote](proton-validation.md), puis contrôler la file
-et le dossier d’arrivée côté Proton. Une acceptation SMTP ne prouve pas un placement
-en réception. L’activation du marquage Spam/PUB nécessite les rapports correspondants.
+This command uses activated connectors but does not create input into the delivery history. To view the decisions in the console, pass a message through SMTP to a configured test recipient. Follow the [Proton tests and the pilot domain](proton-validation.md), then check the queue and the arrival folder on the Proton side. SMTP acceptance does not prove a inbox placement. The activation of the spam/PUB marking requires the corresponding reports.
 
-Activer progressivement les [actions](actions.md), [OCR/QR](vision.md),
-[antivirus](antivirus.md) et [connecteurs de réputation](protection.md) selon les
-besoins. Les services externes demandent des accès autorisés et restent optionnels.
-Un manque de preuve de classement ou une panne de fournisseur doit rester visible
-dans l’analyse. Les objectifs de capture et de faux positifs ne sont pas des
-performances acquises de cette distribution.
+Enable [actions](actions.md), [OCR/QR](vision.md), [antivirus](antivirus.md) and [reputation providers](protection.md) as required. External services require authorized access and are optional. Missing classification evidence and provider failures must remain visible. Capture and false-positive targets are not demonstrated performance guarantees.
 
-## Mettre à niveau
+<a id="mettre-à-niveau"></a>
+## Upgrade
 
-Lire le changelog et conserver la version précédente. Arrêter les services qui
-écrivent la file ou les modèles avant de sauvegarder `/var/lib/noisefence` et
-`/etc/noisefence`. Vérifier la nouvelle archive, puis utiliser son installateur.
-Depuis 0.4.0-dev.4, la release 0.4.0 conserve le schéma 2 et les réglages.
-Depuis 0.3, appliquer la [migration et ses limites de retour arrière](actions.md#migration-de-stockage).
-Une publication GitHub ne met pas automatiquement à jour un serveur.
+Read the changelog and keep the previous verified release. Stop all writers before an offline backup of `/var/lib/noisefence` and `/etc/noisefence`, or use the documented consistent backup procedure. Verify the new archive before installation. HA storage uses schema 5; never restore an older database over current accepted mail or downgrade to an incompatible binary. See [installation](installation.md) and [recovery](high-availability.md). Publishing a GitHub release does not automatically upgrade a server.

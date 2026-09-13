@@ -14,10 +14,10 @@ type Invitation = {
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
 };
 const statusNames = {
-  pending: 'En attente',
-  accepted: 'Activée',
-  expired: 'Expirée',
-  revoked: 'Révoquée',
+  pending: "Pending",
+  accepted: "Accepted",
+  expired: "Expired",
+  revoked: "Revoked",
 };
 export function Invitations({ user }: { user: User }) {
   const [items, setItems] = useState<Invitation[]>([]);
@@ -69,16 +69,15 @@ export function Invitations({ user }: { user: User }) {
     <section className="panel invitation-panel">
       <div className="section-heading">
         <UserPlus size={20} />
-        <h2>Inviter un utilisateur</h2>
+        <h2>Invite user</h2>
       </div>
       <p className="muted">
-        L’utilisateur choisit son mot de passe depuis un lien personnel. Le
-        compte sera créé lors de son activation.
+        Users choose their own password through a personal link. Their account is created when they accept the invitation.
       </p>
       <form className="custom-card" onSubmit={create}>
         <div className="custom-grid">
           <label htmlFor="onboarding-1">
-            Identifiant
+            Username
             <Input
               id="onboarding-1"
               required
@@ -96,58 +95,55 @@ export function Invitations({ user }: { user: User }) {
                 setForm({ ...form, days: Number(e.target.value) })
               }
             >
-              <option value={1}>24 heures</option>
-              <option value={3}>3 jours</option>
-              <option value={7}>7 jours</option>
+              <option value={1}>24 hours</option>
+              <option value={3}>3 days</option>
+              <option value={7}>7 days</option>
             </select>
           </label>
           <label htmlFor="onboarding-2">
-            Adresses ou domaines autorisés
+            Authorized addresses or domains
             <Input
               id="onboarding-2"
               required={!form.admin}
-              placeholder="alice@exemple.fr, *@exemple.fr"
+              placeholder="alice@example.test, *@example.test"
               value={form.addresses}
               onChange={(e) => setForm({ ...form, addresses: e.target.value })}
             />
           </label>
           <label>
-            Rôle
+            Role
             <select
               value={form.admin ? 'admin' : 'user'}
               onChange={(e) =>
                 setForm({ ...form, admin: e.target.value === 'admin' })
               }
             >
-              <option value="user">Utilisateur · accès indiqués</option>
-              <option value="admin">Administrateur · tous les domaines</option>
+              <option value="user">User · specified addresses and domains</option>
+              <option value="admin">Administrator · all domains</option>
             </select>
           </label>
         </div>
         {form.admin && (
           <p className="small">
-            Ce rôle permet de consulter tous les messages et de modifier les
-            comptes et les réglages du serveur.
+            This role allows you to view all messages and modify the accounts and settings of the server.
           </p>
         )}
         <Button type="submit" disabled={busy}>
           <LinkIcon size={16} />
-          {busy ? 'Création…' : 'Créer le lien d’invitation'}
+          {busy ? "Creation..." : "Create invitation link"}
         </Button>
         <p className="muted small">
-          Créer un nouveau lien pour le même identifiant révoque les liens
-          précédents. Aucun email n’est envoyé automatiquement.
+          Creating a new link for the same username revokes earlier links. No email is sent automatically.
         </p>
       </form>
       {url && (
         <output className="invitation-result">
-          <strong>Lien prêt à partager</strong>
+          <strong>Link ready to share</strong>
           <p>
-            Copiez-le maintenant : il ne sera plus affiché après avoir quitté
-            cet écran.
+            Copy it now: it will no longer be displayed after leaving this screen.
           </p>
           <Input
-            aria-label="Lien d’invitation personnel"
+            aria-label="Personal invitation link"
             readOnly
             value={url}
             onFocus={(e) => e.target.select()}
@@ -157,13 +153,13 @@ export function Invitations({ user }: { user: User }) {
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(url);
-                setNotice('Lien copié.');
+                setNotice("Link copied.");
               } catch {
-                setError('Sélectionnez le lien pour le copier manuellement.');
+                setError("Select the link to manually copy it.");
               }
             }}
           >
-            <Copy size={16} /> Copier le lien
+            <Copy size={16} /> Copy Link
           </Button>
         </output>
       )}
@@ -179,9 +175,9 @@ export function Invitations({ user }: { user: User }) {
             <div>
               <strong>{item.username}</strong>
               <p className="muted small">
-                {item.admin ? 'Administrateur' : item.addresses.join(', ')} ·{' '}
-                {statusNames[item.status]} · jusqu’au{' '}
-                {new Date(item.expires * 1000).toLocaleString('fr-FR')}
+                {item.admin ? "Administrator" : item.addresses.join(', ')} ·{' '}
+                {statusNames[item.status]} · until{' '}
+                {new Date(item.expires * 1000).toLocaleString("en-GB")}
               </p>
             </div>
             {item.status === 'pending' && (
@@ -206,7 +202,7 @@ export function Invitations({ user }: { user: User }) {
                   }
                 }}
               >
-                Révoquer
+                Revoke
               </Button>
             )}
           </div>
@@ -235,7 +231,7 @@ export function OnboardingGate({ children }: { children: ReactNode }) {
   if (token === undefined)
     return (
       <main className="onboarding-shell">
-        <p>Chargement…</p>
+        <p>Loading…</p>
       </main>
     );
   if (token !== null)
@@ -278,34 +274,31 @@ function AcceptInvitation({
         <div className="onboarding-icon">
           <UserPlus size={28} />
         </div>
-        <span className="eyebrow">NOISEFENCE · VOTRE ACCÈS</span>
+        <span className="eyebrow">NOISEFENCE · YOUR ACCESS</span>
         <h1>
-          {done ? 'Votre compte est prêt' : 'Bienvenue dans votre console'}
+          {done ? "Your account is ready" : "Welcome to your console"}
         </h1>
         {done ? (
           <>
             <p>
-              Votre mot de passe est enregistré. Connectez-vous avec
-              l’identifiant <strong>{identity?.username}</strong>.
+              Your password is saved. Log in with ID <strong>{identity?.username}</strong>.
             </p>
-            <Button onClick={onDone}>Accéder à la connexion</Button>
+            <Button onClick={onDone}>Sign in</Button>
           </>
         ) : identity ? (
           <>
             <p>
-              Activez le compte <strong>{identity.username}</strong> pour
-              consulter l’analyse de vos messages et signaler les erreurs de
-              classement.
+              Enable account <strong>{identity.username}</strong> to view the analysis of your messages and report ranking errors.
             </p>
             <div className="invitation-result">
               <strong>
                 {identity.admin
-                  ? 'Administrateur de la passerelle'
-                  : 'Vos accès'}
+                  ? "Gateway Administrator"
+                  : "Your access"}
               </strong>
               <p>
                 {identity.admin
-                  ? 'Tous les domaines, comptes et réglages de la passerelle.'
+                  ? "All domains, accounts and settings of the gateway."
                   : identity.addresses.join(', ')}
               </p>
             </div>
@@ -332,7 +325,7 @@ function AcceptInvitation({
               }}
             >
               <label htmlFor="onboarding-3">
-                Choisir un mot de passe
+                Choose a password
                 <Input
                   id="onboarding-3"
                   type="password"
@@ -345,10 +338,10 @@ function AcceptInvitation({
                 />
               </label>
               <p className="muted small">
-                12 à 128 octets. Une phrase de passe longue est recommandée.
+                12 to 128 bytes. A long passphrase is recommended.
               </p>
               <label htmlFor="onboarding-4">
-                Confirmer le mot de passe
+                Confirm password
                 <Input
                   id="onboarding-4"
                   type="password"
@@ -360,12 +353,12 @@ function AcceptInvitation({
                 />
               </label>
               <Button disabled={busy} type="submit">
-                {busy ? 'Activation…' : 'Activer mon compte'}
+                {busy ? 'Activation…' : "Enable my account"}
               </Button>
             </form>
           </>
         ) : (
-          !error && <p>Vérification de votre invitation…</p>
+          !error && <p>Checking your invitation...</p>
         )}
         {error && (
           <p role="alert" className="error">
@@ -374,12 +367,11 @@ function AcceptInvitation({
         )}
         {!done && (
           <Button variant="ghost" onClick={onDone}>
-            Retour à la connexion
+            Back to sign-in
           </Button>
         )}
         <p className="muted small">
-          NoiseFence analyse les messages ; votre messagerie reste accessible
-          chez votre fournisseur habituel.
+          NoiseFence analyzes messages; your email is still available from your regular provider.
         </p>
       </section>
     </main>

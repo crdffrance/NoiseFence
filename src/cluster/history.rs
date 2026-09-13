@@ -60,7 +60,7 @@ pub async fn export(store: &Store) -> Result<Vec<Record>> {
             }
             let record=Record{id,generation,created,sender,scan:serde_json::from_str(&scan)?,is_dsn,raw_present,deliveries};
             let bytes=serde_json::to_vec(&record)?.len();
-            ensure!(bytes<=3*1024*1024,"Une analyse dépasse la limite de synchronisation de 3 Mio.");
+            ensure!(bytes<=3*1024*1024,"An analysis exceeds the synchronization limit of 3 Mio.");
             if size+bytes>3*1024*1024 {break;}
             size+=bytes;records.push(record);
         }

@@ -1,121 +1,60 @@
-# Résultats locaux — 6 septembre 2026
+<a id="résultats-locaux--6-septembre-2026"></a>
+# Local results — 6 September 2026
 
-## Code et protocoles
+## Code and protocols
 
-La release 0.1.0 dispose de 28 tests Rust automatisés : SMTP et PIPELINING, alias et refus du relais ouvert,
-DATA interrompu, pression disque, ambiguïtés CRLF, reprise de file,
-destinataires multiples, notifications d’échec, transaction annulée,
-TLS réel et certificat non fiable, droits par utilisateur et BCC, sessions et CSRF,
-conservation, falsification des résultats, objets encodés et limites des signatures.
+The release 0.10 has 28 automated Rust tests: SMTP and PIPELING, alias and refusal of the open relay, DATA interrupted, disk pressure, CRLF ambiguities, recovery, multiple recipients, failed notifications, cancelled transaction, actual TLS and unreliable certificate, rights per user and BCC, sessions and CSRF, preservation, falsification of results, encoded objects and limits of signatures.
 
-Le test cryptographique utilise une clé publique de test et un cache DNS local :
-DKIM valide sur l’original et la version observée ; DKIM invalide après modification
-de l’objet ; ARC valide sur la version modifiée ; ARC invalide après altération du corps.
-Il vérifie la cryptographie, pas la confiance accordée au sceau par Proton.
+The cryptographic test uses a public test key and a local DNS cache: DKIM valid on the original and the observed version; DKIM invalid after modifying the object; ARC valid on the modified version; ARC invalid after altering the body. It verifies the cryptography, not the confidence given to the seal by Proton.
 
-Les tests passent sur macOS ARM64 et Linux. Le build Linux utilise l’image officielle
-Rust 1.98 Bookworm, empreinte `sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922`.
-La CI reproduit formatage, Clippy, tests et compilation. Le binaire doit être utilisé
-sur l’architecture correspondante avec glibc 2.36 ou plus récente.
+The tests go to macOS ARM64 and Linux. The Linux build uses the official image Rust 1.98 Bookworm, imprint `sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922`. The IC reproduces formatting, Clippy, tests and compilation. The binary must be used on the corresponding architecture with glibc 2.36 or later.
 
-La console passe TypeScript et le lint. L’export statique est compilé, servi par Axum
-avec réponse HTTP 200 ; l’API sans session renvoie 401. L’audit npm indique zéro
-vulnérabilité connue à cette date. Aucune validation visuelle automatisée ni conformité
-WebMCP n’est revendiquée.
+The console passes TypeScript and the lint. Static export is compiled, served by Axum with HTTP 200 response; the sessionless API returns 401. The npm audit indicates zero known vulnerability on that date. No automated visual validation or WebMCP compliance is claimed.
 
-## Connecteurs de la version de développement
+<a id="connecteurs-de-la-version-de-développement"></a>
+## Development version connectors
 
-La branche de développement `0.2.0-dev.1` ajoute 10 tests Rust, soit 38 tests
-automatiques hors test ClamAV réel : échanges INSTREAM bornés, panne du scanner,
-persistance des verdicts, séparation des signatures consultatives, calcul Bayes,
-budget LLM concurrent et persistant, exclusion des champs destinataires et pièces
-jointes, et réponses HTTPS/JSON valides ou hostiles. Six tests Python Linux couvrent
-les certificats et le téléchargement des sources épinglées.
+The development branch `0.2.0-dev.1` adds 10 Rust tests, i.e. 38 automatic tests out of real ClamAV tests: INSTREAM exchanges bounded, scanner failure, persistent verdicts, separation of consultative signatures, Bayes calculation, competing and persistent LLM budget, exclusion of recipient fields and attachments, and valid or hostile HTTPS/JSON responses. Six Python Linux tests cover certificates and download of pind sources.
 
-Le test ClamAV réel, ignoré par défaut dans `cargo test`, a été exécuté séparément
-dans un conteneur Linux ARM64 : ClamAV 1.4.3, daily 28115, main 63 et bytecode 339.
-Le message sain passe ; EICAR est détecté dans une pièce jointe MIME encodée base64.
-Cela vérifie le transport et le décodage, pas le taux de détection des menaces récentes.
-FreshClam recommande 1.4.6 : vérifier les paquets maintenus avant déploiement.
+The real ClamAV test, ignored by default in `cargo test`, was executed separately in a Linux ARM64 container: ClamAV 1.4.3, daily 28115, hand 63 and bytecode 339. The healthy message passes; EICAR is detected in a base-encoded MIME attachment64. This checks the transport and decoding, not the detection rate of recent threats. FreshClam recommends 1.4.6: check packages maintained before deployment.
 
-Le même harnais a exécuté clamav-unofficial-sigs 8.0.0 comme utilisateur `clamav`.
-Il a vérifié séparément les signatures GPG et la copie installée des bases
-`sanesecurity.ftm`, `sigwhitelist.ign2`, `phish.ndb` et `junk.ndb` avec la clé épinglée,
-puis chargé le scanner complémentaire et scanné un fichier sain. Les sockets
-officielles et complémentaires étaient distinctes. Ces essais ne mesurent pas
-le rappel ou les faux positifs des signatures sur le trafic réel.
+The same harness executed clamav-unofficial-sigs 8.0.0 as a user `clamav`. He separately checked GPG signatures and installed copy of the `sanesecurity.ftm`, `sigwhitelist.ign2`, `phish.ndb` and `junk.ndb` bases with the pin key, then loaded the additional scanner and scanned a healthy file. The official and complementary sockets were distinct. These tests do not measure the recall or false positives of the signatures on the real traffic.
 
-La console de développement passe lint, TypeScript et export statique. Les échanges
-Scaleway sont simulés par un serveur HTTPS local ; aucun appel cloud réel, droit IAM
-ou effet sur la délivrabilité n'est validé par ces tests.
+The development console passes lint, TypeScript and static export. Scaleway exchanges are simulated by a local HTTPS server; no real cloud call, IAM right or delivability effect is validated by these tests.
 
-## Modèle candidat : objectifs non atteints
+<a id="modèle-candidat--objectifs-non-atteints"></a>
+## Candidate model: objectives not achieved
 
-Source : corpus public Apache SpamAssassin historique. 5 874 exemples après import
-et déduplication normalisée, dont 4 659 pour l’entraînement, 609 pour la validation,
-606 pour le test. Les variantes éloignées d’une campagne peuvent échapper au regroupement.
-Ce résultat est exploratoire sur données anciennes, sans garantie d’indépendance temporelle.
+Source: public corpus Apache SpamHistoric Assassin. 5,874 examples after import and standardized deduplication, of which 4,659 for training, 609 for validation, 606 for testing. Remote variants of a campaign can escape consolidation. This result is exploratory on old data, without guarantee of temporal independence.
 
-| Mesure sur le test | Résultat |
+| Measurement on the test | Result |
 |---|---:|
-| Spams détectés | 117 / 192 |
-| Rappel | 60,94 % |
-| IC 95 % du rappel | 53,89–67,56 % |
-| Messages légitimes marqués | 0 / 414 |
-| Faux positifs observés | 0 % |
-| IC 95 % des faux positifs | 0–0,919 % |
-| Précision observée | 100 % |
-| Activation du candidat | Refusée |
+| Spams detected | 117 / 192 |
+| Recall | 60.94 % |
+| 95% CI of recall | 53.89–67.56 % |
+| Legitimate messages marked | 0 / 414 |
+| False positives observed | 0 % |
+| 95% CI of false positives | 0–0,919 % |
+| Accuracy observed | 100 % |
+| Activation of the candidate | Denied |
 
-Le rapport lisible par machine est [model-bootstrap.report.json](model-bootstrap.report.json).
-Le faible effectif ne démontre pas ≤ 0,1 % de faux positifs. Le rappel reste sous 95 %.
-Le contrôle d’activation refuse donc ce candidat. Cette mesure porte sur le classifieur
-local ; les règles, l’authentification et la réputation du pipeline complet doivent être
-évaluées séparément sur un corpus récent et représentatif. Aucun modèle candidat n’est
-activé dans la configuration livrée.
+The machine-readable ratio is [model-bootstrap.report.json](model-bootstrap.report.json). The small number does not show ≤ 0.1% false positives. The recall remains under 95%. The activation control therefore refuses this candidate. This measure concerns the local classifier; the rules, authentication and reputation of the complete pipeline must be evaluated separately on a recent and representative corpus. No candidate model is activated in the delivered configuration.
 
-Le candidat Bernoulli Bayes de la branche de développement utilise exactement la
-même séparation. Il détecte 1 spam sur 192 (rappel 0,52 %, IC 95 % 0,092–2,891 %),
-avec 0 faux positif sur 414 messages légitimes. Le seuil conservateur est calibré
-uniquement sur la validation. Il est refusé et ne remplace pas la logistique.
-Son [rapport complet](model-bayes.report.json) rend cette comparaison reproductible.
+Candidate Bernoulli Bayes of the development branch uses exactly the same separation. He detects 1 spam out of 192 (recall 0.52%, IC 95% 0.092–2.891 %), with 0 false positive on 414 legitimate messages. The conservative threshold is calibrated only on validation. It is refused and does not replace logistics. His [full report](model-bayes.report.json) makes this comparison reproducible.
 
-## Rapidité et robustesse
+<a id="rapidité-et-robustesse"></a>
+## Rapidity and robustness
 
-Extraction locale sur un message synthétique de 1 048 521 octets, 1 000 répétitions
-sur le Mac de développement : p50 3,954 ms, p95 7,491 ms. Ce test exclut DNS,
-classification avec modèle chargé, TLS et persistance. Ce n’est pas une mesure du
-surcoût complet sur la machine de référence 4 vCPU / 8 Go.
+Local extraction on a synthetic message of 1,048,521 bytes, 1,000 repeats on the development Mac: p50 3,954 ms, p95 7,491 ms. This test excludes DNS, classification with loaded model, TLS and persistence. This is not a measure of the full incremental cost on the reference machine 4 vCPU / 8GB.
 
-La réception limite quatre analyses concurrentes. Les vérifications réseau d’un message
-sont bornées à cinq secondes et une analyse incomplète conserve l’objet sans préfixe.
+The reception limits four competing analyses. Network checks of a message are limited to five seconds and an incomplete analysis keeps the object unfixed.
 
-Les cibles libFuzzer SMTP/MIME ont été compilées et exécutées sur 10 000 entrées chacune,
-ainsi que 5 000 mutations déterministes dans les tests. Ces premières exécutions stables
-n’avaient pas d’instrumentation de couverture/sanitizer : elles constituent un contrôle
-de fonctionnement du harnais, pas une campagne de fuzzing guidée. Des campagnes longues
-instrumentées et les essais réels de disque plein/crash matériel restent à réaliser.
+The libfuzzer SMTP/MIME targets were compiled and executed on 10,000 inputs each, as well as 5,000 deterministic mutations in the tests. These first stable executions did not have cover instrumentation/sanitizer: they constitute a control of the harness operation, not a guided fuzzing campaign. Long-run instruments and real full disk/crash hardware tests remain to be performed.
 
-## Jalon Proton en attente
+## Pending Proton validation
 
-Un premier essai de transport a été réalisé depuis le serveur Linux vers une boîte
-Proton contrôlée : un message direct, un message via la file NoiseFence, et un
-message via la file avec objet déjà préfixé et international. L’envoi direct a reçu
-`250` sous TLS 1.3 ; les deux relais ont été acceptés par Proton, marqués livrés,
-puis leurs corps ont été supprimés du spool. L’utilisateur a confirmé les trois
-messages dans le dossier spam. Le bon affichage des caractères internationaux
-n’a pas encore été confirmé.
+A first transport test was performed from the Linux server to a controlled Proton box: a direct message, a message via the NoiseFence file, and a message via the already prefixed and international file with object. Direct sending received `250` under TLS 1.3; both relays were accepted by Proton, marked delivered, and then their bodies were deleted from the spool. The user confirmed the three messages in the spam folder. The correct display of international characters has not yet been confirmed.
 
-Ces messages synthétiques n’avaient pas de signature DKIM et le SPF du domaine
-expéditeur n’autorisait pas l’IP du serveur. Comme le témoin direct arrive lui aussi
-en spam, l’essai ne permet pas d’attribuer ce classement au préfixe. La réputation
-du serveur et l’authentification doivent être isolées dans les prochains essais.
-Le troisième message avait un objet déjà préfixé : ce n’était pas un essai réel de
-modification suivie d’un sceau ARC publié. Les preuves propres au déploiement et
-les adresses de test restent hors du dépôt public.
+These synthetic messages did not have a DKIM signature and the sender domain FPS did not allow the server IP. As the direct cookie also arrives in spam, the trial does not allow to assign this ranking to the prefix. The server reputation and authentication must be isolated in the next trials. The third message had an already prefixed object: it was not a real modification trial followed by a published ARC seal. The deployment-specific proofs and test addresses remain outside the public repository.
 
-Aucun MX n’a été modifié. La bascule reste suspendue. Les huit cas complets du
-protocole [proton-validation.md](proton-validation.md) restent à exécuter.
-Le mode observation reste la configuration de départ et le marquage exige un rapport
-récent renseigné avec des preuves de livraison. Les détails du serveur et les adresses
-réelles appartiennent à la configuration locale de chaque déploiement.
+No MX has been modified. The switch remains suspended. The eight full cases of the [proton-validation.md](proton-validation.md) protocol remain to be executed. The observation mode remains the starting configuration and the marking requires a recent report provided with proof of delivery. The server details and the actual addresses belong to the local configuration of each deployment.

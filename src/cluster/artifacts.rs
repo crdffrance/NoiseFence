@@ -229,7 +229,7 @@ impl Bundle {
                 && super::protocol::compatible_build(&self.build)
                 && self.revision >= 0
                 && self.digest == self.hash()?,
-            "Configuration incompatible ou empreinte invalide."
+            "Incompatible configuration or invalid digest."
         );
         ensure!(
             self.shared

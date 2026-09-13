@@ -30,8 +30,8 @@ export async function api<T = unknown>(
     throw new Error(
       error.error ||
         (response.status === 401
-          ? 'Connectez-vous pour continuer.'
-          : 'La demande a échoué. Réessayez.'),
+          ? "Log in to continue."
+          : "The request failed."),
     );
   }
   return (await response.json()) as T;

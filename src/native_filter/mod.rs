@@ -184,12 +184,12 @@ impl Runtime {
         ensure!(
             settings.bayes_model == self.settings.bayes_model
                 && settings.adaptive == self.settings.adaptive,
-            "Les modèles entraînés nécessitent leur procédure de validation."
+            "Trained models require their validation procedure."
         );
         // Adaptive vectors depend on exact pattern order; never silently change their protocol.
         ensure!(
             self.settings.adaptive.is_none() || settings.patterns == self.settings.patterns,
-            "Les motifs sont liés au protocole adaptatif ; modifier les règles de contenu ou les composites."
+            "Patterns are part of the adaptive protocol; edit content rules or composites instead."
         );
         let policy_sha256 = crate::message::digest(&serde_json::to_vec(
             &serde_json::json!({"version":VERSION,"detector_build":crate::compatibility::DETECTOR_BUILD_SHA256,"content":input::PROTOCOL,"settings":settings,"bayes":self.model_sha256}),
@@ -330,7 +330,7 @@ impl Runtime {
         {
             symbols.push(rules::Symbol {
                 id: "NF_FUZZY_SPAM".into(),
-                label: "Campagne proche de deux exemples humains concordants".into(),
+                label: "Campaign similar to two consistent human-labelled examples".into(),
                 family: rules::Family::Campaign,
                 weight: 1.5,
                 absorbed_by: vec![],
@@ -340,7 +340,7 @@ impl Runtime {
             // A bounded comparative contribution, explicitly not a probability.
             symbols.push(rules::Symbol {
                 id: "NF_BAYES".into(),
-                label: "Classifieur OSB Bayes en observation".into(),
+                label: "OSB Bayes classifier in observation".into(),
                 family: rules::Family::Bayes,
                 weight: log_odds.clamp(-1.0, 1.0),
                 absorbed_by: vec![],

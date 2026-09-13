@@ -1,171 +1,71 @@
-# Plusieurs passerelles MX
+# Multiple MX servers
 
-Depuis 0.14, NoiseFence peut réunir jusqu’à 16 nœuds autour d’une console centrale.
-Les rôles `coordinator` et `worker` concernent la gestion. Les deux serveurs SMTP
-analysent les messages et livrent directement aux routes explicites du fournisseur.
+NoiseFence supports up to 16 nodes managed by one console. `coordinator` and `worker` describe management roles: both run SMTP filtering and relay directly to configured upstream routes.
 
 ```text
-Internet ── MX priorité 10 ── mx1 : SMTP + file locale ── fournisseur
-         └─ MX priorité 20 ── mx2 : SMTP + file locale ── fournisseur
-                               │
-                               └── HTTPS sortant vers la console de mx1
-                                   réglages / modèles / crédits / historique
+Internet ── MX priority 10 ── mx1: SMTP + durable queue ── upstream
+         └─ MX priority 20 ── mx2: SMTP + durable queue ── upstream
+                                  │
+                                  └── authenticated HTTPS to mx1
+                                      policies, models, credits, history
 ```
 
-La priorité MX organise le choix des expéditeurs ; elle n’empêche pas une connexion
-directe à mx2. Tous les MX publics doivent donc appliquer le filtrage. Ne pas garder
-les MX Proton comme secours public si l’objectif est de faire passer la réception
-externe par NoiseFence. Les contraintes de routage interne Proton restent à valider.
+MX priority influences sender selection; it does not prevent direct connections to a secondary MX. Every public MX must filter mail. Keep upstream routes independent of the domain’s public MX records to avoid loops. Validate Proton’s internal routing and direct-delivery behavior before changing DNS.
 
-## Ce qui est partagé
+<a id="ce-qui-est-partagé"></a>
+## Shared policy and history
 
-La console distribue une révision contenant domaines, alias, routes explicites,
-actions, niveaux, règles, préférences, RBL et réglages des moteurs. Elle transfère
-les modèles autorisés et l’encodeur sémantique, avec manifeste SHA-256. Les fichiers
-sont téléchargés en flux, vérifiés, synchronisés sur disque puis activés. Une erreur
-conserve la dernière configuration valide ; une nouvelle révision ne change pas
-les transactions SMTP déjà commencées. Une modification du modèle sur disque au
-coordinateur exige son rechargement validé avant publication.
+The coordinator distributes revisioned domains, aliases, routes, actions, levels, custom rules, preferences, RBL settings and detector configuration. Approved model artifacts have SHA-256 manifests. Downloads are streamed, verified and persisted before activation. A failed update retains the last valid policy; an existing SMTP transaction retains its captured configuration. Model replacement must pass the normal validation and reload procedure before distribution.
 
-Chaque nœud possède son identité aléatoire de 256 bits. Seule son empreinte est
-stockée dans la base centrale. Les échanges exigent HTTPS avec validation du
-certificat, sans redirection ni proxy d’environnement. HTTP n’est disponible que
-pour les essais sur une adresse loopback explicite. Le manifeste assure l’intégrité
-des fichiers ; l’authentification de l’autorité repose sur TLS et l’identité du nœud,
-pas sur une signature indépendante du manifeste ou un certificat client mTLS.
+Each node has a private random 256-bit identity. The coordinator stores its hash. Production exchanges require HTTPS with certificate verification, without redirects or environment proxies. Loopback HTTP is restricted to tests. Artifact hashes verify integrity; TLS and the node identity establish authority.
 
-Les clés CRDF, VirusTotal, Scaleway et DQS configurées sont transférées par ce canal
-privé et enregistrées avec des permissions restrictives. Les administrateurs des
-serveurs rattachés doivent être de confiance. Les clés ARC, certificats SMTP,
-comptes Web, sessions, mots de passe et preuves Proton ne sont pas répliqués. Une
-référence de clé RBL personnalisée doit être autorisée dans le bootstrap de chaque
-nœud pour le même fournisseur et la même zone.
+Configured CRDF, VirusTotal, Scaleway and Spamhaus DQS credentials travel over this authenticated channel and are stored privately. Attached hosts and their administrators must be trusted. Custom RBL key references must be allowed in each node’s bootstrap configuration for the same provider and zone.
 
-Les corps et pièces jointes restent sur le serveur qui les a acceptés. L’historique
-central reçoit analyses, caractéristiques, états par destinataire et les cinq
-derniers journaux SMTP de chaque livraison. Les droits de la console et les copies
-cachées sont vérifiés sur ces métadonnées. La recherche avancée accepte un filtre
-`node` : vide pour tous, `local` pour le coordinateur ou un identifiant comme `mx2`.
+Standard policy synchronization does not copy SMTP certificates, ARC keys, Web accounts, sessions, passwords or Proton validation reports. Central history contains analysis, retained features, recipient states and the last five SMTP logs per delivery. It does not contain message bodies. Recipient permissions and Bcc visibility are checked when reading that history. Search supports all nodes, `local`, or a specific node such as `mx2`.
 
-La libération/suppression de quarantaine et la relance d’une livraison distante sont
-des commandes avec reçu durable. Elles expirent après cinq minutes si le nœud ne
-les prend pas en charge. « En attente » ne signifie pas que l’action a été exécutée.
-La reprise d’une commande reçue plusieurs fois ne l’exécute pas plusieurs fois.
+**Optional paired HA is a separate layer.** It copies accepted message bodies and journals, and produces protected console checkpoints containing accounts and recovery configuration. See [two durable copies and console recovery](high-availability.md). Standard cluster synchronization alone provides neither body replication nor console failover.
 
-## Budgets et fonctionnement dégradé
+Remote quarantine release, discard and delivery retry use durable command receipts. Commands expire after five minutes if they are not executed. “Pending” is not confirmation of execution. Repeated receipt of a command does not repeat its action.
 
-Le plafond LLM est global. Le coordinateur réserve des crédits cumulatifs par
-tranches de 0,10 € dans son budget existant. Les réservations locales et distantes
-partagent les transactions SQLite. Une réponse perdue renvoie les mêmes crédits.
-Les crédits distribués restent comptabilisés même si un nœud est arrêté ou révoqué ;
-ils ne sont pas récupérés pendant leur période de validité. L’interface de budget
-central inclut donc ces réservations, et non uniquement les appels réellement facturés.
+<a id="budgets-et-fonctionnement-dégradé"></a>
+## Budgets and degraded operation
 
-Les quotas CRDF/VirusTotal limités sont alloués de la même façon, par jour et minute.
-Le réglage `0` conserve le sens « illimité ». Sans crédits valides, le fournisseur
-est indisponible pour cette analyse, jamais une preuve de spam. Les caches, listes
-locales, mémoire de correspondants/campagnes et limites de connexions par IP restent
-propres à chaque serveur. Il n’existe pas de quota global par IP dans cette version.
-Les mises à jour des bases antivirus et listes de signatures doivent tourner sur
-chaque serveur. Synchroniser et superviser les horloges via NTP.
+The LLM budget is shared. The coordinator reserves credits in €0.10 blocks using the same transactional accounting as local requests. Retried allocation requests return the same credits. Outstanding credits remain reserved while valid even if a node stops or is revoked. Displayed reservations can therefore exceed invoiced calls.
 
-Un nœud ayant déjà synchronisé reste autonome pendant `max_stale_seconds` (24 h par
-défaut, maximum sept jours). Il livre sa file même si la console est indisponible.
-Il analyse avec la politique en cache et les crédits encore valides. Après expiration,
-il répond temporairement `451` à MAIL pour les nouvelles transactions. Un nœud neuf
-fait de même jusqu’à sa première synchronisation. Le prochain contact renouvelle
-la configuration et remonte les métadonnées restées sur disque. Une erreur de
-synchronisation de l’historique est visible et n’empêche pas le renouvellement des
-réglages ; les métadonnées concernées restent à résoudre localement.
+Limited CRDF and VirusTotal daily/minute quotas are allocated similarly; `0` means unlimited. Without a valid allocation, a check is unavailable, never evidence of spam. DNS caches, local reputation, campaign/correspondent memory and connection limits remain local. Selected SMTP admission and attempt quotas use a shared authority with fail-open behavior when unavailable; see [SMTP admission](smtp-admission.md). Update antivirus databases, local feeds and clocks on every node.
 
-Cette architecture ne réplique pas les files et ne bascule pas automatiquement la
-console. Un courrier déjà accepté sur un serveur indisponible attend son retour.
-Une perte définitive de son disque peut perdre ce courrier : prévoir sauvegardes,
-stockage fiable et supervision. SMTP peut produire un doublon après perte d’un
-accusé final ; l’identifiant NoiseFence n’est pas une garantie globale d’unicité.
+A synchronized worker can use its cached policy for `max_stale_seconds`: 24 hours by default, at most seven days. After expiry, or before its first synchronization, new SMTP transactions receive `451`. Reconnection renews policy and uploads retained history. A history upload error does not prevent a valid policy refresh; unsent records remain local.
 
-## Installation progressive
+**Mandatory two-copy replication adds a stricter requirement.** A cached policy does not permit accepting mail without a durable peer acknowledgement. A peer outage defers new mail and blocks delivery transitions that cannot be replicated. Console recovery requires fencing and controlled promotion, not an automatic DNS switch.
 
-1. Installer la même release vérifiée sur les deux machines. Prévoir des domaines
-   de panne distincts, IP/A/PTR cohérents, ports 25 entrant/sortant, DNS résolveur,
-   certificats SMTP valides et espace pour la file et jusqu’à trois jeux de modèles.
-2. Sauvegarder de façon cohérente le stockage et la configuration du serveur existant.
-   Ajouter la section `config/cluster-coordinator.example.toml` à sa configuration.
-   Conserver le mode observation. Vérifier `check-config`, puis redémarrer le service.
-3. Adapter le proxy HTTPS avec le bloc `/api/v1/cluster/v1/` de `deploy/nginx.conf`
-   (requêtes de 4 Mio, téléchargement en flux), ou le nouvel exemple Caddy.
-   Ne pas exposer le port API loopback. L’API conserve ses contrôles d’identité.
-4. Ouvrir **Administration → Serveurs MX**, ajouter `mx2` et conserver son identité
-   affichée une seule fois. Créer `/etc/noisefence/cluster`, propriétaire `noisefence`,
-   mode 0700 ; installer l’identité dans `node.key`, même propriétaire, mode 0600.
-   Ne pas mettre cette valeur dans Git, une URL ou la ligne de commande.
-5. Sur mx2, utiliser une configuration locale neuve : hostname/TLS/ARC propres,
-   répertoire de données vide, routes bootstrap explicites et **100 destinataires
-   maximum par transaction**. Installer les services OCR/antivirus/signatures présents
-   sur mx1. Ajouter `config/cluster-worker.example.toml`, avec l’URL réelle de mx1.
-   L’API du worker n’expose que `/healthz` ; tous les utilisateurs emploient la console
-   centrale. Ne pas y créer de comptes ni lancer un entraînement autonome.
-6. Démarrer sans publier son MX. Vérifier dans « Serveurs MX » la connexion, l’absence
-   d’incident, la révision et l’empreinte appliquées. Contrôler espace disque, crédits,
-   files, logs, services de contenu et limites de concurrence sur chaque machine.
-7. Envoyer les seuls messages de test autorisés directement à mx2. Vérifier STARTTLS,
-   refus de relais ouvert, routes indépendantes des MX publics, réception Proton,
-   dossiers d’arrivée, score/raisons, agrégation et droits entre utilisateurs.
-   Refaire la validation Proton pour la nouvelle IP avant tout marquage.
-8. Couper temporairement la liaison de coordination, vérifier réception/livraison
-   locale, puis la remontée d’historique au retour. Tester aussi un arrêt de mx1.
-   Publier ensuite seulement `10 mx1.example.org` et `20 mx2.example.org`.
+Without paired HA, accepted mail waits on its owning node until delivery or recovery. Backups and reliable storage remain necessary. SMTP can duplicate a delivery after a lost final acknowledgement; a NoiseFence ID does not provide exactly-once delivery.
 
-Le changement DNS n’est pas réalisé par la console. Pour tourner une identité,
-utiliser « Renouveler l’identité », remplacer le fichier privé sur le worker puis
-redémarrer celui-ci. « Désactiver » coupe immédiatement ses accès de synchronisation
-et annule ses commandes en attente ; le SMTP continue avec sa politique en cache
-jusqu’à expiration. Pour le retirer immédiatement de la réception, retirer le MX et
-arrêter son écoute SMTP tout en traitant le courrier déjà accepté.
+## Installation
 
-## Stockage et retour arrière
+1. Install the same verified release on separate hosts. Check public IP, A/PTR records, inbound/outbound TCP 25, DNS, certificate validation and durable storage capacity.
+2. Back up the existing coordinator consistently. Add `config/cluster-coordinator.example.toml` to its private configuration, retain observation, run `check-config` and restart.
+3. Configure the HTTPS proxy using the cluster block in `deploy/nginx.conf` or `deploy/Caddyfile`. Keep the Rust API on loopback.
+4. In **Administration → MX servers**, add the worker. Save the one-time identity in `/etc/noisefence/cluster/node.key`, owned by `noisefence`, mode 0600; its directory must be 0700. Never place it in Git, a URL or command arguments.
+5. Give the worker its own hostname, certificates, ARC material, empty data directory and bootstrap routes. Set at most 100 recipients per transaction. Install required OCR, antivirus and signature services on each host. Add `config/cluster-worker.example.toml` with the coordinator’s real HTTPS URL.
+6. The worker API exposes health rather than an independent user console. Users connect to the coordinator. Do not create separate worker accounts, clone its data directory or train an independent active model there.
+7. Before publishing DNS, verify contact, policy revision, artifact digests, quotas, queue, disk space, content services and worker limits. Exercise authorized test recipients, STARTTLS, relay refusal, upstream mailbox placement, history aggregation and access isolation.
+8. Configure and test [paired HA](high-availability.md) if required. With mandatory replication, test that loss of either peer produces `451`, while already accepted bodies remain protected. Without HA, test cached-policy behavior separately.
+9. Publish only the intended gateway MX records after validation, for example priority 10 for `mx1.example.org` and 20 for `mx2.example.org`. DNS changes are installation operations, not Web policy revisions.
 
-La version **0.15.3** ajoute l’état terminal `dsn_suppressed` pour la protection
-[anti-backscatter](backscatter.md). Mettre à jour le coordinateur avant les workers.
-Les bundles de politique 0.15.1 restent compatibles ; les nouveaux statuts exigent
-un coordinateur 0.15.3. Pour un retour arrière, arrêter d’abord les workers 0.15.3
-et conserver le coordinateur 0.15.3 tant qu’ils ont des métadonnées à synchroniser.
-Ne pas modifier les états de livraison pour forcer un ancien lecteur.
+“Renew identity” invalidates the old credential. Replace the worker’s private file and restart it. “Disable” revokes synchronization and pending commands; it does not immediately stop a worker using a cached policy. To retire a receiving host, remove its DNS entry, stop new reception and resolve its accepted mail under the recovery procedure.
 
-Pour passer de 0.14.0 à 0.15.1, mettre à jour **le coordinateur en premier**,
-vérifier que les anciens workers continuent à synchroniser, puis mettre à jour les
-workers un par un. Le protocole de ces versions est identique : le coordinateur
-adapte l'identifiant de version et recalcule l'empreinte pour chaque worker. Un
-worker 0.15.1 valide également son cache 0.14.0 au redémarrage. Cette compatibilité
-est une liste explicite, pas une acceptation générale des versions antérieures ou
-futures. Ne pas supprimer ni réécrire manuellement la politique en cache.
+<a id="stockage-et-retour-arrière"></a>
+## Upgrades and recovery
 
-L’activation du rôle marque le stockage en **schéma 3**. La version 0.14 sait ouvrir
-les schémas précédents et ajoute les tables de cluster. Un stockage de cluster exige
-son rôle et son identifiant d’origine : supprimer la section ou cloner une file vers
-un nouveau worker est refusé. L’installateur refuse un retour automatique vers une
-release ne supportant que le schéma 2. Ne jamais abaisser `user_version` à la main.
+Upgrade the coordinator first within the explicit policy compatibility window, confirm old workers still synchronize, then upgrade workers one at a time. Compatibility is an audited list, not acceptance of arbitrary earlier or future releases. Never rewrite a cached bundle or its digest by hand.
 
-Avant réception sur le nouveau schéma, une restauration complète de la sauvegarde
-précédente est possible. Après réception, conserver une release compatible, vider
-les files et planifier une migration avec inventaire des messages. Restaurer une
-ancienne sauvegarde de budget sur un nœud actif peut réutiliser des crédits déjà
-consommés : arrêter/révoquer ce nœud et réconcilier les comptes avant toute reprise.
-Ne jamais faire tourner deux machines avec la même identité ou la même file.
+Storage capabilities are: schema 3 for clustering, schema 4 for SMTP admission, and schema 5 for paired durability. A database retains its original node role and identity. Current release tooling supports schema 5; older binaries may refuse it. Never lower `user_version` to force a downgrade or run two instances with the same identity/data directory.
 
-Les commandes CLI de consultation utilisent la dernière politique reçue. La
-réinitialisation locale de console est refusée sur un worker. La relance CLI agit
-sur la file locale ; la console est nécessaire pour envoyer une relance distante.
+Keep a compatible prior release and consistent backups. After any new SMTP acceptance, restoring an old database can lose delivery responsibility or reuse spent credits. Stop/fence affected nodes, inventory accepted messages and reconcile accounting before recovery. See [installation](installation.md) and [HA recovery](high-availability.md).
 
-## Validation automatisée
+Local CLI inspection uses the latest received policy. Local retry acts on the local queue; use the console for remote commands. A worker refuses local console-account reset.
 
-`cargo test --locked --test cluster` couvre deux instances HTTP/SMTP loopback,
-transfert et reprise d’un modèle, SMTP avant/après synchronisation, refus de relais,
-historique sans transfert de corps, ACL et copies cachées, commandes idempotentes,
-révocation, restauration de configuration, expiration, remplacement de modèle et
-attribution concurrente des crédits. Ces tests synthétiques ne prouvent pas la
-livraison Internet ni le classement Proton du futur mx2.
+<a id="validation-automatisée"></a>
+## Verification
 
-Le greylisting sélectif et les quotas de tentatives disposent depuis 0.16.2 d’une
-autorité commune, avec repli permissif si elle est indisponible :
-[Admission SMTP](smtp-admission.md). Les files de messages restent locales.
+`cargo test --locked --test cluster` exercises isolated SMTP/HTTP nodes, synchronization, artifacts, history, Bcc permissions, idempotent commands, revocation, expiry and concurrent budgets. The HA tests additionally exercise persistence, lost acknowledgements, state replication and recovery. Synthetic tests do not establish Internet deliverability or Proton inbox placement.

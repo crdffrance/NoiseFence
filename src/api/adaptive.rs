@@ -14,7 +14,7 @@ async fn get_labels(
     Ok(Json(
         crate::adaptive::data::labels(&app.store, user.username, id)
             .await
-            .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?,
+            .map_err(|_| Error(StatusCode::NOT_FOUND, "Message not found.".into()))?,
     ))
 }
 async fn label(
@@ -28,7 +28,7 @@ async fn label(
     csrf(&user, &headers)?;
     crate::adaptive::data::label(&app.store, user.username, id, body.domain, body.class)
         .await
-        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
+        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message not found.".into()))?;
     Ok(Json(json!({"ok":true,"observation_only":true})))
 }
 pub(super) fn routes() -> Router<App> {

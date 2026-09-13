@@ -16,7 +16,7 @@ export function SensitivitySelect({
   locked,
   onChange,
   label,
-  inheritedLabel = 'Hériter du niveau général',
+  inheritedLabel = "Inheritance from the general level",
 }: {
   threshold: number | null;
   levels: SensitivityLevel[];
@@ -52,16 +52,16 @@ export function SensitivitySelect({
           <option value="inherit">{inheritedLabel}</option>
           {levels.map((l, i) => (
             <option key={l.id} value={l.id}>
-              {i + 1} · {l.label} · seuil {l.threshold}
+              {i + 1} · {l.label} · threshold {l.threshold}
             </option>
           ))}
-          <option value="custom">Personnalisé</option>
+          <option value="custom">Custom</option>
         </select>
       </label>
       {(custom || levelValue(threshold, levels) === 'custom') &&
         threshold !== null && (
           <label>
-            Seuil personnalisé pour {label.toLowerCase()}
+            Custom Threshold for {label.toLowerCase()}
             <Input
               type="number"
               min={50}
@@ -101,7 +101,7 @@ export function FilterSensitivity({
       onChange(setScopeThreshold(policy, scope, value, actions));
       setError('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Réglage invalide.');
+      setError(e instanceof Error ? e.message : "Invalid setting.");
     }
   }
   return (
@@ -111,25 +111,22 @@ export function FilterSensitivity({
     >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Sensibilité du classement</p>
-          <h2 id="sensitivity-title">Du plus tolérant au plus strict</h2>
+          <p className="eyebrow">Sensitivity of classification</p>
+          <h2 id="sensitivity-title">From the most tolerant to the most strict</h2>
         </div>
-        <span className="status">5 niveaux</span>
+        <span className="status">5 levels</span>
       </div>
       <p className="muted">
-        Un niveau plus strict abaisse le seuil et augmente le nombre de messages
-        suspects. Les indices ne sont pas des probabilités ; validez le réglage
-        avec vos corrections.
+        A stricter level lowers the threshold and increases the number of suspicious messages. Indices are not probabilities; validate the setting with your corrections.
       </p>
       {locked && (
         <p className="notice">
-          La fusion validée impose son propre seuil. Ces réglages nécessitent
-          une nouvelle validation de la fusion.
+          Validated fusion imposes its own threshold. These settings require a new validation of fusion.
         </p>
       )}
       <fieldset
         className="sensitivity-levels"
-        aria-label="Niveau de l’organisation"
+        aria-label="Organizational level"
       >
         {levels.map((l, i) => (
           <button
@@ -142,57 +139,53 @@ export function FilterSensitivity({
           >
             <span className="sensitivity-step">{i + 1}</span>
             <strong>{l.label}</strong>
-            <span className="small">Seuil {l.threshold} / 100</span>
+            <span className="small">Threshold {l.threshold} / 100</span>
           </button>
         ))}
       </fieldset>
       <output className="sensitivity-explanation">
         <strong>
           {threshold === null
-            ? 'Hériter du moteur'
+            ? "Inherit the engine threshold"
             : (levels.find((l) => l.threshold === threshold)?.label ??
-              'Personnalisé')}{' '}
-          · seuil {threshold ?? modelThreshold}
+              "Custom")}{' '}
+          · threshold {threshold ?? modelThreshold}
         </strong>
         <span>
           {threshold === null
-            ? 'Le niveau suit le seuil de référence du moteur.'
+            ? "The level follows the engine reference threshold."
             : (levels.find((l) => l.threshold === threshold)?.description ??
-              'Le seuil personnalisé conserve les mêmes contrôles de confirmation.')}
+              "The custom threshold retains the same confirmation checks.")}
         </span>
       </output>
       <SensitivitySelect
-        label="Niveau général"
+        label="General level"
         levels={levels}
         threshold={threshold}
         locked={locked}
-        inheritedLabel={`Hériter du moteur · seuil ${modelThreshold}`}
+        inheritedLabel={`Inherit the engine threshold · threshold ${modelThreshold}`}
         onChange={(v) => update('*', v)}
       />
       <p className="small muted">
-        Chaque niveau exige une confirmation du spam et conserve l’arbitrage des
-        avis contradictoires, les limites d’analyse et la priorité antivirus. Le
-        modèle et la sélection des analyses externes restent identiques.
+        Every level preserves corroboration, disagreement arbitration, analysis limits and antivirus priority. It does not change the model or external analysis selection.
       </p>
       {domains.length > 0 && (
         <div className="sensitivity-domains">
-          <h3>Exceptions par domaine</h3>
+          <h3>Domain exceptions</h3>
           <p className="small muted">
-            Les adresses ayant un profil spécifique restent prioritaires. Les
-            actions Spam, Publicité et À examiner se règlent dans Règles &amp;
-            profils ; créer un niveau reprend les actions actuelles.
+            Address-specific profiles take priority. Configure spam, marketing and review actions in Rules &amp; profiles. Changing a level preserves the current actions.
           </p>
           {domains.map((domain) => (
             <div className="sensitivity-domain" key={domain}>
               <strong>{domain}</strong>
               <SensitivitySelect
-                label={`Niveau pour ${domain}`}
+                label={`Level for ${domain}`}
                 levels={levels}
                 threshold={
                   scopedProfile(policy, `*@${domain}`)?.threshold ?? null
                 }
                 locked={locked}
-                inheritedLabel={`Hériter du général · seuil ${threshold ?? modelThreshold}`}
+                inheritedLabel={`Inheritance of the general · threshold ${threshold ?? modelThreshold}`}
                 onChange={(v) => update(`*@${domain}`, v)}
               />
             </div>
@@ -200,8 +193,7 @@ export function FilterSensitivity({
         </div>
       )}
       <p className="small">
-        Utilisez « Vérifier et appliquer » pour enregistrer ces choix pour les
-        prochains messages. Le mode observation continue de transmettre.
+        Use &quot;Review and apply&quot; to save these choices for future messages. Observation mode continues to transmit.
       </p>
       {error && (
         <p role="alert" className="notice">

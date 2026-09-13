@@ -68,37 +68,31 @@ impl Settings {
                 && 50. <= self.minimum_threshold
                 && self.minimum_threshold <= self.maximum_threshold
                 && self.maximum_threshold <= 100.,
-            "Bornes des seuils personnels invalides."
+            "Impaired personal thresholds."
         );
         ensure!(
             self.max_rules <= 20
                 && self.mailboxes.len() <= 1000
                 && !self.allowed_actions.is_empty(),
-            "Limites des préférences invalides."
+            "Limits of invalid preferences."
         );
         for (scope, p) in &self.mailboxes {
-            ensure!(
-                scope != "*",
-                "Une préférence nécessite une adresse ou un domaine."
-            );
+            ensure!(scope != "*", "A preference requires an address or domain.");
             // A binding validates the scope even when the preference has no profile or rules.
             ensure!(
                 (scope
                     .strip_prefix("*@")
                     .is_some_and(|d| cfg.domains.iter().any(|v| v.name == d))
                     || cfg.recipient(scope).is_some_and(|r| r.address == *scope)),
-                "Portée personnelle inconnue."
+                "Unknown personal scope."
             );
-            ensure!(
-                p.rules.len() <= self.max_rules,
-                "Trop de règles personnelles."
-            );
+            ensure!(p.rules.len() <= self.max_rules, "Too many personal rules.");
             for r in &p.rules {
                 ensure!(
                     r.scope == *scope
                         && !r.stop
                         && r.action.is_none_or(|a| self.allowed_actions.contains(&a)),
-                    "Règle personnelle hors portée ou action non autorisée."
+                    "Personal rule out of reach or unauthorized action."
                 );
             }
             if let Some(profile) = &p.profile {
@@ -107,13 +101,13 @@ impl Settings {
                         ..=self.maximum_threshold)
                         .contains(&t))
                         && profile.require_corroboration,
-                    "Seuil hors limites ou corroboration désactivée."
+                    "Out-of-limit threshold or substantiation disabled."
                 );
                 ensure!(
                     [profile.spam, profile.publicity, profile.review]
                         .iter()
                         .all(|a| self.allowed_actions.contains(a)),
-                    "Action personnelle non autorisée."
+                    "Unauthorized personal action."
                 );
             }
             p.policy(scope).validate(cfg)?;

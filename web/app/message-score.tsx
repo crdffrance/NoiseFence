@@ -1,3 +1,4 @@
+import { coveragePresentation } from './assessment';
 import { ScoreMeter } from './brand';
 import { scorePresentation, type ScoreInput } from './presentation';
 
@@ -14,7 +15,7 @@ export function MessageScore({
       <ScoreMeter
         score={score.value}
         tone={tone}
-        label={`${score.label} sur 100`}
+        label={`${score.label} out of 100`}
       />
       <span className="score-caption">{score.label}</span>
     </span>
@@ -23,6 +24,7 @@ export function MessageScore({
 
 export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
   const score = scorePresentation(mail);
+  const coverage = coveragePresentation(mail);
   return (
     <div className={`message-score-details ${score.kind}`}>
       <div className="score-large">
@@ -34,6 +36,11 @@ export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
         {score.model && <span> · {score.model}</span>}
       </p>
       <p className="score-explanation">{score.detail}</p>
+      <div className="assessment-facts">
+        <span title={coverage.detail} className={`status ${coverage.complete ? 'good' : 'review'}`}>{coverage.label}</span>
+        {mail.assessment?.content_threshold != null && <span>Recorded content threshold: <strong>{mail.assessment.content_threshold.toFixed(1)} / 100</strong></span>}
+        {mail.assessment?.classification_source === 'historical_fallback' && <span>Historical classification reconstructed</span>}
+      </div>
     </div>
   );
 }

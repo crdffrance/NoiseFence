@@ -266,9 +266,9 @@ pub async fn restore_queue(
                 d.action = "quarantine".into();
                 d.held_until = None;
                 d.error=Some(if missing_notice {
-                    "Reprise : notification d’échec absente de la copie ; vérifier ou recréer l’avis avant résolution."
+                    "Retake: notification of failure missing from copy; check or re-create notice before resolution."
                 } else {
-                    "Reprise : acceptation ou résultat SMTP incertain ; vérification requise avant toute relance."
+                    "Recovery: acceptance or result SMTP uncertain; verification required before re-launching."
                 }.into());
                 held += 1;
             } else if d.status == "pending" {

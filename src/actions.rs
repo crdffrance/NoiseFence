@@ -46,7 +46,7 @@ impl Policy {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             (1..=30).contains(&self.quarantine_days),
-            "Conservation en quarantaine : 1 à 30 jours."
+            "Quarantine storage: 1 to 30 days."
         );
         Ok(())
     }

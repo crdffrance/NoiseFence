@@ -96,7 +96,7 @@ export function recipientHistory(
     recipient?.delivery_id !== deliveryId
   )
     throw new Error(
-      'L’historique reçu ne correspond pas au destinataire sélectionné.',
+      "The received history does not match the selected recipient.",
     );
   // A targeted response must never replace the message's other recipients or analysis.
   return recipient;
@@ -113,183 +113,76 @@ export function mergeDiagnosticRecipient<T extends { delivery_id?: number }>(
   );
 }
 
-const decimal = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 });
+const decimal = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 3 });
 export function duration(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value) || value < 0)
-    return 'Durée non enregistrée';
-  return value < 1000
-    ? `${decimal.format(value)} ms`
-    : `${decimal.format(value / 1000)} s`;
+  if (value == null || !Number.isFinite(value) || value < 0) return 'Duration not recorded';
+  return value < 1000 ? `${decimal.format(value)} ms` : `${decimal.format(value / 1000)} s`;
 }
 export function timestamp(value: number) {
   const date = new Date(value * 1000);
   return value > 0 && Number.isFinite(date.getTime())
-    ? date.toLocaleString('fr-FR', { timeZoneName: 'short' })
-    : 'Date non enregistrée';
+    ? date.toLocaleString('en-GB', { timeZoneName: 'short' }) : 'Date not recorded';
 }
 export function contribution(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return 'Non enregistrée';
-  // Preserve the sign of small nonzero contributions, without displaying +0.
-  const formatted =
-    Math.abs(value) > 0 && Math.abs(value) < 0.001
-      ? Math.abs(value).toExponential(2).replace('.', ',')
-      : decimal.format(Math.abs(value));
+  if (value == null || !Number.isFinite(value)) return 'Not recorded';
+  const formatted = Math.abs(value) > 0 && Math.abs(value) < 0.001
+    ? Math.abs(value).toExponential(2) : decimal.format(Math.abs(value));
   return `${value > 0 ? '+' : value < 0 ? '−' : ''}${formatted}`;
 }
 export function weightEffect(value: number) {
-  if (!Number.isFinite(value)) return 'Effet non enregistré';
-  if (value > 0) return 'Augmente la suspicion dans le calcul historique';
-  if (value < 0) return 'Réduit la suspicion dans le calcul historique';
-  return 'Signal consultatif · aucun effet numérique';
+  if (!Number.isFinite(value)) return 'Effect not recorded';
+  if (value > 0) return 'Increases risk in the recorded calculation';
+  if (value < 0) return 'Reduces risk in the recorded calculation';
+  return 'Advisory signal · no numerical effect';
 }
 export function decisionExplanation(source?: string) {
-  if (source === 'antivirus')
-    return 'Décision antivirus prioritaire : la détection de malware prime sur les poids historiques et la fusion. Ces contributions ne déterminent pas la décision finale.';
-  if (source === 'fusion')
-    return 'Décision par fusion des détecteurs : les poids du calcul historique ci-dessous ne déterminent pas le score final de fusion.';
-  if (source === 'legacy')
-    return 'Décision issue du calcul historique : modèle lexical, contribution sémantique et règles, sous réserve de la politique de confirmation enregistrée.';
-  return 'Source de décision non enregistrée. Les poids conservés ne permettent pas de reconstituer avec certitude la décision finale.';
+  if (source === 'antivirus') return 'Malware detection takes priority over content weights and fusion. These contributions do not determine the final decision.';
+  if (source === 'fusion') return 'Fusion determines the decision. The content weights below do not determine the final fusion estimate.';
+  if (source === 'legacy') return 'The recorded decision combines the lexical model, semantic contribution and rules, subject to corroboration policy.';
+  return 'Decision source not recorded. The retained weights cannot establish the final decision.';
 }
 export function policySummary(policy: HistoricalPolicy | null) {
-  if (!policy)
-    return 'Politique historique non enregistrée : seuil et mode à la réception inconnus. Les réglages actuels ne sont pas utilisés pour reconstituer cette analyse.';
-  const mode =
-    {
-      observe: 'Observation',
-      tag: 'Marquage',
-      enforce: 'Application des actions',
-    }[policy.mode] ?? 'Mode inconnu';
-  return `${mode} · seuil historique ${decimal.format(policy.threshold)} / 100 · confirmation ${policy.require_corroboration ? 'requise' : 'non requise'}`;
+  if (!policy) return 'Historical threshold and mode not recorded. Current settings are not used to reconstruct this analysis.';
+  const mode = { observe: 'Observation', tag: 'Tagging', enforce: 'Actions enabled' }[policy.mode] ?? 'Unknown mode';
+  return `${mode} · Recorded content threshold ${decimal.format(policy.threshold)} / 100 · corroboration ${policy.require_corroboration ? 'required' : 'not required'}`;
 }
 export function deliveryStatus(status: string) {
-  return (
-    (
-      {
-        pending: 'En attente de transmission',
-        sending: 'Transmission en cours',
-        delivered: 'Accepté par le serveur destinataire',
-        failed: 'Échec de transmission',
-        notified: 'Échec traité',
-        dsn_suppressed: 'Avis bloqué · protection anti-backscatter',
-        quarantined: 'En quarantaine',
-        discarded: 'Supprimé manuellement',
-        expired: 'Quarantaine expirée',
-      } as Record<string, string>
-    )[status] ?? `État inconnu (${status})`
-  );
+  return ({ pending: 'Pending delivery', sending: 'Delivery in progress', delivered: 'Accepted by destination',
+    failed: 'Delivery failed', notified: 'Failure notification handled', dsn_suppressed: 'Notification suppressed · backscatter protection',
+    quarantined: 'Quarantined', discarded: 'Manually discarded', expired: 'Quarantine expired',
+  } as Record<string, string>)[status] ?? `Unknown state (${status})`;
 }
 export function smtpOutcome(outcome: string) {
-  return (
-    (
-      {
-        delivered: 'Accepté par le serveur destinataire',
-        temporary: 'Échec temporaire',
-        permanent: 'Refus permanent',
-      } as Record<string, string>
-    )[outcome] ?? `Résultat inconnu (${outcome})`
-  );
+  return ({ delivered: 'Accepted by destination', temporary: 'Temporary failure', permanent: 'Permanent rejection' } as Record<string, string>)[outcome] ?? `Unknown outcome (${outcome})`;
 }
-export function nextRetry(
-  status: string,
-  nextAttempt: number,
-  now = Date.now(),
-) {
-  if (status === 'sending')
-    return 'Tentative en cours ; prochaine échéance non connue.';
-  if (status !== 'pending')
-    return 'Aucune nouvelle tentative planifiée dans cet état.';
-  if (
-    !Number.isFinite(nextAttempt) ||
-    nextAttempt <= 0 ||
-    !Number.isFinite(new Date(nextAttempt * 1000).getTime())
-  )
-    return 'Prochaine tentative : date non enregistrée.';
-  return nextAttempt * 1000 <= now
-    ? `Nouvelle tentative attendue depuis le ${timestamp(nextAttempt)} ; en attente du relais.`
-    : `Prochaine tentative prévue le ${timestamp(nextAttempt)}.`;
+export function nextRetry(status: string, nextAttempt: number, now = Date.now()) {
+  if (status === 'sending') return 'Attempt in progress; next retry time unknown.';
+  if (status !== 'pending') return 'No retry scheduled in this state.';
+  if (!Number.isFinite(nextAttempt) || nextAttempt <= 0 || !Number.isFinite(new Date(nextAttempt * 1000).getTime())) return 'Next retry: date not recorded.';
+  return nextAttempt * 1000 <= now ? `Retry due since ${timestamp(nextAttempt)}; waiting for a relay worker.` : `Next retry scheduled for ${timestamp(nextAttempt)}.`;
 }
-export function transcriptNotice(
-  logCount: number,
-  logsAvailable = logCount,
-  logsTruncated = false,
-) {
-  if (logsTruncated || logsAvailable > logCount)
-    return `Historique partiel : ${logCount} ${logCount > 1 ? 'journaux chargés' : 'journal chargé'} sur ${logsAvailable} disponible(s). Certains journaux ne sont pas chargés dans cette vue.`;
-  if (!logCount)
-    return 'Aucune transcription SMTP historique enregistrée. L’absence de journal ne permet pas de déduire les échanges effectués.';
-  return `${logCount} ${logCount > 1 ? 'journaux' : 'journal'} SMTP enregistré${logCount > 1 ? 's' : ''}.`;
+export function transcriptNotice(logCount: number, logsAvailable = logCount, logsTruncated = false) {
+  if (logsTruncated || logsAvailable > logCount) return `Partial history: ${logCount} of ${logsAvailable} available SMTP logs loaded.`;
+  if (!logCount) return 'No historical SMTP transcript recorded. Missing logs do not establish which exchanges took place.';
+  return `${logCount} recorded SMTP log${logCount === 1 ? '' : 's'}.`;
 }
 export function smtpPhase(phase: string) {
-  return (
-    (
-      {
-        dns: 'Résolution DNS',
-        connect: 'Connexion TCP',
-        greeting: 'Accueil SMTP',
-        ehlo: 'EHLO · capacités du serveur',
-        starttls: 'STARTTLS · demande de chiffrement',
-        tls: 'TLS · négociation et vérification du certificat',
-        tls_verified: 'TLS · certificat vérifié',
-        ehlo_tls: 'EHLO après TLS',
-        mail: 'MAIL FROM · expéditeur',
-        mail_from: 'MAIL FROM · expéditeur',
-        rcpt: 'RCPT TO · destinataire',
-        rcpt_to: 'RCPT TO · destinataire',
-        data: 'DATA · ouverture du transfert',
-        data_result: 'Réponse finale après le transfert',
-        data_end: 'Réponse finale après le transfert',
-        final: 'Réponse finale après le transfert',
-        final250: 'Réponse finale après le transfert',
-        final_250: 'Réponse finale après le transfert',
-        quit: 'QUIT · fermeture de session',
-        error: 'Erreur de transmission',
-      } as Record<string, string>
-    )[phase.toLowerCase()] ?? `Étape ${phase}`
-  );
+  return ({ dns: 'DNS lookup', connect: 'TCP connection', greeting: 'SMTP greeting', ehlo: 'EHLO · server capabilities',
+    starttls: 'STARTTLS · encryption request', tls: 'TLS · handshake and certificate verification', tls_verified: 'TLS · certificate verified',
+    ehlo_tls: 'EHLO after TLS', mail: 'MAIL FROM · sender', mail_from: 'MAIL FROM · sender', rcpt: 'RCPT TO · recipient', rcpt_to: 'RCPT TO · recipient',
+    data: 'DATA · transfer start', data_result: 'Final response after transfer', data_end: 'Final response after transfer', final: 'Final response after transfer',
+    final250: 'Final response after transfer', final_250: 'Final response after transfer', quit: 'QUIT · session close', error: 'Delivery error',
+  } as Record<string, string>)[phase.toLowerCase()] ?? `Phase ${phase}`;
 }
 export function smtpReply(code: number | null, enhanced: string | null) {
-  const kind =
-    code == null
-      ? 'Sans code SMTP enregistré'
-      : code >= 500 && code < 600
-        ? `${code} · refus permanent`
-        : code >= 400 && code < 500
-          ? `${code} · échec temporaire`
-          : code >= 300 && code < 400
-            ? `${code} · poursuite de l’échange`
-            : code >= 200 && code < 300
-              ? `${code} · commande acceptée`
-              : `${code} · réponse SMTP`;
+  const kind = code == null ? 'SMTP code not recorded' : code >= 500 && code < 600 ? `${code} · permanent rejection`
+    : code >= 400 && code < 500 ? `${code} · temporary failure` : code >= 300 && code < 400 ? `${code} · continue exchange`
+      : code >= 200 && code < 300 ? `${code} · command accepted` : `${code} · SMTP response`;
   return enhanced ? `${kind} · ${enhanced}` : kind;
 }
 export function evidenceState(state?: string) {
-  return (
-    (
-      {
-        disabled: 'Désactivé',
-        not_run: 'Non effectué',
-        complete: 'Effectué',
-        unavailable: 'Indisponible',
-        busy: 'Capacité occupée',
-        skipped: 'Non sollicité',
-        limited: 'Partiel',
-      } as Record<string, string>
-    )[state ?? ''] ?? 'État non enregistré'
-  );
+  return ({ disabled: 'Disabled', not_run: 'Not run', complete: 'Complete', unavailable: 'Unavailable', busy: 'Capacity exhausted', skipped: 'Skipped', limited: 'Partial' } as Record<string, string>)[state ?? ''] ?? 'State not recorded';
 }
 export function authenticationResult(value: string | null | undefined) {
-  return (
-    (
-      {
-        pass: 'Réussi (pass)',
-        fail: 'Échec (fail)',
-        soft_fail: 'Échec souple (softfail)',
-        neutral: 'Neutre',
-        none: 'Aucun résultat d’authentification (none)',
-        temp_error: 'Erreur temporaire',
-        perm_error: 'Erreur permanente',
-      } as Record<string, string>
-    )[value ?? ''] ?? 'Résultat non enregistré'
-  );
+  return ({ pass: 'Pass', fail: 'Fail', soft_fail: 'Soft fail (softfail)', neutral: 'Neutral', none: 'No authentication result (none)', temp_error: 'Temporary error', perm_error: 'Permanent error' } as Record<string, string>)[value ?? ''] ?? 'Result not recorded';
 }

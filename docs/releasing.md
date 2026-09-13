@@ -1,59 +1,30 @@
-# Versionner et publier NoiseFence
+# Version and publish NoiseFence
 
-`Cargo.toml` est la source de vérité pour la version du produit. Le frontend,
-`Cargo.lock`, le verrou du fuzzing et `web/package-lock.json` portent la même version
-pour NoiseFence. Le modèle possède sa propre version : un entraînement n’est pas
-une nouvelle version du logiciel.
+`Cargo.toml` is the source of truth for the product version. The frontend, `Cargo.lock`, the fuzz lockfile and `web/package-lock.json` carry the same version for NoiseFence. The model has its own version: a training run is not a new version of the software.
 
-Le dépôt utilise `main`, des commits descriptifs et des tags annotés `vMAJOR.MINOR.PATCH`.
-Les tags sans suffixe sont les releases finales ; `-dev.N` et `-rc.N` sont des
-préversions. Le projet reste en 0.x. Un changement incompatible
-demande une version mineure tant que le projet reste en 0.x ; une correction compatible
-demande une version patch. Le changelog précise les migrations et limites.
+The repository uses `main`, descriptive commits and annotated tags `vMAJOR.MINOR.PATCH`. Unsuffixed tags are the final releases; `-dev.N` and `-rc.N` are prereleases. The project remains in 0.x. An incompatible change requires a minor version as long as the project remains in 0.x; a compatible correction requires a patch version. The changelog specifies migrations and limits.
 
 ```sh
-python3 scripts/version.py --set 0.4.0
-# Renseigner la section correspondante de CHANGELOG.md.
+python3 scripts/version.py --set 0.18.0
+# Update the corresponding section of CHANGELOG.md.
 python3 scripts/version.py --check
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Vérifier aussi la console comme indiqué dans CONTRIBUTING.md. Committer les changements,
-attendre le succès de la CI, puis créer et pousser le tag annoté correspondant. La commande
-`scripts/version.py --check --tag v0.4.0` refuse un tag différent de la version des manifests.
+Also check the console as indicated in CONTRIBUTING.md. Commit changes and wait for CI to pass, then create and push the corresponding annotated tag. The `scripts/version.py --check --tag v0.18.0` command refuses a different tag from the manifest version.
 
-Le workflow `release.yml` compile dans une image Rust Bookworm identifiée par son digest,
-sur x86-64 et ARM64. Il assemble les binaires, le frontend statique, les licences, les
-exemples et la documentation, puis prépare une GitHub Release avec les sommes SHA-256.
-Le workflow appelle aussi la suite complète `check.yml` sur le même tag ; un échec
-interdit la publication.
-Les tests utilisent `cargo test --release`, avec le même profil que le binaire
-distribué. Ce profil évite aussi le [défaut de compilation debug ARM64 de gemm-f16](https://github.com/sarah-quinones/gemm/issues/31).
-La CI principale vérifie également le moteur multilingue sur un runner ARM64.
-Les sources exactes sont accessibles depuis le tag de la release. Les rapports, les
-modèles entraînés, les clés et les configurations propres au serveur restent hors Git,
-à l’exception des rapports de recherche agrégés explicitement versionnés.
+The `release.yml` workflow compiles into a Rust Bookworm image identified by its digest, on x86-64 and ARM64. It assembles binary, static frontend, licenses, examples, and documentation, then prepares a GitHub Release with the SHA-256 checksums. The workflow also calls the complete `check.yml` suite on the same tag; failure prohibits publication. Tests use `cargo test --release`, with the same profile as the distributed binary. This profile also avoids [gemm-f16's debug ARM64 compilation issue](https://github.com/sarah-quinones/gemm/issues/31). The main CI also checks the multilingual engine on an ARM64 runner. The exact sources are accessible from the release tag. Reports, trained models, keys and server-specific configurations remain outside Git, with the exception of explicitly versioned aggregated research reports.
 
-Les notes sont extraites de la seule section du changelog correspondant au tag par
-`scripts/release_notes.py`. Une section absente, vide ou dupliquée bloque la release.
-Les préversions sont publiées avec l’indicateur GitHub « Pre-release » ; les versions
-finales sont préparées en brouillon pour vérifier les deux archives avant publication.
-Contrôler les sommes SHA-256, `build.json` (version, commit et architecture),
-les licences et l’absence de données privées. Publier ensuite le brouillon :
+The notes are extracted from the only section of the changelog corresponding to the tag by `scripts/release_notes.py`. An absent, empty or duplicated section blocks the release. Prereleases are published with the GitHub indicator "Pre-release"; the final versions are prepared in draft to check the two archives before publication. Control the SHA-256 checksums, `build.json` (version, commit and architecture), licenses and the absence of private data. Then publish the draft:
 
 ```sh
-gh release edit v0.4.0 --repo crdffrance/NoiseFence --draft=false --prerelease=false --latest
+gh release edit v0.18.0 --repo crdffrance/NoiseFence --draft=false --prerelease=false --latest
 ```
 
-Ne jamais déplacer un tag publié ou remplacer ses archives par une construction
-différente. Une correction demande une nouvelle version. Avant la première ouverture
-du dépôt, contrôler également les branches, tags et objets de l’historique pour éviter
-de publier des secrets supprimés du seul arbre courant.
+Never move a published tag or replace its archives with a different build. A correction requires a new version. Before the first opening of the repository, also check branches, tags and objects of history to avoid publishing deleted secrets from the only current tree.
 
-Une release ne change ni la configuration du serveur, ni les MX, ni le mode de filtrage.
-Le déploiement et la validation Proton restent des étapes distinctes. Conserver la
-version précédente et son répertoire de configuration pour permettre un retour arrière.
+A release does not change the server configuration, MX, or filtering mode. Proton deployment and validation remain separate steps. Keep the previous version and its configuration directory to support a compatible rollback.
 
-Depuis 0.14, les archives portent `storage_schema: 3` dans `build.json` (schéma 2 avant 0.14). Le stockage est marqué 3 à l’activation du cluster ; voir [multi-MX](multi-mx.md). Un retour automatique vers une archive de schéma incompatible est refusé. Voir [la migration](actions.md#migration-de-stockage) avant toute restauration.
+Current archives declare `storage_schema: 5` in `build.json`. This is the maximum supported schema; paired replication activates schema 5. Earlier cluster versions introduced schema 3. Automatic rollback to an archive with insufficient schema support is refused. Never lower `user_version`, erase `ha_required` or restore a stale database over accepted mail. See [HA recovery](high-availability.md).

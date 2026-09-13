@@ -1,75 +1,37 @@
-# Protection contre les notifications de spam (0.15.3)
+<a id="protection-contre-les-notifications-de-spam-0153"></a>
+# Protection against spam notifications (0.15.3)
 
-Un expéditeur SMTP peut usurper l’adresse d’une victime. Si NoiseFence accepte
-le message puis que le fournisseur le refuse, un avis de non-livraison (DSN)
-retourné à cet expéditeur peut atteindre la victime : c’est le backscatter.
+A SMTP sender can usurp the address of a victim. If NoiseFence accepts the message and the supplier refuses it, a notice of non-delivery (DSN) returned to that sender can reach the victim: it is the backscanter.
 
-La politique native `backscatter-1` est active pour les **nouveaux traitements de
-notifications** sur chaque MX, y compris en observation. Elle ne change ni le
-classement, ni les actions de filtrage, ni la réponse SMTP à la réception.
-Elle ne rappelle pas les avis déjà livrés et ne purge pas les DSN déjà en file.
+The native policy `backscatter-1` is active for **new notification processing** on each MX, including observation. It does not change the ranking, filtering actions, or SMTP response at reception. It does not recall the notices already delivered and does not purg the DSN already in file.
 
-## Conditions cumulatives
+## Required conditions
 
-La notification est bloquée uniquement après un refus permanent de contenu
-`550/554 5.7.1 rejected by rspamd filter` après DATA, sur une connexion TLS dont
-le certificat a été vérifié. Le dernier journal de la tentative et le motif
-persisté doivent correspondre. Un refus de destinataire, un délai expiré,
-une réponse générique 5.7.1 ou une transcription tronquée ne suffisent pas.
+The notification is blocked only after a permanent refusal of `550/554 5.7.1 rejected by rspamd filter` content after DATA, on a TLS connection whose certificate has been verified. The last log of the attempt and the persistent reason must correspond. A refusal of recipient, an expired delay, a generic response 5.7.1 or a truncated transcription are not enough.
 
-Il faut aussi une analyse complète, une décision `unwanted` et des observations
-d’authentification issues de la session SMTP réelle : SPF `fail`/`soft_fail`,
-authentification achevée, aucun succès ni résultat indéterminé DKIM/DMARC/ARC.
-Un message authentifié ou importé pour analyse ne bénéficie pas de cette exception.
-Un classement non-spam issu des règles du destinataire ou une correction
-utilisateur « Légitime »/« PUB » conserve également la notification normale.
+A full analysis, a `unwanted` decision and authentication observations from the actual SMTP session are also required: SPF `fail`/`soft_fail`, authentication completed, no success or indeterminate DKIM/DMARC/ARC result. A message authenticated or imported for analysis does not benefit from this exception. A non-spam ranking from the recipient's rules or a "Legitime"/"PUB" user correction also retains normal notification.
 
-Enfin, il faut **soit** une détection de malware de l’antivirus principal,
-**soit** tous les éléments suivants :
+Finally, **either**main antivirus malware detection, **or**all of the following:
 
-- indice local d’au moins 99/100 ;
+- local risk index of at least 99/100 ;
 - signature consultative `Sanesecurity.Phishing.*` ;
-- analyse LLM achevée concluant à du phishing, avec probabilité et confiance
-  déclarées d’au moins 0,9.
+- completed LLM analysis concluding to phishing, with reported probability and confidence of at least 0.9.
 
-Ces nombres ne constituent pas une garantie statistique ; le LLM contribue déjà
-au score. La combinaison est volontairement étroite : signature spécialisée,
-refus distant authentifié et indices d’usurpation viennent compléter le contenu.
-Les analyses incomplètes et les preuves insuffisantes conservent les DSN normaux.
-La politique ne bloque donc pas nécessairement tous les retours de spam.
+These numbers do not constitute a statistical guarantee; the LLM already contributes to the score. The combination is deliberately narrow: specialized signature, authenticated remote refusal and index of usurpation complete the content. Incomplete analyses and insufficient evidence keep the DSN normal. Policy does not necessarily block all spam returns.
 
-## Conservation, interface et redémarrage
+<a id="conservation-interface-et-redémarrage"></a>
+## Storage, interface and restart
 
-La livraison passe à `dsn_suppressed`, présentée comme « Avis bloqué
-(anti-backscatter) ». Le motif de la politique et le refus restent visibles dans
-les diagnostics du destinataire autorisé. Ce statut est disponible dans la
-recherche et remonte à la console centrale depuis les workers. L’état et l’audit
-`dsn_suppressed` sont enregistrés dans une seule transaction. Aucun message DSN
-n’est créé. Une reprise ne peut pas recréer cet avis ni remplacer un DSN existant.
+The delivery goes to `dsn_suppressed`, presented as "Blocked Notice (anti-backscatter)". The reason for the policy and the refusal remain visible in the diagnostics of the authorized recipient. This status is available in the search and goes back to the central console from the workers. The status and the audit `dsn_suppressed` are recorded in a single transaction. No DSN message is created. A resume cannot recreate this notice or replace an existing DSN.
 
-Le corps original suit la conservation habituelle : suppression après résolution
-de tous les destinataires, conservation si une autre livraison est encore en file
-ou en quarantaine. Les métadonnées restent disponibles pendant 30 jours. Aucune
-conservation supplémentaire de contenu n’est ajoutée.
+The original body follows the usual preservation: deletion after resolution of all recipients, preservation if another delivery is still in file or quarantine. Metadata remains available for 30 days. No additional storage of content is added.
 
-Les véritables DSN indiquent maintenant `Status` et `Diagnostic-Code` provenant
-de la dernière tentative, ou `5.4.7` pour une expiration de file. Les diagnostics
-sont bornés, convertis en ASCII, expurgés des adresses et protégés contre les
-injections de champs. Les erreurs sans code exploitable gardent `5.0.0`.
+The real DSN now indicates `Status` and `Diagnostic-Code` from the last attempt, or `5.4.7` for a file expiration. Diagnostics are limited, converted to ASCII, redacted addresses and protected against field injections. Errors without usable code keep `5.0.0`.
 
-## Exploitation
+## Operations
 
-Déployer le coordinateur 0.15.3 avant les workers. Aucun changement de schéma SQL,
-de clé, de compte ou de budget. Le nouveau statut requiert un coordinateur 0.15.3
-pour la remontée d’historique ; ne pas revenir à un ancien coordinateur tant que
-des workers lui transmettent cet état. Le retour arrière ne doit jamais restaurer
-une ancienne file par-dessus les messages acceptés depuis.
+Deploy the coordinator 0.15.3 before the workers. No change of SQL schema, key, account or budget. The new status requires a coordinator 0.15.3 for the historical recovery; do not return to a former coordinator as long as the workers transmit this state to him. The backend must never restore an old file over the messages accepted since.
 
-Les tests couvrent la conservation des notifications légitimes, les preuves
-manquantes/contradictoires, l’authentification, les réponses temporaires, les
-injections, les destinataires multiples, la reprise et la synchronisation.
+The tests cover the preservation of legitimate notifications, missing/contradictory evidence, authentication, temporary responses, injections, multiple recipients, resumption and synchronization.
 
-Référence : [RFC 5321, §6.2](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.2),
-qui recommande d’éviter les notifications pour les contenus hostiles quand elles
-ne peuvent pas être utilement délivrées, et impose une grande prudence pour les
-exceptions à la notification normale.
+Reference: [RFC 5321, §6.2](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.2), which recommends avoiding notifications for hostile content when they cannot be usefully issued, and imposes great caution for exceptions to normal notification.

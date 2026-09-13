@@ -66,7 +66,7 @@ pub fn apply(scan: &mut Scan, enabled: bool) {
         scan.pub_tagged = false;
         scan.reasons.push(Signal {
             id: REVIEW_REASON.into(),
-            detail: "Score élevé sans confirmation suffisante : message à vérifier, transmis sans préfixe. Ce résultat ne prouve pas sa légitimité.".into(),
+            detail: "High score without sufficient confirmation: message to be checked, transmitted without prefix. This result does not prove its legitimacy.".into(),
             weight: 0.0,
         });
     }

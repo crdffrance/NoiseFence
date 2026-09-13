@@ -7,7 +7,7 @@ export type QuotaUsage = {
   cooldown_until: number | null;
 };
 export const quotaLabel = (quota: ProviderQuota) =>
-  `${quota.minute === 0 ? 'Illimité' : quota.minute}/min · ${quota.day === 0 ? 'Illimité' : quota.day}/jour`;
+  `${quota.minute === 0 ? "Unlimited" : quota.minute}/min · ${quota.day === 0 ? "Unlimited" : quota.day}/day`;
 // Blank/invalid input must fail server validation, never imply unlimited.
 export const numericQuota = (raw: string) =>
   raw.trim() &&
@@ -36,17 +36,17 @@ export function ProviderQuotas({
     <fieldset className="module-card">
       <legend>Quotas {name}</legend>
       <p className="small muted">
-        Actifs : {applied ? quotaLabel(applied) : 'module désactivé'}
+        Active limits: {applied ? quotaLabel(applied) : "module disabled"}
       </p>
       <label className="toggle-row">
         <span>
-          Utiliser les plafonds du serveur{' '}
+          Use installation defaults{' '}
           <small>{quotaLabel(bootstrap)}</small>
         </span>
         <input
           type="checkbox"
           checked={value == null}
-          aria-label={`Plafonds du serveur ${name}`}
+          aria-label={`Installation defaults ${name}`}
           onChange={(e) => onChange(e.target.checked ? null : { ...bootstrap })}
         />
       </label>
@@ -57,10 +57,10 @@ export function ProviderQuotas({
             type="button"
             onClick={() => onChange({ minute: 0, day: 0 })}
           >
-            Clé illimitée — {name}
+            Unlimited key — {name}
           </button>
           {(['minute', 'day'] as const).map((window) => {
-            const label = window === 'minute' ? 'Par minute' : 'Par jour';
+            const label = window === 'minute' ? 'Per minute' : "Per day";
             return (
               <div className="form-grid" key={window}>
                 <label className="field">
@@ -83,10 +83,10 @@ export function ProviderQuotas({
                   />
                 </label>
                 <label className="toggle-row">
-                  <span>Illimité</span>
+                  <span>Unlimited</span>
                   <input
                     type="checkbox"
-                    aria-label={`${name} ${label} illimité`}
+                    aria-label={`${name} ${label} unlimited`}
                     checked={quota[window] === 0}
                     onChange={(e) =>
                       onChange({
@@ -101,40 +101,37 @@ export function ProviderQuotas({
           })}
           {(quota.minute < 0 || quota.day < 0) && (
             <p className="error" role="alert">
-              Saisissez un entier positif ou choisissez « Illimité ».
+              Enter a positive integer or choose &quot;Unlimited&quot;.
             </p>
           )}
         </>
       )}
       <p className="small muted">
-        À appliquer : {quotaLabel(quota)}. Utilisez « Vérifier et appliquer »
-        pour enregistrer.
+        Draft limits: {quotaLabel(quota)}. Use &quot;Review and apply&quot; to save.
       </p>
       {usage ? (
         <>
           <p className="small">
-            Requêtes réservées : {usage.minute_used} cette minute ·{' '}
-            {usage.day_used} aujourd’hui (UTC). Le cache ne consomme pas de
-            quota.
+            Reserved requests: {usage.minute_used} this minute ·{' '}
+            {usage.day_used} today (UTC). The cache does not consume quota.
           </p>
           <p className="small muted">
-            Prochaine remise à zéro : minute{' '}
+            Next reset: minute{' '}
             {new Date(usage.minute_resets_at * 1000).toLocaleTimeString(
-              'fr-FR',
+              "en-GB",
             )}
-            , jour{' '}
-            {new Date(usage.day_resets_at * 1000).toLocaleString('fr-FR')}.
+            , day{' '}
+            {new Date(usage.day_resets_at * 1000).toLocaleString("en-GB")}.
           </p>
           {usage.cooldown_until != null && (
             <output className="small">
-              Pause fournisseur jusqu’à{' '}
-              {new Date(usage.cooldown_until * 1000).toLocaleString('fr-FR')}, y
-              compris en mode illimité.
+              Provider cooldown until{' '}
+              {new Date(usage.cooldown_until * 1000).toLocaleString("en-GB")}, including unlimited mode.
             </output>
           )}
         </>
       ) : (
-        <p className="small muted">Compteurs indisponibles.</p>
+        <p className="small muted">Usage counters unavailable.</p>
       )}
     </fieldset>
   );

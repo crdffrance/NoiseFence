@@ -37,63 +37,63 @@ export type Preferences = {
   mailboxes: Record<string, Preference>;
 };
 const labels: Record<string, string> = {
-  authentication: 'Authentification',
-  bayes: 'Statistiques Bayes',
-  campaign: 'Campagnes',
-  content: 'Contenu',
-  lexical: 'Texte',
-  other: 'Autres signaux',
-  reputation: 'Réputation',
-  semantic: 'Analyse sémantique',
-  smtp: 'Identité SMTP',
-  protection: 'Réputation CRDF / VirusTotal et liens',
-  url_resolution: 'Suivi des redirections URL',
-  max_urls: 'URLs à suivre par message',
-  max_redirects: 'Redirections maximales',
-  blocked_ips: 'Adresses IP exclues du suivi',
-  analysis: 'Analyse des messages',
-  llm: 'Intelligence artificielle · Scaleway',
-  vision: 'Images, OCR et QR codes',
-  smtp_policy: 'Identité SMTP et DNS',
-  native: 'Règles natives Rust',
-  model: 'Modèle',
-  project_id: 'Identifiant du projet Scaleway',
-  monthly_budget_micro_eur: 'Budget mensuel (€)',
-  input_micro_eur_per_million: 'Prix d’entrée (€ / million de jetons)',
-  output_micro_eur_per_million: 'Prix de sortie (€ / million de jetons)',
-  pricing_checked_at: 'Date de vérification des tarifs (UTC)',
-  timeout_ms: 'Délai maximal (ms)',
-  max_text_bytes: 'Texte maximal envoyé (octets)',
-  max_output_tokens: 'Réponse maximale (jetons)',
-  score_low: 'Score minimal sélectionné',
-  score_high: 'Score maximal sélectionné',
-  review_unconfirmed_high: 'Examiner aussi les scores élevés non confirmés',
-  max_parallel: 'Analyses simultanées',
-  cache_entries: 'Entrées du cache',
-  cache_ttl_seconds: 'Durée maximale du cache (secondes)',
-  max_bytes: 'Taille maximale analysée (octets)',
-  max_parts: 'Pièces jointes analysées',
-  max_part_bytes: 'Taille maximale par pièce (octets)',
-  max_total_bytes: 'Taille totale maximale (octets)',
-  max_pixels: 'Pixels maximaux',
-  max_pages: 'Pages maximales',
-  max_text_chars: 'Caractères reconnus',
-  max_codes: 'Codes reconnus',
-  fuzzy_memory: 'Mémoire des campagnes similaires',
-  content_rules: 'Règles de contenu',
-  patterns: 'Motifs textuels',
-  composites: 'Combinaisons de signaux',
-  caps: 'Plafonds par famille',
-  enabled: 'Activé',
-  disabled: 'Règles désactivées',
-  weights: 'Poids personnalisés',
+  authentication: "Authentication",
+  bayes: "Bayes Statistics",
+  campaign: "Campaigns",
+  content: "Content",
+  lexical: "Text",
+  other: "Other signals",
+  reputation: "Reputation",
+  semantic: "Semantic analysis",
+  smtp: "SMTP identity",
+  protection: "CRDF, VirusTotal and link reputation",
+  url_resolution: "Tracking URL redirects",
+  max_urls: "URLs to follow by message",
+  max_redirects: "Maximum redirects",
+  blocked_ips: "IP addresses excluded from tracking",
+  analysis: "Message Analysis",
+  llm: "LLM analysis · Scaleway",
+  vision: "Images, OCR and QR codes",
+  smtp_policy: "SMTP and DNS identity",
+  native: "Rust native rules",
+  model: "Model",
+  project_id: "Scaleway Project Identifier",
+  monthly_budget_micro_eur: "Monthly budget (€)",
+  input_micro_eur_per_million: "Input price (€ / million tokens)",
+  output_micro_eur_per_million: "Output price (€ / million tokens)",
+  pricing_checked_at: "Pricing verification date (UTC)",
+  timeout_ms: "Maximum time (ms)",
+  max_text_bytes: "Maximum text sent (bytes)",
+  max_output_tokens: "Maximum response (tokens)",
+  score_low: "Minimum score selected",
+  score_high: "Maximum score selected",
+  review_unconfirmed_high: "Also review high unconfirmed scores",
+  max_parallel: "Simultaneous analyses",
+  cache_entries: "cache entries",
+  cache_ttl_seconds: "Maximum cache duration (seconds)",
+  max_bytes: "Maximum size analysed (bytes)",
+  max_parts: "Maximum parts analysed",
+  max_part_bytes: "Maximum part size (bytes)",
+  max_total_bytes: "Maximum total size (bytes)",
+  max_pixels: "Maximum pixels",
+  max_pages: "Maximum pages",
+  max_text_chars: "Maximum recognized characters",
+  max_codes: "Maximum decoded codes",
+  fuzzy_memory: "Memory of similar campaigns",
+  content_rules: "Content rules",
+  patterns: "Text patterns",
+  composites: "Combinations of signals",
+  caps: "Ceilings per family",
+  enabled: "Enabled",
+  disabled: "Disabled rules",
+  weights: "Custom weights",
   min: 'Minimum',
   max: 'Maximum',
-  minimum_providers: 'Fournisseurs indépendants requis',
-  minimum_threshold: 'Seuil personnel minimal',
-  maximum_threshold: 'Seuil personnel maximal',
-  max_rules: 'Règles par adresse ou domaine',
-  allowed_actions: 'Actions autorisées',
+  minimum_providers: "Independent providers required",
+  minimum_threshold: 'Minimum personal threshold',
+  maximum_threshold: 'Maximum personal threshold',
+  max_rules: "Rules by address or domain",
+  allowed_actions: "Allowed actions",
 };
 const limits: Record<string, [number, number]> = {
   min: [-5, 0],
@@ -132,7 +132,7 @@ export function JsonEditor({
       </label>
       {text !== null && (
         <div className="management-toolbar">
-          <span>Bloc modifié, à valider avant l’enregistrement global.</span>
+          <span>Modified block. Validate it before saving the full configuration.</span>
           <Button
             variant="outline"
             onClick={() => {
@@ -141,11 +141,11 @@ export function JsonEditor({
                 setText(null);
                 setError('');
               } catch (e) {
-                setError(`Bloc refusé : ${(e as Error).message}`);
+                setError(`Block refused: ${(e as Error).message}`);
               }
             }}
           >
-            Valider ce bloc JSON
+            Validate this JSON block
           </Button>
           <Button
             variant="ghost"
@@ -154,7 +154,7 @@ export function JsonEditor({
               setError('');
             }}
           >
-            Annuler le bloc
+            Cancel Block
           </Button>
         </div>
       )}
@@ -256,7 +256,7 @@ function Field({
     );
   return (
     <details className="advanced-setting">
-      <summary>{label} · réglage avancé</summary>
+      <summary>{label} · Advanced adjustment</summary>
       <JsonEditor value={value} label={label} onChange={onChange} />
     </details>
   );
@@ -277,14 +277,14 @@ function NativeRules({
 }) {
   return (
     <fieldset className="advanced-setting">
-      <legend>Règles HTML, MIME et pièces jointes</legend>
+      <legend>HTML, MIME and attachments rules</legend>
       <label className="setting-toggle">
         <input
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => onChange({ ...value, enabled: e.target.checked })}
         />
-        Activer les règles de contenu
+        Enable Content Rules
       </label>
       <div className="management-grid">
         {catalog.map((r) => (
@@ -305,7 +305,7 @@ function NativeRules({
               {r.label}
             </label>
             <label>
-              Poids · {r.id}
+              Weight · {r.id}
               <input
                 type="number"
                 min={0}
@@ -330,7 +330,7 @@ function NativeRules({
         variant="outline"
         onClick={() => onChange({ enabled: true, disabled: [], weights: {} })}
       >
-        Rétablir les règles natives
+        Restoring native rules
       </Button>
     </fieldset>
   );
@@ -349,24 +349,20 @@ export function DetectionSettings({
     <div className="management-settings">
       <div className="panel-heading">
         <div>
-          <h2>Paramètres des moteurs</h2>
+          <h2>Engine parameters</h2>
           <p>
-            Réglages appliqués aux nouveaux messages. L’activation de chaque
-            moteur se règle dans « Moteurs de détection ».
+            Adjustments applied to new messages. Activation of each engine is set to &quot;detection engines&quot;.
           </p>
         </div>
       </div>
       <input
-        aria-label="Rechercher un paramètre"
-        placeholder="Rechercher : budget, OCR, cache, délai…"
+        aria-label="Find Parameter"
+        placeholder="Search: budget, OCR, cache, delay..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <p className="notice">
-        Le LLM transmet le texte sélectionné à Scaleway. 0–100 sélectionne tous
-        les messages analysables. Le budget, la taille transmise et les tarifs
-        ci-dessous déterminent le coût ; une indisponibilité ne constitue jamais
-        une preuve de spam.
+        The LLM sends selected text to Scaleway. A 0–100 range selects all analysable messages. The budget, excerpt size and token prices determine the cost. An unavailable result is never evidence of spam.
       </p>
       {Object.entries(value.modules).map(([module, values]) => {
         const order = [
@@ -398,8 +394,8 @@ export function DetectionSettings({
           )
           .filter(([k]) =>
             `${labels[module]} ${labels[k] ?? k}`
-              .toLocaleLowerCase('fr')
-              .includes(query.toLocaleLowerCase('fr')),
+              .toLocaleLowerCase('en-GB')
+              .includes(query.toLocaleLowerCase('en-GB')),
           );
         if (!entries.length) return null;
         return (
@@ -407,8 +403,7 @@ export function DetectionSettings({
             <h3>{labels[module] ?? module}</h3>
             {module === 'native' && (
               <p>
-                Ce moteur reste en observation. Les motifs liés à un modèle
-                adaptatif sont protégés par sa validation.
+                This engine remains in observation. The motifs associated with an adaptive model are protected by its validation.
               </p>
             )}
             <div className="management-grid">
@@ -499,16 +494,14 @@ export function RblEditor({
   }
   return (
     <section className="management-settings">
-      <h2>Réputation IP · RBL</h2>
+      <h2>IP reputation · RBL</h2>
       <p>
-        Contrôles avant DATA. Seuls les codes de réponse déclarés comptent ; une
-        erreur DNS reste indisponible. Les zones d’un même fournisseur comptent
-        pour une seule voix.
+        Checks run before DATA. Only configured return codes count as listings. DNS failures remain unavailable results. Zones operated by the same provider count once.
       </p>
       <div className="management-card">
         <div className="management-grid">
           <label>
-            Action si les fournisseurs concordent
+            Action if providers agree
             <select
               value={value.action}
               onChange={(e) =>
@@ -518,9 +511,9 @@ export function RblEditor({
                 })
               }
             >
-              <option value="observe">Observer</option>
-              <option value="defer">Différer · SMTP 451</option>
-              <option value="reject">Refuser · SMTP 550</option>
+              <option value="observe">Observe</option>
+              <option value="defer">Defer · SMTP 451</option>
+              <option value="reject">Reject · SMTP 550</option>
             </select>
           </label>
           {(
@@ -541,8 +534,7 @@ export function RblEditor({
           ))}
         </div>
         <p>
-          Le mode global Observation neutralise les refus et reports. Le
-          contrôle RBL ne lit pas le contenu des messages.
+          The Global Observation mode neutralizes refusals and postponements. The RBL control does not read the content of the messages.
         </p>
       </div>
       <div className="management-toolbar">
@@ -571,13 +563,11 @@ export function RblEditor({
             })
           }
         >
-          Ajouter une liste
+          Add list
         </Button>
       </div>
       <p>
-        Chaque ajout est désactivé. Vérifiez les conditions du fournisseur avant
-        activation ; Barracuda nécessite un accès enregistré. Spamhaus DQS
-        utilise le connecteur dédié. Les URIBL ne sont pas des listes IP.
+        New entries are disabled. Check the terms of the provider before activation; Barracuda requires registered access. Spamhaus DQS uses the dedicated connector. URIBL are not IP lists.
       </p>
       {value.lists.map((list, i) => (
         <section className="management-card" key={i}>
@@ -588,10 +578,10 @@ export function RblEditor({
                 checked={list.enabled}
                 onChange={(e) => update(i, { enabled: e.target.checked })}
               />
-              <strong>{list.id || 'Nouvelle liste'}</strong>
+              <strong>{list.id || "New list"}</strong>
             </label>
             <Button
-              aria-label={`Supprimer ${list.id}`}
+              aria-label={`Delete ${list.id}`}
               variant="ghost"
               onClick={() =>
                 onChange({
@@ -607,10 +597,10 @@ export function RblEditor({
             {(['id', 'provider', 'zone'] as const).map((k) => (
               <label key={k}>
                 {k === 'id'
-                  ? 'Identifiant'
+                  ? "Username"
                   : k === 'provider'
-                    ? 'Fournisseur indépendant'
-                    : 'Zone DNS'}
+                    ? "Independent provider"
+                    : "DNS zone"}
                 <input
                   value={list[k]}
                   onChange={(e) => update(i, { [k]: e.target.value })}
@@ -618,7 +608,7 @@ export function RblEditor({
               </label>
             ))}
             <label>
-              Codes de classement (séparés par des virgules)
+              Classification codes (separated by commas)
               <input
                 value={list.listed_codes.join(', ')}
                 onChange={(e) =>
@@ -631,7 +621,7 @@ export function RblEditor({
               />
             </label>
             <label>
-              Codes de politique à observer
+              Codes of policy to be observed
               <input
                 value={list.observe_codes.join(', ')}
                 onChange={(e) =>
@@ -649,24 +639,23 @@ export function RblEditor({
                 checked={list.ipv6}
                 onChange={(e) => update(i, { ipv6: e.target.checked })}
               />
-              IPv6 pris en charge
+              Supported IPv6
             </label>
           </div>
           {list.key_env && (
-            <small>Clé serveur déclarée · destination protégée</small>
+            <small>Declared server key · protected destination</small>
           )}
         </section>
       ))}
       <section className="management-card">
-        <h3>Tester ce brouillon</h3>
+        <h3>Test this draft</h3>
         <p>
-          Interroge les listes activées pour cette IP, sans envoyer d’email ni
-          enregistrer les réglages.
+          Query the active lists for this IP, without sending email or saving the settings.
         </p>
         <div className="management-toolbar">
           <input
-            aria-label="IP publique à tester"
-            placeholder="Adresse IP publique"
+            aria-label="Public IP to test"
+            placeholder="Public IP address"
             value={ip}
             onChange={(e) => {
               setIp(e.target.value);
@@ -691,7 +680,7 @@ export function RblEditor({
             }}
           >
             <FlaskConical size={16} />
-            {busy ? 'Test en cours…' : 'Tester'}
+            {busy ? "Test in progress..." : "Test"}
           </Button>
         </div>
         {error && (
@@ -717,11 +706,9 @@ export function DelegationSettings({
 }) {
   return (
     <section className="management-settings">
-      <h2>Personnalisation par les utilisateurs</h2>
+      <h2>Customization by users</h2>
       <p>
-        Les préférences appartiennent à l’adresse ou au domaine. Chaque
-        modification exige un droit d’accès actuel. Les règles de
-        l’administrateur, l’antivirus et le mode global restent prioritaires.
+        The preferences belong to the address or domain. Each change requires an existing right of access. The rules of the administrator, the antivirus and the global mode remain priority.
       </p>
       <div className="management-grid">
         {(
@@ -741,7 +728,7 @@ export function DelegationSettings({
         ))}
       </div>
       <fieldset>
-        <legend>Actions proposées aux utilisateurs</legend>
+        <legend>Actions proposed to users</legend>
         {(['deliver', 'tag', 'quarantine'] as const).map((a) => (
           <label className="setting-toggle" key={a}>
             <input
@@ -757,24 +744,23 @@ export function DelegationSettings({
               }
             />
             {a === 'deliver'
-              ? 'Transmettre'
+              ? "Deliver"
               : a === 'tag'
-                ? 'Marquer'
-                : 'Mettre en quarantaine'}
+                ? "Tag"
+                : "Quarantine"}
           </label>
         ))}
       </fieldset>
       <p>
-        {Object.keys(value.mailboxes).length} portées personnalisées. Réduire
-        les droits exige de rendre les préférences existantes compatibles.
+        {Object.keys(value.mailboxes).length} Reducing permissions requires compatible existing preferences.
       </p>
       {Object.entries(value.mailboxes).map(([scope, p]) => (
         <details className="management-card" key={scope}>
           <summary>
-            {scope} · {p.rules.length} règles
+            {scope} · {p.rules.length} rules
           </summary>
           <pre className="management-result">{JSON.stringify(p, null, 2)}</pre>
-          <p>Modifiez cette portée depuis « Mes filtres ».</p>
+          <p>Edit this range from &quot;My Filters&quot;.</p>
           <Button
             variant="outline"
             onClick={() => {
@@ -783,7 +769,7 @@ export function DelegationSettings({
               onChange({ ...value, mailboxes });
             }}
           >
-            Rétablir l’héritage
+            Restore inheritance
           </Button>
         </details>
       ))}
@@ -802,10 +788,9 @@ export function ConfigurationTransfer({
   const [error, setError] = useState('');
   return (
     <section className="management-card">
-      <h3>Exporter ou importer les réglages</h3>
+      <h3>Export or import settings</h3>
       <p>
-        Configuration de messagerie sans les clés secrètes. L’import prépare un
-        brouillon soumis à validation avant application.
+        Messaging configuration without secret keys. Import prepares a draft for review before application.
       </p>
       <div className="management-toolbar">
         <Button
@@ -824,11 +809,11 @@ export function ConfigurationTransfer({
           }}
         >
           <Download size={16} />
-          Exporter
+          Export
         </Button>
         <label className="configuration-import">
           <Upload size={16} />
-          Importer un fichier JSON
+          Import JSON File
           <input
             type="file"
             accept="application/json,.json"
@@ -837,7 +822,7 @@ export function ConfigurationTransfer({
               if (!file) return;
               try {
                 if (file.size > 128 * 1024)
-                  throw new Error('Maximum : 128 Kio.');
+                  throw new Error("Maximum: 128 KiB.");
                 const data = JSON.parse(await file.text());
                 if (
                   !data ||
@@ -848,7 +833,7 @@ export function ConfigurationTransfer({
                   !data.detection ||
                   !data.rbl
                 )
-                  throw new Error('Export NoiseFence récent requis.');
+                  throw new Error("A recent NoiseFence configuration export is required.");
                 const validated = await api<{ settings: unknown }>(
                   '/admin/config/validate',
                   { settings: data },
@@ -894,15 +879,13 @@ export function ManagedKeys({
   }, [revision]);
   return (
     <section className="management-card management-settings">
-      <h3>Clés Spamhaus DQS et Scaleway</h3>
+      <h3>Spamhaus keys DQS and Scaleway</h3>
       <p>
-        Stockage privé côté serveur. Les clés ne sont jamais relues dans le
-        navigateur, exportées ou enregistrées dans l’historique. CRDF et
-        VirusTotal se configurent dans « Protection avancée ».
+        Server-side private storage. Keys are never rereaded in the browser, exported or saved in history. CRDF and VirusTotal are configured in &quot;Advanced Protection&quot;.
       </p>
       <div className="management-grid">
         <label>
-          Fournisseur
+          Provider
           <select
             value={provider}
             onChange={(e) => {
@@ -912,17 +895,17 @@ export function ManagedKeys({
             }}
           >
             <option value="spamhaus">
-              Spamhaus DQS · {keys.spamhaus ? 'configuré' : 'à connecter'}
+              Spamhaus DQS · {keys.spamhaus ? "configured" : "to be connected"}
             </option>
             {keys.scaleway_available && (
               <option value="scaleway">
-                Scaleway · {keys.scaleway ? 'configuré' : 'à connecter'}
+                Scaleway · {keys.scaleway ? "configured" : "to be connected"}
               </option>
             )}
           </select>
         </label>
         <label>
-          Nouvelle clé
+          New key
           <input
             type="password"
             autoComplete="new-password"
@@ -932,9 +915,7 @@ export function ManagedKeys({
         </label>
       </div>
       <p>
-        Une clé Spamhaus autorisée est nécessaire. Enregistrer la clé conserve
-        l’activation actuelle du connecteur ; son interrupteur se trouve dans
-        les moteurs de détection.
+        An authorized Spamhaus key is required. Save the key keeps the current connector activation; its switch is in the detection engines.
       </p>
       <Button
         disabled={busy || !key}
@@ -951,8 +932,8 @@ export function ManagedKeys({
             setKey('');
             setNotice(
               result.active
-                ? 'Clé enregistrée. Configuration rechargée pour les prochaines analyses.'
-                : (result.message ?? 'Clé enregistrée.'),
+                ? "Saved key. Reloaded configuration for future analyses."
+                : (result.message ?? "Key saved."),
             );
             await onSaved();
           } catch (e) {
@@ -962,7 +943,7 @@ export function ManagedKeys({
           }
         }}
       >
-        {busy ? 'Enregistrement…' : 'Enregistrer la clé'}
+        {busy ? "Saving…" : "Save Key"}
       </Button>
       {notice && <output className="notice">{notice}</output>}
       {error && (

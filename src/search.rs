@@ -59,7 +59,7 @@ pub struct Term {
 fn terms(text: &str) -> Result<Vec<Term>> {
     ensure!(
         text.len() <= 600 && !text.chars().any(char::is_control),
-        "Recherche limitée à 600 octets, sans caractères de contrôle."
+        "Search limited to 600 bytes, without control characters."
     );
     let mut chars = text.chars().peekable();
     let mut result = Vec::new();
@@ -81,23 +81,23 @@ fn terms(text: &str) -> Result<Vec<Term>> {
             }
             ensure!(
                 quoted || c != '"',
-                "Séparez les expressions entre guillemets par un espace."
+                "Separate expressions between quotes by a space."
             );
             value.push(c);
             chars.next();
         }
-        ensure!(closed, "Fermez les guillemets de la recherche.");
+        ensure!(closed, "Close the search quotes.");
         ensure!(
             chars.peek().is_none_or(|c| c.is_whitespace()),
-            "Séparez les expressions par un espace."
+            "Separate expressions by space."
         );
         ensure!(
             value.chars().any(char::is_alphanumeric),
-            "Chaque terme doit contenir une lettre ou un chiffre."
+            "Each term must contain a letter or figure."
         );
         ensure!(
             value.len() <= 200 && result.len() < 12,
-            "Utilisez au maximum 12 termes de 200 octets."
+            "Use at most 12 terms of up to 200 bytes each."
         );
         let fts = format!(
             "\"{}\"{}",
@@ -115,12 +115,12 @@ impl Search {
     pub fn validate(&self) -> Result<Vec<Term>> {
         ensure!(
             self.node.is_empty() || self.node == "local" || crate::cluster::valid_id(&self.node),
-            "Nœud invalide."
+            "Invalid node."
         );
         ensure!(self.offset <= 10_000_000, "Page hors limites.");
         ensure!(
             self.domain.is_empty() || crate::config::valid_domain(&self.domain),
-            "Domaine invalide."
+            "Invalid domain."
         );
         ensure!(
             [
@@ -150,7 +150,7 @@ impl Search {
                 "discarded"
             ]
             .contains(&self.status.as_str()),
-            "État de livraison invalide."
+            "Invalid delivery state."
         );
         for value in [
             &self.sender,
@@ -161,18 +161,18 @@ impl Search {
         ] {
             ensure!(
                 value.len() <= 256 && !value.chars().any(char::is_control),
-                "Un critère dépasse 256 octets ou contient un caractère de contrôle."
+                "A criterion exceeds 256 bytes or contains a control character."
             );
         }
         for score in [self.min_score, self.max_score].into_iter().flatten() {
             ensure!(
                 score.is_finite() && (0.0..=100.0).contains(&score),
-                "Le score doit être compris entre 0 et 100."
+                "The score must be between 0 and 100."
             );
         }
         ensure!(
             !matches!((self.min_score,self.max_score),(Some(a),Some(b)) if a>b),
-            "Le score minimum dépasse le maximum."
+            "The minimum score exceeds the maximum."
         );
         ensure!(
             [self.after, self.before]
@@ -183,7 +183,7 @@ impl Search {
         );
         ensure!(
             !matches!((self.after,self.before),(Some(a),Some(b)) if a>=b),
-            "La date de début doit précéder la fin."
+            "The start date must precede the end."
         );
         terms(&self.subject)?;
         terms(&self.rule)?;

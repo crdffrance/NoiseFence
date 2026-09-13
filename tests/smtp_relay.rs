@@ -126,7 +126,7 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
             let decision = scan.decision.as_ref().unwrap();
             let displayed = decision.score.unwrap_or(scan.score);
             assert!(rendered.contains(&format!("X-NoiseFence-Score: {displayed:.1}\r\n")));
-            assert!(rendered.contains("X-NoiseFence-Header-Version: 2\r\n"));
+            assert!(rendered.contains("X-NoiseFence-Header-Version: 3\r\n"));
             assert!(rendered.contains(&format!(
                     "X-NoiseFence-Decision: {}\r\n",
                     serde_json::to_value(decision.outcome)

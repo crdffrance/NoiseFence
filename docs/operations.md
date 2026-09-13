@@ -1,83 +1,39 @@
-# Exploitation Linux
+# Linux operations
 
-## Contrôles réseau et diagnostics
+<a id="contrôles-réseau-et-diagnostics"></a>
+## Network controls and diagnostics
 
-Le service SMTP autorise `AF_NETLINK` pour l’inventaire local des interfaces
-(`getifaddrs` sur Linux). Cet inventaire permet au résolveur d’URL d’exclure les
-adresses de la machine. Ne pas le remplacer par une liste vide lorsqu’il échoue :
-les parcours doivent alors rester suspendus. `sudo python3 tests/systemd_network.py`
-vérifie cette capacité avec les restrictions livrées, dans une unité temporaire.
-Les adresses internes, les redirections non autorisées et les certificats invalides
-restent bloqués.
+The SMTP service allows `AF_NETLINK` for local interface inventory (`getifaddrs` on Linux). URL resolution uses this inventory to exclude the host’s own addresses. If inventory fails, active URL requests remain suspended. `sudo python3 tests/systemd_network.py` checks this capacity with the restrictions delivered, in a temporary unit. Internal addresses, unauthorized redirections and invalid certificates remain blocked.
 
-Les rapports nouveaux indiquent séparément la disponibilité de cet inventaire.
-Les erreurs de connecteur et de LLM exposent une cause limitée, sans recopier une
-réponse distante. Un quota illimité ne désactive ni les délais ni la concurrence
-bornée. `protection.max_parallel` limite les requêtes réseau des fournisseurs
-pour tous les messages ; chaque rapport traite au plus trois indicateurs à la fois.
-Le compteur d’omissions inclut les indicateurs sans résultat après interruption,
-en plus du plafond de travail par message.
+New reports show separately the availability of this inventory. Connector and LLM errors expose a limited cause, without copying a remote response. Unlimited quotas still enforce time and concurrency limits. `protection.max_parallel` limits provider network queries for all messages; each report processes no more than three indicators at a time. The omissions counter includes the non-result indicators after interruption, in addition to the work ceiling per message.
 
-Une indisponibilité OCR ne dispense pas des autres contrôles sûrs. Le message
-reste explicitement incomplet et n’est pas préfixé. Le filtre « Indices PUB »
-retrouve les promotions/newsletters détectées, y compris celles dont la décision
-reste Spam ou À vérifier ; il ne constitue pas une liste de messages sûrs.
+OCR's unavailability does not exempt other security checks. The message remains explicitly incomplete and is not prefixed. The "PUB Indices" filter finds the promotions/newsletters detected, including those whose decision remains Spam or To be checked; it does not constitute a list of secure messages.
 
-L’acceptation de toutes les adresses d’un domaine dans NoiseFence doit correspondre
-à la configuration du serveur de réception en aval. Un `550 5.1.1` à `RCPT TO`
-signale un destinataire refusé par ce serveur ; il ne faut pas le transformer en
-succès, ni transférer silencieusement les adresses vers une autre boîte. Vérifier
-les alias et la réception catch-all du fournisseur. Les essais `RCPT` suivis de
-`RSET` ne nécessitent pas l’envoi d’un message.
+The acceptance of all addresses in a domain in NoiseFence must correspond to the configuration of the downstream receiving server. A `550 5.1.1` to `RCPT TO` reports a recipient refused by this server; it should not be turned into a success, nor silently transfer addresses to another box. Check the supplier's aliases and catch-all reception. `RCPT` tests followed by `RSET` do not require sending a message.
 
 ## Installation
 
-Compiler sur la cible Linux avec `cargo build --release --locked`. La compilation effectuée sur macOS ne produit pas un binaire Linux. La CI vérifie le code Rust et la console sur Linux ; consulter [GitHub Actions](https://github.com/crdffrance/NoiseFence/actions) pour le résultat correspondant au commit déployé.
+Compile on the Linux target with `cargo build --release --locked`. The compilation done on macOS does not produce a Linux binary. CI checks the Rust code and console on Linux; see [GitHub Actions](https://github.com/crdffrance/NoiseFence/actions) for the result corresponding to the deployed commit.
 
-Les archives des [releases GitHub](https://github.com/crdffrance/NoiseFence/releases)
-`noisefence-VERSION-linux-amd64.tar.gz` et
-`noisefence-VERSION-linux-arm64.tar.gz` sont construites dans des conteneurs Linux
-Bookworm avec Rust 1.98. Choisir l’architecture correspondant à `uname -m`
-(`x86_64` → amd64, `aarch64` → arm64). Elles nécessitent glibc 2.36 ou plus récente,
-par exemple Debian 12 ou Ubuntu 24.04. Elles ne conviennent pas à Alpine/musl.
-Après extraction, vérifier `sha256sum -c SHA256SUMS`. Le binaire est `noisefence` et
-le dossier `web` contient uniquement la console publique. Installer ces deux éléments
-aux emplacements ci-dessous. `build.json` enregistre l’image et l’empreinte des sources.
+The archive of [ GitHub releases](https://github.com/crdffrance/NoiseFence/releases) `noisefence-VERSION-linux-amd64.tar.gz` and `noisefence-VERSION-linux-arm64.tar.gz` are built in Linux Bookworm containers with Rust 1.98. Choose the architecture corresponding to `uname -m` (`x86_64` → amd64, `aarch64` → arm64). They require glibc 2.36 or more recent, for example Debian 12 or Ubuntu 24.04. They are not suitable for Alpine/musl. After extraction, check `sha256sum -c SHA256SUMS`. The binary is `noisefence` and the `web` folder contains only the public console. Install these two elements at the locations below. `build.json` records the image and the source digest.
 
-Pour une installation versionnée, exécuter `sudo sh deploy/install.sh /chemin/vers/la/release /chemin/vers/config.local.toml`.
-L’installateur conserve les versions dans `/opt/noisefence/releases/VERSION`, remplace
-le lien `current` et préserve une configuration existante. Il refuse d’écraser une
-autre construction de la même version. Avant toute mise à niveau, conserver une
-sauvegarde cohérente des données et de la configuration. Un retour en arrière
-exige un schéma compatible ; suivre la [procédure de migration et restauration](actions.md#migration-de-stockage).
+For a versioned installation, run `sudo sh deploy/install.sh /path/to/release /path/to/config.local.toml`. Releases are kept under `/opt/noisefence/releases/VERSION`; the installer updates `current` and preserves existing configuration. It refuses a different build with the same version. Keep a consistent backup before upgrading. Rollback requires compatible storage and policy; see [installation](installation.md) and [HA recovery](high-availability.md).
 
-Le [guide de première installation](getting-started.md) détaille le téléchargement,
-la préparation de la configuration, la création de l’administrateur et les contrôles.
+The [first installation guide](getting-started.md) details the download, configuration preparation, administrator creation and controls.
 
-Une première installation peut écouter seulement sur loopback, avec SMTP sur 2525 et
-l’API sur 18080, en observation et sans destinataire activé. Dans ce cas, consulter la
-console avec un tunnel `ssh -L 18080:127.0.0.1:18080 UTILISATEUR@SERVEUR`, puis ouvrir
-`http://127.0.0.1:18080`. Créer ensuite le compte via `user-add` et saisir son mot de passe
-sur le serveur. Le passage à SMTP public/25 exige DNS, certificats, destinataires réels
-et validation Proton ; il ne résulte pas automatiquement de l’installation du binaire.
+A first isolated installation can bind SMTP on loopback port 2525 and the API on 18080, in observation with no real upstream route. In this case, consult the console with a `ssh -L 18080:127.0.0.1:18080 USER@HOST` tunnel, then open `http://127.0.0.1:18080`. Then create the account via `user-add` and enter its password on the server. The switch to SMTP public/25 requires DNS, certificates, actual recipients and Proton validation; it does not automatically result from the installation of the binary.
 
-Compiler la console avec `npm ci` puis `npm run build` dans `web`. Le répertoire public à distribuer est **`web/dist/client`**. Ne servir ni `web/dist/server`, ni les sources, ni les fichiers de configuration.
+Compile the console with `npm ci` then `npm run build` in `web`. The public directory to distribute is **`web/dist/client`**. Do not serve `web/dist/server`, sources, or configuration files.
 
-Créer un compte système `noisefence`. Installer le binaire sous `/opt/noisefence/noisefence`, les fichiers statiques sous `/opt/noisefence/web`, la configuration sous `/etc/noisefence/config.toml`, et les données sous `/var/lib/noisefence` (propriétaire `noisefence`, mode 0700). Les secrets et clés doivent être lisibles par ce compte sans être accessibles aux autres utilisateurs.
+Create a system account `noisefence`. Install binary under `/opt/noisefence/noisefence`, static files under `/opt/noisefence/web`, configuration under `/etc/noisefence/config.toml`, and data under `/var/lib/noisefence` (owner `noisefence`, mode 0700). Secrets and keys must be readable by this account without being accessible to other users.
 
-Installer `deploy/noisefence.service` et configurer un proxy HTTPS avec le modèle `deploy/Caddyfile`. Renseigner des certificats SMTP valides pour le hostname de la passerelle ; le certificat HTTPS du proxy n’est pas automatiquement celui du SMTP. Prévoir le renouvellement et le redémarrage du service pour charger les nouveaux certificats.
+Install `deploy/noisefence.service` and configure an HTTPS proxy with the `deploy/Caddyfile` model. Provide valid SMTP certificates for the gateway hostname; the HTTPS certificate of the proxy is not automatically that of the SMTP. Provide for the renewal and restart of the service to load the new certificates.
 
-### Certificat SMTP Let’s Encrypt
+### Let’s Encrypt SMTP certificate
 
-Le hook `deploy/certbot-deploy.py` nécessite Python 3.11+, OpenSSL et systemd.
-Le nom A du serveur doit pointer vers son IP, le reverse doit être cohérent, et le
-port TCP/80 doit être accessible pour le challenge HTTP-01. Ne publier un AAAA que
-si IPv6 fonctionne. Le mode Certbot standalone utilise temporairement le port 80 ;
-il faut le conserver disponible pour les renouvellements. Si un serveur HTTP est
-installé ensuite, adapter la méthode ACME à son webroot ou au DNS.
+The `deploy/certbot-deploy.py` hook requires Python 3.11+, OpenSSL and systemd. The server's name A must point to its IP, the reverse must be consistent, and the TCP/80 port must be accessible for the HTTP-01 challenge. Only publish an AAAA if IPv6 works. Certbot standalone mode temporarily uses port 80; it must be kept available for renewals. If an HTTP server is installed then, adapt the ACME method to its webroot or DNS.
 
-Sur Debian, installer Certbot puis obtenir le certificat du hostname réellement
-configuré dans NoiseFence. Remplacer les valeurs d’exemple :
+On Debian, install Certbot and then get the hostname certificate actually configured in NoiseFence. Replace the example values:
 
 ```sh
 sudo apt-get install --no-install-recommends certbot
@@ -86,9 +42,7 @@ sudo certbot certonly --standalone --preferred-challenges http \
   --cert-name mx.example.org -d mx.example.org --key-type rsa --rsa-key-size 2048
 ```
 
-Configurer `smtp.tls_cert = "/etc/noisefence/tls/current/fullchain.pem"` et
-`smtp.tls_key = "/etc/noisefence/tls/current/key.pem"`. Le hook ne change ni
-l’adresse d’écoute SMTP, ni les destinataires, ni le mode de filtrage.
+Configure `smtp.tls_cert = "/etc/noisefence/tls/current/fullchain.pem"` and `smtp.tls_key = "/etc/noisefence/tls/current/key.pem"`. The hook does not change the SMTP listening address, the recipients, or the filtering mode.
 
 ```sh
 sudo install -d -m 0755 /usr/local/libexec /etc/letsencrypt/renewal-hooks/deploy
@@ -100,22 +54,11 @@ sudo env RENEWED_LINEAGE=/etc/letsencrypt/live/mx.example.org \
 sudo systemctl enable --now certbot.timer
 ```
 
-Seul le certificat dont le nom Certbot correspond au hostname NoiseFence est traité.
-Avant activation, le hook vérifie la chaîne de confiance, le nom DNS, la validité
-pour au moins 24 heures et la correspondance de la clé privée. Il prépare un
-répertoire de version en `root:noisefence`, fichiers 0640 et répertoires 0750,
-puis remplace atomiquement le lien `current`. Il redémarre le service s’il est actif
-pour charger le nouveau certificat. Si la commande de redémarrage échoue, il restaure
-le lien précédent et tente de redémarrer l’ancienne version. Les anciennes versions
-du certificat sont conservées dans `tls/versions` pour le retour arrière.
+Only the certificate whose Certbot name matches the NoiseFence hostname is processed. Before activation, the hook checks the trusted chain, the DNS name, the validity for at least 24 hours and the correspondence of the private key. It prepares a version directory in `root:noisefence`, files 0640 and directories 0750, then atomically replaces the link `current`. It restarts the service if it is active to load the new certificate. If the restart command fails, it restores the previous link and tries to restart the old version. The old versions of the certificate are kept in `tls/versions` for the return.
 
-Vérifier l’émission future avec `sudo certbot renew --cert-name mx.example.org --dry-run`.
-Cette simulation ne déploie pas son certificat de test et n’exécute pas les hooks
-de déploiement par défaut. Contrôler aussi `systemctl list-timers certbot.timer`,
-`journalctl -u certbot.service` et l’expiration du certificat effectivement présenté
-par SMTP. Ajouter une alerte si celui-ci expire dans moins de 14 jours.
+Check future renewal with `sudo certbot renew --cert-name mx.example.org --dry-run`. This simulation does not deploy its test certificate and does not execute default deployment hooks. Also check `systemctl list-timers certbot.timer`, `journalctl -u certbot.service` and expiration of the certificate actually submitted by SMTP. Add an alert if it expires within 14 days.
 
-Sur le port réellement configuré, valider STARTTLS et le nom du certificat :
+On the port actually configured, validate STARTTLS and certificate name:
 
 ```sh
 openssl s_client -starttls smtp -connect 127.0.0.1:2525 \
@@ -123,15 +66,11 @@ openssl s_client -starttls smtp -connect 127.0.0.1:2525 \
   -verify_return_error -brief </dev/null
 ```
 
-Utiliser `mx.example.org:25` pour vérifier une écoute publique déjà activée. Le
-certificat SMTP ne met pas la console web en HTTPS et ne valide pas le relais Proton.
-Référence : [guide Certbot](https://eff-certbot.readthedocs.io/en/stable/using.html).
+Use `mx.example.org:25` to check a public listening already enabled. The SMTP certificate does not set the web console to HTTPS and does not validate the Proton relay. Reference: [certbot guide](https://eff-certbot.readthedocs.io/en/stable/using.html).
 
-Le port API 8080 reste lié à loopback. Exposer SMTP/25 et HTTPS/443, plus le port requis par la méthode choisie d’obtention des certificats. Les contrôles d’origine et cookies sécurisés restent actifs en production.
+Keep the configured API port on loopback. Expose SMTP/25 and HTTPS/443, plus the port required by the chosen method of obtaining certificates. Origin checks and secure cookies remain active in production.
 
-Créer les comptes et leurs adresses via la CLI avant de donner accès à la console.
-Par défaut, synchroniser `recipients` avec les adresses Proton actives. Pour
-accepter toutes les adresses d'un domaine sans les déclarer dans NoiseFence :
+Create accounts and their addresses via the CLI before giving access to the console. By default, sync `recipients` with active Proton addresses. To accept all addresses of a domain without declaring them in NoiseFence:
 
 ```toml
 [[domains]]
@@ -140,93 +79,57 @@ next_hops = ["mail.protonmail.ch", "mailsec.protonmail.ch"]
 accept_all_recipients = true
 ```
 
-`alice@example.org` est transmis à `alice@example.org`, avec sa partie locale
-inchangée et le domaine normalisé en minuscules. `recipients` peut être omis ;
-les entrées présentes conservent leur orthographe canonique. Les alias explicites
-restent prioritaires et peuvent viser une boîte autorisée dans un autre domaine.
-Les chaînes d'alias et les domaines non configurés restent refusés ; l'option
-n'inclut pas les sous-domaines.
+`alice@example.org` is transmitted to `alice@example.org`, with its local part unchanged and the domain normalized to lowercase. `recipients` can be omitted; the entries present retain their canonical spelling. Explicit aliases remain priority and may target an authorized box in another domain. Alias chains and unconfigured domains remain refused; the option does not include subdomains.
 
-La passerelle ne crée pas de boîte chez Proton et ne sonde pas ses destinataires
-avant acceptation. Prévoir les boîtes/alias nécessaires ou un catch-all côté Proton.
-Un refus définitif de Proton suit le traitement existant des notifications d'échec ;
-un refus temporaire reste en file pendant cinq jours. Vérifier la configuration
-avec `check-config`, puis redémarrer le service. Les MX publics déterminent toujours
-le serveur qui reçoit les emails ; cette option ne modifie pas le DNS.
+The gateway does not create a box at Proton and does not search its recipients before acceptance. Provide the necessary mailboxes, aliases or Proton-side catch-all. A definitive refusal from Proton follows the existing processing of the failure notifications; a temporary refusal remains in queue for five days. Check the configuration with `check-config`, then restart the service. Public MXs always determine the server that receives the emails; this option does not change the DNS.
 
-`user-add --addresses alice@example.org` peut attribuer cette boîte sans entrée
-dans `recipients`. Les droits restent exacts par adresse, y compris pour les copies
-cachées. Le rôle administrateur donne accès aux messages de tous les domaines de
-l’organisation et aux mesures globales. Les utilisateurs ordinaires restent limités
-aux adresses et domaines qui leur sont attribués.
+`user-add --addresses alice@example.org` can assign this box without entry to `recipients`. The rights remain accurate by address, including for hidden copies. The admin role gives access to messages from all domains of the organization and to global measurements. Ordinary users remain limited to the addresses and domains assigned to them.
 
-## Réputation et DNS
+<a id="réputation-et-dns"></a>
+## Reputation and DNS
 
-Configurer `filter.spamhaus_key_env = "SPAMHAUS_DQS_KEY"` uniquement avec un accès DQS autorisé. Placer la clé dans `/etc/noisefence/secrets.env`, mode 0600, jamais dans le dépôt ou l’interface. Les requêtes contiennent des IP et noms de domaine, pas de corps ni de pièces jointes. Les réponses d’erreur, refus ou limitations du fournisseur ne deviennent pas des signaux de spam.
+Configure `filter.spamhaus_key_env = "SPAMHAUS_DQS_KEY"` only with authorized DQS access. Set the key through the Web console, or in `/etc/noisefence/secrets.env` mode 0600. Never commit it. Web-managed credentials take precedence. Queries contain IPs and domain names, no body or attachments. Provider error, refusal or limitation responses do not become spam signals.
 
-Le résolveur système est utilisé par Hickory. Le cache DQS est borné à 10 000 entrées et 60 secondes. Les vérifications d’un message partagent un délai réseau de cinq secondes. Une analyse partielle n’ajoute pas de préfixe.
+The system resolver is used by Hickory. The DQS cache is limited to 10,000 entries and 60 seconds. A message check shares a network deadline of five seconds. A partial scan does not add a prefix.
 
-## Suivi et disponibilité
+<a id="suivi-et-disponibilité"></a>
+## Monitoring and availability
 
-- `journalctl -u noisefence` expose des événements JSON avec identifiant de file, score, durée et résultat ; aucun corps ou mot de passe n’est journalisé.
-- `GET /healthz` indique que l’API répond. Ce n’est pas une preuve de disponibilité de Proton.
-- `GET /api/v1/metrics`, avec session administrateur, expose file, âge du plus ancien message, échecs, analyses incomplètes et espace libre.
-- `noisefence queue` permet l’inspection opérateur ; `retry UUID` avance seulement la prochaine tentative des destinataires encore en attente.
+- `journalctl -u noisefence` displays JSON events with queue ID, score, duration and result; no body or password is logged.
+- `GET /healthz` indicates that the API is responding. This is not proof of Proton's availability.
+- `GET /api/v1/metrics`, with admin session, exposes queue size, oldest-message age, failures, incomplete analyses and free space.
+- `noisefence queue` allows operator inspection; `retry UUID` only advances the next attempt of recipients still waiting.
 
-Depuis 0.4.1, le relais journalise les étapes DNS, connexion, bannière, EHLO,
-STARTTLS et TLS vérifié, MAIL, RCPT, DATA et réponse finale. Les événements
-structurés portent les identifiants de message/livraison, la tentative et le
-serveur distant, y compris lorsqu’il accepte le message. Les textes de réponse
-sont bornés et neutralisés pour l’affichage. Les arguments des commandes
-d’enveloppe et les octets transmis pendant DATA ne sont pas enregistrés.
-Les événements d’analyse ajoutent la version du modèle, les réglages de décision
-et les identifiants/poids des signaux ; un événement distinct confirme la
-persistance durable du message avant l’émission du `250` entrant.
+Since 0.4.1, the relay logs the DNS, connection, banner, EHLO, STARTTLS and TLS steps verified, MAIL, RCPT, DATA and final response. Structured events carry message/delivery identifiers, attempt and remote server, including when accepting the message. Response texts are bounded and neutralized for display. Envelope command arguments and bytes transmitted during DATA are not recorded. Analysis events add the model version, decision settings and signal identifiers/weights; a separate event confirms the lasting persistence of the message before the incoming `250` is issued.
 
-`GET /api/v1/messages/UUID/diagnostics`, avec une session autorisée, fournit
-les explications et les 50 dernières tentatives de serveur par destinataire.
-La réponse initiale est limitée à 100 transcripts pour l’ensemble du message ;
-`?delivery_id=IDENTIFIANT` charge l’historique d’un seul destinataire autorisé.
-La console signale les historiques partiels et permet leur chargement à la demande.
-Chaque transcript conserve au plus 32 événements et 2 048 octets par champ texte.
-Il est enregistré dans `delivery_attempts` dans la même transaction que le
-résultat de livraison. Ces traces suivent la conservation des métadonnées du
-message et leur suppression en cascade ; les messages encore en file restent
-consultables. La rétention du journal systemd reste gérée par journald, séparément.
-Un arrêt pendant une tentative peut laisser ses étapes uniquement dans journald ;
-la console n’invente pas un résultat final. Les doublons SMTP possibles après
-une réponse finale perdue restent soumis aux règles usuelles de nouvelle tentative.
+`GET /api/v1/messages/UUID/diagnostics`, with an authorized session, provides explanations and the last 50 server attempts per recipient. The initial response is limited to 100 transcripts for the entire message; `?delivery_id=DELIVERY_ID` loads the history of a single authorized recipient. The console reports partial history and allows it to be loaded on request. Each transcript keeps up to 32 events and 2,048 bytes per text field. It is stored in `delivery_attempts` in the same transaction as the delivery result. These traces follow the preservation of the metadata of the message and their deletion in cascade; unresolved messages remain accessible. The retention of the systemd log remains managed separately by journald. A stop during an attempt can leave its steps only in log; the console does not invent a final result. Possible SMTP duplicates after a lost final response remain subject to the usual rules of new attempt.
 
-Cette table est une migration additive compatible avec le schéma de stockage 2.
-Un retour à 0.4.0 reste possible ; l’ancien binaire n’ajoutera pas ces traces.
-Les diagnostics n’exposent jamais les vecteurs d’apprentissage ou les autres
-destinataires d’un message hors des droits du compte.
+SMTP transcripts were introduced as an additive migration. Current HA installations require schema 5 regardless of when this table was added; follow the current compatibility checks for rollback. Diagnoses never expose learning vectors or other recipients of a message out of account rights.
 
-Définir des alertes sur espace libre inférieur à la réserve, âge de file supérieur à 30 minutes, erreurs Proton récurrentes, échecs non notifiés, taux d’analyses incomplètes et absence d’événements. Le fichier systemd redémarre le service après erreur, avec limitation des redémarrages.
+Set alerts on free space below the reserve, queue age over 30 minutes, recurring Proton errors, unreported failures, incomplete analysis rates and absence of events. The systemd unit restarts the service after error, with limitation of restarts.
 
-Les délais de nouvelle tentative sont environ 30 minutes, 1 heure, 2 heures, puis 4 heures avec une petite variation. Après cinq jours, générer un avis d’échec. Le client SMTP peut attendre jusqu’aux délais protocolaires pendant une livraison ; un arrêt propre accorde 30 secondes aux sessions actives avant interruption et reprise au redémarrage.
+Retries use exponential backoff, approximately 30 minutes, 1 hour, 2 hours, then 4 hours with jitter. After five days, resolve the failure under the DSN and anti-backscatter policy. The SMTP client can wait until protocol time during a delivery; a clean stop grants 30 seconds to active sessions before interruption and restarting.
 
-Une seule instance du daemon peut posséder le spool, via un verrou système. La CLI peut être utilisée parallèlement. Ne jamais partager le même répertoire de données entre deux serveurs ou sur NFS. Un arrêt du serveur unique provoque normalement les nouvelles tentatives des expéditeurs ; il n’existe pas de haute disponibilité dans cette version.
+Only one instance of the daemon can own the spool, via a system lock. The CLI can be used in parallel. Never share the same data directory between two servers or on NFS. Paired HA requires a second durable copy before acceptance. Peer outages deliberately cause temporary deferrals; see [high availability](high-availability.md).
 
-Le seuil de réserve disque arrête l’acceptation par erreur temporaire avant saturation. Il ne remplace pas le dimensionnement : prévoir le volume de plusieurs jours de messages et la taille moyenne réelle. Le budget mémoire systemd de 2 Go doit être confronté à un test sur la cible de référence 4 vCPU / 8 Go avant montée en charge.
+The disk reserve threshold stops acceptance by temporary error before saturation. It does not replace sizing: forecast the volume of several days of messages and the actual average size. The systemd 2GB memory budget must be measured on the 4 vCPU / 8 GiB reference target before increasing traffic.
 
-## Sauvegarde et restauration
+## Backup and recovery
 
-Pour une sauvegarde cohérente initiale, arrêter le service, copier le répertoire de données complet et la configuration/les clés avec leurs permissions, puis redémarrer. Ne pas sauvegarder le seul fichier SQLite pendant que son WAL évolue ; les corps en attente et la base doivent appartenir au même instant cohérent.
+For an initial consistent backup, stop the service, copy the complete data directory and the configuration/keys with their permissions, then restart. Do not copy only the SQLite file while its WAL changes. The database and pending bodies must form one consistent snapshot.
 
-Au démarrage, les livraisons interrompues repassent en attente. Les fichiers de réception non acceptés et les orphelins sont nettoyés. Si un message référencé par la base a perdu son corps, le serveur refuse de démarrer : restaurer la sauvegarde cohérente et diagnostiquer le stockage. Les fichiers marqués livrés ne doivent pas être réinjectés aveuglément, sous peine de doublons.
+On startup, interrupted local deliveries return to pending. Paired recovery separately holds uncertain outcomes for review; do not use local restart behavior as a disaster-recovery procedure. Unaccepted receiving files and orphaned ones are cleaned. If a message referenced by the database has lost its body, the server refuses to start: restore consistent backup and diagnose storage. The delivered marked files must not be reinjected blindly, under penalty of duplication.
 
-## Entraînement périodique
+<a id="entraînement-périodique"></a>
+## Periodic training
 
-Pour les connecteurs facultatifs de la branche de développement, consulter
-[ClamAV et les signatures](antivirus.md) et [l'isolation Scaleway](scaleway.md).
-Ils n'existent pas dans le binaire de la release 0.1.0. Le [plan de validation](detection-roadmap.md)
-décrit la comparaison des technologies et les conditions d'activation.
+Optional connector setup is documented in [antivirus](antivirus.md) and [Scaleway isolation](scaleway.md). The [evaluation roadmap](detection-roadmap.md) describes comparison methods and activation criteria.
 
-Créer `/var/lib/noisefence/models` avant d’installer le timer fourni. Il exporte les annotations actuelles et entraîne un candidat ; il échoue explicitement quand un sous-ensemble ne contient pas les deux classes. Son activation est volontairement indépendante de la réception SMTP.
+Create `/var/lib/noisefence/models` before installing the provided timer. It exports the current annotations and trains a candidate; it explicitly fails when a subset does not contain both classes. Its activation is voluntarily independent of the SMTP reception.
 
-Comparer le candidat sur un corpus récent conservé pour la validation. Un modèle qui respecte son évaluation textuelle nécessite encore la validation du pipeline complet. `model-activate` vérifie le hachage du modèle et le rapport, puis remplace atomiquement le modèle actif. Redémarrer le service pour charger la nouvelle version. Conserver la version précédente pour un retour arrière.
+Compare the candidate on a recently retained corpus for validation. A model that respects its textual evaluation still requires the validation of the complete pipeline. `model-activate` checks the model hash and report, then substitutes atomically for the active model. Restart the service to load the new version. Keep the previous version for a backward return.
 
-## Mise à jour vers 0.4
+<a id="mise-à-jour-vers-04"></a>
+## Storage compatibility
 
-La quarantaine migre la base en schéma 2. Sauvegarder la base, le spool et la configuration à l’arrêt avant installation. Les binaires 0.3 ne peuvent plus ouvrir la base migrée ; voir les [règles de migration et de retour arrière](actions.md#migration-de-stockage). Le mode observation et les routes restent inchangés lors de l’installation. Surveiller aussi le compteur `quarantined_deliveries` et l’espace disque.
+Quarantine originally introduced schema 2; later features and paired replication use newer schemas, up to schema 5. Back up the current database, spool and configuration consistently. Do not run an incompatible older binary or restore an old database over accepted mail. Observation and routes are preserved during installation. Monitor `quarantined_deliveries`, queue age and free disk space; see [recovery](high-availability.md).

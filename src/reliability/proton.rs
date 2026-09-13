@@ -38,5 +38,5 @@ pub fn checklist(config: &Config) -> Value {
         "publicity":inspect(config,config.mailing.as_ref().and_then(|m|m.proton_report.as_deref()),"[PUB]"),
         "mode":config.filter.mode,"activation_requested":false,
         "required_receipts":["direct_inbox_or_spam","relayed_unmodified_inbox_or_spam","relayed_tagged_inbox_or_spam","original_authentication_headers","final_authentication_headers"],
-        "note":"Une acceptation SMTP ne prouve pas le dossier d'arrivée. Le résultat Proton ne sert pas de label automatique de spam."})
+        "note":"A SMTP acceptance does not prove the arrival file. The Proton result does not serve as an automatic spam label."})
 }

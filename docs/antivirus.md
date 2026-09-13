@@ -1,47 +1,19 @@
-# Antivirus et signatures complémentaires
+<a id="antivirus-et-signatures-complémentaires"></a>
+# Antivirus and complementary signatures
 
-Ces connecteurs sont facultatifs et désactivés sans configuration. Dans cette
-version de développement, ils enregistrent les détections et leurs raisons ; ils
-ne retiennent ni ne suppriment les messages. Depuis dev.21, le statut `malware`
-du scanner principal reçoit une [priorité explicite de classement](filter-policy.md),
-avec un score décisionnel nul (`null`, pas zéro). Les signatures complémentaires
-restent consultatives, sans quarantaine ni rejet antivirus.
-Toute politique de rétention ou de modification des messages doit être validée
-séparément, notamment avec le relais Proton.
+These optional connectors are disabled when not configured. Primary-scanner malware receives [classification priority](filter-policy.md), with a null decision score (`null`, not zero). In enforcement mode the configured malware policy can quarantine it. Complementary signatures remain advisory. Observation still delivers without tagging or quarantine. Subject changes require separate Proton/ARC validation.
 
-Deux processus sont prévus : ClamAV avec les bases officielles, puis un scanner
-consultatif avec les bases Sanesecurity. Leurs scans tournent en parallèle. Cette
-séparation évite qu'une première correspondance de spam interrompe la recherche de
-malware dans une pièce jointe. Les sockets doivent être différentes et accessibles
-uniquement aux comptes de service. Aucun port ClamD TCP n'est nécessaire.
+Two processes are planned: ClamAV with the official databases, then an advisory scanner with Sanesesecurity bases. Their scans run in parallel. This separation prevents a first spam match from interrupting the search for malware in an attachment. Sockets must be different and accessible only to service accounts. No ClamD TCP port is required.
 
-## Bases officielles sous Debian
+## Official databases on Debian
 
-Installer des paquets ClamAV encore maintenus pour la distribution cible et vérifier
-les avis de sécurité. Au 6 septembre 2026, Debian 13 propose encore 1.4.3 et son
-[suivi de sécurité](https://security-tracker.debian.org/tracker/source-package/clamav)
-signale des vulnérabilités corrigées dans 1.4.6. Ne pas déployer cette ancienne
-version sur les messages entrants. Le conteneur historique Bookworm teste le
-protocole ; ce n'est pas la version retenue pour le serveur.
+Installing still maintained ClamAV packages for target distribution and checking security advisories. As of September 6, 2026, Debian 13 still offers 1.4.3 and its [security tracking](https://security-tracker.debian.org/tracker/source-package/clamav) reports fixed vulnerabilities in 1.4.6. Do not deploy this old version on incoming messages. The historical Bookworm container tests the protocol; this is not the version chosen for the server.
 
-Le déploiement utilise le [paquet officiel Cisco Talos 1.4.6](https://github.com/Cisco-Talos/clamav/releases/tag/clamav-1.4.6),
-installé sous `/usr/local`. Pour AMD64, le paquet `clamav-1.4.6.linux.x86_64.deb`
-a pour SHA256 `d3ee9e401974855a1edc1761b1425417d126de618d5f0c91cd51209f69f6fcc2`.
-Vérifier l'empreinte publiée par le fournisseur avant `dpkg -i`, puis exécuter
-`ldconfig`. Ce paquet ne crée ni compte, ni configuration, ni services systemd.
+The deployment uses the [official Cisco Talos 1.4.6](https://github.com/Cisco-Talos/clamav/releases/tag/clamav-1.4.6) package installed under `/usr/local`. For AMD64, the `clamav-1.4.6.linux.x86_64.deb` package has for SHA256 `d3ee9e401974855a1edc1761b1425417d126de618d5f0c91cd51209f69f6fcc2`. Check the supplier's published fingerprint before `dpkg -i`, then run `ldconfig`. This package does not create an account, configuration, or systemd services.
 
-Créer un compte système `clamav`, les répertoires `/etc/clamav`, `/var/lib/clamav`
-et `/var/log/clamav`, puis installer `deploy/clamd.conf` et `deploy/freshclam.conf`.
-Installer `deploy/clamav-upstream.service` comme `clamav-daemon.service` et
-`deploy/freshclam-upstream.service` comme `clamav-freshclam.service`. Ajouter
-`noisefence` au groupe `clamav`. Démarrer FreshClam, attendre la validation des
-bases, puis démarrer le scanner. Le scanner complémentaire doit également utiliser
-`/usr/local/sbin/clamd` dans son unité systemd. Les outils de rechargement se trouvent
-dans `/usr/local/bin`. Ne pas installer en parallèle les anciens démons Debian.
+Create the `clamav` system account and `/etc/clamav`, `/var/lib/clamav`, `/var/log/clamav` directories, then install `deploy/clamd.conf` and `deploy/freshclam.conf`. Install `deploy/clamav-upstream.service` as `clamav-daemon.service` and `deploy/freshclam-upstream.service` as `clamav-freshclam.service`. Add `noisefence` to the `clamav` group. Start FreshClam, wait for database validation, then start the scanner. The complementary scanner must also use `/usr/local/sbin/clamd` in its systemd unit. Reload tools are in `/usr/local/bin`. Do not run older distribution daemons alongside these services.
 
-Le paquet amont doit être suivi pour ses mises à jour de sécurité ; FreshClam met
-à jour les signatures, pas les exécutables. Si Debian fournit ensuite une version
-corrigée, la variante suivante utilise ses chemins et unités natifs :
+The upstream package must be tracked for its security updates; FreshClam updates signatures, not executables. If Debian then provides a corrected version, the following variant uses its native paths and units:
 
 ```sh
 sudo apt-get install --no-install-recommends clamav clamav-daemon clamav-freshclam clamdscan
@@ -55,24 +27,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now clamav-freshclam.service
 ```
 
-Attendre le téléchargement et la validation des bases dans le journal FreshClam,
-puis redémarrer `clamav-daemon.socket` et `clamav-daemon.service`. Vérifier les
-permissions du socket, puis activer la section `[antivirus]` du modèle TOML.
-Redémarrer NoiseFence pour charger ses groupes supplémentaires. Conserver une copie
-de sa configuration précédente pour retirer le connecteur en cas d'incident.
+Wait for the download and validation of the databases in the FreshClam log, then restart `clamav-daemon.socket` and `clamav-daemon.service`. Check the socket permissions, then activate the `[antivirus]` section of the TOML model. Reboot NoiseFence to load its additional groups. Keep a copy of its previous configuration to remove the connector in case of an incident.
 
-Les limites fournies couvrent un message de 25 Mio, 100 Mio après décompression,
-16 niveaux, 500 fichiers et 2 secondes de travail ClamAV. Le client attend au plus
-3 secondes. Les dépassements, archives chiffrées et erreurs restent distincts d'un
-résultat sain. Un scan incomplet empêche l'ajout du préfixe antispam. Les plafonds
-systemd doivent être confrontés à la charge réelle et aux pics de mise à jour.
+The limits provided cover a message of 25 MiB, 100 MiB after decompression, 16 levels, 500 files and 2 seconds of ClamAV work. The client waits for no more than 3 seconds. Exceedances, encrypted archives and errors remain distinct from a healthy result. An incomplete scan prevents the addition of the antispam prefix. Systemd ceilings must be faced with the actual load and update peaks.
 
-## Bases complémentaires
+<a id="bases-complémentaires"></a>
+## Complementary bases
 
-`deploy/fetch-unofficial-sigs.py` télécharge les sources de la version 8.0.0 et
-la clé publique Sanesecurity, puis vérifie les empreintes de
-`deploy/unofficial-sigs.sources.json`. Il n'exécute et n'installe rien. Une rotation
-de clé ou un changement de sources exige une révision de ce manifeste.
+`deploy/fetch-unofficial-sigs.py` downloads the sources of version 8.0.0 and the Sanesesecurity public key, then checks the fingerprints of `deploy/unofficial-sigs.sources.json`. It does not execute and install anything. A key rotation or a source change requires a revision of this manifest.
 
 ```sh
 python3 deploy/fetch-unofficial-sigs.py /tmp/noisefence-unofficial-sigs
@@ -92,58 +54,26 @@ sudo systemctl daemon-reload
 sudo systemctl start noisefence-signatures.service
 ```
 
-Vérifier dans le journal que les bases ont été téléchargées, vérifiées par GPG et
-chargées sans erreur. Au premier lancement, l'absence de scanner à recharger est
-normale : démarrer ensuite `noisefence-signature-scanner.service`, puis activer son
-démarrage automatique et `noisefence-signatures.timer`. Activer enfin `[signatures]`
-dans NoiseFence et vérifier les deux résultats indépendants. Ne pas démarrer le
-scanner avec un répertoire de bases vide ni cumuler le timer avec un cron amont.
+Check in the log that the databases have been downloaded, checked by GPG and loaded without error. At the first launch, the absence of the scanner to be reloaded is normal: then start `noisefence-signature-scanner.service`, then activate its automatic boot and `noisefence-signatures.timer`. Finally, activate `[signatures]` in NoiseFence and check the two independent results. Do not start the scanner with an empty base directory or cumulate the timer with an upstream cron.
 
-Le profil utilise Sanesecurity LOW et sa liste de corrections, désactive YARA, les
-mises à niveau automatiques du programme et les fournisseurs nécessitant un compte
-distinct. Les signatures restent consultatives, quelle que soit leur étiquette.
-Pour ajouter un fournisseur, vérifier sa licence, sa méthode d'authentification et
-son effet sur les faux positifs avant de modifier le profil.
+The profile uses Sanesesecurity LOW and its fix list, disables YARA, automatic program upgrades and providers requiring a separate account. Signatures remain advisory, regardless of their label. To add a provider, check its license, authentication method and its effect on false positives before changing the profile.
 
-## Contrôles d'exploitation
+<a id="contrôles-dexploitation"></a>
+## Operational controls
 
-Surveiller `clamav-freshclam.service`, les deux scanners et
-`noisefence-signatures.service` : dernier succès, version des bases effectivement
-chargées, erreurs GPG, mémoire, latence et analyses incomplètes. Alerter si les bases
-quotidiennes officielles ou les mises à jour complémentaires ont plus de 48 heures.
-Interroger `VERSION` sur chaque socket pour relever la version du moteur ; le
-journal du programme de mise à jour fournit les versions des bases complémentaires.
-Un processus actif avec des bases anciennes ne prouve pas une protection à jour.
+Monitor `clamav-freshclam.service`, the two scanners and `noisefence-signatures.service`: last success, version of the bases actually loaded, GPG errors, memory, latency and incomplete analyses. Alert whether the official daily databases or additional updates have more than 48 hours. Ask `VERSION` on each socket to raise the version of the engine; the update program log provides versions of the additional databases. An active process with old databases does not prove an up-to-date protection.
 
-Le service FreshClam dispose d'un plafond de 2 Gio : il charge les nouvelles bases
-pour les vérifier avant leur installation. Le 7 septembre 2026, l'ancien plafond
-de 768 Mio a provoqué des arrêts `oom-kill` répétés pendant cette vérification.
-Prévoir ce pic en plus des scanners et de NoiseFence, puis surveiller la mémoire
-réellement disponible sur l'hôte. Ne pas désactiver la validation des bases pour
-réduire ce besoin. Pour une installation existante, un drop-in systemd
-`clamav-freshclam.service.d/30-database-memory.conf` peut contenir :
+The FreshClam service has a ceiling of 2 GiB: it loads the new bases to check them before their installation. On 7 September 2026, the old ceiling of 768 MiB caused repeated `oom-kill` stops during this verification. Plan this peak in addition to the scanners and NoiseFence, then monitor the memory actually available on the host. Do not disable the validation of the bases to reduce this need. For an existing installation, a drop-in systemd `clamav-freshclam.service.d/30-database-memory.conf` can contain:
 
 ```ini
 [Service]
 MemoryMax=2G
 ```
 
-Après installation du drop-in, exécuter `systemctl daemon-reload` puis
-`systemctl restart clamav-freshclam.service`. Vérifier un cycle de mise à jour
-réussi et la version chargée par ClamD ; l'état `active` seul ne suffit pas.
+After installing the drop-in, run `systemctl daemon-reload` and then `systemctl restart clamav-freshclam.service`. Check a successful update cycle and the version loaded by ClamD; the `active` status alone is not enough.
 
-`deploy/health-check.py` et les unités `noisefence-health.service`/`.timer`
-contrôlent toutes les cinq minutes services, sockets, date de la base quotidienne,
-dernier contrôle Sanesecurity, file, disque, certificat et budget LLM. Le rapport
-est enregistré dans `/var/lib/noisefence/operational-health.json` et dans le journal
-systemd. Un incident fait échouer l'unité ; raccorder ce statut à la supervision
-de l'opérateur pour les notifications. Aucun email d'alerte n'est envoyé par ce script.
+`deploy/health-check.py` and the `noisefence-health.service`/`.timer` units control every five minutes services, sockets, daily database date, last Sanessecurity, file, disk, certificate and LLM budget. The report is recorded in `/var/lib/noisefence/operational-health.json` and in the systemd log. An incident causes the unit to fail; connecting this status to the operator's monitoring for notifications. No alert email is sent by this script.
 
-Le harnais `tests/clamav/Dockerfile` exécute un véritable scan EICAR dans une pièce
-jointe MIME et un scan sain sans envoyer d'email. Il utilise des volumes distincts
-pour les bases et les artefacts Rust. `NOISEFENCE_TEST_UNOFFICIAL=1` teste également
-le téléchargement des sources et des signatures ; respecter les limitations des
-fournisseurs si un téléchargement échoue.
+The `tests/clamav/Dockerfile` harness runs a real EICAR scan in a MIME attachment and a healthy scan without sending email. It uses separate volumes for Rust databases and artifacts. `NOISEFENCE_TEST_UNOFFICIAL=1` also tests the download of sources and signatures; respect supplier limitations if a download fails.
 
-Références : [protocole ClamD](https://docs.clamav.net/manual/Usage/ClamdProtocol.html),
-[versions de clamav-unofficial-sigs](https://github.com/extremeshok/clamav-unofficial-sigs/releases).
+References: [ClamD protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html), [versions of clamav-unofficial-sigs](https://github.com/extremeshok/clamav-unofficial-sigs/releases).

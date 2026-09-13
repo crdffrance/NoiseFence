@@ -40,11 +40,24 @@ async fn create(
     if !(1..=200).contains(&body.count) {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Choisissez de 1 à 200 messages.".into(),
+            "Choose from 1 to 200 messages.".into(),
         ));
     }
-    let id=evaluation::sample(&app.store,user.username,body.since,body.until,body.count,body.domain).await
-        .map_err(|_|Error(StatusCode::BAD_REQUEST,"Échantillon indisponible : vérifiez la période, le domaine, le nombre et les messages accessibles.".into()))?;
+    let id = evaluation::sample(
+        &app.store,
+        user.username,
+        body.since,
+        body.until,
+        body.count,
+        body.domain,
+    )
+    .await
+    .map_err(|_| {
+        Error(
+            StatusCode::BAD_REQUEST,
+            "Sample not available: check the period, domain, number and messages available.".into(),
+        )
+    })?;
     Ok(Json(json!({"id":id})))
 }
 async fn members(
@@ -57,7 +70,7 @@ async fn members(
     Ok(Json(
         evaluation::members_page(&app.store, user.username, id, page.offset)
             .await
-            .map_err(|_| Error(StatusCode::NOT_FOUND, "Échantillon introuvable.".into()))?,
+            .map_err(|_| Error(StatusCode::NOT_FOUND, "Sample not found.".into()))?,
     ))
 }
 async fn label(
@@ -71,7 +84,7 @@ async fn label(
     csrf(&user, &headers)?;
     evaluation::label(&app.store, user.username, id, body.risk, body.kind)
         .await
-        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
+        .map_err(|_| Error(StatusCode::NOT_FOUND, "Message not found.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
 async fn readiness(
@@ -83,7 +96,7 @@ async fn readiness(
     Ok(Json(
         evaluation::readiness(&app.store, user.username, id)
             .await
-            .map_err(|_| Error(StatusCode::NOT_FOUND, "Échantillon introuvable.".into()))?,
+            .map_err(|_| Error(StatusCode::NOT_FOUND, "Sample not found.".into()))?,
     ))
 }
 async fn reliability(
@@ -92,12 +105,9 @@ async fn reliability(
     Query(options): Query<crate::reliability::Options>,
 ) -> ApiResult<Json<Value>> {
     let user = authenticated(&app, &headers).await?;
-    options.validate().map_err(|_| {
-        Error(
-            StatusCode::BAD_REQUEST,
-            "Période ou domaine invalide.".into(),
-        )
-    })?;
+    options
+        .validate()
+        .map_err(|_| Error(StatusCode::BAD_REQUEST, "Invalid period or domain.".into()))?;
     let mut report = crate::reliability::audit(&app.store, user.username, options).await?;
     if user.admin {
         let config = app.effective();

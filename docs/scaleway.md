@@ -1,25 +1,15 @@
-# Analyse facultative avec Scaleway
+<a id="analyse-facultative-avec-scaleway"></a>
+# Optional analysis with Scaleway
 
-Le client Rust est implémenté, testé contre un serveur HTTPS local et confronté à
-l'API réelle de Scaleway. Les essais synthétiques ont confirmé l'accès dans le
-projet dédié et un refus HTTP 403 dans un autre projet. Aucun compte, identifiant
-de projet déployé ni clé de production n'est intégré au dépôt.
+The Rust client is implemented, tested against a local HTTPS server and confronted with the real Scaleway API. Synthetic tests have confirmed access in the dedicated project and an HTTP 403 refusal in another project. No account, project ID deployed or production key is integrated into the repository.
 
-La réponse réelle contient `tool_calls: []` en l'absence d'appel d'outil. Cette
-forme est acceptée depuis 0.2.0-dev.2, au même titre qu'un champ absent ou nul.
-Une liste non vide, un autre type ou un `function_call` non nul reste refusé.
-Ces essais valident l'intégration, pas un taux de détection sur un corpus réel.
+The actual response contains `tool_calls: []` in the absence of a tool call. This form is accepted from 0.2-dev.2, as well as an absent or null field. A non-empty list, another type or a non-zero `function_call` remains refused. These tests validate the integration, not a detection rate on a real corpus.
 
-## Isolation et activation
+## Isolation and activation
 
-Avec `scw`, créer un projet `noisefence-llm` dans l'organisation autorisée, puis une
-application IAM dédiée. Ajouter une politique associée seulement à cette application
-avec `GenerativeApisModelAccess` et `rules.0.project-ids.0` égal au nouveau projet.
-Ne pas remplacer cette portée par `rules.0.organization-id`. Vérifier aussi les
-politiques héritées par toutes les applications : une autre attribution peut
-élargir les droits effectifs. Les API serverless ne nécessitent pas de GPU permanent.
+With `scw`, create a `noisefence-llm` project in the authorized organization, then a dedicated IAM application. Add a policy associated only with this application with `GenerativeApisModelAccess` and `rules.0.project-ids.0` equal to the new project. Do not replace this scope with `rules.0.organization-id`. Also check policies inherited by all applications: another attribution can expand the actual rights. Serverless APIs do not require permanent GPUs.
 
-Exemples de commandes de création, avec des identifiants déjà vérifiés :
+Examples of creation commands, with already verified identifiers:
 
 ```sh
 scw account project create organization-id="$NF_ORG_ID" name=noisefence-llm
@@ -29,79 +19,34 @@ scw iam policy create organization-id="$NF_ORG_ID" name=noisefence-model-access 
   rules.0.permission-set-names.0=GenerativeApisModelAccess
 ```
 
-Créer ensuite une clé pour cette application et enregistrer sa réponse directement
-dans un fichier privé, sans imprimer le secret dans le terminal ou les journaux.
-La clé doit expirer et être renouvelée avant cette échéance. Tester avec elle l'accès
-au modèle du nouveau projet et le refus d'accès à un autre projet avant activation.
-Conserver les identifiants des ressources créées pour les audits et la révocation.
+Then create a key for this application and record its response directly in a private file, without printing the secret in the terminal or logs. The key must expire and be renewed before this deadline. Test with it the access to the model of the new project and the refusal of access to another project before activation. Keep the identifiers of the resources created for audits and revocation.
 
-Sur le serveur, placer le secret dans `NOISEFENCE_SCALEWAY_API_KEY` du fichier
-`/etc/noisefence/secrets.env`, appartenant à root, mode 0600. La clé d'administration
-de l'organisation ne doit pas être utilisée par NoiseFence. Renseigner la section
-`[llm]` du modèle TOML avec l'identifiant du projet isolé, le modèle, des prix vérifiés
-et un budget explicite. Avec `monthly_budget_micro_eur = 0`, aucun appel n'est émis.
+On the server, place the secret in `NOISEFENCE_SCALEWAY_API_KEY` of the `/etc/noisefence/secrets.env` file, belonging to root, mode 0600. The organization's administration key should not be used by NoiseFence. Inform the `[llm]` section of the TOML model with the isolated project ID, model, verified prices and an explicit budget. With `monthly_budget_micro_eur = 0`, no calls are made.
 
-Le client utilise exclusivement l'endpoint HTTPS
-`https://api.scaleway.ai/PROJECT_ID/v1/chat/completions`, vérifie le certificat et
-refuse les redirections. Commencer avec des messages synthétiques autorisés, vérifier
-le schéma JSON, la comptabilité et les délais, puis observer les messages ambigus.
+The client uses the HTTPS endpoint `https://api.scaleway.ai/PROJECT_ID/v1/chat/completions` exclusively, checks the certificate and refuses redirections. Start with authorised synthetic messages, check the JSON schema, the accounting and the deadlines, and then observe ambiguous messages.
 
-## Données et décision
+<a id="données-et-décision"></a>
+## Data and decision
 
-La requête contient l'objet, le domaine expéditeur, le nombre de pièces jointes et
-un extrait de texte/HTML rendu limité à 12 000 octets par défaut. Les champs To/Bcc,
-l'adresse complète de l'expéditeur, les noms de pièces jointes et leur contenu
-binaire ne sont pas sérialisés. Le texte du message peut néanmoins contenir des
-données personnelles : il ne s'agit pas d'une anonymisation. L'activation autorise
-donc un traitement externe d'extraits textuels, différent du mode entièrement local.
+The request contains the subject, the sender domain, the number of attachments and an extract of text/HTML made limited to 12,000 bytes by default. To/Bcc fields, the sender's full address, the attachment names and their binary content are not serialized. The text of the message may nevertheless contain personal data: this is not an anonymization. The activation therefore allows an external processing of text extracts, different from the entirely local mode.
 
-Le modèle reçoit une consigne de classification et aucun outil. Seul un JSON fermé
-contenant catégorie, estimation, confiance et courte raison est accepté. Les champs
-supplémentaires, actions, appels d'outils, sorties tronquées et réponses trop grandes
-sont refusés. La confiance déclarée par le modèle n'est pas une mesure calibrée.
+The model receives a classification instruction and no tools. Only a closed JSON containing category, estimate, confidence and short reason is accepted. Additional fields, actions, tool calls, truncated outputs and too large responses are refused. The confidence declared by the model is not a calibrated measure.
 
-Les préfixes de filtres antérieurs (`[SPAM]`, `[JUNK]`, `[PHISHING]`, `[BULK]`)
-au début de l'objet sont retirés de l'extrait, comme pour le modèle local. L'objet
-livré et les citations dans le corps restent intacts. Ces étiquettes ne constituent
-pas des preuves de spam.
+The prefixes of previous filters (`[SPAM]`, `[JUNK]`, `[PHISHING]`, `[BULK]`) at the beginning of the subject are removed from the extract, as for the local model. The subject delivered and the citations in the body remain intact. These tags do not constitute proof of spam.
 
-Le verdict ajoute au plus un faible signal au score local. Il ne commande aucune
-livraison, suppression, quarantaine ou modification de configuration. Les messages
-incomplets ou déjà détectés comme malveillants ne sont pas soumis au LLM. Une panne,
-un délai dépassé ou une réponse invalide rend l'analyse incomplète et empêche le
-préfixe. Un budget atteint ou un tarif expiré laisse fonctionner les moteurs locaux.
+The verdict is an advisory second opinion. Its configured contribution and disagreement arbitration do not turn model confidence into a calibrated probability. It does not order any delivery, deletion, quarantine or configuration changes. Incomplete or already detected malicious messages are not submitted to the LLM. A failure, an exceeded deadline or an invalid response makes the analysis incomplete and prevents the prefix. A budget reached or an expired rate lets local engines work.
 
-## Budget et rapidité
+<a id="budget-et-rapidité"></a>
+## Budget and speed
 
-Les prix de l'exemple correspondent, au 6 septembre 2026, à 0,15 €/million de jetons
-entrants et 0,35 €/million sortants pour `mistral-small-3.2-24b-instruct-2506`.
-Les revérifier sur la [page tarifaire Scaleway](https://www.scaleway.com/en/pricing/model-as-a-service/).
-Les montants de configuration sont exprimés en micro-euros : 20 000 000 = 20 €.
-Les appels s'arrêtent si la date de vérification des prix dépasse 30 jours.
+The price of the example corresponds, on 6 September 2026, to 0.15 €/million input tokens and 0.35 €/million output tokens for `mistral-small-3.2-24b-instruct-2506`. Check them again on the [Scaleway tariff page](https://www.scaleway.com/en/pricing/model-as-a-service/). The configuration amounts are expressed in micro-euros: 20 000 000 = 20 €. Calls stop if the price verification date exceeds 30 days.
 
-Une réservation durable SQLite précède chaque appel. Les appels concurrents et
-les redémarrages conservent ce plafond local ; une réponse dont la facturation est
-incertaine garde sa réservation maximale. Une réponse valide ajuste le montant selon
-l'usage déclaré. Le client ne relance pas automatiquement les requêtes HTTP.
-Ce plafond estimé ne remplace pas les alertes de facturation du fournisseur.
-L'API administrateur `/api/v1/metrics` expose réservations, requêtes et plafond.
+A durable SQLite booking precedes each call. Concurrent calls and restarts keep this local ceiling; a response whose billing is uncertain keeps its reservation maximum. A valid response adjusts the amount according to the declared usage. The client does not automatically restart HTTP requests. This estimated limit does not replace the provider's billing alerts. The `/api/v1/metrics` admin API displays reservations, requests and ceiling.
 
-Deux appels au plus tournent en parallèle par défaut, dans l'intervalle
-de scores configuré. L'option `review_unconfirmed_high = true` ajoute les scores
-supérieurs à `score_high` sans corroboration au sens de `confirmation-3` : un score
-élevé seul ne doit pas empêcher le second avis de rechercher un faux positif.
-Cette option est désactivée par défaut et peut augmenter le nombre d'extraits
-transmis. Elle conserve les limites de budget, concurrence et durée. Les preuves
-de malware et les analyses incomplètes restent exclues. La sélection est enregistrée
-dans `scan.llm.selection`, y compris en cas de quota ou d'annulation ; les anciens
-enregistrements peuvent ne pas posséder ce champ. Aucun score n'est abaissé par la
-seule demande de vérification. Les pondérations consultatives restent inchangées.
+By default at most two LLM calls run concurrently within the configured score interval. `review_unconfirmed_high = true` additionally selects scores above `score_high` that lack corroboration under `confirmation-3`; a high score alone should not prevent a second opinion from finding a false positive. This option is disabled by default and can increase transmitted excerpts, within the same budget, concurrency and timeout limits. Malware evidence and incomplete local extraction remain excluded. `scan.llm.selection` records selection even when budget or cancellation prevents completion; old records may omit it. Selection alone never lowers a score. Advisory weights are unchanged. To select all eligible messages, configure the complete score range in the Web console and authorize the corresponding text disclosure.
 
-Le délai LLM de 2,5 secondes fait partie des cinq secondes
-partagées avec les vérifications DNS. Mesurer le p95 global avec cette option : un
-LLM ne garantit pas l'objectif de 500 ms. Le prix par message et la proportion
-soumise au LLM doivent figurer dans les comparaisons de qualité.
+The 2.5 seconds LLM delay is one of five seconds shared with the DNS checks. Measure the overall p95 with this option: an LLM does not guarantee the 500 ms target. The price per message and the proportion submitted to the LLM must be included in the quality comparisons.
 
-Références : [Generative APIs](https://www.scaleway.com/en/docs/generative-apis/api-cli/using-generative-apis/),
-[sorties structurées](https://www.scaleway.com/en/docs/generative-apis/how-to/use-structured-outputs),
-[politiques IAM](https://www.scaleway.com/en/docs/iam/reference-content/policy/).
+References: [Generative APIs](https://www.scaleway.com/en/docs/generative-apis/api-cli/using-generative-apis/), [structured outputs](https://www.scaleway.com/en/docs/generative-apis/how-to/use-structured-outputs), [IAM policies](https://www.scaleway.com/en/docs/iam/reference-content/policy/).
+
+New explanations use English with prompt version `noisefence-classify-3`. Existing stored explanations are not rewritten. The prompt digest changes the observation group used for evaluation; do not mix groups or reuse an earlier validation automatically.

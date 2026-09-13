@@ -1,217 +1,125 @@
-# Fusion apprise des observations
+<a id="fusion-apprise-des-observations"></a>
+# Fusion learnt from observations
 
-NoiseFence peut entraîner puis évaluer hors ligne une décision commune à partir
-des observations des détecteurs. Cette chaîne produit des modèles de recherche
-JSON exécutables nativement en Rust. Le service peut comparer cette fusion en
-observation, puis utiliser sa décision après validation explicite. Un candidat nécessite un test
-récent représentatif, l'audit de ses données, la mesure du traitement complet et
-la validation de livraison chez Proton.
+NoiseFence can lead to and then evaluate an off-line decision based on the observations of the detectors. This chain produces JSON search models that can be executed natively in Rust. The service can compare this fusion model in observation, then use its decision after explicit validation. A candidate requires a recent representative test, the audit of his data, the measurement of the complete processing and the validation of delivery at Proton.
 
-## Entrées communes
+<a id="entrées-communes"></a>
+## Shared inputs
 
-Le [protocole versionné](fusion-protocol.json) fixe 218 caractéristiques et leurs
-bornes. Son empreinte porte sur les octets exacts du fichier ; Rust embarque ces
-mêmes octets. L'extraction utilise exclusivement les observations typées de
-`noisefence-evidence-1` : logits locaux bornés, authentification et alignements,
-catégories et rôles DQS, cohérence SMTP, catégories des scanners et avis LLM.
-Chaque contrôle conserve son état, y compris absence, indisponibilité et
-saturation. Les valeurs déclarées par le LLM sont des caractéristiques, pas des
-étiquettes ni des probabilités déjà calibrées.
+The [versioned protocol](fusion-protocol.json) fixes 218 features and their terminals. Its print is on the exact bytes of the file; Rust takes these same bytes. The extraction uses exclusively the typical observations of `noisefence-evidence-1`: local bounded logits, authentication and alignments, DQS categories and roles, SMTP consistency, categories of scanners and LLM reviews. Each control keeps its status, including absence, unavailability and saturation. The values declared by the LLM are characteristics, not labels or already calibrated probabilities.
 
-Le score historique, les poids manuels, le score qui sélectionne les appels LLM,
-les labels, les textes d'explication, les identités et les durées sont exclus du
-vecteur. Le score historique reste disponible uniquement pour la comparaison de
-référence. Les codes DQS d'erreur sont refusés ; les catégories de domaines
-légitimes compromis ne deviennent pas des caractéristiques d'identité suspecte.
+The historical score, manual weights, the score that selects LLM calls, labels, explanatory texts, identities and durations are excluded from the vector. The historical score remains available only for reference comparison. DQS error codes are refused; the categories of legitimate areas compromised do not become suspicious identity characteristics.
 
-Les artefacts identifient les modèles réellement chargés, la version applicative,
-le verrou de dépendances, le protocole sémantique, les paramètres des contrôles
-et le prompt. Un export mélangeant plusieurs configurations est refusé. Une
-prédiction exige le même ensemble d'artefacts ; un changement de configuration
-ou de version doit faire l'objet d'une nouvelle expérience. Les empreintes
-exactes des définitions chargées par ClamD et la révision cloud du LLM restent
-inconnues lorsqu'elles ne sont pas attestées par les fournisseurs.
+The artifacts identify the models actually loaded, the application version, the dependency lock, the semantic protocol, the control parameters and the prompt. An export mixing several configurations is refused. A prediction requires the same set of artifacts; a change in configuration or version must be the subject of a new experiment. The exact fingerprints of the definitions loaded by ClamD and the cloud revision of the LLM remain unknown when they are not attested by the suppliers.
 
-## Préparer un jeu privé
+<a id="préparer-un-jeu-privé"></a>
+## Prepare a private dataset
 
-Après annotation autorisée dans la console, exporter les données :
+After annotation allowed in the console, export the data:
 
 ```sh
-noisefence --config /etc/noisefence/config.toml export-learning /chemin/prive/learning.jsonl
-noisefence fusion-export /chemin/prive/learning.jsonl --output /chemin/prive/vectors.jsonl
+noisefence --config /etc/noisefence/config.toml export-learning /private/path/learning.jsonl
+noisefence fusion-export /private/path/learning.jsonl --output /private/path/vectors.jsonl
 ```
 
-La seconde commande est entièrement hors ligne et ne charge pas la configuration
-du serveur. Elle conserve seulement le contexte provenant de la réception SMTP.
-Les analyses avec une enveloppe fournie manuellement et les anciens messages sans
-observations sont omis avec des compteurs explicites. Un export sans observation
-SMTP exploitable échoue. Les contrôles incomplets restent présents : on ne doit
-pas améliorer artificiellement les résultats en les retirant.
+The second command is completely offline and does not load the server configuration. It only keeps the context from the SMTP reception. Analyses with a manually supplied envelope and old messages without observations are omitted with explicit meters. An export without exploitable SMTP observation fails. Incomplete controls remain present: we must not artificially improve the results by removing them.
 
-Les fichiers sont créés atomiquement avec des droits `0600`, sans écraser un
-export existant. Ils restent sensibles même sans corps et doivent suivre la
-conservation de 30 jours. Les corrections seules ne représentent pas le trafic :
-annoter aussi un échantillon défini à l'avance de messages correctement classés.
-Conserver la méthode de tirage et l'autorisation d'usage dans le manifeste.
+The files are created atomically with `0600` rights, without overwriting an existing export. They remain sensitive even without body and must follow the 30 day retention. Corrections alone do not represent traffic: also annotate a predefined sample of correctly classified messages. Keep the drawing method and permission to use in the manifest.
 
-Préparer `annotations.jsonl`, une ligne par observation exportée :
+Prepare `annotations.jsonl`, one line per export observation:
 
 ```json
-{"id":"<64 caractères hexadécimaux>","campaign":"<empreinte de campagne>","label":"legit","split":"train","language":"fr","kind":"invoice"}
+{"id":"<64 hexadecimal characters>","campaign":"<campaign digest>","label":"legit","split":"train","language":"fr","kind":"invoice"}
 ```
 
-Les labels suivent le [protocole d'étiquetage](labeling-protocol.md) : `legit`,
-`spam`, `phishing`, `uncertain`. Conserver `unwanted_binary` si un ancien retour
-« Spam » n'a pas été revu en sous-classe. Une annotation certaine doit rester
-cohérente avec le retour humain exporté. Les labels incertains sont exclus de
-l'ajustement et des métriques avec leur nombre publié.
+Labels follow the [labelling protocol](labeling-protocol.md): `legit`, `spam`, `phishing`, `uncertain`. Preserve `unwanted_binary` when an older Spam correction has not been reviewed into a subclass. Certain annotations must agree with the exported human feedback. Exclude uncertain labels from fitting and metrics, and report their count.
 
-Attribuer les campagnes à cinq lots **avant** l'expérience : `train`,
-`development`, `calibration`, `threshold`, `test`. Le contrôle regroupe
-transitivement les empreintes identiques, les campagnes déclarées et les SimHash
-à distance au plus trois. Tout groupe traversant deux lots ou l'historique des
-modèles de base fait échouer l'expérience. Les labels binaires contradictoires
-échouent également. Un représentant déterministe par campagne est conservé :
-les métriques portent sur ces représentants, pas sur un taux pondéré par le
-volume de copies. Ce regroupement reste une heuristique à compléter par l'audit.
+Assign campaigns to five lots **before** experiment: `train`, `development`, `calibration`, `threshold`, `test`. Controls are transitively regrouping identical prints, declared campaigns, and SimHash at a distance of no more than three. Any group crossing two lots or the history of the basic models is failing the experiment. The conflicting binary labels are also failing. A deterministic representative per campaign is retained: metrics are for these representatives, not a rate weighted by the volume of copies. This grouping remains a heuristic to be completed by the audit.
 
-Préparer `base-history.json` avec les empreintes des campagnes déjà utilisées
-pour les modèles lexicaux et sémantiques concernés. Inclure aussi les lots de
-développement, calibration, seuil et tests déjà consultés pour choisir ces
-modèles. Il s'agit de choisir un lot de fusion distinct, pas de réutiliser les
-prédictions d'entraînement des mêmes moteurs :
+Prepare `base-history.json` with the campaign footprints already used for the lexical and semantic models concerned. Also include the development, calibration, threshold and test batches already consulted to select these models. It is a question of choosing a separate fusion batch, not of reusing the driving predictions of the same engines:
 
 ```json
 {
   "schema": "noisefence-base-history-1",
-  "lexical_model_sha256": "<empreinte du modèle chargé>",
+  "lexical_model_sha256": "<loaded model digest>",
   "semantic_model_sha256": null,
   "complete_for": ["fit", "development", "calibration", "threshold", "previous_tests"],
-  "rows": [{"fingerprint":"<empreinte>","simhash":"<16 caractères hexadécimaux>","campaign":"<empreinte>"}]
+  "rows": [{"fingerprint":"<digest>","simhash":"<16 hexadecimal characters>","campaign":"<digest>"}]
 }
 ```
 
-Utiliser `null` pour un modèle absent. Un modèle chargé interdit un historique
-vide. L'exhaustivité de cet historique doit être vérifiée ; le logiciel peut
-détecter un chevauchement déclaré, pas prouver l'absence d'une campagne omise ni
-auditer le préentraînement fondamental d'un encodeur tiers.
+Use `null` for an absent model. A loaded model prohibits an empty history. The completeness of this history must be verified; the software can detect a declared overlap, not prove the absence of an omitted campaign or audit the fundamental pre-training of a third-party encoder.
 
-Le manifeste `experiment.json` lie les fichiers par SHA-256 :
+The `experiment.json` manifest binds files by SHA-256:
 
 ```json
 {
   "schema": "noisefence-fusion-experiment-1",
   "version": "fusion-research-20260907",
   "purpose": "research",
-  "protocol_sha256": "<SHA-256 des octets de fusion-protocol.json>",
-  "vectors": {"path":"vectors.jsonl","sha256":"<empreinte>"},
-  "annotations": {"path":"annotations.jsonl","sha256":"<empreinte>"},
-  "base_history": {"path":"base-history.json","sha256":"<empreinte>"},
+  "protocol_sha256": "<SHA-256 of fusion-protocol.json bytes>",
+  "vectors": {"path":"vectors.jsonl","sha256":"<digest>"},
+  "annotations": {"path":"annotations.jsonl","sha256":"<digest>"},
+  "base_history": {"path":"base-history.json","sha256":"<digest>"},
   "sampling": {
     "kind": "representative",
-    "description": "<méthode réelle de tirage et périmètre>",
-    "authorization": "<référence à l'autorisation d'usage>",
+    "description": "<actual sampling method and scope>",
+    "authorization": "<authorization reference>",
     "start_at": 1788739200,
     "end_at": 1788825599
   }
 }
 ```
 
-Les chemins sont relatifs au manifeste, ou absolus. Les dates Unix bornent les
-dates de réception fiables exportées. Utiliser `corrections` ou `synthetic` pour
-ces sources respectives ; une déclaration `representative` reste à auditer.
-Les exports sont bornés à 50 000 observations et 512 Mio. Chaque lot doit garder
-les deux classes après regroupement.
+The paths are relative to the manifest, or absolute. Unix dates limit the reliable receiving dates exported. Use `corrections` or `synthetic` for these respective sources; a `representative` declaration remains to be audited. Exports are limited to 50,000 observations and 512 MiB. Each lot must keep both classes after grouping.
 
-## Entraînement, calibration, seuil et test
+<a id="entraînement-calibration-seuil-et-test"></a>
+## Training, calibration, threshold and test
 
-Installer les dépendances verrouillées dans un environnement Python isolé :
+Install locked dependencies in an isolated Python environment:
 
 ```sh
-python3 -m venv /chemin/prive/fusion-venv
-/chemin/prive/fusion-venv/bin/pip install -r research/requirements.txt
-/chemin/prive/fusion-venv/bin/python research/train_fusion.py fit experiment.json /chemin/prive/candidate
+python3 -m venv /private/path/fusion-venv
+/private/path/fusion-venv/bin/pip install -r research/requirements.txt
+/private/path/fusion-venv/bin/python research/train_fusion.py fit experiment.json /private/path/candidate
 ```
 
-L'entraîneur ajuste une normalisation sur `train`, puis une régression logistique
-L2 pour `C ∈ {0,1 ; 1 ; 10}`. Il choisit C sur `development`, sous la contrainte
-de faux positifs de 0,1 %, sans classe de priorité fondée sur la langue. Il replie
-la normalisation dans les poids et le biais pour l'inférence Rust.
+The trainer adjusts a normalization on `train`, then a logistic regression L2 for `C ∈ {0.1 ; 1 ; 10}`. He chooses C on `development`, under the constraint of false positives of 0.1%, without priority class based on language. He folds the normalization in weights and bias for the Rust inference.
 
-Une calibration sigmoïde monotone est ajustée sur `calibration`. La proportion
-d'indésirables de ce lot est enregistrée : la probabilité résultante concerne ce
-mélange et les disponibilités observées. Le seuil de logit est ensuite choisi sur
-`threshold`, avec un seul seuil pour tous les messages. Les ex æquo restent
-indivisibles, et une marge numérique sépare les groupes retenus. La contrainte
-de sélection est empirique ; le test final publie aussi l'incertitude statistique.
+A monotonous sigmoid calibration is adjusted on `calibration`. The proportion of undesirables in this batch is recorded: the resulting probability is related to this mixture and the observed availability. The logit threshold is then selected on `threshold`, with a single threshold for all messages. Ex æquo remains indivisible, and a numerical margin separates the selected groups. The selection constraint is empirical; the final test also publishes statistical uncertainty.
 
-Les cinq variantes sont figées avant le test : contenu, contenu + identité,
-ajout de réputation, ajout des scanners, ensemble avec LLM. Ces ablations
-retirent des familles de caractéristiques sur les mêmes observations ; elles ne
-simulent pas le coût ni les effets d'un nouveau routage des connecteurs. En
-particulier, l'avis LLM dépend encore de la politique d'appel historique.
+The five variants are frozen before the test: content, content + identity, reputational addition, addition of scanners, together with LLM. These ablations remove families of characteristics on the same observations; they do not simulate the cost or effects of a new routing of connectors. In particular, the LLM opinion still depends on the historical call policy.
 
-Le modèle conserve les profils de disponibilité présents à la fois en
-entraînement et en calibration. Un profil inconnu ne peut pas déclencher le
-préfixe. Une analyse incomplète, un contrôle requis indisponible ou une chaîne ARC
-impossible à prolonger l'empêchent aussi, même avec un logit élevé. Ces cas restent
-dans le dénominateur du rappel. Les principales contributions sont exprimées en
-logit ; elles expliquent l'équation, pas une causalité ni une preuve de spam.
+The model retains the availability profiles present in both training and calibration. An unknown profile cannot trigger the prefix. Incomplete analysis, an unavailability of control required or an ARC chain that cannot extend it also prevent it, even with a high logit. These cases remain in the denominator of the recall. The main contributions are expressed in logit; they explain the equation, not a causality or a proof of spam.
 
-Évaluer ensuite le test, sans réajustement :
+Evaluate the test, without readjustment:
 
 ```sh
-/chemin/prive/fusion-venv/bin/python research/train_fusion.py evaluate experiment.json /chemin/prive/candidate
-noisefence fusion-predict /chemin/prive/learning.jsonl \
-  --model /chemin/prive/candidate/full.json --output /chemin/prive/native-predictions.jsonl
+/private/path/fusion-venv/bin/python research/train_fusion.py evaluate experiment.json /private/path/candidate
+noisefence fusion-predict /private/path/learning.jsonl \
+  --model /private/path/candidate/full.json --output /private/path/native-predictions.jsonl
 ```
 
-`fit.json` lie le manifeste et les modèles par empreintes. `test.json` contient
-TP/FP/FN/TN, rappel, précision, taux de faux positifs, intervalles de Wilson à 95 %,
-résultats par langue, type, label et disponibilité, Brier, log-loss et diagramme
-de fiabilité sous forme de classes numériques. Les empreintes sont revérifiées
-avant évaluation ; un test déjà consommé dans ce dossier ne peut pas être relancé.
-Il reste consommé si l'opérateur copie ou déplace le dossier.
+`fit.json` binds manifest and fingerprint models. `test.json` contains TP/FP/FN/TN, recall, accuracy, false positives, 95% Wilson intervals, results by language, type, label and availability, Brier, log-loss and reliability diagram in the form of digital classes. The prints are reverified before evaluation; a test already consumed in this folder cannot be restarted. It remains consumed if the operator copies or moves the folder.
 
-Le critère documentaire exige au moins 10 000 légitimes et 2 000 indésirables
-représentatifs, un rappel observé d'au moins 95 % et une borne supérieure du taux
-de faux positifs compatible avec 0,1 %. Aucun résultat de cette chaîne ne suffit
-à autoriser seul la production. Les corpus historiques, les corrections et les
-exemples synthétiques servent au développement et aux diagnostics distincts.
+The documentary criterion requires at least 10,000 legitimate and 2,000 representative undesirables, an observed recall of at least 95% and an upper bound of the false positives consistent with 0.1%. No result of this chain is sufficient to permit production alone. Historical corpuses, corrections and synthetic examples are used for separate development and diagnosis.
 
-## Vérification logicielle
+<a id="vérification-logicielle"></a>
+## Software verification
 
 ```sh
 cargo build --locked --bin noisefence --example fusion_fixture
 python3 research/verify_fusion.py var/fusion-parity
 ```
 
-Ce contrôle construit 400 observations synthétiques, apprend les cinq variantes,
-fait varier toutes les familles de contrôles, compare 2 000 prédictions
-Python/Rust et vérifie la règle sans préfixe pour les analyses limitées, erreurs
-de réputation et saturations LLM. Il vérifie ensuite 400 lignes d'une population
-synthétique et 2 000 prédictions supplémentaires : données absentes, anciens
-classements, conflits humains, limites d'analyse et refus de réutilisation du
-test. Aucun email ni appel de détecteur n'est produit. La CI
-exécute ce contrôle avec les autres tests ; sa réussite n'est pas une mesure de
-qualité antispam.
+This control builds 400 synthetic observations, learns the five variants, varies all control families, compares 2,000 Python/Rust predictions and checks the rule without prefix for limited analyses, reputational errors and LLM saturations. It then checks 400 lines of a synthetic population and 2,000 additional predictions: absent data, old rankings, human conflicts, analytical limits and refusal to reuse the test. No email or detector call is produced. The IC executes this control with other tests; its success is not a measure of antispam quality.
 
-## Décision du service et de la console
+<a id="décision-du-service-et-de-la-console"></a>
+## Service and Console Decision
 
-Sans table `[fusion]`, le comportement historique est conservé, avec une décision
-persistée explicite : `legitimate`, `unwanted` ou `undetermined`. SMTP, liste,
-recherche et statistiques utilisent la même décision, y compris lorsque le seuil
-de configuration change ensuite. Les anciennes lignes restent interprétées avec
-leur indice historique et le seuil configuré ; une analyse incomplète n'est pas
-comptée comme indésirable. L'indice historique `scan.score` reste disponible pour
-la comparaison et la sélection des appels LLM. Les en-têtes internes
-`X-NoiseFence-Decision` et `X-NoiseFence-Decision-Source` reprennent le résultat
-et sa source ; ceux reçus de l’expéditeur sont supprimés et les nouveaux champs
-sont inclus dans le scellement ARC. Une indisponibilité ou saturation
-LLM rend la décision indéterminée ; les sauts volontaires ou budgétaires restent
-des états distincts.
+Without a `[fusion]` table, the historical behavior is retained, with an explicit persistent decision: `legitimate`, `unwanted` or `undetermined`. SMTP, list, search and statistics use the same decision, including when the configuration threshold changes afterwards. The old lines remain interpreted with their historical index and the configured threshold; an incomplete analysis is not counted as undesirable. The historical index `scan.score` remains available for comparison and selection of LLM calls. The internal headers `X-NoiseFence-Decision` and `X-NoiseFence-Decision-Source` take the result and its source; those received from the sender are deleted and the new fields are included in the ARC seal. LLM unavailability or saturation makes the decision undetermined; voluntary or budgetary jumps remain separate states.
 
-Pour observer un candidat réellement entraîné sur les mêmes détecteurs :
+To observe a candidate actually trained on the same detectors:
 
 ```toml
 [fusion]
@@ -219,205 +127,92 @@ model = "/var/lib/noisefence/models/fusion.json"
 mode = "observe"
 ```
 
-Le démarrage vérifie les octets du modèle et l'égalité exacte de ses artefacts
-avec les détecteurs chargés. `check-config` vérifie la structure de configuration ;
-le chargement complet des artefacts est effectué au démarrage du service. Une
-modification de version, de dépendances, de détecteur ou de politique impose une
-nouvelle expérience. La table `[fusion]` est exclue de l'empreinte de la politique
-des détecteurs : elle ne change pas leurs observations ni la sélection LLM et
-évite une dépendance circulaire entre le fichier candidat et ses entrées.
+The start-up checks the bytes of the model and the exact equality of its artifacts with the loaded detectors. `check-config` checks the configuration structure; the complete loading of the artifacts is performed at the start of the service. A change in version, dependencies, detectors or policy requires a new experiment. The `[fusion]` table is excluded from the fingerprint of the detector policy: it does not change their observations or the LLM selection and avoids a circular dependence between the candidate file and its entries.
 
-En observation, `scan.fusion` conserve le résultat, les principales contributions
-et les disponibilités sans changer la décision active. `scan.decision` est le
-résultat utilisé pour la livraison. La console distingue cette comparaison de
-recherche du classement actif. Les probabilités n'ont de sens que pour la
-population et les profils de calibration ; les contributions ne sont pas des
-preuves. Un diagnostic `scan` ou `analyze` ne devient jamais une réception SMTP.
+In observation, `scan.fusion` keeps the result, the main contributions and the availabilities without changing the active decision. `scan.decision` is the result used for delivery. The console distinguishes this search comparison from the active ranking. Probabilities only make sense for the population and calibration profiles; contributions are not evidence. A diagnosis `scan` or `analyze` never becomes a SMTP reception.
 
-`mode = "decision"` nécessite aussi `validation_report`, un dossier JSON de revue
-administrateur, borné à 32 Kio, selon `noisefence-fusion-promotion-1`. Il contient :
+`mode = "decision"` also requires `validation_report`, an admin review JSON folder, limited to 32 KiB, according to `noisefence-fusion-promotion-1`. It contains:
 
-- Les SHA-256 des octets du modèle, du manifeste figé, du rapport de test, de
-  couverture de la population et de latence du traitement complet.
-- `reviewed_at`, `observation_start`, `observation_end` en secondes Unix et une
-  référence de revue `review_reference`. Revue de moins de 30 jours, observations
-  de moins de 90 jours ; `sampling = "representative_smtp"`.
-- `tp`, `fp`, `fn_count`, `tn` sur le test récent indépendant, comprenant les cas
-  sans préfixe faute d'analyse exploitable. Au moins 10 000 légitimes et 2 000
-  indésirables ; rappel ≥ 95 % et borne supérieure Wilson à 95 % des faux
-  positifs ≤ 0,1 %. Aucun message laissé hors bilan (`unaccounted_messages = 0`).
-- `pipeline_p95_ms < 500` et `pipeline_samples >= 1000`, mesurés pour des messages
-  ≤ 1 Mio, caches chauds, sur la machine de référence et avec les contrôles actifs.
+- SHA-256 of the bytes of the model, the frozen manifest, the test report, the population coverage and the latency of the complete treatment.
+- `reviewed_at`, `observation_start`, `observation_end` in seconds Unix and a review reference `review_reference`. Review less than 30 days, observations less than 90 days; `sampling = "representative_smtp"`.
+- `tp`, `fp`, `fn_count`, `tn` on the recent independent test, including cases without prefix due to lack of usable analysis. At least 10,000 legitimate and 2,000 undesirable; recall ≥ 95% and Wilson higher terminal at 95% of false positives ≤ 0.1%. No message left out of balance (`unaccounted_messages = 0`).
+- `pipeline_p95_ms < 500` and `pipeline_samples >= 1000`, measured for messages ≤ 1 MiB, warm caches, on the reference machine and with active controls.
 
-Les noms exacts et types sont définis dans `src/fusion/runtime.rs` (`Validation`).
-Ces références et nombres sont une **attestation de revue**, pas une preuve
-automatiquement vérifiée par les seuls hashes : auditer et conserver les rapports
-sources, le périmètre, l'indépendance, les exclusions et les mesures. Ne jamais
-copier les nombres fabriqués des tests logiciels pour activer un modèle réel.
-Un rapport de `train_fusion.py` sur les seuls représentants de campagne ou sur les
-seules corrections n'atteste pas à lui seul de la couverture du trafic SMTP.
+The exact names and types are defined in `src/fusion/runtime.rs` (`Validation`). These references and numbers are a ** review certificate**, not proof automatically verified by the hashes alone: audit and keep source reports, perimeter, independence, exclusions and measurements. Never copy the manufactured numbers of software tests to activate a real model. A `train_fusion.py` report on campaign representatives alone or on corrections alone does not attest to SMTP traffic coverage.
 
-Au démarrage et pour chaque décision, le service revérifie les conditions et
-l'âge de cette attestation. Un profil non validé, une panne, une analyse incomplète
-ou une attestation expirée produit une décision indéterminée, sans score fusion
-exploitable ni préfixe. Le seuil porte sur le logit brut figé ; ni l'arrondi de la
-console ni `filter.threshold` ne remplacent ce seuil. L'observation des détecteurs
-reste distincte d'une indisponibilité de la fusion.
+At the start and for each decision, the service reverifies the conditions and age of this certificate. An unvalidated profile, failure, incomplete analysis or expired attestation produces an indeterminate decision, without exploitable fusion score or prefix. The threshold is for the frozen raw logit; neither the rounding of the console nor `filter.threshold` replace this threshold. The observation of the detectors remains distinct from an unavailability of the fusion.
 
-Le préfixe demande toujours `filter.mode = "tag"` **et** le rapport Proton valide
-déjà exigé par la passerelle. La réception reste en observation tant que cette
-validation de livraison n'est pas établie. Aucun entraînement ni retour utilisateur
-n'active automatiquement une nouvelle version.
+The prefix still requires `filter.mode = "tag"` **and** the valid Proton report already required by the gateway. The receipt remains in observation until this delivery validation is established. No training or user return automatically activates a new version.
 
-## Couverture de toute la population retenue
+<a id="couverture-de-toute-la-population-retenue"></a>
+## Coverage of the entire population retained
 
-`export-learning` sélectionne les vecteurs textuels exploitables. Pour auditer son
-périmètre sans dissimuler les limites MIME ou les données absentes :
+`export-learning` selects usable text vectors. To audit its perimeter without concealing MIME boundaries or missing data:
 
 ```sh
-noisefence --config /etc/noisefence/config.toml export-population /chemin/prive/population.jsonl \
+noisefence --config /etc/noisefence/config.toml export-population /private/path/population.jsonl \
   --since 1788739200 --until 1788825600
 ```
 
-Adapter ces bornes Unix à un intervalle **réel des 30 derniers jours**, début
-inclus et fin exclue. Le fichier `noisefence-population-1` contient un en-tête,
-une ligne par message entrant retenu et un bilan final, dans une seule transaction
-SQLite. Les notifications produites par le service sont comptées séparément.
-Ce périmètre couvre les messages acceptés et encore retenus, pas les refus SMTP
-ni des métadonnées déjà supprimées. Il n'est jamais déclaré représentatif par
-défaut (`sampling = "unreviewed"`).
+Adapt these Unix terminals to a **real interval of the last 30 days**, included start and end excluded. The `noisefence-population-1` file contains a header, a line per incoming message retained and a final report, in a single SQLite transaction. Notifications generated by the service are counted separately. This scope covers accepted and retained messages, not SMTP refusals or already deleted metadata. It is never declared representative by default (`sampling = "unreviewed"`).
 
-Chaque ligne garde les timestamps fiables, l'identité hachée, l'empreinte des
-octets originaux quand disponible, les empreintes de campagne quand calculables,
-la décision et les observations SMTP typées. L'empreinte brute ne remplace pas
-une empreinte de campagne absente. Aucun expéditeur, destinataire, objet, corps,
-pièce jointe ou vecteur textuel n'est exporté. Les anciens champs absents restent
-inconnus ; aucun en-tête fourni par l'expéditeur ne reconstruit des contrôles.
+Each line keeps reliable timestamps, hashed identity, fingerprints of original bytes when available, campaign prints when computable, decision and SMTP observations typed. The gross print does not replace an absent campaign print. No sender, recipient, object, body, attachment or text vector is exported. The old absent fields remain unknown; no header provided by the sender reconstructs controls.
 
-Les votes sont revérifiés avec les comptes actifs et leurs droits dans le même
-instantané. Retours révoqués, désaccords, absence d'annotation, données corrompues,
-contexte fourni manuellement et contrôles incomplets sont comptés et restent
-visibles. Une erreur de parsing conservée en base ne fait pas disparaître la ligne.
-Plusieurs destinataires ne multiplient pas le nombre de messages. Les compteurs
-de labels sont exclusifs ; les compteurs de disponibilité peuvent se recouvrir.
+Votes are rechecked with active accounts and their rights in the same instant. Returns revoked, disagreements, absence of annotations, corrupted data, manually provided context and incomplete controls are counted and remain visible. An error of parsing kept at the base does not make the line disappear. Several recipients do not multiply the number of messages. Label meters are exclusive; availability meters can cover.
 
-Ce bilan prépare l'annotation et la réconciliation avec le test : il ne calcule
-pas de taux de capture à partir de labels absents. Une population encore inconnue
-ou contradictoire empêche de revendiquer une couverture complète. L'export est
-réservé à la CLI administrateur, borné à 50 000 messages/512 Mio, atomique, `0600`,
-sans écrasement même en concurrence. Choisir un intervalle plus court au besoin ;
-aucune troncature silencieuse. Les fichiers restent privés et soumis à la
-conservation de 30 jours, même après suppression des corps de la file.
+This report prepares the annotation and reconciliation with the test: it does not calculate capture rates from absent labels. A population still unknown or contradictory prevents to claim full coverage. The export is reserved for the CLI administrator, limited to 50,000 messages/512 MiB, atomic, `0600`, without crushing even in competition. Choose a shorter interval if necessary; no silent truncation. The files remain private and subject to the conservation of 30 days, even after removal of the bodies of the line.
 
-## Évaluer un candidat figé sur cette population
+<a id="évaluer-un-candidat-figé-sur-cette-population"></a>
+## Assessing a candidate frozen on this population
 
-La commande native suivante conserve **toutes** les lignes, même sans label ou
-empreinte de campagne. Elle ne charge pas la configuration, ne consulte pas le
-DNS et ne transmet aucun email :
+The following native command keeps **all** lines, even without a label or campaign print. It does not load the configuration, does not consult the DNS and does not send any email:
 
 ```sh
-noisefence fusion-population-predict /chemin/prive/population.jsonl \
-  --model /chemin/prive/candidate/full.json --output /chemin/prive/predictions.jsonl
+noisefence fusion-population-predict /private/path/population.jsonl \
+  --model /private/path/candidate/full.json --output /private/path/predictions.jsonl
 ```
 
-Elle lie le SHA-256 du modèle aux mêmes octets que ceux parsés et celui de la
-population aux octets lus jusqu'au bilan final. En-tête, bilan, comptes,
-identités dupliquées et champs JSON sont vérifiés. Un export tronqué ne publie
-aucun résultat. La sortie est atomique, `0600`, sans remplacement d'un fichier
-existant. Les compteurs `automatic_dsn` et `invalid_scan` de l'export v1 ne sont
-pas reconstructibles par ligne ; leurs bornes sont vérifiées et cette limite
-reste déclarée.
+It links the SHA-256 of the model to the same bytes as those parsed and that of the population to the bytes read up to the final report. Header, report, accounts, duplicated identities and JSON fields are checked. A truncated export does not publish any results. The output is atomic, `0600`, without replacing an existing file. The `automatic_dsn` and `invalid_scan` meters of the export v1 are not reconstructible per line; their terminals are verified and this limit remains declared.
 
-Une observation SMTP valide et compatible donne la même prédiction que le
-moteur natif. Une panne ou un profil inconnu donne `would_tag = false` et reste
-dans les occasions de capture manquées. Une observation absente, invalide,
-non SMTP ou liée à d'autres artefacts donne `prediction = null` : c'est un
-résultat **inconnu**, jamais un vrai négatif supposé. Une erreur de modèle
-interrompt la commande. La complétude des détecteurs d'origine fait foi, pas
-la décision d'un ancien candidat stockée dans le message.
+A valid and compatible SMTP observation gives the same prediction as the native engine. An unknown failure or profile gives `would_tag = false` and remains in missed capture opportunities. An absent, invalid, non-SMTP or related to other artifacts gives `prediction = null`: it is a **unknown result**, never a real supposed negative. A model error interrupts the command. The completeness of the original detectors is true, not the decision of a former candidate stored in the message.
 
-Ce résultat est hypothétique : il suppose une revue de promotion valide, le
-mode marquage et la compatibilité Proton. `tagged` conserve le préfixe enregistré
-lors du traitement d'origine ; il ne faut pas le confondre avec la nouvelle
-prédiction ni avec le dossier d'arrivée final dans Proton.
+This result is hypothetical: it assumes a valid promotion review, the marking mode and Proton compatibility. `tagged` keeps the prefix recorded during the original processing; it should not be confused with the new prediction or with the final destination folder in Proton.
 
-Pour une évaluation contrôlée, préparer une annotation par identité de la
-population, sans consulter les prédictions des candidats. Champs exacts :
+For a controlled assessment, prepare an annotation by population identity, without consulting the candidates' predictions.
 
 ```json
-{"id":"<SHA-256>","label":"legit","campaign":"<SHA-256 ou null>","language":"fr","kind":"invoice","basis":"reviewed","review_reference":"<référence à la revue humaine>","reviewed_at":1788825600}
+{"id":"<SHA-256>","label":"legit","campaign":"<SHA-256 or null>","language":"fr","kind":"invoice","basis":"reviewed","review_reference":"<human review reference>","reviewed_at":1788825600}
 ```
 
-Les labels sont `legit`, `spam`, `phishing`, `unwanted_binary` ou `uncertain`.
-`basis = feedback` exige un consensus exporté cohérent. `reviewed` accepte une
-revue humaine d'un message non annoté ou cohérent avec ce consensus.
-`adjudicated` exige une référence de revue explicite pour arbitrer un conflit
-ou corriger le consensus. Un cas encore incertain reste `basis = unresolved`,
-avec `review_reference` et `reviewed_at` à `null`. Les scores automatiques ne
-constituent pas une annotation. Une campagne inconnue reste `null` ; ne pas
-inventer de SimHash pour compléter le jeu. Les revues peuvent rester dans un
-registre privé, sans nom de personne dans ce fichier.
+Labels are `legit`, `spam`, `phishing`, `unwanted_binary` or `uncertain`. `basis = feedback` requires consistent exported consensus. `reviewed` accepts human review of an unlabelled message or a label consistent with consensus. `adjudicated` requires an explicit review reference to resolve conflict or correct consensus. Unresolved cases use `basis = unresolved`, with `review_reference` and `reviewed_at` both `null`. Automatic scores are not annotations. Unknown campaigns remain `null`; do not invent a SimHash to fill a dataset. Review records can remain private without person names in this file.
 
-Le manifeste `population-evaluation.json` utilise le schéma
-`noisefence-population-evaluation-1` et les champs suivants :
+The `population-evaluation.json` manifest uses the `noisefence-population-evaluation-1` schema and the following fields:
 
 | Champ | Contenu |
 | --- | --- |
-| `population`, `annotations` | Chaque fichier privé sous forme `{ "path": "…", "sha256": "…" }` |
-| `experiment` | Manifeste d'entraînement original, sous la même forme liée par hash |
-| `fit` | Reçu `candidate/fit.json`, lié par hash |
-| `models` | Objet avec exactement `content`, `identity`, `reputation`, `scanners`, `full`, chacun lié par chemin et hash |
-| `binary` | Binaire NoiseFence local audité, lié par chemin et hash ; il sera exécuté |
-| `sampling` | `kind`, `description`, `authorization`, `start_at`, `end_at` ; même convention que l'entraînement, fin ici exclusive et bornes identiques à l'export |
-| `review` | `reference`, `reviewed_at`, `blinded` et `independent_campaigns` ; les deux derniers sont des booléens attestant la revue réelle |
+| `population`, `annotations` | Each private file in `{ "path": "…", "sha256": "…" }` format |
+| `experiment` | Original training manifest, in the same form bound by hash |
+| `fit` | Received `candidate/fit.json`, bound by hash |
+| `models` | Object with exactly `content`, `identity`, `reputation`, `scanners`, `full`, each bound by path and hash |
+| `binary` | Binaire NoiseFence local audited, bound by path and hash; it will be executed |
+| `sampling` | `kind`, `description`, `authorization`, `start_at`, `end_at`; same convention as training, exclusive end here and identical terminals to export |
+| `review` | `reference`, `reviewed_at`, `blinded` and `independent_campaigns`; the last two are booleans attesting to the actual review |
 
-Lancer avec l'environnement Python de recherche verrouillé :
+Launch with the locked Python environment:
 
 ```sh
-python3 research/evaluate_population.py /chemin/prive/population-evaluation.json \
-  /chemin/prive/population-test
+python3 research/evaluate_population.py /private/path/population-evaluation.json \
+  /private/path/population-test
 ```
 
-L'évaluateur vérifie les fichiers figés et lance lui-même les cinq variantes du
-binaire. Il ne réentraîne rien et ne choisit pas de nouveau seuil sur ce test.
-Il vérifie les campagnes contre **toutes** les lignes de l'expérience originale,
-y compris ses doublons, cas incertains et anciens tests, puis contre l'historique
-des modèles de base. Le regroupement est transitif : identité, empreinte brute,
-empreinte de contenu, campagne déclarée et distance SimHash ≤ 3. Les champs
-absents ne relient jamais deux lignes entre elles.
+The evaluator checks the frozen files and launches the five variants of the binary itself. He does not retrain anything and chooses no new threshold on this test. He checks campaigns against **all** lines of the original experience, including its duplicates, uncertain cases and old tests, then against the history of the basic models. The grouping is transitive: identity, raw print, content print, declared campaign and distance SimHash ≤3. The absent fields never connect two lines between them.
 
-Le rapport publie des mesures conditionnelles sur les seuls résultats connus,
-leur couverture exacte, puis une borne conservatrice sur toute la vérité connue :
-un résultat inconnu vaut FP pour un légitime et FN pour un indésirable. Les
-vérités inconnues sont comptées séparément et interdisent une conclusion sur toute
-la population. Les mesures par langue, type et disponibilité gardent cette même
-comptabilité.
+The report publishes conditional measures on the only known results, their exact coverage, and then a conservative limit on all the known truth: an unknown result applies to a legitimate and FN for an undesirable. Unknown truths are counted separately and prohibit a conclusion on the entire population. The measurements by language, type and availability keep this same accounting.
 
-Les intervalles de Wilson par message supposent l'indépendance des messages,
-souvent violée par les campagnes répétées. Une mesure supplémentaire de stabilité
-compte une campagne légitime en erreur dès qu'une copie est marquée, et une
-campagne indésirable comme capturée seulement si toutes ses copies le sont.
-Les campagnes de vérité mixte ou inconnue restent signalées. Cette mesure
-conservatrice n'est pas un bootstrap ; ses intervalles supposent encore des
-campagnes indépendantes, à auditer.
+Wilson's intervals per message imply the independence of messages, often violated by repeated campaigns. An additional measure of stability counts a legitimate campaign in error as soon as a copy is marked, and an undesirable campaign as captured only if all its copies are. Mixed or unknown truth campaigns remain reported. This conservative measure is not a bootstrap; its intervals still involve independent campaigns, to be audited.
 
-`target_supported_on_this_population` demande une revue aveugle et représentative,
-aucun résultat ni label inconnu, des empreintes de campagne complètes, au moins
-10 000 légitimes et 2 000 indésirables **par message et par campagne**, une borne
-basse de rappel ≥ 95 % et une borne haute de faux positifs ≤ 0,1 %. Ce critère est
-plus exigeant que le simple objectif ponctuel. `production_eligible` reste faux :
-la latence du traitement complet et les essais Proton sont des validations
-séparées.
+`target_supported_on_this_population` requires a blind and representative review, no results or labels unknown, complete campaign prints, at least 10,000 legitimate and 2,000 unwanted **per message and campaign**, a low booster terminal ≥ 95% and a high mark of false positives ≤ 0.1%. This criterion is more demanding than the simple one-time target. `production_eligible` remains false: the latency of the complete treatment and Proton tests are separate validations.
 
-Un reçu est créé avant les prédictions dans le dossier de sortie et dans
-`candidate/population-tests/<empreinte>.json`. Une seconde exécution sur le même
-jeu avec ce dossier candidat est refusée, même vers une autre sortie. Un échec
-après le début des prédictions consomme aussi le test. Copier les dossiers,
-modifier les labels après examen des prédictions ou réutiliser les campagnes ne
-rend pas le test neuf. Les hashes et déclarations empêchent les confusions
-accidentelles ; ils ne prouvent ni la sincérité d'une revue ni l'exhaustivité d'un
-historique contre un opérateur qui les falsifierait.
+A receipt is created before the predictions in the output folder and in `candidate/population-tests/<digest>.json`. A second execution on the same dataset with this candidate folder is refused, even to another release. Failure after the prediction starts also consumes the test. Copying the records, modifying the labels after examining the predictions or reusing the campaigns does not make the test new. Hashs and declarations prevent accidental confusion; they do not prove the sincerity of a review or the completeness of a history against an operator who would falsify them.
 
-Références : [calibration des probabilités](https://scikit-learn.org/stable/modules/calibration.html),
-[choix du seuil sur un lot distinct](https://scikit-learn.org/stable/modules/classification_threshold.html),
-[prévention des fuites entre apprentissage et test](https://scikit-learn.org/stable/common_pitfalls.html#data-leakage).
+References: [probability calibration](https://scikit-learn.org/stable/modules/calibration.html), [threshold selection on separate data](https://scikit-learn.org/stable/modules/classification_threshold.html), [preventing train/test leakage](https://scikit-learn.org/stable/common_pitfalls.html#data-leakage).

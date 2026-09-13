@@ -118,10 +118,12 @@ pub fn category(scan: &Scan, threshold: f64) -> Category {
     if let Some(category) = scan.delivery_classification {
         return category;
     }
-    let decision = scan
-        .decision
-        .clone()
-        .unwrap_or_else(|| Decision::legacy(scan, threshold));
+    let decision = scan.decision.clone().unwrap_or_else(|| {
+        Decision::legacy(
+            scan,
+            crate::assessment::recorded_threshold(scan).unwrap_or(threshold),
+        )
+    });
     match decision.outcome {
         Outcome::Unwanted => Category::Spam,
         Outcome::Undetermined => Category::Undetermined,
@@ -184,7 +186,7 @@ pub fn inspect(raw: &[u8], policy: &Policy, max_bytes: usize) -> Report {
         reason(
             &mut report,
             "input_limit",
-            "Message trop volumineux pour la catégorisation PUB.",
+            "Too large a message for PUB categorization.",
         );
     } else if analyze(raw, policy, &mut report).is_err() {
         report.status = Status::Limited;
@@ -192,7 +194,7 @@ pub fn inspect(raw: &[u8], policy: &Policy, max_bytes: usize) -> Report {
         reason(
             &mut report,
             "parse_limit",
-            "Analyse du contenu ou des en-têtes limitée : aucun classement PUB.",
+            "Analysis of content or limited headers: no PUB ranking.",
         );
     }
     report.elapsed_us = started.elapsed().as_micros() as u64;
@@ -280,21 +282,21 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         reason(
             report,
             "unsubscribe",
-            "Un mécanisme de désinscription est annoncé.",
+            "A deregistration mechanism is announced.",
         );
     }
     if list_id || bulk {
         reason(
             report,
             "distribution",
-            "En-têtes caractéristiques d'une diffusion en liste.",
+            "Characteristic headers of a list distribution.",
         );
     }
     if one_click {
         reason(
             report,
             "one_click",
-            "Syntaxe de désinscription en un clic présente, sans désinscription automatique.",
+            "Syntax of unsubscribe in one click, without automatic unsubscribe.",
         );
     }
     static OPT_OUT: OnceLock<Regex> = OnceLock::new();
@@ -435,14 +437,14 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         reason(
             report,
             "transactional",
-            "Indices de facture, reçu, authentification, alerte ou message de service : catégorie PUB écartée.",
+            "Indices of invoice, receipt, authentication, alert or service message: PUB category excluded.",
         );
     } else if reply || discussion {
         report.verdict = Verdict::Conversation;
         reason(
             report,
             "conversation",
-            "Réponse, transfert ou liste de discussion : catégorie PUB écartée.",
+            "Response, transfer or discussion list: PUB category excluded.",
         );
     } else {
         // Correlated list headers form one distribution signal, never several votes.
@@ -453,14 +455,14 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
             reason(
                 report,
                 "promotion",
-                "Diffusion collective et plusieurs indices commerciaux concordants.",
+                "Bulk mailing with several corroborating commercial signals.",
             );
         } else if policy.include_newsletters && distribution && newsletter {
             report.verdict = Verdict::Newsletter;
             reason(
                 report,
                 "newsletter",
-                "Contenu de newsletter associé à un indice de diffusion collective.",
+                "Newsletter content associated with a collective dissemination index.",
             );
         }
     }

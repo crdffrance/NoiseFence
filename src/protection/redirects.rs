@@ -383,10 +383,10 @@ fn network_error(error: reqwest::Error) -> Detail {
 
 fn report_site(host: &str) -> String {
     if host.trim_matches(['[', ']']).parse::<IpAddr>().is_ok() {
-        "[adresse IP]".into()
+        "[IP address]".into()
     } else {
         psl::domain_str(host.trim_end_matches('.'))
-            .unwrap_or("[domaine inconnu]")
+            .unwrap_or("[unknown domain]")
             .into()
     }
 }

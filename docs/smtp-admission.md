@@ -1,87 +1,44 @@
-# Greylisting sélectif et ralentissement SMTP (0.16.2)
+<a id="greylisting-sélectif-et-ralentissement-smtp-0162"></a>
+# Selective greylisting and SMTP response delays
 
-Dans **Administration → Filtres → Admission SMTP**, l’administrateur configure
-les reports, délais, quotas, exceptions et capacités sans redémarrage. Les
-modifications passent par la révision et l’audit de configuration habituels,
-avec contrôle des droits et CSRF. Les utilisateurs peuvent consulter les
-contrôles associés à leurs messages ; ils ne peuvent pas désactiver une
-protection qui concerne les autres destinataires du même serveur.
+In **Administration → Filters → SMTP admission**, administrators configure deferrals, retry windows, rate limits, exemptions and response delays. Applying a revision takes effect without a restart and is recorded in the configuration audit. Users can inspect admission results for their messages; they cannot disable shared transport protections.
 
-La politique `smtp-admission-2` est facultative et désactivée par défaut. Son mode
-initial est `observe`. L’activer en observation conserve les décisions
-hypothétiques, sans 451 ni sommeil. `mode = "enforce"` applique les reports SMTP.
-Ce **mode de transport est indépendant du mode d’observation du contenu** : le
-classement, les scores, le marquage et la quarantaine ne sont pas modifiés.
+The `smtp-admission-2` policy is disabled by default. Its initial mode, `observe`, records hypothetical decisions without sending `451` or adding a delay. `enforce` applies the configured deferrals. **SMTP admission mode is separate from content observation mode**: this feature does not change scores, content classification, subject tags or quarantine decisions.
 
-## Sélection et protection des expéditeurs légitimes
+<a id="sélection-et-protection-des-expéditeurs-légitimes"></a>
+## Selecting attempts for deferral
 
-Après validation du destinataire à RCPT, avant DATA, stockage, OCR et modèles :
+Checks run after recipient validation at RCPT, before DATA, spooling, OCR and content models:
 
-1. Un quota à jetons contrôle les tentatives MAIL ayant atteint un destinataire
-   valide. Plusieurs RCPT d’un même MAIL ne consomment qu’un jeton. Une nouvelle
-   transaction consomme un nouveau jeton. Le dépassement répond `451 4.7.1` et
-   impose un nouveau MAIL. RSET et STARTTLS ne réinitialisent pas le quota.
-2. Le greylisting exige au moins une réputation IP positive **et** le nombre
-   configuré de signaux concordants (au moins deux). Deux opérateurs RBL
-   distincts comptent pour deux ; un HELO qui n’est ni domaine valide ni adresse
-   IP littérale peut compléter un opérateur. Les zones du même opérateur ne
-   multiplient pas ses votes. PBL et résultats DNS indisponibles ne comptent pas.
-   Sans RBL positive, aucun message n’est greylisté.
-3. Une IP/CIDR explicitement exemptée évite quota et greylisting. L’expéditeur
-   d’enveloppe, le domaine annoncé et les en-têtes ne constituent jamais une
-   preuve de confiance. Loopback est exempt pour les opérations locales.
-4. Les avis à expéditeur nul et les adresses postmaster évitent le greylisting ;
-   le quota reste applicable. Les destinataires inconnus et le relais ouvert
-   sont refusés séparément avant tout accès à l’état de retry.
+1. A token bucket limits MAIL transactions that reach a valid recipient. Multiple RCPT commands in one transaction consume one token; a new transaction consumes another. Exceeding the quota returns `451 4.7.1` and requires a new MAIL command. RSET and STARTTLS do not reset the quota.
+2. Greylisting requires a positive IP reputation result and the configured minimum number of corroborating signals, at least two. Distinct RBL operators count separately; an invalid HELO name can supplement one operator. Multiple zones from the same operator do not create additional votes. PBL and unavailable DNS results do not count. Without a positive RBL result, the message is not greylisted.
+3. Explicit IP/CIDR exemptions bypass the quota and greylisting. Loopback is exempt for local operations. The envelope sender, advertised domain and headers alone do not establish trust.
+4. Null-sender notifications and postmaster recipients bypass greylisting, but remain subject to the rate limit. Unknown recipients and open relay attempts are refused separately, before accessing retry state.
 
-Le greylisting mesure une capacité à réessayer, **pas la légitimité du contenu**.
-Un spammeur qui réessaie doit encore traverser tous les moteurs de détection.
-Les grandes plateformes peuvent aussi réessayer depuis d’autres réseaux ; un
-retard de livraison légitime reste possible. Aucun gain de capture ou taux de
-faux positifs n’est présumé à partir des tests synthétiques.
+Greylisting tests the ability to retry, not the legitimacy of content. A spammer who retries still passes through content analysis. Legitimate platforms may retry from another network, so delivery delays remain possible. Synthetic tests do not establish a capture gain or a false-positive rate.
 
-## Retry durable, multi-MX et disponibilité
+<a id="retry-durable-multi-mx-et-disponibilité"></a>
+## Durable retry state across MX servers
 
-Le tuple comprend le mode, le réseau de l’IP réelle de socket (/24 IPv4, /64
-IPv6), l’expéditeur et le destinataire. Les empreintes d’enveloppe sont salées
-et séparées par rôle ; le port n’est pas une identité. Les alias distincts et
-la casse de la partie locale ne sont pas fusionnés. Le regroupement réseau ne
-confère aucune authentification ni exemption des analyses.
+The retry tuple includes the mode, connecting IP network (/24 for IPv4, /64 for IPv6), envelope sender and recipient. Envelope fingerprints are salted and separated by role. Source ports are not identities; distinct aliases and local-part case are preserved. Network grouping provides neither authentication nor a content-analysis exemption.
 
-Le premier essai conserve un instant minimum fixe. Une tentative prématurée ne
-repousse jamais cet instant. Un nouvel essai admissible ouvre une période de
-passage fixe. Observation et application occupent des états distincts : le
-trafic observé ne préautorise pas silencieusement l’application.
+The first attempt sets a fixed earliest retry time. An early retry does not postpone it. A qualifying retry opens a fixed acceptance window. Observation and enforcement use separate state, so observed traffic does not silently authorize later enforcement.
 
-mx1, coordinateur, conserve cet état dans SQLite WAL/FULL. mx2 et les autres
-workers interrogent la même autorité via HTTPS, identité de nœud révocable,
-certificat vérifié, sans redirection ni proxy implicite. Seules les métadonnées
-d’enveloppe et les signaux SMTP nécessaires sont transmis, aucun corps. Le
-coordinateur valide à nouveau le destinataire ; les paramètres et l’heure
-proviennent de sa configuration et de son horloge.
+The coordinator stores this state in SQLite WAL with FULL synchronization. Workers query the same authority over certificate-verified HTTPS using revocable node credentials, without redirects or implicit proxies. Only required envelope metadata and SMTP signals are transmitted, never message bodies. The coordinator validates the recipient again and uses its own policy and clock.
 
-Les vérifications locales sont limitées à quatre travaux, avec attente SMTP
-bornée à 500 ms ; un travail SQLite retardé garde sa capacité jusqu’à sa fin.
-L’appel worker complet est borné à 750 ms et sa réponse à 4 Kio. Une erreur,
-saturation ou panne de coordination **laisse passer cette couche** et signale
-`unavailable`. Le worker n’ouvre pas de cycle indépendant, ce qui évite les
-reports répétés d’un MX à l’autre. Les autres limites et analyses restent
-applicables. Les quotas partagés sont également indisponibles pendant cette
-panne : les limites locales de connexions restent la protection de secours.
+Local lookups allow four concurrent jobs and at most 500 ms of SMTP waiting. A timed-out SQLite job retains its permit until it finishes. A worker request is bounded to 750 ms and a 4 KiB response. On an error, saturation or coordinator failure, this layer records `unavailable` and allows processing to continue. Workers do not start independent greylisting cycles. Shared rate limits are unavailable during that failure; local connection limits and all other protections still apply. Mandatory message replication remains a separate acceptance requirement.
 
-## Teergrubing borné
+<a id="teergrubing-borné"></a>
+## Bounded response delays
 
-Un sommeil Tokio optionnel précède uniquement une décision de report. Son délai
-est limité par la politique et par le budget total de la connexion, conservé
-après MAIL, RSET, EHLO et STARTTLS. Le permis de sommeil est partagé par toutes
-les sessions du MX, même à travers une révision de configuration. La saturation
-supprime l’attente supplémentaire et conserve la réponse 451.
+An optional asynchronous delay precedes a deferral. Policy limits bound both the delay and the total delay budget per connection; MAIL, RSET, EHLO and STARTTLS do not reset that budget. A shared permit limits concurrent delayed sessions on each MX, including across configuration revisions. When capacity is exhausted, the server skips the added delay and still returns `451`.
 
-Aucun mutex SQLite, aucune capacité d’analyse DATA et aucune tâche détachée ne
-restent détenus pendant le sommeil. L’annulation libère immédiatement le permis.
-Ce ralentissement ne garde pas les clients connectés pendant des minutes.
+The delay holds no SQLite mutex or DATA-analysis permit and creates no detached task. Cancellation immediately releases its delay permit. This mechanism does not keep clients connected for minutes.
 
-## Réglages
+<a id="réglages"></a>
+## Settings
+
+The following server-side bootstrap example corresponds to the settings editable in the console:
 
 ```toml
 [smtp_admission]
@@ -92,49 +49,24 @@ minimum_providers = 2
 retry_delay_seconds = 300
 retry_max_age_seconds = 86400
 retention_seconds = 604800
-rate_per_minute = 120          # 0 désactive ; partagé entre les MX
+rate_per_minute = 120           # 0 disables; shared across MX nodes
 rate_burst = 60
-max_entries = 10000           # capacité par mode, sans éviction d’un retry actif
-tarpit_delay_ms = 0           # 0 désactive ; maximum 5000 ms
-tarpit_max_concurrent = 8     # par MX ; 1..64
+max_entries = 10000            # capacity; active retries are never evicted
+tarpit_delay_ms = 0            # 0 disables; maximum 5000 ms
+tarpit_max_concurrent = 8      # per MX; 1..64
 tarpit_session_budget_ms = 5000 # maximum 10000 ms
-allow_networks = []           # CIDR explicites, maximum 128
+allow_networks = []            # explicit CIDRs; maximum 128
 ```
 
-Les quotas IPv4 sont par IP exacte ; les quotas IPv6 regroupent /64 pour éviter
-une multiplication par rotation d’adresse. Le compteur se recharge sans que les
-refus repoussent sa prochaine disponibilité. Sa capacité est bornée ; le plein
-laisse passer les nouvelles clés. Les états inactifs de quota expirent après
-24 h. Les tuples de retry sont nettoyés par lots de 256. Les compteurs quotidiens
-et les diagnostics suivent une conservation de 30 jours. Aucun nouveau corps
-ni pièce jointe n’est conservé.
+IPv4 rate limits apply per IP; IPv6 limits group /64 networks to limit address rotation. Rejected attempts do not postpone token replenishment. Capacity is bounded; a full table allows new keys through this layer. Inactive quota state expires after 24 hours. Retry cleanup processes batches of 256 rows; counters and diagnostics expire after 30 days. This feature retains no additional bodies or attachments.
 
-La console affiche les compteurs de tentatives, par mode et résultat, et les
-motifs de transport des messages acceptés. Les 451 apparaissent dans les logs
-`SMTP intelligent admission`, mais ne sont pas des messages acceptés en file.
-Les diagnostics dédupliqués ne contiennent pas d’adresses cachées. Une panne
-empêchant l’enregistrement des compteurs reste visible dans les logs et dans
-les diagnostics d’un message accepté.
+The console shows counters by mode and outcome and admission signals for accepted messages. Deferrals appear in `SMTP intelligent admission` logs; a `451` does not create an accepted queue item. Deduplicated diagnostics do not disclose hidden recipients. If counter storage fails, the incident remains visible in logs and in the diagnostics of any subsequently accepted message.
 
-## Déploiement et validation
+<a id="déploiement-et-validation"></a>
+## Deployment and validation
 
-Déployer 0.16.2 sur le coordinateur, puis les workers, avant d’activer la
-politique. Les bundles destinés aux anciens workers omettent les nouveaux champs.
-Les tables additionnelles ne changent pas le schéma de la file ; elles sont
-ignorées par la version précédente. Le retour arrière ne restaure jamais une
-ancienne base par-dessus des messages acceptés. Retirer la nouvelle table du
-TOML si l’on revient à un binaire qui ne la connaît pas. Si la console a déjà
-enregistré `smtp_admission`, un retour à 0.15.3 exige aussi une migration
-explicite de ce champ dans la politique persistée ; une simple bascule de binaire
-ne suffit pas. Conserver toutes les autres données et la file courante.
+The original feature migration was additive. Current paired installations require storage schema 5 and a compatible release. Do not downgrade the database, remove its HA marker or restore an older backup over accepted mail. See [installation](installation.md) and [HA recovery](high-availability.md) for upgrade and rollback procedures.
 
-Les tests couvrent le retry durable, IPv4/IPv6, la concurrence, la saturation,
-les changements de mode, les destinataires multiples, les exceptions, le quota,
-les refus avant DATA, l’absence de score ajouté, les permissions Web, les appels
-entre deux instances locales et la panne du coordinateur. Aucun essai ne
-transmet de message réel à un destinataire externe.
+Tests cover durable retry state, IPv4/IPv6, concurrent attempts, saturation, mode changes, multiple recipients, exemptions, quotas, refusal before DATA, unchanged content scores, Web permissions, inter-node calls and coordinator failure. These tests do not send mail to external recipients.
 
-Références : [RFC 6647](https://www.rfc-editor.org/rfc/rfc6647.html),
-[greylisting Rspamd](https://docs.rspamd.com/modules/greylisting/),
-[quotas Rspamd](https://docs.rspamd.com/modules/ratelimit/).
-Implémentation Rust native, sans intégration du moteur Rspamd.
+References: [RFC 6647](https://www.rfc-editor.org/rfc/rfc6647.html), [Rspamd greylisting](https://docs.rspamd.com/modules/greylisting/) and [Rspamd rate limits](https://docs.rspamd.com/modules/ratelimit/). NoiseFence implements its own Rust admission layer; it does not embed the Rspamd engine.

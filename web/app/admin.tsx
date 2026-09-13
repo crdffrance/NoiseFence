@@ -54,12 +54,12 @@ import { api, type User } from './client';
 
 export const navigation = [
   { id: 'messages', label: 'Messages', icon: Activity },
-  { id: 'domains', label: 'Domaines', icon: Globe2 },
-  { id: 'gateways', label: 'Passerelles', icon: Network },
-  { id: 'cluster', label: 'Serveurs MX', icon: Server },
-  { id: 'filters', label: 'Filtres', icon: SlidersHorizontal },
-  { id: 'users', label: 'Comptes & accès', icon: Users },
-  { id: 'server', label: 'État du serveur', icon: Server },
+  { id: 'domains', label: "Domains", icon: Globe2 },
+  { id: 'gateways', label: "Gateways", icon: Network },
+  { id: 'cluster', label: "MX servers", icon: Server },
+  { id: 'filters', label: "Filters", icon: SlidersHorizontal },
+  { id: 'users', label: "Accounts & Access", icon: Users },
+  { id: 'server', label: "Server status", icon: Server },
 ] as const;
 export type Section = (typeof navigation)[number]['id'];
 type Gateway = { id: string; name: string; hosts: string[]; port: number };
@@ -164,62 +164,62 @@ type Metrics = {
 const filterSections = [
   {
     id: 'admission',
-    label: 'Admission SMTP',
-    description: 'Greylisting, débit et ralentissement',
+    label: 'SMTP admission',
+    description: "Greylisting, rate limits and delays",
     icon: <ShieldCheck size={19} />,
   },
   {
     id: 'rbl',
-    label: 'Réputation IP · RBL',
-    description: 'Listes DNS et réponses SMTP',
+    label: "IP reputation · RBL",
+    description: "DNS lists and SMTP responses",
     icon: <Globe2 size={19} />,
   },
   {
     id: 'parameters',
-    label: 'Paramètres avancés',
-    description: 'LLM, budget, OCR et moteur natif',
+    label: "Advanced settings",
+    description: "LLM, budgets, OCR and native rules",
     icon: <SlidersHorizontal size={19} />,
   },
   {
     id: 'delegation',
-    label: 'Préférences des utilisateurs',
-    description: 'Droits, niveaux et actions personnelles',
+    label: "User preferences",
+    description: "Rights, levels and personal actions",
     icon: <Users size={19} />,
   },
   {
     id: 'policy',
-    label: 'Politique & actions',
-    description: 'Niveaux, marquage et quarantaine',
+    label: "Policy & actions",
+    description: "Levels, marking and quarantine",
     icon: <SlidersHorizontal size={19} />,
   },
   {
     id: 'detectors',
-    label: 'Moteurs de détection',
-    description: 'Les contrôles de chaque message',
+    label: "Detection engines",
+    description: "Checks applied to each message",
     icon: <ShieldCheck size={19} />,
   },
   {
     id: 'rules',
-    label: 'Poids des règles',
-    description: 'Ajuster la contribution des signaux',
+    label: "Rule weights",
+    description: "Adjust the contribution of signals",
     icon: <Activity size={19} />,
   },
   {
     id: 'custom',
-    label: 'Règles & profils',
-    description: 'Exceptions par domaine ou adresse',
+    label: "Rules & profiles",
+    description: "Exceptions by domain or address",
     icon: <Users size={19} />,
   },
   {
     id: 'protection',
-    label: 'Protection & réputation',
-    description: 'Liens, identité et fournisseurs',
+    label: "Protection & reputation",
+    description: "Links, identity and providers",
     icon: <Globe2 size={19} />,
   },
   {
     id: 'mailing',
-    label: 'Publicités & newsletters',
-    description: 'Reconnaître les messages de diffusion',
+    label: "Marketing & newsletters",
+    description: "Recognize broadcast messages",
     icon: <Mail size={19} />,
   },
 ] as const;
@@ -234,51 +234,51 @@ const modules: {
 }[] = [
   {
     key: 'authentication',
-    title: 'Authentification des e-mails',
-    description: 'SPF, DKIM, DMARC et ARC, vérifiés avant toute modification.',
+    title: "Authentication of e-mails",
+    description: "SPF, DKIM, DMARC and ARC, verified prior to any change.",
   },
   {
     key: 'semantic',
-    title: 'Compréhension multilingue',
+    title: "Multilingual understanding",
     description:
-      'Modèle local : combine le sens du message et les indices textuels.',
+      "Local model: combines message meaning and text clues.",
   },
   {
     key: 'antivirus',
     title: 'Antivirus',
-    description: 'Recherche de fichiers malveillants dans les pièces jointes.',
+    description: "Search for malicious files in attachments.",
   },
   {
     key: 'signatures',
-    title: 'Signatures complémentaires',
-    description: 'Détection locale de campagnes et de contenus suspects.',
+    title: "Additional signatures",
+    description: "Local detection of suspicious campaigns and content.",
   },
   {
     key: 'smtp_policy',
-    title: 'Cohérence SMTP & DNS',
+    title: "SMTP & DNS consistency",
     description:
-      'Identité du serveur, reverse DNS et cohérence de l’expéditeur.',
+      "Server identity, DNS reverse and sender consistency.",
   },
   {
     key: 'vision',
-    title: 'OCR, QR codes & codes-barres',
+    title: "OCR, QR codes & barcodes",
     description:
-      'Lecture locale des images et PDF, sans ouvrir les liens détectés.',
+      "Local text and code extraction from images and PDFs.",
   },
   {
     key: 'reputation',
-    title: 'Réputation Spamhaus DQS',
+    title: "Spamhaus DQS reputation",
     description:
-      'Réputation des IP et domaines, avec la clé configurée sur le serveur.',
+      "Reputation of IPs and domains, with the key configured on the server.",
   },
   {
     key: 'llm',
-    title: 'Analyse complémentaire Scaleway',
+    title: "Scaleway analysis",
     description:
-      'Service externe pour les messages dans la plage configurée, soumis au budget mensuel.',
+      "External service for messages in the configured range, submitted to the monthly budget.",
   },
 ];
-const stamp = (n: number) => new Date(n * 1000).toLocaleString('fr-FR');
+const stamp = (n: number) => new Date(n * 1000).toLocaleString("en-GB");
 const lines = (s: string) =>
   s
     .split(/\r?\n/)
@@ -378,8 +378,8 @@ function Aliases({
   const [error, setError] = useState('');
   return (
     <label className="field">
-      Alias explicites{' '}
-      <small>Une ligne par alias : adresse@domaine = destination@domaine</small>
+      Explicit aliases{' '}
+      <small>One alias per line: address@domain = destination@domain</small>
       <textarea
         value={text}
         rows={3}
@@ -391,13 +391,13 @@ function Aliases({
           for (const line of lines(text)) {
             const i = line.indexOf(' = ');
             if (i < 1 || !line.slice(i + 3).trim()) {
-              setError('Utilisez le séparateur « = » entouré d’espaces.');
+              setError("Use the \"=\" separator surrounded by spaces.");
               onChange({ '': text });
               return;
             }
             const key = line.slice(0, i).trim();
             if (key in result) {
-              setError('Un alias est présent plusieurs fois.');
+              setError("An alias is present several times.");
               onChange({ '': text });
               return;
             }
@@ -443,6 +443,7 @@ export function AdminConsole({
     [revisions, setRevisions] = useState<Revision[]>([]);
   const [epoch, setEpoch] = useState(0);
   const [filterSection, setFilterSection] = useState<FilterSection>('policy');
+  const [filterQuery, setFilterQuery] = useState('');
   const [accountQuery, setAccountQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const dirty =
@@ -533,7 +534,7 @@ export function AdminConsole({
     );
     await reload();
     setNotice(
-      'Réglages appliqués. Ils seront utilisés dès le prochain message.',
+      "Applied settings. They will be used as soon as the next message is received.",
     );
     await onApplied();
   }
@@ -545,7 +546,7 @@ export function AdminConsole({
             {error}
           </p>
         ) : (
-          <p className="muted">Chargement de l’administration…</p>
+          <p className="muted">Loading administration...</p>
         )}
       </div>
     );
@@ -595,28 +596,28 @@ export function AdminConsole({
       <div className="page-heading">
         <div>
           <p className="eyebrow">
-            {section === 'server' ? 'EXPLOITATION' : 'ADMINISTRATION'}
+            {section === 'server' ? 'OPERATIONS' : 'ADMINISTRATION'}
           </p>
           <h1>{navigation.find((n) => n.id === section)?.label}</h1>
           <p className="muted">
             {
               {
                 domains:
-                  'Les domaines qui peuvent recevoir des messages sur votre passerelle.',
+                  "Domains that can receive messages on your gateway.",
                 gateways:
-                  'Les serveurs de destination, dans leur ordre de priorité.',
+                  "Destination servers, in order of priority.",
                 filters:
-                  'Une politique commune pour un filtrage cohérent sur tous vos domaines.',
+                  "A common policy for consistent filtering across all your domains.",
                 users:
-                  'Des accès individuels, par adresse ou pour un domaine entier.',
-                server: 'Livraisons, capacité et historique des changements.',
+                  "Manage access to individual addresses or entire domains.",
+                server: "Delivery, capacity and history of change.",
                 messages: '',
-                cluster: 'Configuration et supervision des serveurs MX.',
+                cluster: "Configuration and supervision of MX servers.",
               }[section]
             }
           </p>
         </div>
-        <span className="revision-badge">Révision {config.revision}</span>
+        <span className="revision-badge">Revision {config.revision}</span>
       </div>
       {error && (
         <p role="alert" className="error">
@@ -637,11 +638,11 @@ export function AdminConsole({
               <strong>
                 {draft.domains.filter((d) => d.enabled).length}
               </strong>{' '}
-              domaines actifs
+              active domains
             </span>
             <span>
               <Network size={19} />
-              <strong>{draft.gateways.length}</strong> passerelles disponibles
+              <strong>{draft.gateways.length}</strong> Available gateways
             </span>
             <Button
               onClick={() =>
@@ -662,13 +663,11 @@ export function AdminConsole({
               }
             >
               <Plus size={16} />
-              Ajouter un domaine
+              Add Domain
             </Button>
           </div>
           <div className="notice">
-            Pour recevoir les e-mails, le domaine doit également être configuré
-            chez votre hébergeur de messagerie. Après validation de la
-            livraison, son DNS devra pointer vers {config.hostname}.
+            To receive emails, the domain must also be configured at your email host. After validation of the delivery, its DNS will point to {config.hostname}.
           </div>
           <div className="admin-cards">
             {draft.domains.map((d, i) => (
@@ -678,56 +677,56 @@ export function AdminConsole({
                     <Globe2 size={21} />
                   </span>
                   <span className="card-title">
-                    <strong>{d.name || 'Nouveau domaine'}</strong>
+                    <strong>{d.name || "New domain"}</strong>
                     <small>
                       {d.accept_all_recipients
-                        ? 'Toutes les adresses acceptées'
-                        : `${d.recipients.length} adresse(s) explicite(s)`}{' '}
+                        ? "All accepted addresses"
+                        : `${d.recipients.length} explicit address(es)`}{' '}
                       · {Object.keys(d.aliases).length} alias
                     </small>
                   </span>
                   <span className={`status ${d.enabled ? 'good' : ''}`}>
-                    {d.enabled ? 'Actif' : 'Désactivé'}
+                    {d.enabled ? "Enabled" : "Disabled"}
                   </span>
                 </summary>
                 <div className="card-body">
                   <div className="form-grid">
                     <label className="field" htmlFor={`domain-name-${i}`}>
-                      Nom de domaine
+                      Domain name
                       <Input
                         id={`domain-name-${i}`}
                         value={d.name}
-                        placeholder="exemple.fr"
+                        placeholder="example.test"
                         onChange={(e) => domainAt(i, { name: e.target.value })}
                         spellCheck={false}
                       />
                     </label>
                     <label className="field">
-                      Passerelle de livraison
+                      Delivery gateway
                       <select
                         value={d.gateway ?? ''}
                         onChange={(e) =>
                           domainAt(i, { gateway: e.target.value || null })
                         }
                       >
-                        <option value="">Alias uniquement</option>
+                        <option value="">Alias only</option>
                         {draft.gateways.map((g) => (
                           <option key={g.id} value={g.id}>
-                            {g.name || 'Nouvelle passerelle'}
+                            {g.name || "New gateway"}
                           </option>
                         ))}
                       </select>
                     </label>
                   </div>
                   <Toggle
-                    label="Réception activée"
-                    description="Un domaine désactivé refuse les nouveaux destinataires SMTP."
+                    label="Reception enabled"
+                    description="A disabled domain refuses new SMTP recipients."
                     checked={d.enabled}
                     onChange={(enabled) => domainAt(i, { enabled })}
                   />
                   <Toggle
-                    label="Accepter toutes les adresses du domaine"
-                    description={`Aucune déclaration par boîte : *@${d.name || 'exemple.fr'}. La destination finale doit accepter ces adresses.`}
+                    label="Accept all domain addresses"
+                    description={`No individual mailbox declarations: *@${d.name || 'example.test'}. The final destination must accept these addresses.`}
                     checked={d.accept_all_recipients}
                     onChange={(accept_all_recipients) =>
                       domainAt(i, { accept_all_recipients })
@@ -735,8 +734,8 @@ export function AdminConsole({
                   />
                   {!d.accept_all_recipients && (
                     <label className="field">
-                      Adresses autorisées
-                      <small>Une adresse complète par ligne.</small>
+                      Authorized addresses
+                      <small>One full address per line.</small>
                       <textarea
                         value={d.recipients.join('\n')}
                         rows={3}
@@ -763,7 +762,7 @@ export function AdminConsole({
                       }
                       onClick={() => onDomain(d.name)}
                     >
-                      Voir les messages
+                      View Messages
                       <ArrowUpRight size={15} />
                     </Button>
                     <Button
@@ -772,7 +771,7 @@ export function AdminConsole({
                       onClick={() => {
                         if (
                           window.confirm(
-                            `Retirer ${d.name || 'ce domaine'} ? Les messages déjà acceptés continueront leur livraison.`,
+                            `Remove ${d.name || "this area"} ? Messages already accepted will continue to be delivered.`,
                           )
                         ) {
                           setDraft({
@@ -784,7 +783,7 @@ export function AdminConsole({
                       }}
                     >
                       <Trash2 size={15} />
-                      Retirer
+                      Remove
                     </Button>
                   </div>
                 </div>
@@ -798,7 +797,7 @@ export function AdminConsole({
           <div className="admin-summary">
             <span>
               <ShieldCheck size={19} />
-              TLS vérifié vers les serveurs publics
+              TLS checked to public servers
             </span>
             <Button
               onClick={() =>
@@ -817,7 +816,7 @@ export function AdminConsole({
               }
             >
               <Plus size={16} />
-              Ajouter une passerelle
+              Add Gateway
             </Button>
           </div>
           <div className="admin-cards">
@@ -828,10 +827,10 @@ export function AdminConsole({
                     <Network size={21} />
                   </span>
                   <span className="card-title">
-                    <strong>{g.name || 'Nouvelle passerelle'}</strong>
+                    <strong>{g.name || "New gateway"}</strong>
                     <small>
                       {g.hosts.filter(Boolean).join(' → ') ||
-                        'Destination à renseigner'}
+                        "Destination required"}
                     </small>
                   </span>
                   <span className="status">Port {g.port}</span>
@@ -839,7 +838,7 @@ export function AdminConsole({
                 <div className="card-body">
                   <div className="form-grid">
                     <label className="field" htmlFor={`gateway-name-${i}`}>
-                      Nom de la passerelle
+                      Gateway name
                       <Input
                         id={`gateway-name-${i}`}
                         value={g.name}
@@ -848,7 +847,7 @@ export function AdminConsole({
                       />
                     </label>
                     <label className="field" htmlFor={`gateway-port-${i}`}>
-                      Port SMTP
+                      SMTP port
                       <Input
                         id={`gateway-port-${i}`}
                         type="number"
@@ -862,11 +861,9 @@ export function AdminConsole({
                     </label>
                   </div>
                   <label className="field">
-                    Serveurs de réception
+                    Reception servers
                     <small>
-                      Un nom DNS par ligne. Premier serveur prioritaire, puis
-                      serveurs de secours. Un suffixe :port peut remplacer le
-                      port commun.
+                      One DNS name per line. First priority server, then backup servers. A suffix:port can replace the common port.
                     </small>
                     <textarea
                       value={g.hosts.join('\n')}
@@ -879,17 +876,16 @@ export function AdminConsole({
                     />
                   </label>
                   <p className="small muted">
-                    Domaines associés :{' '}
+                    Associated domains:{' '}
                     {draft.domains
                       .filter((d) => d.gateway === g.id)
                       .map((d) => d.name)
-                      .join(', ') || 'Aucun'}
-                    . Les nouvelles routes s’appliquent aux futurs messages ;
-                    les livraisons déjà en file conservent leur destination.
+                      .join(', ') || "None"}
+                    . New routes apply to future messages; already queued deliveries retain their destination.
                   </p>
                   <div className="card-actions">
                     <span className="small muted">
-                      Chiffrement et vérification du certificat obligatoires
+                      Mandatory certificate encryption and verification
                     </span>
                     <Button
                       variant="ghost"
@@ -898,7 +894,7 @@ export function AdminConsole({
                       onClick={() => {
                         if (
                           window.confirm(
-                            'Retirer cette passerelle inutilisée ?',
+                            "Remove this unused gateway?",
                           )
                         )
                           setDraft({
@@ -910,7 +906,7 @@ export function AdminConsole({
                       }}
                     >
                       <Trash2 size={15} />
-                      Retirer
+                      Remove
                     </Button>
                   </div>
                 </div>
@@ -921,39 +917,46 @@ export function AdminConsole({
       )}
       {section === 'filters' && (
         <>
+          <section className="filter-guide" aria-label="Filtering overview">
+            <div><span className="eyebrow">ONE POLICY, CLEAR OUTCOMES</span><h2>Control how mail is assessed and delivered</h2><p>Set the organization policy, then refine it for domains and recipients. The risk index, classification and delivery action remain separate.</p></div>
+            <div className="filter-guide-state"><span className="small">Currently applied</span><strong>{config.settings.filters.mode === 'observe' ? 'Observation' : 'Actions enabled'}</strong><span>{config.settings.filters.mode === 'observe' ? 'Decisions recorded · mail delivered unchanged' : 'Configured actions apply to new mail'}</span></div>
+          </section>
           <div className="policy-summary">
             <span>
               <strong>
                 {draft.filters.mode === 'observe'
                   ? 'Observation'
-                  : 'Actions actives'}
+                  : "Actions enabled"}
               </strong>
-              <small>Mode du brouillon</small>
+              <small>Draft mode</small>
             </span>
             <span>
               <strong>
                 {modules.filter((m) => draft.filters[m.key]).length} /{' '}
                 {modules.length}
               </strong>
-              <small>Moteurs activés</small>
+              <small>Optional checks enabled</small>
             </span>
             <span>
               <strong>
                 {Object.keys(draft.filters.rule_weights ?? {}).length}
               </strong>
-              <small>Poids personnalisés</small>
+              <small>Custom weights</small>
             </span>
             <span className={`status ${dirty ? 'review' : 'good'}`}>
               {dirty
-                ? 'Modifications non enregistrées'
-                : 'Configuration enregistrée'}
+                ? "Unsaved changes"
+                : "Saved configuration"}
             </span>
           </div>
+          <label className="filter-search"><Search size={18} aria-hidden="true"/><span className="sr-only">Find a filter setting</span><Input type="search" placeholder="Find settings: RBL, quarantine, LLM, OCR, budgets…" value={filterQuery} onChange={e => setFilterQuery(e.target.value)}/>{filterQuery && <button type="button" onClick={() => setFilterQuery('')} aria-label="Clear settings search">Clear</button>}</label>
+          {filterQuery && <output className="small muted">Select a matching section below. Your current draft is preserved.</output>}
           <SectionTabs
             id="filters"
-            label="Rubriques des filtres"
+            label="Filter headings"
             presentation="cards"
             items={filterSections}
+            query={filterQuery}
             value={filterSection}
             onChange={setFilterSection}
           />
@@ -1067,16 +1070,14 @@ export function AdminConsole({
             />
             <div className="panel filter-policy">
               <div>
-                <h2>Comportement du filtre</h2>
+                <h2>Filter behaviour</h2>
                 <p className="muted small">
-                  L’observation analyse et transmet sans préfixe. Le mode actif
-                  applique les actions choisies pour les nouveaux messages :
-                  transmission, marquage ou quarantaine.
+                  The observation analyses and transmits without prefixes. The active mode applies the actions chosen for the new messages: transmission, marking or quarantine.
                 </p>
               </div>
               <div className="form-grid">
                 <label className="field">
-                  Mode de fonctionnement
+                  Operating mode
                   <select
                     value={draft.filters.mode}
                     onChange={(e) =>
@@ -1084,20 +1085,20 @@ export function AdminConsole({
                     }
                   >
                     <option value="observe">
-                      Observation — analyser et transmettre
+                      Observation — analyse and transmit
                     </option>
                     {draft.filters.mode === 'tag' && (
                       <option value="tag">
-                        Actif — configuration de marquage existante
+                        Active — Existing marking configuration
                       </option>
                     )}
                     <option value="enforce">
-                      Actif — appliquer les actions
+                      Active — apply delivery actions
                     </option>
                   </select>
                 </label>
                 <label className="field" htmlFor="filter-threshold">
-                  Seuil de référence du modèle / 100
+                  Content reference threshold / 100
                   <Input
                     id="filter-threshold"
                     type="number"
@@ -1112,22 +1113,20 @@ export function AdminConsole({
                   />
                   <small>
                     {config.threshold_locked
-                      ? 'Seuil lié à la calibration du modèle multilingue. Une nouvelle calibration est requise pour le modifier.'
-                      : 'Un seuil plus élevé réduit le nombre de messages marqués.'}
+                      ? "Threshold related to the calibration of the multilingual model. A new calibration is required to modify it."
+                      : "A higher threshold reduces the number of messages marked."}
                   </small>
                 </label>
               </div>
               <Toggle
-                label="Exiger une confirmation avant le classement Spam"
-                description="Un score élevé sans confirmation suffisante reste À vérifier. Réduit les classements fondés uniquement sur le modèle, mais peut laisser des spams à examiner. La fusion validée conserve sa propre politique."
+                label="Require corroboration before classifying spam"
+                description="A high content score needs corroboration to become a spam classification. This reduces model-only false positives but can leave spam under review. Validated fusion uses its own policy."
                 checked={Boolean(draft.filters.require_corroboration)}
                 onChange={(v) => filterAt('require_corroboration', v)}
               />
               {!config.tag_ready && (
                 <p className="notice">
-                  Le marquage nécessite la validation de la livraison Proton et
-                  la configuration ARC. Le serveur refusera son activation tant
-                  que ces conditions ne sont pas remplies.
+                  Marking requires validation of Proton delivery and ARC configuration. The server will refuse activation until these conditions are met.
                 </p>
               )}
             </div>
@@ -1163,29 +1162,27 @@ export function AdminConsole({
                     className={`status ${draft.filters[m.key] ? 'good' : ''}`}
                   >
                     {m.key !== 'authentication' && !config.available[m.key]
-                      ? 'À configurer sur le serveur'
+                      ? "To be configured on the server"
                       : draft.filters[m.key]
-                        ? 'Activé'
-                        : 'Désactivé'}
+                        ? "Enabled"
+                        : "Disabled"}
                   </span>
                 </section>
               ))}
             </div>
             <section className="panel">
-              <h2>Contribution au score</h2>
+              <h2>Contribution to the score</h2>
               <p className="muted small">
-                L’observation enregistre les indices. Activer leur contribution
-                change le classement des futurs messages et demande une
-                validation de la qualité.
+                Observation records these signals. Enabling their contribution changes future scores and requires a quality evaluation.
               </p>
               <Toggle
-                label="Indices SMTP et DNS dans le score"
+                label="SMTP and DNS indices in score"
                 checked={draft.filters.smtp_policy_scoring}
                 disabled={!draft.filters.smtp_policy}
                 onChange={(v) => filterAt('smtp_policy_scoring', v)}
               />
               <Toggle
-                label="Texte OCR et liens décodés dans le score"
+                label="OCR text and decoded links in score"
                 checked={draft.filters.vision_scoring}
                 disabled={!draft.filters.vision}
                 onChange={(v) => filterAt('vision_scoring', v)}
@@ -1248,9 +1245,9 @@ export function AdminConsole({
           <div className="admin-summary">
             <span>
               <Users size={19} />
-              <strong>{accounts.length}</strong> comptes ·{' '}
+              <strong>{accounts.length}</strong> accounts ·{' '}
               {accounts.filter((a) => a.admin && !a.disabled).length}{' '}
-              administrateur(s) actif(s)
+              active administrator(s)
             </span>
             <Button
               onClick={() => {
@@ -1265,7 +1262,7 @@ export function AdminConsole({
               }}
             >
               <Plus size={16} />
-              Créer un compte
+              Create an account
             </Button>
           </div>
           <div className="directory-toolbar">
@@ -1273,24 +1270,24 @@ export function AdminConsole({
               <Search size={17} />
               <Input
                 id="account-search"
-                aria-label="Rechercher un compte ou un accès"
-                placeholder="Rechercher un compte ou une adresse…"
+                aria-label="Search for an account or access"
+                placeholder="Search for an account or address..."
                 value={accountQuery}
                 onChange={(e) => setAccountQuery(e.target.value)}
                 maxLength={150}
               />
             </label>
             <label className="directory-filter">
-              Afficher
+              Show
               <select
-                aria-label="Filtrer les comptes"
+                aria-label="Filter accounts"
                 value={accountFilter}
                 onChange={(e) => setAccountFilter(e.target.value)}
               >
-                <option value="all">Tous les comptes</option>
-                <option value="admin">Administrateurs</option>
-                <option value="user">Utilisateurs</option>
-                <option value="disabled">Comptes désactivés</option>
+                <option value="all">All accounts</option>
+                <option value="admin">Administrators</option>
+                <option value="user">Users</option>
+                <option value="disabled">Disabled accounts</option>
               </select>
             </label>
           </div>
@@ -1316,7 +1313,7 @@ export function AdminConsole({
                   setPassword('');
                   setEpoch((e) => e + 1);
                   setNotice(
-                    'Compte enregistré. Les sessions précédentes de ce compte ont été révoquées.',
+                    "Registered account. Previous sessions of this account have been revoked.",
                   );
                   if (self) window.dispatchEvent(new Event('session-expired'));
                 });
@@ -1324,12 +1321,12 @@ export function AdminConsole({
             >
               <h2>
                 {editing.version < 0
-                  ? 'Créer un compte'
-                  : `Modifier ${editing.username}`}
+                  ? "Create an account"
+                  : `Edit ${editing.username}`}
               </h2>
               <div className="form-grid">
                 <label className="field" htmlFor="account-name">
-                  Identifiant
+                  Username
                   <Input
                     id="account-name"
                     required
@@ -1344,8 +1341,8 @@ export function AdminConsole({
                 </label>
                 <label className="field" htmlFor="account-password">
                   {editing.version < 0
-                    ? 'Mot de passe'
-                    : 'Nouveau mot de passe (facultatif)'}
+                    ? "Password"
+                    : "New password (optional)"}
                   <Input
                     id="account-password"
                     type="password"
@@ -1359,17 +1356,16 @@ export function AdminConsole({
                 </label>
               </div>
               <Toggle
-                label="Administrateur de l’organisation"
-                description="Peut modifier la configuration et consulter tous les messages de tous les domaines."
+                label="Organization administrator"
+                description="Can modify the configuration and view all messages from all domains."
                 checked={editing.admin}
                 onChange={(admin) => setEditing({ ...editing, admin })}
               />
               {!editing.admin && (
                 <label className="field">
-                  Adresses et domaines autorisés
+                  Authorized addresses and domains
                   <small>
-                    Une adresse par ligne ; utilisez *@exemple.fr pour donner
-                    accès à tout un domaine déjà enregistré.
+                    One address per line; use *@example.test to give access to an entire already registered domain.
                   </small>
                   <textarea
                     rows={4}
@@ -1380,13 +1376,13 @@ export function AdminConsole({
                         addresses: e.target.value.split('\n'),
                       })
                     }
-                    placeholder={'alice@exemple.fr\n*@autre-domaine.fr'}
+                    placeholder={"alice@example.fr *@other-domain.fr"}
                   />
                 </label>
               )}
               <Toggle
-                label="Compte désactivé"
-                description="La connexion est refusée et les sessions existantes sont révoquées à l’enregistrement."
+                label="Account disabled"
+                description="Sign-in is blocked and existing sessions are revoked when saved."
                 checked={editing.disabled}
                 onChange={(disabled) => setEditing({ ...editing, disabled })}
               />
@@ -1399,10 +1395,10 @@ export function AdminConsole({
                     setPassword('');
                   }}
                 >
-                  Annuler
+                  Cancel
                 </Button>
                 <Button disabled={busy} type="submit">
-                  Enregistrer le compte
+                  Save account
                 </Button>
               </div>
             </form>
@@ -1411,10 +1407,10 @@ export function AdminConsole({
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Compte</th>
-                  <th>Rôle</th>
-                  <th>Accès</th>
-                  <th>État</th>
+                  <th>Account</th>
+                  <th>Role</th>
+                  <th>Access</th>
+                  <th>State</th>
                   <th>
                     <span className="sr-only">Action</span>
                   </th>
@@ -1428,18 +1424,18 @@ export function AdminConsole({
                       <td>
                         <strong>{a.username}</strong>
                         {a.username === user.username && (
-                          <small className="muted"> · Vous</small>
+                          <small className="muted"> · You</small>
                         )}
                       </td>
-                      <td>{a.admin ? 'Administrateur' : 'Utilisateur'}</td>
+                      <td>{a.admin ? "Administrator" : "User"}</td>
                       <td className="wrap">
                         {a.admin
-                          ? 'Tous les domaines'
-                          : a.addresses.join(', ') || 'Aucun accès'}
+                          ? "All domains"
+                          : a.addresses.join(', ') || "No access"}
                       </td>
                       <td>
                         <span className={`status ${a.disabled ? '' : 'good'}`}>
-                          {a.disabled ? 'Désactivé' : 'Actif'}
+                          {a.disabled ? "Disabled" : "Enabled"}
                         </span>
                       </td>
                       <td>
@@ -1450,7 +1446,7 @@ export function AdminConsole({
                             setPassword('');
                           }}
                         >
-                          Modifier
+                          Edit
                         </Button>
                       </td>
                     </tr>
@@ -1459,10 +1455,10 @@ export function AdminConsole({
                   matchesAccount(a, accountQuery, accountFilter),
                 ) && (
                   <tr>
-                    <td colSpan={5} aria-label="Aucun compte correspondant">
+                    <td colSpan={5} aria-label="No matching account">
                       <div className="empty compact">
-                        <h2>Aucun compte correspondant</h2>
-                        <p>Modifiez la recherche ou les critères d’accès.</p>
+                        <h2>No matching account</h2>
+                        <p>Change the search or access criteria.</p>
                         <Button
                           variant="outline"
                           onClick={() => {
@@ -1470,7 +1466,7 @@ export function AdminConsole({
                             setAccountFilter('all');
                           }}
                         >
-                          Réinitialiser les critères
+                          Reset criteria
                         </Button>
                       </div>
                     </td>
@@ -1494,41 +1490,40 @@ export function AdminConsole({
               disabled={busy}
               onClick={() => setEpoch((e) => e + 1)}
             >
-              Actualiser
+              Refresh
             </Button>
           </div>
           <div className="stats">
             <section>
-              <span>Messages · dernière heure</span>
+              <span>Messages · last hour</span>
               <strong>{metrics?.received_last_hour ?? '—'}</strong>
               <small className="muted">
-                {metrics?.incomplete_last_hour ?? '—'} analyses incomplètes
+                {metrics?.incomplete_last_hour ?? '—'} incomplete analyses
               </small>
             </section>
             <section>
-              <span>Livraisons en attente</span>
+              <span>Pending deliveries</span>
               <strong>{metrics?.queued_deliveries ?? '—'}</strong>
               <small className="muted">
-                {metrics?.quarantined_deliveries ?? '—'} livraison(s) en
-                quarantaine
+                {metrics?.quarantined_deliveries ?? '—'} Quarantine delivery(s)
               </small>
               <small className="muted">
                 {metrics?.oldest_pending_age_seconds != null
-                  ? `Plus ancienne : ${Math.floor(metrics.oldest_pending_age_seconds / 60)} min`
-                  : 'File sans attente'}
+                  ? `Older: ${Math.floor(metrics.oldest_pending_age_seconds / 60)} min`
+                  : "Queue empty"}
               </small>
             </section>
             <section>
-              <span>Espace disque disponible</span>
+              <span>Available disk space</span>
               <strong>
                 {metrics
                   ? (metrics.disk_available_bytes / 1024 ** 3).toFixed(1)
                   : '—'}{' '}
-                <small>Gio</small>
+                <small>GiB</small>
               </strong>
               <small className="muted">
-                Latence maximale : {metrics?.max_analysis_ms_last_hour ?? '—'}{' '}
-                ms sur la dernière heure
+                Maximum latency: {metrics?.max_analysis_ms_last_hour ?? '—'}{' '}
+                ms on the last hour
               </small>
             </section>
           </div>
@@ -1537,48 +1532,45 @@ export function AdminConsole({
               <strong>{config.max_connections}</strong> connexions SMTP
             </span>
             <span>
-              <strong>{config.processing}</strong> analyses simultanées
+              <strong>{config.processing}</strong> simultaneous analyses
             </span>
             <span>
-              <strong>{config.relay_workers}</strong> livraisons simultanées
+              <strong>{config.relay_workers}</strong> Simultaneous deliveries
             </span>
             <span>
               <strong>
-                {Math.round(config.max_message_bytes / 1024 ** 2)} Mio
+                {Math.round(config.max_message_bytes / 1024 ** 2)} MiB
               </strong>{' '}
-              par message
+              by message
             </span>
           </div>
           {metrics?.llm_budget && (
             <p className="notice">
-              Analyse Scaleway :{' '}
-              {(metrics.llm_budget.accounted_micro_eur / 1e6).toFixed(2)} €
-              comptabilisés sur{' '}
-              {(metrics.llm_budget.monthly_budget_micro_eur / 1e6).toFixed(2)} €
-              par mois · {metrics.llm_budget.requests} demande(s).
+              Scaleway analysis:{' '}
+              {(metrics.llm_budget.accounted_micro_eur / 1e6).toFixed(2)} € recorded on{' '}
+              {(metrics.llm_budget.monthly_budget_micro_eur / 1e6).toFixed(2)} € per month · {metrics.llm_budget.requests} demande(s).
             </p>
           )}
           <section className="panel">
-            <h2>File de livraison</h2>
+            <h2>Delivery queue</h2>
             <p className="muted small">
-              200 premières livraisons non résolues. Les erreurs temporaires
-              sont réessayées automatiquement pendant cinq jours.
+              The first 200 unresolved deliveries. Temporary failures are retried for up to five days.
             </p>
             {!deliveries.length ? (
               <div className="empty compact">
                 <CheckCircle2 size={28} />
-                <h2>Aucun message en attente</h2>
-                <p>Les prochaines livraisons à surveiller apparaîtront ici.</p>
+                <h2>No message pending</h2>
+                <p>The next deliveries to be monitored will appear here.</p>
               </div>
             ) : (
               <div className="table-scroll">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Destinataire</th>
-                      <th>État</th>
-                      <th>Tentatives</th>
-                      <th>Prochain essai</th>
+                      <th>Recipient</th>
+                      <th>State</th>
+                      <th>Attempts</th>
+                      <th>Next retry</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -1588,19 +1580,19 @@ export function AdminConsole({
                         <td className="wrap">
                           <strong>{d.address}</strong>
                           <small>
-                            {d.node_id || 'Serveur local'}
-                            {d.pending_command ? ' · Commande en attente' : ''}
+                            {d.node_id || "Local server"}
+                            {d.pending_command ? " · Pending commands" : ''}
                           </small>
                           <small className="queue-error">
-                            {d.error || 'Aucune erreur enregistrée'}
+                            {d.error || "No error recorded"}
                           </small>
                         </td>
                         <td>
                           {
                             {
-                              pending: 'En attente',
-                              sending: 'En cours',
-                              failed: 'Échec définitif',
+                              pending: "Pending",
+                              sending: "In progress",
+                              failed: "Final failure",
                             }[d.status]
                           }
                         </td>
@@ -1626,13 +1618,13 @@ export function AdminConsole({
                                 setEpoch((e) => e + 1);
                                 setNotice(
                                   result.status === 'queued'
-                                    ? 'Relance transmise au serveur d’origine ; confirmation en attente.'
-                                    : 'Livraison remise à échéance immédiate.',
+                                    ? "Relaunch transmitted to the original server; confirmation pending."
+                                    : "Delivery scheduled for immediate retry.",
                                 );
                               })
                             }
                           >
-                            Réessayer
+                            Retry
                           </Button>
                         </td>
                       </tr>
@@ -1644,10 +1636,9 @@ export function AdminConsole({
           </section>
           <div className="admin-two-columns">
             <section className="panel">
-              <h2>Historique des réglages</h2>
+              <h2>Settings History</h2>
               <p className="muted small">
-                Chargez une ancienne configuration, examinez-la puis
-                appliquez-la comme une nouvelle révision.
+                Load an old configuration, examine it and apply it as a new revision.
               </p>
               <div className="revision-list">
                 <Button
@@ -1658,7 +1649,7 @@ export function AdminConsole({
                       if (
                         dirty &&
                         !window.confirm(
-                          'Remplacer les modifications non appliquées ?',
+                          "Replace unapplied changes?",
                         )
                       )
                         return;
@@ -1669,17 +1660,17 @@ export function AdminConsole({
                       );
                       setEpoch((e) => e + 1);
                       setNotice(
-                        'Configuration initiale chargée. Vérifiez les modifications avant application.',
+                        "Initial configuration loaded. Check changes before application.",
                       );
                     })
                   }
                 >
-                  Charger la configuration initiale
+                  Load initial configuration
                 </Button>
                 {revisions.map((r) => (
                   <div key={r.id}>
                     <span>
-                      <strong>Révision {r.id}</strong>
+                      <strong>Revision {r.id}</strong>
                       <small>
                         {stamp(r.created)} · {r.username}
                       </small>
@@ -1692,7 +1683,7 @@ export function AdminConsole({
                           if (
                             dirty &&
                             !window.confirm(
-                              'Remplacer les modifications non appliquées ?',
+                              "Replace unapplied changes?",
                             )
                           )
                             return;
@@ -1702,20 +1693,20 @@ export function AdminConsole({
                             ),
                           );
                           setEpoch((e) => e + 1);
-                          setNotice(`Révision ${r.id} chargée pour examen.`);
+                          setNotice(`Revision ${r.id} for consideration.`);
                         })
                       }
                     >
-                      {r.id === config.revision ? 'Active' : 'Charger'}
+                      {r.id === config.revision ? 'Active' : "Load"}
                     </Button>
                   </div>
                 ))}
               </div>
             </section>
             <section className="panel">
-              <h2>Journal d’administration</h2>
+              <h2>Administration audit log</h2>
               <p className="muted small">
-                Les 200 derniers événements enregistrés.
+                The last 200 recorded events.
               </p>
               <div className="audit-list">
                 {audit.map((a, i) => (
@@ -1724,11 +1715,11 @@ export function AdminConsole({
                     <div>
                       <strong>
                         {{
-                          configuration: 'Réglages appliqués',
-                          account: 'Compte modifié',
-                          retry: 'Livraison relancée',
-                          login: 'Connexion',
-                          feedback: 'Correction de classement',
+                          configuration: "Adjustments applied",
+                          account: "Account modified",
+                          retry: "Relaunched delivery",
+                          login: "Sign in",
+                          feedback: "Classification correction",
                         }[a.action] || a.action}
                       </strong>
                       <p>
@@ -1748,7 +1739,7 @@ export function AdminConsole({
         <div className="save-area">
           {review && (
             <section className="change-review">
-              <h2>Vérifier les modifications</h2>
+              <h2>Check for changes</h2>
               <ul>
                 {(
                   ['smtp_admission', 'rbl', 'detection', 'preferences'] as const
@@ -1762,15 +1753,15 @@ export function AdminConsole({
                     <li key={k}>
                       <strong>
                         {k === 'smtp_admission'
-                          ? 'Admission SMTP : greylisting, débit et ralentissement'
+                          ? "SMTP admission: greylisting, throughput and slow down"
                           : k === 'rbl'
-                            ? 'Réputation IP et RBL'
+                            ? "IP and RBL reputation"
                             : k === 'detection'
-                              ? 'Paramètres des moteurs et budgets'
-                              : 'Préférences et droits personnels'}
+                              ? "Engine parameters and budgets"
+                              : "Preferences and personal rights"}
                       </strong>
                       <details>
-                        <summary>Voir les valeurs proposées</summary>
+                        <summary>See proposed values</summary>
                         <pre className="management-result">
                           {JSON.stringify(draft[k], null, 2)}
                         </pre>
@@ -1782,111 +1773,109 @@ export function AdminConsole({
                   draft.custom_filtering,
                 ).map((change) => (
                   <li key={`sensitivity:${change.scope}`}>
-                    Sensibilité{' '}
+                    Sensitivity{' '}
                     <strong>
                       {change.scope === '*' ? 'organisation' : change.scope}
                     </strong>{' '}
                     :{' '}
                     {change.before === null
-                      ? 'héritée'
-                      : `seuil ${change.before}`}{' '}
+                      ? "inherited"
+                      : `threshold ${change.before}`}{' '}
                     →{' '}
                     {change.after === null
-                      ? 'héritée'
-                      : `seuil ${change.after}`}
-                    . Les actions et le mode de livraison se règlent séparément.
+                      ? "inherited"
+                      : `threshold ${change.after}`}
+                    . Delivery actions are configured separately.
                   </li>
                 ))}
                 {JSON.stringify(draft.custom_filtering) !==
                   JSON.stringify(config.settings.custom_filtering) && (
                   <li>
-                    Règles personnalisées :{' '}
-                    {draft.custom_filtering?.rules.length || 0} règles,{' '}
+                    Customized rules:{' '}
+                    {draft.custom_filtering?.rules.length || 0} rules,{' '}
                     {draft.custom_filtering?.profiles.length || 0} profils,{' '}
-                    {draft.custom_filtering?.bindings.length || 0} affectations.
-                    Les nouveaux messages seront évalués selon ce brouillon.
+                    {draft.custom_filtering?.bindings.length || 0} New messages will be evaluated according to this draft.
                   </li>
                 )}
                 {changedDomains.map((d, i) => (
                   <li key={`d${i}`}>
-                    Domaine <strong>{d.name || '(nom manquant)'}</strong> :{' '}
-                    {d.enabled ? 'activé' : 'désactivé'},{' '}
+                    Domain <strong>{d.name || "(missing name)"}</strong> :{' '}
+                    {d.enabled ? "Enabled" : "Disabled"},{' '}
                     {d.accept_all_recipients
-                      ? 'toutes les adresses'
+                      ? "all addresses"
                       : `${d.recipients.filter(Boolean).length} adresses`}
-                    , passerelle{' '}
+                    , gateway{' '}
                     {draft.gateways.find((g) => g.id === d.gateway)?.name ||
-                      'alias uniquement'}
+                      "aliases only"}
                     , {Object.keys(d.aliases).length} alias.
                   </li>
                 ))}
                 {removed.map((d) => (
                   <li key={d.name}>
-                    Retrait du domaine <strong>{d.name}</strong>.
+                    Withdrawal of the domain <strong>{d.name}</strong>.
                   </li>
                 ))}
                 {changedGateways.map((g) => (
                   <li key={g.id}>
-                    Passerelle <strong>{g.name || '(nom manquant)'}</strong> :{' '}
+                    Gateway <strong>{g.name || "(missing name)"}</strong> :{' '}
                     {g.hosts.join(' → ')} · port {g.port}.
                   </li>
                 ))}
                 {removedGateways.map((g) => (
                   <li key={g.id}>
-                    Retrait de la passerelle <strong>{g.name}</strong>.
+                    Gateway removed <strong>{g.name}</strong>.
                   </li>
                 ))}
                 {JSON.stringify(draft.protection) !==
                   JSON.stringify(config.settings.protection) && (
                   <li>
                     <strong>
-                      Protections complémentaires :{' '}
-                      {draft.protection ? 'observation activée' : 'désactivées'}
+                      Complementary protection:{' '}
+                      {draft.protection ? "observation activated" : "Deactivated"}
                     </strong>
                     {draft.protection && (
                       <>
                         <p>
-                          Usurpation :{' '}
-                          {draft.protection.identity ? 'activée' : 'désactivée'}{' '}
-                          · Liens :{' '}
-                          {draft.protection.links ? 'activés' : 'désactivés'} ·
-                          Campagnes :{' '}
+                          Impersonation:{' '}
+                          {draft.protection.identity ? "Enabled" : "Disabled"}{' '}
+                          · Links:{' '}
+                          {draft.protection.links ? "Enabled" : "Deactivated"} · Campaigns:{' '}
                           {draft.protection.campaigns
-                            ? 'activées'
-                            : 'désactivées'}{' '}
+                            ? "Enabled"
+                            : "Deactivated"}{' '}
                           · CRDF :{' '}
-                          {draft.protection.crdf ? 'activé' : 'désactivé'} ·
+                          {draft.protection.crdf ? "Enabled" : "Disabled"} ·
                           VirusTotal :{' '}
-                          {draft.protection.virustotal ? 'activé' : 'désactivé'}
+                          {draft.protection.virustotal ? "Enabled" : "Disabled"}
                           .
                         </p>
                         <p>
                           Quotas CRDF :{' '}
                           {draft.protection.crdf_quota
                             ? quotaLabel(draft.protection.crdf_quota)
-                            : 'plafonds du serveur'}
+                            : "server ceilings"}
                           . Quotas VirusTotal :{' '}
                           {draft.protection.virustotal_quota
                             ? quotaLabel(draft.protection.virustotal_quota)
-                            : 'plafonds du serveur'}
+                            : "server ceilings"}
                           .
                         </p>
                         <p>
-                          Noms protégés :{' '}
+                          Protected names:{' '}
                           {draft.protection.protected_names
                             .map((x) => `${x.name} (${x.domain})`)
-                            .join(', ') || 'aucun'}
+                            .join(', ') || "none"}
                           .
                         </p>
                         <p>
-                          Exceptions de réponse :{' '}
+                          Exceptions to reply:{' '}
                           {draft.protection.reply_exceptions
                             .filter(Boolean)
-                            .join(', ') || 'aucune'}
-                          . Exceptions de suivi :{' '}
+                            .join(', ') || "none"}
+                          . Exceptions to follow-up:{' '}
                           {draft.protection.link_exceptions
                             .filter(Boolean)
-                            .join(', ') || 'aucune'}
+                            .join(', ') || "none"}
                           .
                         </p>
                       </>
@@ -1897,20 +1886,20 @@ export function AdminConsole({
                   JSON.stringify(config.settings.mailing) && (
                   <li>
                     <strong>
-                      Catégorie PUB : {draft.mailing ? 'activée' : 'désactivée'}
+                      Marketing classification: {draft.mailing ? "Enabled" : "Disabled"}
                     </strong>
                     {draft.mailing && (
                       <p>
-                        Newsletters :{' '}
+                        Newsletters:{' '}
                         {draft.mailing.include_newsletters
                           ? 'incluses'
                           : 'exclues'}{' '}
-                        · Préfixe [PUB] en mode marquage :{' '}
+                        · Prefix [PUB] in marking mode:{' '}
                         {(draft.actions?.publicity ??
                           (draft.mailing.tag_subject ? 'tag' : 'deliver')) ===
                         'tag'
-                          ? 'activé'
-                          : 'désactivé'}
+                          ? "Enabled"
+                          : "Disabled"}
                         .
                       </p>
                     )}
@@ -1919,16 +1908,15 @@ export function AdminConsole({
                 {JSON.stringify(draft.actions) !==
                   JSON.stringify(config.settings.actions) && (
                   <li>
-                    <strong>Actions après détection</strong>
+                    <strong>Actions after detection</strong>
                     <p>
                       Spam : {actionLabel[deliveryPolicy(draft).spam]} · PUB :{' '}
                       {actionLabel[deliveryPolicy(draft).publicity]} · Malware :{' '}
                       {actionLabel[deliveryPolicy(draft).malware]}.
                     </p>
                     <p>
-                      Quarantaine : suppression après{' '}
-                      {deliveryPolicy(draft).quarantine_days} jours sans
-                      libération.
+                      Quarantine: discard after{' '}
+                      {deliveryPolicy(draft).quarantine_days} days without release.
                     </p>
                   </li>
                 )}
@@ -1944,11 +1932,11 @@ export function AdminConsole({
                     <li key={k}>
                       {(
                         {
-                          rule_weights: 'Poids des règles heuristiques',
-                          mode: 'Mode de fonctionnement',
-                          threshold: 'Seuil de classement',
+                          rule_weights: "Weight of heuristic rules",
+                          mode: "Operating mode",
+                          threshold: "Classification threshold",
                           require_corroboration:
-                            'Confirmation avant classement Spam',
+                            "Confirmation before Spam classification",
                           smtp_policy_scoring: 'Contribution SMTP',
                           vision_scoring: 'Contribution OCR',
                         } as Record<string, string>
@@ -1963,15 +1951,15 @@ export function AdminConsole({
                                 ([id, weight]) =>
                                   `${config.rules.find((r) => r.id === id)?.label ?? id} : ${weight}`,
                               )
-                              .join(' · ') || 'valeurs par défaut'
+                              .join(' · ') || "default values"
                           : v === 'enforce'
                             ? 'actions actives'
                             : typeof v === 'boolean'
                               ? v
-                                ? 'activé'
-                                : 'désactivé'
+                                ? "Enabled"
+                                : "Disabled"
                               : v === 'tag'
-                                ? 'marquage'
+                                ? 'tagging'
                                 : v === 'observe'
                                   ? 'observation'
                                   : v}
@@ -1981,15 +1969,14 @@ export function AdminConsole({
                   ))}
               </ul>
               <p className="small muted">
-                Application immédiate aux prochains messages. Les livraisons
-                déjà acceptées sont conservées.
+                Immediate application to future messages. Already accepted deliveries are kept.
               </p>
             </section>
           )}
           <div className="save-bar">
             <span>
-              <strong>Modifications non appliquées</strong>
-              <small>Révision de départ : {config.revision}</small>
+              <strong>Changes not implemented</strong>
+              <small>Initial revision: {config.revision}</small>
             </span>
             <div>
               <Button
@@ -1998,14 +1985,14 @@ export function AdminConsole({
                 onClick={() => {
                   if (
                     window.confirm(
-                      'Abandonner les modifications et recharger les réglages actifs ?',
+                      "Drop the changes and reload the active settings?",
                     )
                   )
                     void action(reload);
                 }}
               >
                 <RotateCcw size={16} />
-                Annuler
+                Cancel
               </Button>
               <Button
                 disabled={busy}
@@ -2016,10 +2003,10 @@ export function AdminConsole({
               >
                 <Save size={16} />
                 {busy
-                  ? 'Application…'
+                  ? "Applying…"
                   : review
-                    ? 'Appliquer les réglages'
-                    : 'Vérifier et appliquer'}
+                    ? "Apply settings"
+                    : "Review and apply"}
               </Button>
             </div>
           </div>

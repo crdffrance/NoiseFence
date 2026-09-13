@@ -10,21 +10,21 @@ test('advanced criteria are encoded without widening the recipient or domain sco
   const filters = {
     ...emptySearch,
     recipient: 'alice+test@example.test',
-    subject: 'réunion & facture',
+    subject: "Meeting & invoice",
     min_score: '0',
     max_score: '20',
     status: 'delivered',
   };
   const p = new URLSearchParams(
     searchParameters(
-      '"équipe Paris"',
+      "\"Paris team\"",
       'incomplete',
       'example.test',
       50,
       filters,
     ),
   );
-  assert.equal(p.get('q'), '"équipe Paris"');
+  assert.equal(p.get('q'), "\"Paris team\"");
   assert.equal(p.get('domain'), 'example.test');
   assert.equal(p.get('recipient'), filters.recipient);
   assert.equal(p.get('min_score'), '0');

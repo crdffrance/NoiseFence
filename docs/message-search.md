@@ -1,81 +1,40 @@
-# Recherche dans les messages
+<a id="recherche-dans-les-messages"></a>
+# Search Messages
 
-Dans **Messages**, saisir un ou plusieurs mots, ou ouvrir **Recherche avancée**.
-La recherche locale couvre les objets, expéditeurs d’enveloppe, adresses et alias
-accessibles, identifiants NoiseFence et identifiants des règles présentes dans
-`scan.reasons`. Par exemple : `fact sept`, `"réunion équipe"`, une adresse ou
-`suspicious_link`. Tous les termes sont requis. Les mots de l’index sont recherchés
-par début de mot, sans distinction de casse ni d’accents ; les guillemets imposent
-une suite de mots exacte. Une adresse ou un identifiant peut aussi être retrouvé
-par fragment. Les caractères `*`, `%`, `OR`, `NOT` n’activent pas un langage SQL ou
-une syntaxe de requête libre.
+In **Messages**, enter words or open **Advanced search**. Search covers retained subjects, envelope senders, authorized addresses and aliases, NoiseFence identifiers and rule IDs in `scan.reasons`. Examples: `invoice sept`, `"team meeting"`, an address or `suspicious_link`. All terms are required. Indexed words support prefixes and ignore case/accents; quotes require an exact phrase. Addresses and identifiers also support fragments. `*`, `%`, `OR` and `NOT` do not enable SQL or an unrestricted query language.
 
-Les critères avancés se combinent entre eux et avec le classement et le domaine :
+The advanced criteria are combined with each other and with the classification and the field:
 
-- expéditeur, destinataire/alias, objet, règle et identifiant NoiseFence ;
-- état d’une livraison visible (livré, en attente, quarantaine, échec…) ;
-- dates de réception, avec journée de fin incluse dans le fuseau du navigateur ;
-- score minimum et maximum, correspondant au nombre affiché par la console.
+- sender, consignee/alias, object, rule and ID NoiseFence;
+- visible delivery status (delivery, waiting, quarantine, failure, etc.);
+- reception dates, with end day included in the browser zone;
+- minimum and maximum score, corresponding to the number displayed by the console.
 
-Un score partiel ou indicatif reste recherchable sans devenir un verdict de spam.
-Une valeur absente ne devient pas zéro. Un destinataire et un état de livraison
-fournis ensemble doivent correspondre à la même livraison autorisée.
+A partial or indicative score remains searchable without becoming a spam verdict. An absent value does not become zero. A recipient and a delivery state provided together must correspond to the same authorized delivery.
 
-Les résultats sont triés du plus récent au plus ancien, par pages de 50. Le total
-correspond à tous les critères et aux droits actuels de l’utilisateur. Il est lu
-dans le même instantané SQLite que la page. L’arrivée de nouveaux messages entre
-deux pages peut décaler la pagination ; aucune liste de recherche n’est figée.
+The results are sorted from the most recent to the oldest, by pages of 50. The total corresponds to all the criteria and current user rights. It is read in the same SQLite snapshot as the page. The arrival of new messages between two pages can shift the pagination; no search list is frozen.
 
-## Conservation et confidentialité
+<a id="conservation-et-confidentialité"></a>
+## Retention and confidentiality
 
-La recherche couvre les métadonnées conservées 30 jours et les messages dont le
-fichier est encore conservé pour résolution de la file/quarantaine. Les corps,
-pièces jointes, textes OCR, contenus de liens et raisonnements LLM ne sont pas
-indexés. Les corps déjà supprimés après livraison ne peuvent pas être recherchés.
-Aucune requête ni aucun contenu n’est envoyé à un service externe.
+The search covers the 30 days stored metadata and messages whose file is still kept for file/quarantine resolution. Bodies, attachments, OCR texts, link contents and LLM reasoning are not indexed. Bodies already deleted after delivery cannot be searched. No request or content is sent to an external service.
 
-Les destinataires ne sont jamais placés dans l’index commun : leur recherche
-passe par les autorisations en vigueur dans `console_access`, y compris pour le
-compte administrateur et les accès à un domaine. Une copie cachée non autorisée
-ne produit ni résultat ni total. Le domaine sélectionné limite également les
-destinataires renvoyés. L’interface n’enregistre pas les recherches dans le stockage
-persistant du navigateur ; comme pour l’ancienne API GET, les paramètres peuvent
-figurer dans les journaux d’accès du proxy. Protéger et limiter ces journaux.
+Recipients are never placed in the common index: their search is through the authorizations in effect in `console_access`, including for the admin account and access to a domain. An unauthorized hidden copy does not produce results or totals. The selected domain also limits the returned recipients. The interface does not record searches in the browser's persistent storage; as with the old GET API, the parameters can be included in the proxy access logs. Protect and limit these logs.
 
 ## API
 
-`GET /api/v1/search/messages` exige une session connectée. Paramètres facultatifs :
-`q`, `filter` (défaut `all`), `domain`, `offset`, `sender`, `recipient`, `subject`,
-`rule`, `id`, `status`, `after`, `before`, `min_score`, `max_score`.
-`after` est un timestamp Unix inclusif et `before` exclusif. Les scores sont
-compris entre 0 et 100. Réponse :
+`GET /api/v1/search/messages` requires an authenticated session. Optional parameters: `q`, `filter` (default `all`), `domain`, `node`, `offset`, `sender`, `recipient`, `subject`, `rule`, `id`, `status`, `after`, `before`, `min_score`, `max_score`. `after` is an inclusive Unix timestamp and `before` is exclusive. Scores use the selected 0–100 assessment value, including partial scores. Response:
 
 ```json
 {"messages": [], "total": 0, "offset": 0, "has_more": false}
 ```
 
-L’ancienne route `/api/v1/messages` conserve sa réponse sous forme de tableau et
-utilise le même moteur. Les requêtes invalides reçoivent HTTP 400. La recherche
-libre est limitée à 600 octets, 12 termes de 200 octets, les champs à 256 octets.
-Les lectures utilisent au maximum quatre instantanés WAL concurrents, avec
-interruption SQLite après trois secondes. Une saturation renvoie une erreur de
-service, jamais une liste vide présentée comme un résultat réussi.
+The old `/api/v1/messages` route keeps its answer in table form and uses the same engine. Invalid queries receive HTTP 400. Free search is limited to 600 bytes, 12 terms of 200 bytes, fields at 256 bytes. Plays use up to four concurrent WAL snapshots, with SQLite interruption after three seconds. Saturation returns a service error, never an empty list presented as a successful result.
 
-## Index et mise à niveau
+<a id="index-et-mise-à-niveau"></a>
+## Index and upgrade
 
-Au premier démarrage, une migration transactionnelle ajoute un index
-[SQLite FTS5](https://www.sqlite.org/fts5.html), sa vue source et trois déclencheurs.
-Elle indexe l’historique sans réécrire les analyses ni les états de livraison.
-L’objet est borné à 4096 caractères, l’expéditeur à 1024 et la liste des règles à
-16384. Les insertions, modifications et suppressions restent synchronisées dans
-la transaction d’origine ; un échec d’indexation ne confirme pas une acceptation
-SMTP non persistée.
+At the first start, a transactional migration adds an index [SQLite FTS5](https://www.sqlite.org/fts5.html), its source view and three triggers. It indexes history without rewriting analyses or delivery records. The object is limited to 4096 characters, the sender to 1024 and the list of rules to
+16384. The insertions, modifications and deletions remain synchronized in the original transaction; a failure in indexing does not confirm an unpersistent SMTP acceptance.
 
-Le schéma de file reste en version 2. L’index est additif et compatible avec le
-binaire 0.11.1, qui embarque la même bibliothèque SQLite. Son effacement sécurisé
-FTS5 nécessite SQLite 3.42 ou plus récent pour les outils manipulant cet index.
-Ne pas ouvrir ni modifier les tables FTS5 avec un ancien outil SQLite. Sauvegarder
-la base de manière cohérente avant mise à niveau ; l’index augmente le stockage
-et son premier remplissage dépend de la taille de l’historique. Les déclencheurs
-suppriment aussi les entrées et anciens jetons lors de la purge des métadonnées.
-Le WAL et les sauvegardes suivent leur propre cycle de conservation.
+The search index is additive. Current HA storage requires schema 5; older index-only compatibility does not authorize a downgrade. Its secure erasure FTS5 requires SQLite 3.42 or more recent for tools handling this index. Do not open or modify FTS5 tables with an old SQLite tool. Save the database consistently before upgrading; the index increases storage and its first filling depends on the size of the history. The triggers also remove inputs and old chips when purging metadata. The WAL and backups follow their own storage cycle.

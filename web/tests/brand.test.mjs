@@ -29,12 +29,12 @@ const render = (score) =>
 
 test('missing or invalid suspicion is unavailable, while a real zero retains a semantic meter', () => {
   for (const value of [null, NaN, Infinity, -Infinity]) {
-    assert.match(render(value), /Indice indisponible/);
+    assert.match(render(value), /Risk index unavailable/);
     assert.doesNotMatch(render(value), /<meter/);
   }
   assert.match(
     render(0),
-    /<meter[^>]*aria-label="Indice de suspicion"[^>]*value="0"/,
+    /<meter[^>]*aria-label="Risk index"[^>]*value="0"/,
   );
   assert.match(render(0), />0\.0</);
 });

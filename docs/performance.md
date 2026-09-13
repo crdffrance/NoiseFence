@@ -1,23 +1,19 @@
-# Mesurer le traitement complet
+<a id="mesurer-le-traitement-complet"></a>
+# Measuring the complete processing
 
-`model-benchmark` mesure l'extraction et l'inférence locales. Pour mesurer aussi
-les connecteurs, le banc `pipeline_probe` appelle le même `Engine::process` que
-la réception SMTP, plusieurs fois dans un seul processus. Il charge le modèle
-une fois et conserve les caches entre essais. Il ne démarre aucun serveur SMTP,
-ne met aucun message en file et ne livre aucun email.
+`model-benchmark` measures local extraction and inference. To measure connectors as well, the `pipeline_probe` bench calls the same `Engine::process` as the SMTP reception, several times in a single process. It loads the model once and keeps caches between tests. It does not start any SMTP server, does not file any messages and does not deliver any emails.
 
 ```sh
 cargo build --release --locked --features semantic --example pipeline_probe
 python3 tests/pipeline_probe.py target/release/examples/pipeline_probe
 ```
 
-Le workflow manuel `pipeline probe build` fournit aussi un exécutable Linux
-x86-64 avec les empreintes de l'exécutable, des sources du moteur et du banc.
-Il ne contient ni configuration de production, ni corpus, ni modèle entraîné.
+The manual workflow `pipeline probe build` also provides a Linux x86-64 executable with the prints of the executable, engine and bench sources. It does not contain production configuration, corpus, or driven model.
 
-## Définir les cas
+<a id="définir-les-cas"></a>
+## Define cases
 
-Créer un manifeste privé, ici `reports/cases.json`, contenant un à huit cas :
+Create a private manifest, here `reports/cases.json`, containing one to eight cases:
 
 ```json
 [
@@ -31,17 +27,9 @@ Créer un manifeste privé, ici `reports/cases.json`, contenant un à huit cas :
 ]
 ```
 
-Le chemin est relatif au manifeste, ou absolu. Chaque message doit être un
-fichier régulier, valide, de taille inférieure ou égale à 1 Mio. Les noms de cas
-sont des identifiants, sans contenu privé. L'exemple d'adresse IP ci-dessus est
-réservé à la documentation : il ne représente pas un expéditeur authentifié.
-Pour les vérifications DNS, indiquer le contexte réellement observé à la
-réception ou documenter explicitement le caractère synthétique de ce contexte.
+The path is relative to the manifest, or absolute. Each message must be a regular, valid file of size less than or equal to 1 MiB. Case names are identifiers, without private content. The example IP address above is reserved for documentation: it does not represent an authenticated sender. For DNS checks, indicate the context actually observed at the reception or explicitly document the synthetic character of this context.
 
-La configuration doit désigner les modèles et les connecteurs à mesurer, avec
-leurs paramètres habituels. Conserver le même nombre de threads CPU et les
-mêmes limites que sur le serveur de référence. Enregistrer séparément CPU, RAM,
-charge concurrente, empreintes des modèles et version des bases antivirus.
+The configuration must designate the models and connectors to be measured, with their usual parameters. Keep the same number of CPU threads and the same limits as on the reference server. Save CPU, RAM, concurrent load, model fingerprints and version of the antivirus databases separately.
 
 ```sh
 RAYON_NUM_THREADS=4 CANDLE_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false \
@@ -50,162 +38,70 @@ RAYON_NUM_THREADS=4 CANDLE_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false \
   --output reports/pipeline.jsonl --iterations 30 --warmup 3 --interval-ms 100
 ```
 
-Le banc exécute les cas séquentiellement, avec quatre workers Tokio. Les cycles
-de chauffe figurent dans le fichier mais sont exclus des quantiles. L'intervalle
-entre appels est aussi exclu. Les mesures englobent `Engine::process`, dont la
-réécriture des en-têtes, mais excluent la lecture des fichiers, le chargement du
-modèle, la réception SMTP, la persistance et le relais. Ce n'est pas un test de
-débit ou de surcharge du serveur SMTP.
+The bench executes cases sequentially, with four workers Tokio. The heating cycles are shown in the file but are excluded from the quantiles. The interval between calls is also excluded. The measurements include `Engine::process`, including the rewriting of headers, but exclude file playback, model loading, SMTP reception, persistence and relay. It is not a flow or overload test of the SMTP server.
 
-## Contenu externe et coûts
+## External content and costs
 
-Les vérifications DNS et les scanners suivent la configuration du moteur. Un
-LLM payant configuré exige le drapeau explicite `--allow-paid-llm`. Il peut recevoir
-les extraits textuels autorisés et utilise le budget durable de `data_dir`.
-Ne pas remplacer ce répertoire par un répertoire vide pour contourner le budget.
-Les cycles de chauffe peuvent aussi produire des appels payants.
+DNS checks and scanners follow the engine configuration. A paid LLM configured requires the explicit flag `--allow-paid-llm`. It can receive authorized text extracts and uses the sustainable budget of `data_dir`. Do not replace this directory with an empty directory to bypass the budget. Heat cycles can also produce paid calls.
 
-N'utiliser que du contenu autorisé pour ces connecteurs. Les essais de coût et
-de latence externes peuvent se faire sur des messages synthétiques. Les
-résultats d'un message privé analysé sans réseau ne sont pas comparables à un
-essai de toute la chaîne avec DNS et LLM.
+Use only authorized content for these connectors. External cost and latency testing can be done on synthetic messages. The results of a private message analyzed without a network are not comparable to a whole chain test with DNS and LLM.
 
-## Lire les résultats
+<a id="lire-les-résultats"></a>
+## Read the results
 
-Le fichier JSONL commence par la configuration des vérifications, contient une
-ligne par appel, puis un récapitulatif `record: "summary", run_finished: true`.
-L'absence de ce récapitulatif indique une exécution interrompue ou échouée. Un
-fichier existant est refusé ; le banc n'écrase pas une mesure antérieure.
+The JSONL file starts with the check configuration, contains one line per call, then a `record: "summary", run_finished: true` summary. The absence of this summary indicates a missed or failed execution. An existing file is refused; the bench does not overwrite an earlier measure.
 
-Chaque cas présente p50, p95 et maximum en microsecondes, par rang le plus proche,
-ainsi que les nombres d'analyses complètes, incomplètes et en erreur. Les échecs
-restent dans `all_trials`. `complete_trials_only` est une vue complémentaire :
-elle ne doit pas masquer les délais dépassés ou les services indisponibles.
-Vérifier aussi les statuts des composants : un LLM limité par le budget ou jugé
-inutile n'a pas exécuté une requête complète.
+Each case has p50, p95 and maximum in microseconds, by nearest row, as well as the number of complete, incomplete and error analyses. Chess remains in `all_trials`. `complete_trials_only` is a complementary view: it must not hide outdated deadlines or services unavailable. Also check the status of components: a LLM limited by the budget or deemed useless did not execute a complete request.
 
-Le score, la version du modèle, les identifiants des raisons et les durées des
-composants sont enregistrés, sans corps, objet, explication LLM ni vecteurs de
-caractéristiques. Le rapport comporte l'empreinte du message. Les entrées et
-résultats privés restent exclus de Git ; leur conservation relève de l'exploitant.
+The score, version of the model, the reasons and the durations of the components are recorded, without body, object, LLM explanation or vectors of characteristics. The report contains the imprint of the message. Private entries and results remain excluded from Git; their retention is the responsibility of the operator.
 
-Ne pas additionner toutes les durées de composants : certains contrôles se
-chevauchent. Ne pas agréger plusieurs cas comme s'ils représentaient la fréquence
-réelle de ces messages. Un p95 sur quelques messages synthétiques vérifie ces
-cas sur cette machine ; il ne démontre ni le p95 du trafic réel, ni la capture,
-ni les faux positifs. Mesurer ensuite un ensemble récent représentatif, avec
-les statuts des contrôles et les incertitudes, avant toute revendication globale.
+Do not add up all the durations of the components: some controls overlap. Do not aggregate several cases as if they represented the actual frequency of these messages. A p95 on some synthetic messages checks these cases on this machine; it does not demonstrate the p95 of the actual traffic, nor the capture, nor the false positives. Then measure a recent representative set, with the status of the controls and the uncertainties, before any global claim.
 
-## Mesure du 7 septembre 2026
+<a id="mesure-du-7-septembre-2026"></a>
+## Action of 7 September 2026
 
-Le [rapport agrégé](../research/pipeline-latency-20260907.json) mesure le moteur
-0.3.0-dev.5 et le modèle hybride `research-hybrid-e5-20260907` sur Debian 13,
-4 vCPU et 8 Go de RAM nominaux. Chaque profil exécute 30 mesures après trois
-appels de chauffe pour chacun des quatre messages synthétiques. Les profils
-sont exécutés successivement, avec concurrence 1. Les 360 analyses mesurées
-sont complètes, sans erreur ; les deux scanners locaux et les vérifications DNS
-configurées sont actifs. Aucun message n'est livré.
+The [aggregate report](../research/pipeline-latency-20260907.json) measures engine 0.3.0-dev.5 and `research-hybrid-e5-20260907` on Debian 13 with nominal 4 vCPU and 8 GB RAM. Each profile runs 30 measurements after three warmups for each of four synthetic messages. Profiles run sequentially with concurrency 1. All 360 measured analyses completed without errors; both local scanners and configured DNS checks were active. No messages were delivered.
 
-| Cas synthétique | Taille | p95 sans LLM | p95 LLM 20–98 | p95 LLM 80–98 |
+| Synthetic case | Taille | p95 without LLM | p95 LLM 20–98 | p95 LLM 80–98 |
 | --- | ---: | ---: | ---: | ---: |
-| Courriel professionnel français | 836 octets | 257 ms | 2 104 ms | 1 207 ms |
-| Message court français | 435 octets | 68 ms | 1 027 ms | 67 ms |
-| Leurre de portefeuille fictif | 502 octets | 127 ms | 119 ms | 132 ms |
-| Paragraphe français répété | 1 Mio | 389 ms | 1 623 ms | 1 605 ms |
+| French professional e-mail | 836 bytes | 257 ms | 2 104 ms | 1 207 ms |
+| French Short Message | 435 bytes | 68 ms | 1 027 ms | 67 ms |
+| Synthetic wallet lure | 502 bytes | 127 ms | 119 ms | 132 ms |
+| Repeated French paragraph | 1 MiB | 389 ms | 1 623 ms | 1 605 ms |
 
-La borne basse de 80 supprime l'appel LLM du message court, dont le score local
-est 49,42. Le gain sur ce cas s'explique par cet appel évité. Les variations des
-autres cas entre exécutions ne démontrent pas un effet du réglage. Le leurre
-fictif dépasse déjà la borne haute de 98 et n'appelle le LLM dans aucun profil.
-Les deux profils payants totalisent 165 requêtes, chauffe comprise, et une
-augmentation du registre partagé de 0,035320 €. Ce montant décrit ces essais,
-pas un tarif moyen par email reçu.
+The low 80 markup removes the LLM call from the short message, whose local score is 49.42. The gain on this case is explained by this avoided call. The variations of other cases between executions do not show an effect of setting. The fictitious decoy already exceeds the high 98 markup and does not call the LLM in any profile. The two paid profiles total 165 requests, including heating, and an increase in the shared registry of €0.035320. This amount describes these tests, not an average rate per email received.
 
-Pour le schéma 3 et le seuil 95, l'ajustement LLM positif maximal vaut 1,5 dans
-l'échelle avant transformation sigmoïde. À partir d'un score de 80, il conduit
-au plus à `100 × sigmoid(log(80/20) + 1,5) = 94,7165`. La transformation est
-croissante : les appels en dessous de 80 ne peuvent donc pas faire franchir le
-seuil. La borne haute reste à 98. La relecture des 120 décisions enregistrées,
-puis l'essai distinct du profil 80–98, ne changent aucun classement sur ces cas.
-Les scores, raisons et indicateurs de complétude des appels omis peuvent changer.
-Cette justification doit être recalculée si le seuil ou les poids changent ;
-80 n'est pas une valeur universelle à copier dans toute configuration.
+For scheme 3 and threshold 95, the maximum positive LLM adjustment is 1.5 in the sigmoid scale before transformation. Starting with a score of 80, it leads to at most `100 × sigmoid(log(80/20) + 1.5) = 94,7165`. The transformation is increasing: therefore, calls below 80 cannot cross the threshold. The high limit remains at 98. The rereading of the 120 recorded decisions, then the separate test of profile 80–98, does not change any ranking on these cases. The scores, reasons and indicators of completeness of omitted calls may change. This justification must be recalculated if the threshold or weights change; 80 is not a universal value to be copied in any configuration.
 
-Ce réglage est actif sur le serveur pilote en observation. Il ne résout pas le
-dépassement des 500 ms pour les cas qui utilisent encore le LLM. Le texte de
-charge répété sur 1 Mio franchit d'ailleurs le seuil après l'avis LLM : ce
-comportement demande une évaluation distincte de la qualité. Ces quatre cas,
-non signés et répétés, ne permettent de publier ni taux de faux positifs ni
-p95 du trafic réel. Les entrées et mesures détaillées restent privées ; le
-rapport public contient leurs empreintes et les résultats agrégés.
+This setting is active on the observation pilot server. It does not solve the 500 ms exceedance for cases still using the LLM. The repeated load text on 1 MiB crosses the threshold after the LLM notice: this behavior requires a separate quality assessment. These four cases, unsigned and repeated, do not allow to publish any false positives rates or p95 of the actual traffic. Detailed entries and measurements remain private; the public report contains their fingerprints and aggregated results.
 
-## Vérification de la version 0.3.0-dev.11
+<a id="vérification-de-la-version-030-dev11"></a>
+## Verification of version 0.3.0-dev.11
 
-Le [rapport de cette vérification](../research/pipeline-latency-0311-20260907.json)
-reprend les quatre mêmes cas sur le même serveur, avec le code exact de la
-version 0.3.0-dev.11 et les modèles inchangés. Le profil de mesure désactive
-uniquement le LLM ; la configuration du service reste inchangée en observation.
-Les vérifications DNS, la politique SMTP, le modèle hybride et les deux scanners
-sont exécutés dans le traitement mesuré.
+The [follow-up report](../research/pipeline-latency-0311-20260907.json) uses the same four cases and server with the exact 0.3.0-dev.11 code and unchanged models. Only the measurement profile disables the LLM; the production configuration remained in observation. DNS, SMTP policy, the hybrid model and both scanners were included in measured processing.
 
-| Cas synthétique | Taille | p95 sans LLM |
+| Synthetic case | Taille | p95 without LLM |
 | --- | ---: | ---: |
-| Courriel professionnel français | 836 octets | 279 ms |
-| Message court français | 435 octets | 77 ms |
-| Leurre de portefeuille fictif | 502 octets | 130 ms |
-| Paragraphe français répété | 1 Mio | 428 ms |
+| French professional e-mail | 836 bytes | 279 ms |
+| French Short Message | 435 bytes | 77 ms |
+| Synthetic wallet lure | 502 bytes | 130 ms |
+| Repeated French paragraph | 1 MiB | 428 ms |
 
-Les 120 mesures, après 12 appels de chauffe, sont complètes et sans erreur.
-Les quantiles ont été recalculés à partir des 132 observations conservées.
-Le pic mémoire observé du processus est de 1 253 998 592 octets ; il exclut les
-scanners, qui tournent dans leurs propres services. Aucun email n'est livré et
-aucun nouvel appel payant n'est effectué. La file, les modèles et la configuration
-de production sont préservés.
+The 120 measurements, after 12 heat calls, are complete and error-free. Quantiles have been recalculated from the 132 observations kept. The observed memory peak of the process is 1,253,998,592 bytes; it excludes scanners, which run in their own services. No email is delivered and no new pay calls are made. The file, models and production configuration are preserved.
 
-Le rapport lie le probe au commit de la version et à l'empreinte récursive de ses
-sources. L'ancienne empreinte du workflow, qui omet les sous-modules Rust, reste
-identifiée séparément. Les statuts et les durées sont conservés sans contenu.
-Ce résultat ne mesure pas le profil avec LLM, la concurrence, le p95 du trafic
-réel, la capture ou les faux positifs. Aucun seuil n'a été ajusté à partir de
-ces cas.
+The report links the proof to the commit of the version and to the recursive footprint of its sources. The old workflow print, which omits the Rust submodules, remains separately identified. Statuses and durations are retained without content. This result does not measure the profile with LLM, competition, p95 of the actual traffic, capture or false positives. No threshold has been adjusted from these cases.
 
-## Concurrence SMTP et relais (0.3.0-dev.13)
+## SMTP and relay concurrency (0.3.0-dev.13)
 
-Le démon utilise déjà le runtime Tokio multithread : une tâche par connexion
-SMTP et plusieurs livraisons concurrentes. Les calculs sémantiques et SQLite
-s'exécutent dans le pool bloquant ; l'encodeur utilise également des threads CPU.
-Les opérations réseau des scanners se chevauchent avec l'inférence. Le parsing
-MIME et l'extraction lexicale restent synchrones et bornés dans les tâches de
-traitement ; leur coût fait partie des mesures.
+The daemon already uses the Tokio multithread runtime: one task per SMTP connection and several competing deliveries. Semantic calculations and SQLite run in the blocking pool; the encoder also uses CPU threads. Network operations of scanners overlap with inference. MIME parsing and lexical extraction remain synchronous and limited in processing tasks; their cost is part of the measurements.
 
-Trois limites distinctes pilotent le serveur : `smtp.max_connections` (128 par
-défaut), `smtp.max_processing` (4 par défaut, entre 1 et 64), et `relay.workers`
-(8 par défaut). `max_processing` couvre le téléchargement DATA, l'analyse et
-la persistance, et ne peut pas dépasser le nombre de connexions. Chaque DATA
-occupe un slot ; les autres expéditeurs reçoivent 451 avant le corps et doivent
-réessayer. Les uploads lents occupent donc aussi un slot. Augmenter cette limite
-consomme plus de mémoire et peut saturer les scanners. Le tampon disque DATA
-ajoute 64 Kio par traitement actif ; la taille limite du message n'est pas une
-estimation de la mémoire totale du moteur.
+Three distinct limits control the server: `smtp.max_connections` (128 by default), `smtp.max_processing` (4 by default, between 1 and 64), and `relay.workers` (8 by default). `max_processing` covers the DATA download, analysis and persistence, and cannot exceed the number of connections. Each DATA occupies a slot; other senders receive 451 before the body and must try again. Slow uploads therefore also occupy a slot. Increase this limit consumes more memory and can saturate scanners. The DATA disk buffer adds 64 KiB per active processing; the message's limit size is not an estimate of the total memory of the engine.
 
-Avec un worker sémantique et un worker OCR, commencer par `max_processing = 1`
-comme dans l'exemple de production. Monter ensuite selon les mesures ; les
-connexions et livraisons restent concurrentes. L'attente du moteur sémantique
-partage son délai avec l'inférence, et une tâche CPU qui dépasse son délai
-conserve son slot jusqu'à sa fin. Le worker OCR reste séquentiel et un LLM
-configuré peut encore ajouter de la latence : multiplier les connexions ne
-multiplie pas la capacité de ces composants. Les résultats incomplets doivent
-être suivis séparément. Les variables `TOKIO_WORKER_THREADS`, `RAYON_NUM_THREADS`
-et `CANDLE_NUM_THREADS` peuvent borner les pools ; éviter de les dimensionner
-chacun comme si les autres ne consommaient aucun cœur.
+With a semantic worker and an OCR worker, start with `max_processing = 1` as in the production example. Then mount according to the measurements; connections and deliveries remain competing. The waiting time of the semantic engine is shared with the inference, and a CPU task that goes beyond its time-limit retains its slot until it is complete. The OCR worker remains sequential and a configured LLM can still add latency: multiple connections do not multiply the capacity of these components. Incomplete results must be tracked separately. `TOKIO_WORKER_THREADS`, `RAYON_NUM_THREADS` and `CANDLE_NUM_THREADS` variables can limit pools; avoid dimensioning them each as if the others did not consume any core.
 
-### Banc SMTP reproductible
+### Reproducible SMTP benchmark
 
-`scripts/smtp_load.py` démarre le binaire choisi, une **nouvelle file privée** et
-un récepteur SMTP local. Aucun destinataire distant n'est configurable. Le banc
-n'importe jamais la configuration du service et désactive DNS, DQS et LLM. Il
-refuse un répertoire existant. Les paramètres bornent messages, taille,
-concurrence et durée ; sous Linux, ajouter des limites systemd CPU/mémoire.
+`scripts/smtp_load.py` starts the selected binary, a **new private file** and a local SMTP receiver. No remote recipient is configurable. The bench never imports the configuration of the service and disables DNS, DQS and LLM. It refuses an existing directory. The parameters limit messages, size, competition and duration; under Linux, add systemd CPU/memory limits.
 
 ```sh
 python3 scripts/smtp_load.py --binary ./noisefence \
@@ -216,83 +112,31 @@ python3 scripts/smtp_load.py --binary ./noisefence \
   --message-bytes 1048576 --processing 4
 ```
 
-Ajouter `--lexical-model`, `--semantic-encoder`, `--semantic-combination` et les
-options `--antivirus-socket`, `--signatures-socket`, `--vision-socket` pour mesurer
-les composants locaux réels. Un worker vision configuré reçoit ici du texte sans
-image : cela vérifie son chemin MIME mais **ne mesure pas le débit OCR**. Omettre
-`--processing` pour comparer la version 0.3.0-dev.12, qui imposait quatre slots.
-Le même binaire et le même matériel doivent être utilisés pour comparer les
-réglages. Les messages sont synthétiques et répétitifs ; ils ne constituent pas
-un jeu d'évaluation de la qualité.
+Add `--lexical-model`, `--semantic-encoder`, `--semantic-combination` and options `--antivirus-socket`, `--signatures-socket`, `--vision-socket` to measure real local components. A configured worker vision here receives text without image: this checks its MIME path but **does not measure OCR rate**. Omit `--processing` to compare version 0.3.0-dev.12, which required four slots. The same binary and hardware must be used to compare settings. The messages are synthetic and repetitive; they do not constitute a quality evaluation dataset.
 
-Le résumé contient les versions et empreintes, tous les statuts des scanners,
-les analyses complètes/incomplètes, le débit accepté et livré, ainsi que les
-latences d'acceptation (reprises comprises). Il vérifie chaque identifiant,
-l'absence de doublon et la conservation exacte des corps, puis l'état durable
-`delivered` et l'intégrité SQLite. `correctness_passed` concerne la livraison ;
-examiner aussi `complete` et `incomplete`. Le programme échoue si la livraison
-n'est pas vérifiée, mais conserve un rapport d'échec. Le pic mémoire échantillonné
-à 100 ms et le temps CPU portent sur le démon, sans les services scanners. Le
-récepteur Python, le journal et le moniteur font partie de l'environnement de
-mesure ; le pic réel peut être supérieur à l'échantillon observé.
+The summary contains the versions and prints, all the statuses of the scanners, the complete/incomplete analyses, the accepted and delivered flow rate, as well as the acceptance latency (including company). It checks each identifier, the absence of duplicates and the exact preservation of the bodies, then the durable state `delivered` and SQLite integrity. `correctness_passed` concerns delivery; also examine `complete` and `incomplete`. The program fails if delivery is not verified, but maintains a failure report. The peak memory sampled at 100 ms and the time CPU are on the demon, without the scanner services. The Python receiver, the journal and the monitor are part of the measurement environment; the actual peak may be higher than the observed sample.
 
-Ces essais utilisent SMTP en clair sur loopback, incluent le démarrage à froid
-des premiers messages et excluent le temps de chargement du modèle du débit.
-Ils complètent les tests STARTTLS, reprise après interruption et accès existants.
-Ils ne mesurent ni le débit de Proton, ni celui de TLS, ni un trafic Internet
-réel. Toute projection en messages/jour exige un profil représentatif durable.
+These tests use SMTP plain on loopback, include the cold start of the first messages and exclude the loading time of the flow model. They complement STARTTLS tests, resume after existing interruption and access. They do not measure Proton's, TLS's, or real Internet traffic. Any message projection/day requires a sustainable representative profile.
 
-### Résultats sur le VPS du 8 septembre 2026
+<a id="résultats-sur-le-vps-du-8-septembre-2026"></a>
+### Results on the VPS of September 8, 2026
 
-Le [rapport complet](../research/smtp-capacity-20260908.json) conserve tous les
-profils, y compris ceux qui sautent des contrôles. Les essais comparent les
-archives officielles 0.3.0-dev.12 et 0.3.0-dev.13 sur le VPS Debian 13 à 4 vCPU et
-7 757 Mio de RAM. Le démon isolé et son client sont plafonnés ensemble à trois
-cœurs et 3 Gio ; les scanners locaux utilisent leurs services habituels. Les
-configurations du service et ses messages ne sont pas utilisés par le banc.
+The [full report](../research/smtp-capacity-20260908.json) retains all profiles, including those that skipped checks. It compares official 0.3.0-dev.12 and 0.3.0-dev.13 archives on Debian 13 with 4 vCPU and 7,757 MiB RAM. The isolated daemon and client together were limited to three cores and 3 GiB; scanners used their usual services. The benchmark did not use production configuration or messages.
 
-| Profil synthétique | Messages / clients | Ancien débit livré | Nouveau débit livré | Analyse complète, nouvelle version |
+| Synthetic profile | Messages / clients | Old delivered throughput | New delivery | Complete analysis, new version |
 | --- | ---: | ---: | ---: | ---: |
-| Texte 1 Kio, moteur léger, 4 traitements | 200 / 8 | 7,99/s | 151,36/s | 200/200, sans modèle ni scanners |
-| Texte 1 Mio, moteur léger, 4 traitements | 40 / 4 | 6,39/s | 12,99/s | 40/40, sans modèle ni scanners |
-| Rafale 1 Kio, moteur léger, 16 traitements | 1 000 / 128 | Non mesuré | 149,52/s | 1 000/1 000, sans modèle ni scanners |
-| Modèle + antivirus, 1 traitement, 4 threads CPU | 100 / 8 | Non mesuré à ce réglage | 2,91/s | 100/100 |
-| Modèle + antivirus, 2 traitements, 2 threads CPU | 100 / 8 | Non mesuré à ce réglage | 4,85/s | 100/100, sans image |
-| Modèle + antivirus + image/QR, 1 traitement | 20 / 8 | Non mesuré | 1,35/s | 20/20 |
-| Modèle + antivirus + image/QR, 2 traitements | 20 / 8 | Non mesuré | 6,08/s | **4/20 : OCR occupé pour les 16 autres** |
+| Text 1 KiB, light motor, 4 treatments | 200 / 8 | 7.99/s | 151.36/s | 200/200, without model or scanners |
+| Text 1 MiB, light motor, 4 treatments | 40 / 4 | 6.39/s | 12.99/s | 40/40, without models or scanners |
+| Rafale 1 KiB, light motor, 16 treatments | 1 000 / 128 | Not measured | 149.52/s | 1000/1 000, without models or scanners |
+| Model + antivirus, 1 processing, 4 threads CPU | 100 / 8 | Not measured at this setting | 2.91/s | 100/100 |
+| Model + antivirus, 2 treatments, 2 threads CPU | 100 / 8 | Not measured at this setting | 4.85/s | 100/100, no image |
+| Model + antivirus + image/QR, 1 treatment | 20 / 8 | Not measured | 1.35/s | 20/20 |
+| Model + antivirus + image/QR, 2 treatments | 20 / 8 | Not measured | 6.08/s | **4/20: OCR occupied for the remaining 16** |
 
-La livraison des 200 petits messages passe de 25,02 à 1,32 seconde. Pour les
-40 gros messages, le p95 d'acceptation passe de 785 à 315 ms et le temps CPU
-échantillonné du démon de 10,64 à 1,26 seconde. Ces comparaisons incluent le
-récepteur Python et les écritures durables ; elles ne mesurent pas le relais TLS
-vers Proton. Les 2 120 messages de l'ensemble des essais ont été retrouvés dans
-le récepteur et en état durable `delivered`, sans doublon ni changement de corps.
+The delivery of the 200 small messages is increased from 25.02 to 1.32 seconds. For the 40 large messages, the acceptance p95 is increased from 785 to 315 ms and the CPU time sampled from the daemon from 10.64 to 1.26 seconds. These comparisons include the Python receiver and durable scripts; they do not measure the TLS relay to Proton. The 2,120 messages from all the tests were found in the receiver and in durable condition `delivered`, without doubling or changing body.
 
-Le profil retenu pour le serveur est `max_processing = 1`, un worker sémantique,
-quatre threads de calcul et huit workers de relais. Sur le texte, l'analyse p95
-est de **339 ms**, avec un pic RSS observé de 1 154 224 128 octets pour le démon.
-Avec l'image synthétique de 1 300 × 650 pixels (mail d'environ 27 Kio), le p95
-est de **672 ms** : les 20 textes et QR codes sont décodés. Ce dernier cas dépasse
-l'objectif initial de 500 ms. Le profil à deux traitements est plus rapide pour
-le texte, mais sa saturation OCR ne permet pas de le retenir pour les mails mixtes.
+The profile chosen for the server is `max_processing = 1`, a semantic worker, four calculation threads and eight relay workers. On the text, the p95 analysis is **339 ms**, with an observed RSS peak of 1,154 224 128 bytes for the daemon. With the synthetic image of 1,300 × 650 pixels (mail of about 27 KiB), the p95 is **672 ms**: the 20 texts and QR codes are decoded. The latter case exceeds the initial target of 500 ms. The two-processed profile is faster for the text, but its OCR saturation does not allow to retain it for mixed mails.
 
-L'ancienne admission de quatre traitements produit seulement 2 analyses complètes
-sur 100 lors de la rafale avec un worker sémantique. L'attente bornée de la
-nouvelle version, seule, n'est pas suffisante : à quatre traitements, 3/100 sont
-complets. Le réglage de l'admission est donc nécessaire avec ces modèles et ce
-matériel. Il implique des réponses temporaires avant DATA : sur le lot de texte
-retenu, 163 réponses 451 et un p95 d'acceptation de 30,71 secondes, reprises
-comprises. Sur le lot OCR retenu, 79 réponses 451 et un p95 d'acceptation de
-13,68 secondes. Les clients réels peuvent attendre beaucoup plus longtemps avant
-leur prochaine tentative. Le p95 **d'analyse** ne doit pas être présenté comme
-une latence d'arrivée sous rafale.
+The old admission of four treatments produces only 2 full analyses in 100 during the burst with a semantic worker. The limited wait of the new version, alone, is not sufficient: at four treatments, 3/100 are complete. The adjustment of the admission is therefore necessary with these models and this material. It involves temporary answers before DATA: on the selected text lot, 163 responses 451 and a acceptance p95 of 30.71 seconds, included. On the selected OCR lot, 79 responses 451 and a acceptance p95 of 13.68 seconds. Real customers can wait much longer before their next attempt. The analysis p95 **** should not be presented as a latent of arrival under gust.
 
-Pour reproduire le cas OCR depuis le dépôt, avec Pillow, `qrencode` et les fontes
-DejaVu installés, utiliser `scripts/smtp_load_vision.py` avec les mêmes options
-que le banc texte et `--vision-socket`. Ce complément emploie l'image publique de
-`tests/vision_worker.py`, sans contenu privé ; il vérifie également la lecture du
-texte et du QR pour chaque réponse OCR complète. L'archive v0.3.0-dev.13 contient
-le banc texte ; le complément et ce rapport sont disponibles dans le dépôt.
-Les réglages du modèle, des antivirus, de l'OCR et du LLM du service restent
-actifs ; DNS et LLM ont été exclus uniquement des essais isolés. Une capacité de
-production soutenue, avec le trafic réel, TLS et Proton, reste à mesurer.
+To reproduce the OCR case from the repository, with Pillow, `qrencode` and the installed DejaVu fonts, use `scripts/smtp_load_vision.py` with the same options as the text bench and `--vision-socket`. This complement uses the public image of `tests/vision_worker.py`, without private content; it also checks the text and QR for each complete OCR response. The v0.3-dev.13 archive contains the text bench; the complement and this report are available in the repository. The settings of the service's model, antivirus, OCR and LLM remain active; DNS and LLM have been excluded only from isolated testing. A sustained production capacity, with the actual traffic, TLS and Proton, remains to be measured.

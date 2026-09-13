@@ -107,12 +107,12 @@ fn metadata(id: &str, label: &str, weight: f64) -> Result<()> {
 }
 pub fn default_patterns() -> Vec<Pattern> {
     [
-        ("NF_URGENCY", "Vocabulaire d’urgence", 0.3, Target::Body, r"(?i)\b(?:urgent|immediately|immédiatement)\b"),
-        ("NF_CREDENTIALS", "Demande de vérification de compte", 0.6, Target::Body, r"(?i)verify your account|confirmez votre compte|password expires|mot de passe expire"),
-        ("NF_FINANCIAL", "Promesse de rendement", 0.5, Target::Body, r"(?i)guaranteed profit|profit garanti|million dollars|\blot(?:tery|erie)\b"),
-        ("NF_WALLET_SECRET", "Demande liée à une phrase de récupération", 0.8, Target::Body, r"(?i)(?:enter|provide|saisir|saisissez|communiqu\p{L}*)[^.\n]{0,100}(?:seed phrase|recovery phrase|phrase de récupération)"),
-        ("NF_FORM", "Formulaire HTML", 0.5, Target::Html, r"(?i)<\s*form\b"),
-        ("NF_UNSUBSCRIBE", "Mention de désabonnement", 0.0, Target::Body, r"(?i)\bunsubscribe\b|désabonn\p{L}*"),
+        ("NF_URGENCY", "Urgency language", 0.3, Target::Body, r"(?i)\b(?:urgent|immediately|immédiatement)\b"),
+        ("NF_CREDENTIALS", "Request for account verification", 0.6, Target::Body, r"(?i)verify your account|confirmez votre compte|password expires|mot de passe expire"),
+        ("NF_FINANCIAL", "Promise of returns", 0.5, Target::Body, r"(?i)guaranteed profit|profit garanti|million dollars|\blot(?:tery|erie)\b"),
+        ("NF_WALLET_SECRET", "Request related to a recovery phrase", 0.8, Target::Body, r"(?i)(?:enter|provide|saisir|saisissez|communiqu\p{L}*)[^.\n]{0,100}(?:seed phrase|recovery phrase|phrase de récupération)"),
+        ("NF_FORM", "HTML form", 0.5, Target::Html, r"(?i)<\s*form\b"),
+        ("NF_UNSUBSCRIBE", "Mention of unsubscribe", 0.0, Target::Body, r"(?i)\bunsubscribe\b|désabonn\p{L}*"),
     ].into_iter().map(|(id,label,weight,target,pattern)| Pattern {
         id:id.into(), label:label.into(), family:Family::Content, weight, target, pattern:pattern.into(),
         exclude_negated:id=="NF_WALLET_SECRET"
@@ -122,7 +122,7 @@ pub fn default_composites() -> Vec<Composite> {
     vec![
         Composite {
             id: "NF_REMOTE_LOGIN_FORM".into(),
-            label: "Saisie d’un mot de passe vers un domaine externe".into(),
+            label: "Password entry targets an external domain".into(),
             family: Family::Content,
             weight: 1.2,
             all: vec![
@@ -138,7 +138,7 @@ pub fn default_composites() -> Vec<Composite> {
         },
         Composite {
             id: "NF_DISGUISED_ATTACHMENT".into(),
-            label: "Binaire déguisé et extension exécutable".into(),
+            label: "Detachable binary and executable extension".into(),
             family: Family::Content,
             weight: 1.5,
             all: vec![
@@ -154,7 +154,7 @@ pub fn default_composites() -> Vec<Composite> {
         },
         Composite {
             id: "NF_AUTH_FAILURE".into(),
-            label: "Échecs SPF et DMARC regroupés".into(),
+            label: "CPS and DMARC failures combined".into(),
             family: Family::Authentication,
             weight: 1.0,
             all: vec!["spf_fail".into(), "dmarc_fail".into()],
@@ -164,7 +164,7 @@ pub fn default_composites() -> Vec<Composite> {
         },
         Composite {
             id: "NF_CREDENTIAL_LINK".into(),
-            label: "Demande d’identifiants et lien suspect".into(),
+            label: "Credential request with a suspicious link".into(),
             family: Family::Content,
             weight: 1.5,
             all: vec!["NF_CREDENTIALS".into()],
@@ -178,7 +178,7 @@ pub fn default_composites() -> Vec<Composite> {
         },
         Composite {
             id: "NF_WALLET_URGENCY".into(),
-            label: "Phrase de récupération demandée avec urgence".into(),
+            label: "Recovery phrase requested with urgency".into(),
             family: Family::Content,
             weight: 1.5,
             all: vec!["NF_WALLET_SECRET".into(), "NF_URGENCY".into()],
@@ -483,12 +483,12 @@ pub fn context(scan: &crate::engine::Scan) -> Vec<Symbol> {
         })
     };
     if let Some(logit) = scan.evidence.as_ref().and_then(|e| e.lexical_logit) {
-        add("NF_LEXICAL", "Modèle lexical", Lexical, logit);
+        add("NF_LEXICAL", "Lexical model", Lexical, logit);
     }
     if scan.semantic.status == crate::engine::SemanticStatus::Complete
         && let Some(weight) = scan.semantic.contribution
     {
-        add("NF_SEMANTIC", "Modèle sémantique", Semantic, weight);
+        add("NF_SEMANTIC", "Semantic model", Semantic, weight);
     }
     for reason in &scan.reasons {
         let (id, family) = match reason.id.as_str() {
@@ -513,7 +513,7 @@ pub fn context(scan: &crate::engine::Scan) -> Vec<Symbol> {
         }) {
             add(
                 "NF_MALICIOUS_INDICATOR",
-                "Indicateur de réputation malveillante",
+                "Malignant reputation indicator",
                 Reputation,
                 2.0,
             );
@@ -521,7 +521,7 @@ pub fn context(scan: &crate::engine::Scan) -> Vec<Symbol> {
         if report.findings.iter().any(|f| f.id == "misleading_link") {
             add(
                 "NF_DECEPTIVE_LINK",
-                "Destination de lien trompeuse",
+                "Misleading link destination",
                 Content,
                 0.8,
             );

@@ -55,7 +55,7 @@ export function setScopeThreshold(
     threshold !== null &&
     (!Number.isFinite(threshold) || threshold < 50 || threshold > 100)
   ) {
-    throw new Error('Le seuil doit être compris entre 50 et 100.');
+    throw new Error("The threshold must be between 50 and 100.");
   }
   const p = policy ?? { profiles: [], bindings: [], rules: [] };
   const current = scopedProfile(p, scope);
@@ -64,9 +64,9 @@ export function setScopeThreshold(
     current &&
     p.bindings.some((b) => b.profile === current.id && b.scope !== scope);
   if ((!current || shared) && p.profiles.length >= 32)
-    throw new Error('Maximum de 32 profils atteint.');
+    throw new Error("Maximum of 32 profiles reached.");
   if (!current && p.bindings.length >= 1000)
-    throw new Error('Maximum de 1 000 affectations atteint.');
+    throw new Error("Maximum of 1,000 assignments achieved.");
   const inherited =
     current ?? (scope !== '*' ? scopedProfile(p, '*') : undefined);
   const profile: Profile = {
@@ -83,7 +83,7 @@ export function setScopeThreshold(
         ? current.name
         : scope === '*'
           ? 'Organisation'
-          : `Domaine ${scope.slice(2)}`.slice(0, 100),
+          : `Domain ${scope.slice(2)}`.slice(0, 100),
     threshold,
     require_corroboration:
       threshold !== null || (inherited?.require_corroboration ?? true),

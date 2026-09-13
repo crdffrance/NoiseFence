@@ -18,22 +18,22 @@ pub(super) fn grants(cfg: &Config, username: &str, addresses: &mut Vec<String>) 
                 .all(|b| b.is_ascii_alphanumeric() || b"._-@".contains(&b)),
         "Identifiant invalide."
     );
-    ensure!(addresses.len() <= 1000, "Trop d’accès.");
+    ensure!(addresses.len() <= 1000, "Too many access grants.");
     for address in addresses.iter_mut() {
         let (local, domain) = address
             .rsplit_once('@')
-            .ok_or_else(|| anyhow::anyhow!("Adresse invalide."))?;
+            .ok_or_else(|| anyhow::anyhow!("Invalid address."))?;
         ensure!(
             cfg.domains
                 .iter()
                 .any(|d| d.name.eq_ignore_ascii_case(domain)),
-            "Domaine non configuré."
+            "Domain not configured."
         );
         *address = if local == "*" {
             format!("*@{}", domain.to_ascii_lowercase())
         } else {
             cfg.recipient(address)
-                .ok_or_else(|| anyhow::anyhow!("Destinataire non configuré."))?
+                .ok_or_else(|| anyhow::anyhow!("Recipient not configured."))?
                 .destination
         };
     }
@@ -42,7 +42,11 @@ pub(super) fn grants(cfg: &Config, username: &str, addresses: &mut Vec<String>) 
     Ok(())
 }
 fn invalid() -> Error {
-    Error(StatusCode::BAD_REQUEST,"Invitation invalide, expirée ou déjà utilisée. Demandez un nouveau lien à votre administrateur.".into())
+    Error(
+        StatusCode::BAD_REQUEST,
+        "Invitation invalid, expired or already used. Ask your administrator for a new link."
+            .into(),
+    )
 }
 fn rate(app: &App, h: &HeaderMap, token: &str) -> ApiResult<String> {
     origin(app, h)?;
@@ -55,7 +59,7 @@ fn rate(app: &App, h: &HeaderMap, token: &str) -> ApiResult<String> {
     if attempts.1 > 60 {
         return Err(Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans une minute.".into(),
+            "Try again in a minute.".into(),
         ));
     }
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -83,7 +87,7 @@ async fn create(
     if !(1..=7).contains(&body.days) || (!body.admin && body.addresses.is_empty()) {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Choisissez des accès et une durée de 1 à 7 jours.".into(),
+            "Choose accesses and a duration of 1 to 7 days.".into(),
         ));
     }
     grants(&app.effective(), &body.username, &mut body.addresses)
@@ -96,9 +100,9 @@ async fn create(
     app.store.run(move|db| {
         let tx=db.transaction()?;let version=authorized(&tx,&actor.username)?;
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1)",[&body.username],|r|r.get(0))?;
-        ensure!(!exists,"Ce compte existe déjà. Utilisez la gestion des comptes.");
+        ensure!(!exists,"This account already exists. Use account management.");
         let count:i64=tx.query_row("SELECT COUNT(*) FROM console_invitations WHERE accepted IS NULL AND revoked IS NULL AND expires>?1",[now()],|r|r.get(0))?;
-        ensure!(count<1000,"Maximum de 1 000 invitations actives atteint.");
+        ensure!(count<1000,"Maximum of 1,000 active invitations reached.");
         // Reissuing for the same username invalidates every previous pending link.
         tx.execute("UPDATE console_invitations SET revoked=?2,version=version+1 WHERE username=?1 AND accepted IS NULL AND revoked IS NULL",params![body.username,now()])?;
         tx.execute("INSERT INTO console_invitations(id,token_hash,username,admin,addresses,creator,creator_version,created,expires) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![saved,digest,body.username,body.admin,serde_json::to_string(&body.addresses)?,actor.username,version,now(),expires])?;
@@ -130,9 +134,9 @@ async fn revoke(
     let actor = admin::administrator(&app, &h, true).await?;
     app.store.run(move|db| {let tx=db.transaction()?;authorized(&tx,&actor.username)?;
         let changed=tx.execute("UPDATE console_invitations SET revoked=?3,version=version+1 WHERE id=?1 AND version=?2 AND accepted IS NULL AND revoked IS NULL",params![body.id,body.version,now()])?;
-        ensure!(changed==1,"Invitation modifiée ou déjà utilisée.");
+        ensure!(changed==1,"Amended or already used invitation.");
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'invitation_revoke',?3)",params![now(),actor.username,body.id])?;tx.commit()?;Ok(())
-    }).await.map_err(|_|Error(StatusCode::CONFLICT,"Invitation modifiée ou déjà utilisée. Rechargez la liste.".into()))?;
+    }).await.map_err(|_|Error(StatusCode::CONFLICT,"Invitation modified or already used. Reload the list.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
 #[derive(Deserialize)]
@@ -186,7 +190,7 @@ async fn accept(
     if body.password != body.confirmation || !(12..=128).contains(&body.password.len()) {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Les mots de passe doivent être identiques et contenir 12 à 128 octets.".into(),
+            "Passwords must be identical and contain 12 to 128 bytes.".into(),
         ));
     }
     let verify_hash = hash.clone();
@@ -197,7 +201,7 @@ async fn accept(
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans quelques instants.".into(),
+            "Try again in a few moments.".into(),
         )
     })?;
     let password = tokio::task::spawn_blocking(move || {
@@ -214,10 +218,10 @@ async fn accept(
     };
     let username=app.store.run(move|db| {
         let tx=db.transaction()?;let mut c=claim(&tx,&hash)?;
-        if let Some(expected)=revision {let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;ensure!(current==expected,"Configuration modifiée, réessayez.");}
+        if let Some(expected)=revision {let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;ensure!(current==expected,"Modified configuration, try again.");}
         let intended=c.addresses.clone();grants(&cfg,&c.username,&mut c.addresses)?;
-        ensure!(intended==c.addresses,"Les accès ont changé. Demandez un nouveau lien.");
-        let count:i64=tx.query_row("SELECT COUNT(*) FROM users",[],|r|r.get(0))?;ensure!(count<1000,"Limite de comptes atteinte.");
+        ensure!(intended==c.addresses,"Accesses have changed. Ask for a new link.");
+        let count:i64=tx.query_row("SELECT COUNT(*) FROM users",[],|r|r.get(0))?;ensure!(count<1000,"Account limit reached.");
         tx.execute("INSERT INTO users(username,password,admin) VALUES(?1,?2,?3)",params![c.username,password,c.admin])?;
         for address in c.addresses {tx.execute("INSERT INTO grants(username,address) VALUES(?1,?2)",params![c.username,address])?;}
         tx.execute("INSERT INTO console_user_versions(username,version) VALUES(?1,1)",[&c.username])?;
@@ -255,15 +259,12 @@ async fn preview(
     {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Faits de simulation invalides.".into(),
+            "Invalid simulation facts.".into(),
         ));
     }
-    let recipient = cfg.recipient(&body.recipient).ok_or_else(|| {
-        Error(
-            StatusCode::BAD_REQUEST,
-            "Destinataire non configuré.".into(),
-        )
-    })?;
+    let recipient = cfg
+        .recipient(&body.recipient)
+        .ok_or_else(|| Error(StatusCode::BAD_REQUEST, "Recipient not configured.".into()))?;
     let mut scan = crate::engine::Scan {
         complete: true,
         score: body.score,
@@ -287,6 +288,6 @@ async fn preview(
     let assessment =
         crate::custom_filtering::assess(&body.policy, &cfg, &scan, &facts, &recipient, now());
     Ok(Json(
-        json!({"simulation":true,"assessment":assessment,"note":"Simulation des règles avec les faits saisis. Les contrôles DMARC, antivirus et réputation ne sont pas exécutés."}),
+        json!({"simulation":true,"assessment":assessment,"note":"Simulation of the rules with the facts seized. DMARC, antivirus and reputation controls are not executed."}),
     ))
 }

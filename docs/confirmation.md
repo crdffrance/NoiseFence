@@ -1,75 +1,29 @@
-# Limiter les classements Spam insuffisamment étayés
+<a id="limiter-les-classements-spam-insuffisamment-étayés"></a>
+# Corroboration and review decisions
 
-L’option `filter.require_corroboration = true`, également disponible dans les
-réglages de la console, ajoute une abstention au score historique. Lorsque ce
-score dépasse le seuil mais ne dispose d’aucune confirmation ci-dessous, la
-décision devient **À vérifier** (`undetermined`). Le message est transmis sans
-préfixe. Son score, ses caractéristiques et son statut d’analyse restent conservés.
-Ce n’est ni une preuve de légitimité ni une catégorie PUB.
+The `filter.require_corroboration = true` option, also available in console settings, adds abstention to the historical score. When this score exceeds the threshold but has no confirmation below, the decision becomes **Needs review** (`undetermined`). The message is transmitted without prefix. Its score, characteristics and analysis status remain retained. This is neither proof of legitimacy nor a PUB category.
 
-Les confirmations prises en compte par `confirmation-3` sont :
+The confirmations taken into account by `confirmation-3` are:
 
-- une détection de malware par l’antivirus principal ;
-- un échec DMARC vérifié sur les deux possibilités d’alignement ;
-- une réponse DQS vérifiée indiquant une réputation défavorable pour une IP (ZEN 2, 3, 4, 9) ou
-  un domaine (DBL 2, 4, 5, 6).
+- malware detection by the main antivirus;
+- a verified DMARC failure on both alignment possibilities;
+- a verified DQS response indicating an unfavourable reputation for an IP (ZEN 2, 3, 4, 9) or a domain (DBL 2, 4, 5, 6).
 
-Les réponses indisponibles, codes d’erreur, listes de politique IP (PBL), domaines
-légitimes compromis, SPF seul, incohérences SMTP, signatures consultatives et
-indices HTML/OCR ne suffisent pas. Le lexical et le sémantique constituent déjà
-le score de contenu : ils ne sont pas comptés comme deux confirmations.
-Depuis 0.4.8, le LLM reste un contributeur borné du score de contenu et ne
-constitue plus une confirmation indépendante, même avec une confiance déclarée élevée.
-Une réussite SPF/DKIM/DMARC ne dispense pas des contrôles : des messages malveillants
-peuvent être correctement authentifiés. Les en-têtes du message ne peuvent pas
-fournir ces résultats internes.
+Unavailable responses, error codes, IP policy lists (PBL), legitimate compromised domains, SPF alone, SMTP inconsistencies, Advisory signatures and HTML/OCR indices are not enough. Lexical and semantic are already the content score: they are not counted as two confirmations. Since 0.4.8, the LLM remains a limited contributor to the content score and no longer constitutes an independent confirmation, even with high confidence declared. A SPF/DKIM/DMARC success does not exempt controls: malicious messages can be properly authenticated. Message headers cannot provide these internal results.
 
-Les sources peuvent être corrélées. Les nombres déclarés par le LLM ne sont pas
-des probabilités validées. Cette règle de prudence **peut réduire le rappel**,
-notamment pour les spams reconnus uniquement par le modèle. Mesurer les spams
-placés « À vérifier », ainsi que les faux positifs, avant d’activer le marquage.
-Le compteur de faux positifs doit être accompagné des abstentions : déplacer
-une erreur vers « À vérifier » n’équivaut pas à bien classer ce message.
+Sources can be correlated. The numbers reported by LLM are not validated probabilities. This caution rule **can reduce the recall**, especially for spams recognized only by the model. Measure the spams placed "Needs review", as well as the false positives, before enabling the marking. The false positives counter must be accompanied by the abstentions: move an error to "Needs review" does not amount to properly classifying this message.
 
-La fusion apprise, lorsqu’elle est activée avec son propre rapport de validation,
-conserve sa politique de confirmation. La [priorité antivirus](filter-policy.md)
-s’applique après la fusion comme après le score historique. Une analyse incomplète
-reste incomplète. Aucun contrôle
-supplémentaire ni appel réseau n’est déclenché par cette option, qui ne change
-pas les seuils ou les poids du modèle chargé. Son état et sa version font partie
-de l’empreinte de politique ; les artefacts de fusion doivent correspondre.
+The fusion learned, when activated with its own validation report, retains its confirmation policy. The [antivirus priority](filter-policy.md) applies after the fusion as well as after the historical score. An incomplete analysis remains incomplete. No additional control or network call is triggered by this option, which does not change the thresholds or weights of the loaded model. Its status and version are part of the policy footprint; the fusion artifacts must match.
 
-Les anciens fichiers et révisions gardent la valeur `false` par défaut. Le
-modèle de configuration de production propose `true`. L’administrateur peut
-l’activer explicitement avec une nouvelle révision. Les décisions historiques
-et les messages déjà livrés ne sont pas réécrits. Le filtre **À vérifier** de
-l’historique sélectionne les nouvelles analyses complètes dont la décision est
-indéterminée ; **Analyse incomplète** conserve son sens opérationnel.
+The old files and revisions keep the default `false` value. The production configuration model offers `true`. The administrator can explicitly activate with a new revision. Historical decisions and already delivered messages are not rewritten. The **Needs review** filter selects new complete analyses whose decision is not known; **Incomplete analysis** retains its operational meaning.
 
-Le prompt LLM `noisefence-classify-2` précise également que brièveté, fournisseur
-gratuit, transfert et notification de service ne constituent pas des preuves de
-spam. Le préfixe de transfert ne garantit pas non plus la sûreté du contenu.
-Ce changement de consignes n’a pas, à lui seul, de gain de qualité mesuré.
+The prompt LLM `noisefence-classify-3` also specifies that brevity, free provider, transfer and service notification are not spam proofs. Nor does the transfer prefix guarantee the security of the content. This change in instructions alone does not result in a measured quality gain.
 
-## Vérification
+<a id="vérification"></a>
+## Verification
 
-`cargo test --test confirmation --test console` couvre les décisions sans
-confirmation, avis faibles/forts, malware, contrôles indisponibles, réputation,
-SPF/DMARC, en-têtes falsifiés, corps conservé, filtres et droits par destinataire.
-Les fixtures sont synthétiques et ne publient aucun message de production.
-Les corrections réelles doivent rester privées et être évaluées sans modifier
-les labels ni les poids sur le lot servant à mesurer le résultat.
+`cargo test --test confirmation --test console` covers decisions without confirmation, weak/strong reviews, malware, unavailable controls, reputation, SPF/DMARC, falsified headers, retained body, filters and rights per recipient. Fixtures are synthetic and do not publish any production message. Actual corrections must remain private and be evaluated without changing the labels or the weights on the lot used to measure the result.
 
-`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` compare les
-décisions historiques à cette règle en réutilisant les observations enregistrées.
-Il ouvre SQLite en lecture seule, n’accède pas aux corps, ne charge aucun modèle
-et ne fait aucun appel externe. La sortie contient uniquement des compteurs,
-y compris les abstentions sur légitimes et sur spams. Les droits des annotateurs,
-leur désactivation, les conflits et la rétention de trente jours sont vérifiés.
-Les décisions absentes, incomplètes ou issues d’une fusion sont comptées à part.
-Un lot de corrections est biaisé ; ce bilan ne mesure pas le taux de faux
-positifs sur l’ensemble du trafic. Il ne rejoue pas le nouveau prompt LLM.
-Depuis dev.21, `with_decision_policy` mesure aussi l’effet de la priorité antivirus
-sur ces mêmes observations, sans recalculer le score ni les recherches DQS.
+`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` compares historical decisions to this rule by re-using recorded observations. It opens SQLite read-only, does not access bodies, loads no models and makes no external calls. The output contains only meters, including omissions on legitimate and spam. The rights of the annotators, their deactivation, conflicts and 30-day retention are verified. Decisions that are absent, incomplete or resulting from a fusion model are counted separately. A set of corrections is biased; this balance does not measure the rate of false positives on all traffic. It does not replay the new prompt LLM. Since dev.21, `with_decision_policy` also measures the effect of the antivirus priority on these same observations, without re-calculating the score or DQS searches.
 
-La distinction des codes DQS suit la [table des zones Spamhaus](https://docs.spamhaus.com/datasets/docs/source/10-data-type-documentation/datasets/040-zones.html).
+The distinction of DQS codes follows the [Table of Spamhaus Zones](https://docs.spamhaus.com/datasets/docs/source/10-data-type-documentation/datasets/040-zones.html).

@@ -1,7 +1,7 @@
 export const adaptiveClasses = ['legitimate', 'publicity', 'spam', 'phishing', 'scam'] as const;
 export type AdaptiveClass = typeof adaptiveClasses[number];
 export const adaptiveLabels: Record<AdaptiveClass, string> = {
-  legitimate: 'Légitime', publicity: 'PUB', spam: 'Spam', phishing: 'Phishing', scam: 'Escroquerie',
+  legitimate: "Legitimate", publicity: "Marketing", spam: 'Spam', phishing: 'Phishing', scam: "Scam",
 };
 export type AdaptiveReport = {
   status: string;
@@ -14,9 +14,9 @@ export type AdaptiveReport = {
   calibrated: false;
 };
 export function adaptiveStatus(status: string): string {
-  return ({ untrained: 'En attente d’un modèle entraîné', expired: 'Modèle expiré',
-    scope_unavailable: 'Domaine non configuré ou plusieurs domaines destinataires',
-    insufficient_features: 'Caractéristiques insuffisantes', agreement: 'Avis concordants',
-    abstained: 'Abstention : accord ou confiance insuffisants',
-  } as Record<string, string>)[status] ?? 'Analyse indisponible';
+  return ({ untrained: "Waiting for a trained model", expired: "Model expired",
+    scope_unavailable: "Unconfigured domain or multiple recipient domains",
+    insufficient_features: "Insufficient features", agreement: "Opinions agree",
+    abstained: "Abstention: insufficient agreement or confidence",
+  } as Record<string, string>)[status] ?? "Analysis not available";
 }

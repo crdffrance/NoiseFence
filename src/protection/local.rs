@@ -207,7 +207,7 @@ pub fn local_checks(
                 "identity",
                 reply,
                 "headers",
-                "Le domaine de réponse diffère de celui de l’expéditeur",
+                "The answer field differs from that of the sender",
             );
         }
         if let Some(host) = &from_domain {
@@ -222,7 +222,7 @@ pub fn local_checks(
                         "identity",
                         host,
                         "headers",
-                        "Le domaine expéditeur ressemble à un domaine protégé",
+                        "Sender domain looks like a protected domain",
                     );
                 }
             }
@@ -240,7 +240,7 @@ pub fn local_checks(
                         "identity",
                         host,
                         "headers",
-                        "Un nom protégé est utilisé depuis un autre domaine",
+                        "A protected name is used from another domain",
                     );
                 }
             }
@@ -343,7 +343,7 @@ pub fn local_checks(
                         "link_structure",
                         host,
                         "html",
-                        "Le lien affiché et sa destination appartiennent à des domaines différents",
+                        "The displayed link and its destination belong to different domains",
                     );
                 }
             }
@@ -353,7 +353,7 @@ pub fn local_checks(
                     "link_structure",
                     host,
                     "html",
-                    "Le lien utilise une partie utilisateur pouvant masquer sa destination",
+                    "The link uses a user part that can hide its destination",
                 );
             }
         }
@@ -385,7 +385,7 @@ pub fn local_checks(
                     "link_reputation",
                     host,
                     source,
-                    "Lien présent dans la base locale de phishing",
+                    "Link present in the local phishing base",
                 );
             }
         }

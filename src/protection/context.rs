@@ -133,22 +133,22 @@ pub fn apply(hints: &[Hint], resolution: &redirects::Report, policy: &Policy, re
             (
                 display_mismatch,
                 "display_destination_mismatch",
-                "Le domaine affiché diffère de la destination finale vérifiée",
+                "The displayed field differs from the final destination verified",
             ),
             (
                 brand_mismatch,
                 "brand_destination_mismatch",
-                "La marque annoncée et la destination finale ne correspondent pas",
+                "The advertised brand and the final destination do not match",
             ),
             (
                 brand_mismatch && hint.qr,
                 "qr_brand_mismatch",
-                "Le lien OCR/QR mène hors du domaine de la marque annoncée",
+                "The OCR/QR link leads out of the domain of the announced brand",
             ),
             (
                 (brand_mismatch || display_mismatch) && hint.reply_conflict,
                 "identity_context_mismatch",
-                "Incohérences concordantes du lien final et du domaine de réponse",
+                "Consistency of the final link and the response area",
             ),
         ] {
             if active {

@@ -1,33 +1,31 @@
-# Comprendre les diagnostics SMTP et les filtres
+<a id="comprendre-les-diagnostics-smtp-et-les-filtres"></a>
+# Understand SMTP diagnostics and filters
 
-Dans la console, ouvrir un message puis consulter **Filtres et indices déclenchés** et **Diagnostics du message**.
+In the console, open a message and see **Filters and Indices triggered** and **Message Diagnostics**.
 
-- Les filtres affichent leur identifiant, leur explication et leur contribution enregistrée. Un poids nul indique une observation consultative. Les contributions du modèle ne sont pas additionnées une seconde fois.
-- Les diagnostics conservent la durée, les résultats SPF/DKIM/DMARC/ARC, le seuil et les poids réellement utilisés lors de l’analyse. Une information historique absente reste absente.
-- **Transmission SMTP par destinataire** montre les serveurs essayés, l’IP jointe, DNS/TCP, EHLO, STARTTLS et TLS vérifié, MAIL FROM, RCPT TO, DATA, la réponse finale et les réessais. Le bouton d’actualisation recharge les nouvelles tentatives.
+- Filters display their identifier, explanation and recorded contribution. A zero weight indicates an advisory observation. The contributions of the model are not added a second time.
+- Diagnoses retain the duration, SPF/DKIM/DMARC/ARC results, threshold and weights actually used in the analysis. There is no historical information available.
+- **STP transmission by recipient** shows the servers tested, the attached IP, DNS/TCP, EHLO, STARTTLS and TLS verified, MAIL FROM, RCPT TO, DATA, the final response and re-tests. The update button reloads the new attempts.
 
-Un `250` final signifie que le serveur distant a accepté le transfert. Il ne garantit pas le classement en boîte de réception. Un `451` est temporaire et entraîne un réessai ; un `550` est définitif pour cette tentative/destination. Les codes étendus, par exemple `4.7.1` ou `5.1.1`, et les motifs du serveur restent visibles.
+A final `250` means that the remote server has accepted the transfer. It does not guarantee inbox ranking. A `451` is temporary and results in a retest; a `550` is final for this attempt/destination. Extended codes, for example `4.7.1` or `5.1.1`, and the server patterns remain visible.
 
-Si une tentative s’arrête à **Résolution DNS** sans code SMTP, aucun serveur
-distant n’a encore répondu. Le motif peut provenir de la validation de la route,
-de la résolution du nom ou de son délai d’expiration. Depuis 0.4.3, les noms MX
-avec un point final sont acceptés, y compris dans les avis d’échec déjà en file.
-Ce point désigne un nom DNS absolu ([RFC 1035, § 5.1](https://www.rfc-editor.org/rfc/rfc1035.html#section-5.1)) ;
-il est conservé pour la résolution et retiré pour la vérification du nom TLS.
+If an attempt stops at **DNS Resolution** without SMTP code, no remote server has yet answered. The reason may come from the validation of the route, the resolution of the name or its expiration time. Since 0.4.3, MX names with a final point are accepted, including in the failed notices already in file. This point refers to an absolute DNS name ([RFC 1035, § 5.1](https://www.rfc-editor.org/rfc/rfc1035.html#section-5.1)); it is retained for resolution and removed for verification of the TLS name.
 
-## Journaux du service
+<a id="journaux-du-service"></a>
+## Service logs
 
 ```sh
 sudo journalctl -u noisefence --since '30 min ago' -o cat
 sudo journalctl -u noisefence -f -o cat
 ```
 
-L’identifiant de file affiché dans la console relie les événements `message analyzed`, `message durably accepted` et `outbound SMTP event`. Les traces de relais portent aussi l’identifiant de livraison, l’identifiant de tentative, la route, la phase et la durée.
+File ID displayed in the console connects the events `message analyzed`, `message durably accepted` and `outbound SMTP event`. Relay tracks also carry delivery ID, attempt ID, route, phase and duration.
 
-## Confidentialité et limites
+<a id="confidentialité-et-limites"></a>
+## Confidentiality and limitations
 
-Les droits sont vérifiés pour chaque destinataire : connaître l’identifiant de file ne donne pas accès aux copies d’un autre compte. Les commandes sortantes sont représentées par leur phase, sans leurs arguments ; DATA n’est pas journalisé.
+Fees are verified for each recipient: knowing the file ID does not give access to copies of another account. Outgoing orders are represented by their phase, without their arguments; DATA is not updated.
 
-Depuis 0.4.2, les adresses reconnaissables dans les réponses distantes sont masquées avant troncature, y compris certaines représentations encodées. Ce traitement s’applique aussi à la lecture des anciennes réponses et erreurs dans la console. Il ne réécrit pas rétroactivement les fichiers du journal système. La reconnaissance d’adresses n’est pas un outil de suppression de tout contenu privé : une phrase arbitraire ou un encodage opaque renvoyé par un serveur peut rester visible.
+Since 0.42, the recognizable addresses in remote responses have been hidden before truncation, including some encoded representations. This treatment also applies to the reading of old answers and errors in the console. It does not retroactively rewrite the files in the system log. Address recognition is not a tool for deleting any private content: an arbitrary sentence or opaque encoding returned by a server can remain visible.
 
-Les traces sont bornées : 32 événements par route, 2 048 octets par champ affiché, au plus 50 journaux chargés pour un destinataire et 100 dans la vue globale. Les omissions sont signalées. Les transcriptions absentes sur les anciens messages ne sont pas reconstituées. Les métadonnées suivent la conservation du message et sont supprimées par la maintenance.
+Traces are limited: 32 events per road, 2,048 bytes per field displayed, up to 50 logs loaded for a recipient and 100 in the global view. Omissions are reported. Transcripts missing on old messages are not reconstructed. Metadata follow the retention of the message and are deleted by maintenance.

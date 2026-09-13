@@ -127,13 +127,13 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     for (id, detail, weight, tokens) in [
         (
             "urgency",
-            "Vocabulaire d’urgence",
+            "Urgency language",
             0.5,
             &["urgent", "immediately", "immédiatement"][..],
         ),
         (
             "credential_request",
-            "Demande liée aux identifiants",
+            "Credential request",
             1.5,
             &[
                 "verify your account",
@@ -144,7 +144,7 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
         ),
         (
             "financial_lure",
-            "Promesse financière suspecte",
+            "Suspicious financial promise",
             1.5,
             &[
                 "lottery",

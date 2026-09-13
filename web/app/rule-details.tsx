@@ -14,12 +14,10 @@ export function RuleDetails({
 }) {
   return (
     <div className="rule-diagnostics">
-      <h3 className="subheading">Filtres et indices déclenchés</h3>
+      <h3 className="subheading">Triggered filters and signals</h3>
       <p>{decisionExplanation(source)}</p>
       <p className="diagnostic-muted">
-        Les contributions en log-odds modifient le calcul de suspicion avant sa
-        conversion en score. Ce ne sont ni des points, ni des pourcentages, ni
-        des votes indépendants. Leur somme n’a pas à faire 100.
+        Log-odds contributions affect the calculation before conversion to a risk index. They are not percentage points or independent votes, and do not sum to 100.
       </p>
       {reasons.length ? (
         <ul className="diagnostic-rules">
@@ -30,19 +28,18 @@ export function RuleDetails({
                 <p>{reason.detail}</p>
                 <p className="diagnostic-muted">
                   {reason.id === 'malware_priority'
-                    ? 'Priorité antivirus · ce signal ne constitue pas un poids probabiliste.'
+                    ? "Antivirus priority · This signal is not a probabilistic weight."
                     : weightEffect(reason.weight)}
                 </p>
                 {reason.id === 'model_contribution' && (
                   <p className="diagnostic-muted">
-                    Récapitulatif du modèle lexical et sémantique déjà inclus
-                    dans le calcul ; ne pas l’ajouter une seconde fois.
+                    Summary of the lexical and semantic model already included in the calculation; do not add it a second time.
                   </p>
                 )}
               </div>
               <span className="diagnostic-weight">
                 {reason.id === 'malware_priority' ? (
-                  'Prioritaire'
+                  "Priority"
                 ) : (
                   <>
                     <strong>{contribution(reason.weight)}</strong>
@@ -55,7 +52,7 @@ export function RuleDetails({
         </ul>
       ) : (
         <p className="diagnostic-muted">
-          Aucun filtre ou indice enregistré pour ce message.
+          No filter signal was recorded for this message.
         </p>
       )}
     </div>

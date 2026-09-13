@@ -1,68 +1,37 @@
-# NoiseFence : expériences de détection
+<a id="noisefence--expériences-de-détection"></a>
+# NoiseFence: detection experiments
 
-Le [protocole d’étiquetage et de validation](labeling-protocol.md) définit les
-classes, les usages séparés des données et les preuves requises pour une décision
-commune aux moteurs. Il s’applique aussi aux diagnostics et aux nouveaux corpus.
+The [labelling and validation protocol](labeling-protocol.md) defines classes, separate data uses and the evidence required for a common decision across engines. It also applies to diagnostics and new corpora.
 
-La [comparaison d’un apport de données](content-augmentation.md) entraîne un
-candidat lexical/sémantique en contrôlant les faux positifs par source de
-développement, sans ouvrir les jeux réservés ni activer de modèle.
+The [data-augmentation comparison](content-augmentation.md) fits a lexical/semantic candidate while controlling false positives by development source, without opening reserved datasets or activating a model.
 
-Le modèle est appris sur des emails étiquetés ; ajouter une règle pour chaque
-exemple reçu ne remplace pas cet apprentissage. Le cas privé fourni pendant la
-R&D est une régression connue, exclue des jeux d'entraînement et des métriques
-de test indépendant. Il reste privé et ne doit pas être publié avec le code.
+The model is learned on labelled emails; adding a rule for each example received does not replace this learning. The private case provided during R&D is a known regression, excluded from the training sets and independent test metrics. It remains private and should not be published with the code.
 
-## Protocole
+## Protocol
 
-1. Archiver les sources, dates, licences et empreintes des corpus publics. Ne
-   jamais visiter leurs liens, charger leurs images ou exécuter leurs pièces jointes.
-2. Extraire le texte visible, les mots et caractères, ainsi que la structure MIME
-   et les relations entre identités et liens. Exclure les scores des anciens
-   filtres, dossiers, chemins de corpus, destinataires et dates de transport.
-3. Regrouper les doublons et variantes proches avant toute partition. Retirer les
-   conflits d'étiquettes ; conserver un audit des exclusions. Isoler les campagnes
-   récentes et les sources externes pour mesurer la généralisation.
-4. Séparer entraînement, sélection des hyperparamètres, calibration du seuil et
-   test final. Les résultats du test ne sélectionnent ni le modèle ni le seuil.
-5. Comparer la logistique régularisée, Bayes et les modèles linéaires avec rapports
-   de vraisemblance bayésiens ; comparer mots, caractères et structure par ablation.
-   Étudier un encodeur local multilingue si ces modèles restent insuffisants.
-6. Exporter des poids versionnés utilisables en Rust, puis vérifier l'égalité des
-   prédictions entre entraînement et exécution. Mesurer mémoire et latence réelles.
-7. Évaluer séparément la décision complète : authentification, réputation,
-   signatures, modèle local, sélection LLM et combinaison. Ne pas présenter une
-   évaluation du texte seul comme une validation de toute la passerelle.
+1. Archive the sources, dates, licenses and footprints of public corpus. Never visit their links, load their images or execute their attachments.
+2. Extract visible text, words and characters, as well as MIME structure and relationships between identities and links. Exclude scores from old filters, folders, corpus paths, recipients and transport dates.
+3. Consolidate close duplicates and variants before any partition. Remove label conflicts; maintain an audit of exclusions. Isolate recent campaigns and external sources to measure generalization.
+4. Separate training, hyperparameter selection, threshold calibration and final test. Test results do not select the model or threshold.
+5. Compare regularized logistics, Bayes and linear models with Bayesian likelihood ratios; compare words, characters and structure by ablation. Study a multilingual local encoder if these models remain insufficient.
+6. Export versioned weights usable in Rust, then check the equal predictions between training and execution. Measure actual memory and latency.
+7. Assess the complete decision separately: authentication, reputation, signatures, local model, LLM selection and combination. Do not present a text evaluation alone as a validation of the entire gateway.
 
-Publier rappel, précision, faux positifs, intervalles de Wilson, PR-AUC, effectifs
-et résultats par source. La cible demeure rappel ≥ 95 % et faux positifs ≤ 0,1 %
-sur des emails récents représentatifs ; une petite série sans erreur ne prouve
-pas cette cible. L'activation reste conditionnée à une validation indépendante.
+Publish recall, accuracy, false positives, Wilson's intervals, PR-AUC, numbers and results by source. The target remains recall ≥ 95% and false positives ≤ 0.1% on recent representative emails; a small series without error does not prove this target. Activation remains conditioned by independent validation.
 
-## Sources initiales
+## Initial sources
 
-- [Apache SpamAssassin](https://spamassassin.apache.org/old/publiccorpus/) :
-  démarrage historique, pas une preuve de performances sur 2026.
-- [Nazario](https://monkey.org/~jose/phishing/), années 2015 à 2025 : phishing
-  réel, classé manuellement par Jose Nazario ; CC BY 4.0 selon son
-  [README](https://monkey.org/~jose/phishing/README.txt). Une seule boîte source,
-  erreurs de classement possibles. Les dates d'archives ne garantissent pas les
-  dates déclarées dans chaque email. Année 2025 réservée au test externe initial.
-- [Enron-Spam](https://www2.aueb.gr/users/ion/data/enron-spam/) : échanges et spam
-  historiques, à distinguer des courriels professionnels récents.
-- [E-PhishGen, AISec 2025](https://arxiv.org/abs/2509.01791) : souligne les limites
-  de généralisation des benchmarks historiques ; corpus généré à distinguer des
-  emails réels, et licence à vérifier avant toute redistribution ou incorporation.
+- [Apache SpamAssassin](https://spamassassin.apache.org/old/publiccorpus/) : historical start, not proof of performance on 2026.
+- [Nazario](https://monkey.org/~jose/phishing/), years 2015 to 2025: real phishing, manually ranked by Jose Nazario; CC BY 4.0 according to his [README](https://monkey.org/~jose/phishing/README.txt). Only one source box, possible ranking errors. Archive dates do not guarantee the dates declared in each email. Year 2025 reserved for the initial external test.
+- [Enron-Spam](https://www2.aueb.gr/users/ion/data/enron-spam/): historical exchanges and spam, to distinguish from recent professional emails.
+- [E-PhishGen, AISec 2025](https://arxiv.org/abs/2509.01791): highlights the generalization limits of historical benchmarks; corpus generated to distinguish from actual emails, and license to verify before any redistribution or incorporation.
 
-Les données et modèles de travail restent dans `corpus/`, `models/` et `reports/`,
-exclus de Git. Publier le code, les manifestes et les mesures ; ne pas publier les
-emails privés. Les téléchargements de recherche ne modifient pas la production.
+The data and work models remain in `corpus/`, `models/` and `reports/`, excluded from Git. Publish code, manifests and measurements; do not publish private emails. Search downloads do not change production.
 
-## Reproduire l'expérience linéaire
+<a id="reproduire-lexpérience-linéaire"></a>
+## Reproduce linear experience
 
-Les empreintes des téléchargements Nazario et Enron sont dans `sources.lock.json`.
-L'extraction est exécutée par le même code Rust que l'inférence. Python est utilisé
-pour l'optimisation et les statistiques, pas comme service de production.
+The prints of the Nazario and Enron downloads are in `sources.lock.json`. The extraction is executed by the same Rust code as the inference. Python is used for optimization and statistics, not as production service.
 
 ```sh
 python3 -m pip install -r research/requirements.txt
@@ -73,9 +42,7 @@ python3 research/prepare_corpus.py corpus
 cargo build --release --locked
 ```
 
-Pour chaque schéma (1 puis 3), exporter les caractéristiques et regrouper les
-campagnes avant l'entraînement. Utiliser 16 384 dimensions pour le schéma 1 et
-262 144 pour le schéma 3. Chaque sortie d'entraînement doit être un dossier neuf.
+For each diagram (1 and then 3), export the characteristics and group the campaigns before training. Use 16,384 dimensions for diagram 1 and 262,144 for diagram 3. Each training output must be a new folder.
 
 ```sh
 target/release/noisefence features-export \
@@ -88,55 +55,34 @@ OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 python3 research/train_linear.py \
   --dimension 262144 --feature-version 3 --development-only
 ```
 
-Après les deux sélections de développement, figer le choix avant d'ouvrir les
-métriques de calibration et de test :
+After the two development selections, freeze the choice before opening the calibration and test metrics:
 
 ```sh
 python3 research/finalize_linear.py models/research-mixed-final \
   models/research-mixed-v1-dev models/research-mixed-v3-dev
 ```
 
-`selection-frozen.json` enregistre le choix avant l'évaluation finale. Les poids
-ne sont pas un pickle exécutable. La transformation IDF est ajustée exclusivement
-sur l'entraînement. Le score exporté est un indice dont le seuil est 95/100,
-pas une probabilité calibrée de spam. Les observations locales déjà apprises par
-le schéma 3 ne sont pas ajoutées une seconde fois comme poids manuels.
+`selection-frozen.json` records the choice before the final evaluation. Weights are not executable pickle. The IDF transformation is adjusted exclusively on the training split. The exported score is an index with a threshold of 95/100, not a calibrated probability of spam. Local observations already learned from Figure 3 are not added a second time as manual weight.
 
-Le regroupement utilise un texte canonique et une distance SimHash ≤ 3, avec
-une seule représentation par groupe. Toute composante touchant le test externe
-est exclue de l'apprentissage. Cette méthode n'assure pas de trouver toutes les
-campagnes : elle réduit les fuites, sans constituer une preuve d'indépendance parfaite.
+The grouping uses canonical text and a SimHash distance ≤ 3, with a single representation per group. Any component affecting the external test is excluded from learning. This method does not ensure to find all campaigns: it reduces leakages, without constituting a proof of perfect independence.
 
-## Analyser un email sans l'envoyer
+<a id="analyser-un-email-sans-lenvoyer"></a>
+## Analyze an email without sending it
 
 ```sh
 noisefence --config config/local.toml analyze message.eml \
-  --source-ip IP_DE_L_EMETTEUR --helo HOTE_EMETTEUR \
-  --mail-from EXPEDITEUR_DE_TEST --output reports/analysis.json
+  --source-ip IP_DE_L_EMETTEUR --helo SENDER_HOST \
+  --mail-from TEST_SENDER --output reports/analysis.json
 ```
 
-Cette commande utilise les connecteurs configurés, peut faire des requêtes DNS
-et Scaleway, et consomme le budget LLM partagé si ce connecteur est sollicité.
-Elle n'enregistre aucun message dans la file et ne le livre à aucun destinataire.
-Utiliser une configuration de recherche privée pour les modèles candidats.
+This command uses the configured connectors, can make DNS and Scaleway queries, and consumes the shared LLM budget if this connector is requested. It does not record any message in the file and does not deliver it to any recipient. Use a private search configuration for candidate models.
 
-## Comparer un encodeur multilingue local
+<a id="comparer-un-encodeur-multilingue-local"></a>
+## Compare a local multilingual encoder
 
-Utiliser Python 3.11 ou 3.12 dans un environnement séparé. Depuis la release 0.4.0,
-les dépendances de cette expérience utilisent PyTorch 2.13.0 et Transformers 5.10.1
-pour intégrer leurs correctifs de sécurité. Les rapports historiques conservent
-leurs résultats et versions d’origine : tout changement d’environnement nécessite
-de recalculer les embeddings et de refaire la validation avant activation d’un modèle.
-Ces paquets Python ne sont pas utilisés par le serveur SMTP Rust ni inclus dans les binaires.
+Use Python 3.11 or 3.12 in a separate environment. Since release 0.4.0, the dependencies of this experiment use PyTorch 2.13.0 and Transformers 5.10.1 to integrate their security patches. Historical reports retain their original results and versions: any environment change requires recalculating the insertings and revalidating before a model is activated. These Python packages are not used by the SMTP Rust server nor included in binarys.
 
-L'expérience optionnelle utilise [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small),
-publié sous licence MIT. La révision et les empreintes des fichiers sont épinglées
-dans `encoder.lock.json`. Seuls poids Safetensors, tokenizer et configuration sont
-chargés ; aucun code provenant du dépôt du modèle n'est exécuté. Le modèle
-préentraîné reste figé. Une tête logistique est apprise sur les emails, puis
-comparée au modèle lexical et à leur combinaison sur le développement uniquement.
-Un encodeur préentraîné ne constitue pas un moteur SMTP développé de zéro :
-c'est une dépendance optionnelle étudiée, distincte du moteur Rust natif.
+The optional experiment uses [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small), published under MIT license. The revision and fingerprints of the files are pinned in `encoder.lock.json`. Only Safetensors, tokenizer and configuration weights are loaded; no code from the model repository is executed. The pre-entered model remains frozen. A logistic head is learned on emails, then compared to the lexical model and their development combination only. A pre-entered encoder is not a zero developed SMTP engine: it is an optional dependence studied, distinct from the native Rust engine.
 
 ```sh
 python3 -m venv var/research-venv
@@ -157,18 +103,9 @@ var/research-venv/bin/python research/train_semantic.py \
   models/research-mixed-final/predictions.jsonl models/research-e5-comparison
 ```
 
-Sur un Mac compatible, `--device mps` utilise le GPU local. Le texte est extrait
-par le même module Rust que le modèle lexical. Aucun email n'est transmis au
-fournisseur du modèle. Les séquences sont limitées à 256 tokens dans l'expérience
-initiale : une fin de message longue peut être perdue. Les jeux de test déjà
-observés ne sont pas réutilisés pour choisir la combinaison. Un résultat de
-développement ne valide ni l'inférence Rust de cet encodeur, ni ses performances
-en production, ni une cible multilingue. Un recouvrement inconnu avec les données
-de préentraînement reste possible.
+On a compatible Mac, `--device mps` uses the local GPU. The text is extracted by the same Rust module as the lexical model. No email is sent to the model provider. The sequences are limited to 256 tokens in the initial experience: a long message end can be lost. The already observed test sets are not reused to choose the combination. A development result does not validate the Rust inference of this encoder, nor its production performance, nor a multilingual target. An unknown recovery with the pre-train data remains possible.
 
-Pour mesurer la combinaison sélectionnée sur les références historiques déjà
-examinées, figer d'abord le choix. Ces mesures doivent être signalées comme des
-références de R&D réutilisées, et non comme une nouvelle validation indépendante.
+To measure the selected combination on the historical references already examined, freeze the choice first. These measurements should be reported as re-used R&D references, not as a new independent validation.
 
 ```sh
 var/research-venv/bin/python research/freeze_semantic.py \
@@ -189,14 +126,12 @@ var/research-venv/bin/python research/finalize_semantic.py \
   models/research-mixed-final/predictions.jsonl models/research-e5-reference
 ```
 
-Le seuil est ajusté uniquement sur les légitimes de calibration. Le fichier
-`combination.json` décrit une référence Python ; il n'est pas un modèle compatible
-avec la commande d'activation Rust. Les scripts n'activent rien en production.
+The threshold is adjusted only to the legitimate calibration. The `combination.json` file describes a Python reference; it is not a model compatible with the Rust activation command. The scripts do not activate anything in production.
 
-## Exécuter la combinaison en Rust
+<a id="exécuter-la-combinaison-en-rust"></a>
+## Run the combination in Rust
 
-Le portage optionnel utilise Candle sur CPU et des fichiers locaux épinglés.
-Exporter le manifeste lié au modèle lexical calibré, puis compiler :
+Optional porting uses Candle on CPU and local files pinned. Export manifest related to lexical calibrated model, then compile:
 
 ```sh
 var/research-venv/bin/python research/export_native_hybrid.py \
@@ -207,8 +142,7 @@ var/research-venv/bin/python research/export_native_hybrid.py \
 cargo build --release --locked --features semantic
 ```
 
-Dans une copie privée de la configuration de recherche, conserver le modèle
-lexical calibré dans `filter.model` et ajouter :
+In a private copy of the search configuration, keep the lexical template calibrated in `filter.model` and add:
 
 ```toml
 [filter.semantic]
@@ -218,20 +152,11 @@ max_parallel = 1
 timeout_ms = 500
 ```
 
-Les chemins sont relatifs au répertoire courant. Pour un service, utiliser des
-chemins absolus et définir `RAYON_NUM_THREADS=4`, `CANDLE_NUM_THREADS=4`,
-`TOKENIZERS_PARALLELISM=false` dans son environnement. La configuration et les
-fichiers doivent correspondre à la même expérience ; les empreintes, révision,
-schéma et seuil sont vérifiés. Sans l'option de compilation, une configuration
-sémantique provoque une erreur explicite au démarrage.
+The paths are relative to the current directory. For a service, use absolute paths and set `RAYON_NUM_THREADS=4`, `CANDLE_NUM_THREADS=4`, `TOKENIZERS_PARALLELISM=false` in its environment. The configuration and files must match the same experience; prints, revision, schema and threshold are checked. Without the compilation option, a semantic configuration causes an explicit error at startup.
 
-L'inférence SMTP utilise un travailleur bloquant borné. Le délai n'interrompt pas
-le calcul CPU déjà lancé : son créneau reste réservé jusqu'à sa fin. En cas
-d'occupation ou d'échec, le score lexical calibré est conservé et le message est
-traité comme une analyse incomplète, sans préfixe. `scan` reste une commande
-synchrone hors ligne ; `analyze` utilise le chemin asynchrone sans livraison.
+The SMTP inference uses a bounded blocking worker. The delay does not interrupt the already launched CPU calculation: its niche remains reserved until its end. In case of occupation or failure, the lexical score calibrated is kept and the message is treated as an incomplete analysis, without prefix. `scan` remains an offline synchronous command; `analyze` uses the asynchronous path without delivery.
 
-Pour mesurer les deux modèles avec les mêmes extractions que l'inférence :
+To measure the two models with the same extractions as the inference:
 
 ```sh
 RAYON_NUM_THREADS=4 CANDLE_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false \
@@ -241,25 +166,10 @@ RAYON_NUM_THREADS=4 CANDLE_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false \
   --encoder models/encoders/multilingual-e5-small --iterations 100
 ```
 
-Le modèle n'est pas chargé pendant les itérations chronométrées. Les mesures
-excluent DNS, scanners, LLM et file. [Résultats natifs](native-hybrid-validation-20260907.json).
-Les vecteurs de l'encodeur restent des caractéristiques sensibles soumises à la
-conservation de 30 jours ; ils ne sont pas envoyés dans la réponse de la console.
-L'export du manifeste et les tests locaux ne constituent pas une approbation de
-la qualité ni une activation en production.
+Model loading is outside timed iterations. Measurements exclude DNS, scanners, LLM and queue persistence. See [native results](native-hybrid-validation-20260907.json). Encoder vectors are sensitive features with 30-day retention and are excluded from console responses. Manifest export and local tests neither validate production accuracy nor activate a model.
 
-Pour mesurer également DNS, scanners et LLM, utiliser le
-[banc du traitement complet](../docs/performance.md). Le
-[rapport de latence du 7 septembre 2026](pipeline-latency-20260907.json)
-compare trois profils sur quatre messages synthétiques. Il documente aussi
-les appels LLM évités et les limites de ces mesures, sans en déduire la qualité
-sur le trafic réel.
+To include DNS, scanners and LLM, use the [full-pipeline benchmark](../docs/performance.md). The [September 7, 2026 latency report](pipeline-latency-20260907.json) compares three profiles on four synthetic messages, records skipped LLM calls and describes measurement limits. It does not establish quality on live traffic.
 
-L'[audit de nouveaux corpus et le diagnostic sur textes courts](corpus-audit-20260907.md)
-documentent aussi une limite de généralisation du modèle figé, la forte
-duplication d'un jeu public et le besoin de données récentes représentatives.
+The [corpus audit and short-text diagnostic](corpus-audit-20260907.md) also document frozen-model generalization limits, heavy duplication in a public dataset and the need for recent representative data.
 
-La [fusion apprise des observations](fusion.md) fournit maintenant un export
-Rust, un entraîneur régularisé, une calibration distincte et cinq ablations
-figées avant le test. Les commandes restent hors ligne ; le service continue
-d'utiliser le score actuel jusqu'à validation d'un candidat.
+The [fusion learned from the observations](fusion.md) now provides a Rust export, a regularized trainer, a separate calibration and five ablations frozen before the test. Orders remain offline; the service continues to use the current score until a candidate is validated.

@@ -45,16 +45,16 @@ pub fn valid_id(id: &str) -> bool {
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
-        ensure!(valid_id(&self.node_id), "Identifiant de nœud invalide.");
+        ensure!(valid_id(&self.node_id), "Invalid node ID.");
         ensure!(
             (2..=300).contains(&self.poll_seconds)
                 && (60..=7 * 86400).contains(&self.max_stale_seconds),
-            "Délais de synchronisation invalides."
+            "Invalid synchronization times."
         );
         match self.role {
             Role::Coordinator => ensure!(
                 self.coordinator_url.is_none() && self.credential_file.is_none(),
-                "Le coordinateur ne possède pas de serveur amont."
+                "The coordinator does not have an upstream server."
             ),
             Role::Worker => {
                 let url = reqwest::Url::parse(self.coordinator_url.as_deref().unwrap_or_default())?;
@@ -62,7 +62,7 @@ impl Settings {
                 ensure!(
                     url.scheme() == "https"
                         || (self.allow_loopback_http && local && url.scheme() == "http"),
-                    "La synchronisation exige HTTPS (HTTP réservé aux essais loopback explicites)."
+                    "Synchronization requires HTTPS (HTTP for explicit loopback testing)."
                 );
                 ensure!(
                     url.username().is_empty()
@@ -70,13 +70,13 @@ impl Settings {
                         && url.query().is_none()
                         && url.fragment().is_none()
                         && url.path() == "/",
-                    "Utilisez l’origine HTTPS du coordinateur sans chemin ni identifiants."
+                    "Use the HTTPS origin of the coordinator without path or identifiers."
                 );
                 ensure!(
                     self.credential_file
                         .as_ref()
                         .is_some_and(|p| p.is_absolute()),
-                    "Fichier privé d’identité du nœud requis."
+                    "Private file of the required node identity."
                 );
             }
         }
@@ -91,11 +91,19 @@ pub fn is_worker(config: &crate::config::Config) -> bool {
 }
 pub async fn prepare(config: &crate::config::Config, store: &crate::store::Store) -> Result<()> {
     if config.cluster.is_none() {
-        store.read(|db| {
-            ensure!(!db.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='role')", [], |r| r.get::<_, bool>(0))?,
-                "Ce stockage appartient à un cluster ; sa configuration de nœud est obligatoire.");
-            Ok(())
-        }).await?;
+        store
+            .read(|db| {
+                ensure!(
+                    !db.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='role')",
+                        [],
+                        |r| r.get::<_, bool>(0)
+                    )?,
+                    "This storage belongs to a cluster; its node configuration is mandatory."
+                );
+                Ok(())
+            })
+            .await?;
         return Ok(());
     }
     let settings = config.cluster.as_ref().unwrap().clone();
@@ -104,13 +112,13 @@ pub async fn prepare(config: &crate::config::Config, store: &crate::store::Store
         let tx=db.transaction()?;
         let role=if settings.role==Role::Worker {"worker"} else {"coordinator"};
         let previous:Option<String>=tx.query_row("SELECT value FROM cluster_state WHERE key='node_id'",[],|r|r.get(0)).optional()?;
-        ensure!(previous.as_ref().is_none_or(|id|id==&settings.node_id),"Ce stockage appartient à un autre nœud.");
+        ensure!(previous.as_ref().is_none_or(|id|id==&settings.node_id),"This storage belongs to another node.");
         let previous_role:Option<String>=tx.query_row("SELECT value FROM cluster_state WHERE key='role'",[],|r|r.get(0)).optional()?;
-        ensure!(previous_role.as_ref().is_none_or(|r|r==role),"Changement de rôle interdit sur une file existante.");
+        ensure!(previous_role.as_ref().is_none_or(|r|r==role),"No change of role on an existing file.");
         tx.execute("INSERT OR REPLACE INTO cluster_state VALUES('role',?1)",[role])?;
         tx.execute("INSERT OR REPLACE INTO cluster_state VALUES('node_id',?1)",[&settings.node_id])?;
         if previous.is_none() && settings.role==Role::Worker {
-            ensure!(tx.query_row("SELECT COUNT(*) FROM messages",[],|r|r.get::<_,i64>(0))?==0,"Un nouveau nœud exige une file vide ; ne clonez jamais la base d’un autre serveur.");
+            ensure!(tx.query_row("SELECT COUNT(*) FROM messages",[],|r|r.get::<_,i64>(0))?==0,"A new node requires an empty line; never clone the base of another server.");
             tx.execute("UPDATE cluster_sequence SET value=value+1",[])?;
             tx.execute("INSERT OR IGNORE INTO cluster_dirty SELECT id,(SELECT value FROM cluster_sequence) FROM messages WHERE NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=messages.id)",[])?;
         }

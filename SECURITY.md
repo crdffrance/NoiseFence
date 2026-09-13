@@ -1,21 +1,9 @@
-# Signaler une vulnérabilité
+# Security policy
 
-Les corrections de sécurité visent la dernière release finale disponible,
-actuellement la série **0.15.x**. Les préversions `-dev` et les séries antérieures
-ne bénéficient pas d’une maintenance séparée. Le projet reste en 0.x et les
-changements incompatibles sont accompagnés d’instructions de migration.
+Security fixes target the latest stable release, currently **0.18.x**. Earlier series and development prereleases do not receive separate maintenance. NoiseFence remains in 0.x; incompatible changes include migration instructions.
 
-Utiliser [le signalement privé GitHub](https://github.com/crdffrance/NoiseFence/security/advisories/new)
-pour une faille exploitable, notamment un relais ouvert, un accès entre utilisateurs,
-une perte de message accepté ou une ambiguïté SMTP. Décrire les versions concernées,
-la configuration minimale et une reproduction avec des messages synthétiques.
-Ne pas publier de clé, de contenu privé ou d’identifiant de session.
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/crdffrance/NoiseFence/security/advisories/new). Include affected versions and a minimal reproduction using synthetic messages. Relevant issues include open relay, cross-user access, accepted-message loss and SMTP ambiguity. Do not publish private mail, keys or session tokens.
 
-Si le signalement privé GitHub n’est pas disponible, ouvrir une issue demandant
-un canal privé, sans détail d’exploitation ni données sensibles. Aucune durée
-de réponse contractuelle n’est annoncée.
+If private reporting is unavailable, open an issue requesting a private contact channel without exploit details or sensitive data. No contractual response time is promised.
 
-Les limites déjà connues figurent dans [le périmètre de sécurité](docs/security.md)
-et [les résultats de validation](docs/validation-results.md).
-
-Le [guide de durcissement Linux](deploy/hardening/README.md) décrit les profils, les sauvegardes, les accès et la récupération MFA. Le second facteur doit être enrôlé par le titulaire du compte ; il ne protège pas un compte qui ne l’a pas activé.
+Read the [security boundaries](docs/security.md), [validation limits](docs/validation-results.md) and [Linux hardening guide](deploy/hardening/README.md). TOTP only protects accounts whose owners have enrolled it. Paired message durability does not replace independent backups, verified fencing or recovery drills.

@@ -1174,6 +1174,9 @@ async fn admission_shares_retries_between_live_mx_and_fails_open_without_authori
     assert_eq!(status, StatusCode::OK);
     assert!(!counts["counts"].as_array().unwrap().is_empty());
     let own = authority.publication().await.unwrap().bundle.clone();
+    let preceding = own.for_build("0.17.3").unwrap();
+    assert!(preceding.settings.smtp_admission.is_some());
+    assert!(preceding.shared.get("smtp_admission").is_some());
     let previous = own.for_build("0.16.2").unwrap();
     assert!(previous.settings.smtp_admission.is_some());
     assert!(previous.shared.get("smtp_admission").is_some());

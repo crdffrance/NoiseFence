@@ -1,42 +1,25 @@
-# Comparer un apport de données sans masquer les régressions
+<a id="comparer-un-apport-de-données-sans-masquer-les-régressions"></a>
+# Compare data input without masking regressions
 
-`adapt_content.py` compare des modèles lexicaux et sémantiques sur des partitions
-d’entraînement et de développement déjà figées. Il produit un candidat privé et
-un rapport. Il ne lit pas de jeu de calibration/test, ne change aucun modèle actif
-et ne publie aucun poids. Les droits d’usage des corpus restent applicables aux
-artefacts produits.
+`adapt_content.py` compares lexical and semantic models on already frozen training and development scores. It produces a private candidate and a report. It does not read any calibration/test set, does not change any active model and does not publish any weights. The rights of use of corpus remain applicable to the artifacts produced.
 
-## Entrées
+<a id="entrées"></a>
+## Entries
 
-Installer les versions de `research/requirements.txt` dans un environnement local.
-Le calcul ne demande ni accès réseau ni appel LLM.
+Install `research/requirements.txt` versions in a local environment. The calculation does not require network access or LLM calls.
 
-Le fichier de caractéristiques JSONL utilise le schéma 3 de `features-export`,
-après regroupement des campagnes. Chaque ligne conserve `fingerprint`, `group`,
-`raw_sha256`, `spam`, `features`, `feature_version` et ajoute :
+The JSONL feature file uses the `features-export` 3 schema, after consolidation of campaigns. Each line keeps `fingerprint`, `group`, `raw_sha256`, `spam`, `features`, `feature_version` and adds:
 
-- `partition` : `train` ou `development`, cohérente avec le hachage du groupe ;
-- `stratum` : nom du sous-ensemble d’évaluation, par exemple `historical` et
-  `french_synthetic`.
+- `partition`: `train` or `development`, consistent with the group hash;
+- `stratum`: name of the evaluation subset, e.g. `historical` and `french_synthetic`.
 
-Toutes les campagnes externes, de calibration et de test doivent être absentes du
-fichier. Le programme les refuse même si leur partition déclarée est falsifiée.
-Chaque groupe doit avoir un seul représentant. Vérifier les doublons et variantes
-proches entre **toutes** les sources et partitions avant de préparer le fichier ;
-le contrôle d’identité du lecteur ne remplace pas cet audit de similarité.
+All external, calibration and test campaigns must be missing from the file. The program refuses them even if their declared partition is falsified. Each group must have a single representative. Check the close duplicates and variants between **all** sources and partitions before preparing the file; the player identity check does not replace this similarity audit.
 
-Le répertoire d’embeddings contient `embeddings.npy` (float32, vecteurs normalisés),
-`ids.json` (empreintes brutes dans l’ordre des vecteurs) et `protocol.json`. Ce
-dernier reprend exactement `semantic-protocol.json` et ajoute `complete: true`,
-`embeddings_sha256` et `ids_sha256`. Les identités doivent correspondre exactement
-au fichier de caractéristiques. Ne pas charger un cache de test dans cet outil.
+The embedding directory contains `embeddings.npy` (float32 normalized vectors), `ids.json` (raw digests in vector order) and `protocol.json`. The latter matches `semantic-protocol.json` exactly and adds `complete: true`, `embeddings_sha256` and `ids_sha256`. Identities must match the feature file exactly. Do not load a held-out test cache into this tool.
 
-Les noms des sources, labels et partitions servent à l’organisation de l’expérience
-et à la pondération de l’entraînement ; ils ne sont pas des caractéristiques du
-détecteur. Chaque strate doit comporter les deux classes en entraînement et en
-développement.
+The names of the sources, labels and partitions are used for the organization of the experiment and for the weighting of the training; they are not characteristics of the detector. Each stratum must include both training and development classes.
 
-Exemple de grille, à fixer avant les essais :
+Example grid, to be fixed before testing:
 
 ```json
 {
@@ -60,36 +43,16 @@ python3 research/adapt_content.py \
   models/private-content-candidate
 ```
 
-Le dossier de sortie doit être nouveau. Les fichiers et répertoires créés sont
-privés (`umask 077`). Les caractéristiques, poids et prédictions restent dans les
-emplacements ignorés par Git.
+The output folder must be new. The created files and directories are private (`umask 077`). The features, weights and predictions remain in locations ignored by Git.
 
-## Choix et limites
+## Choices and limits
 
-L’IDF apprend sur les messages uniques d’entraînement uniquement. La pondération
-de l’apport s’applique à la fonction d’apprentissage et aux fréquences bayésiennes,
-sans dupliquer les messages ni modifier les effectifs d’évaluation. Un échec de
-convergence interrompt l’expérience.
+The IDF learns about unique training messages only. The weighting of the input applies to the learning function and Bayesian frequencies, without duplicating the messages or changing the evaluation staff. A failure of convergence interrupts the experience.
 
-Chaque combinaison utilise un seul seuil de développement : le plus restrictif
-des seuils nécessaires pour respecter le budget empirique de faux positifs dans
-chaque strate. Le choix maximise le plus faible rappel parmi les strates, puis le
-rappel moyen et la PR-AUC moyenne. Cela empêche une grande source de masquer les
-erreurs d’une petite source ; cela ne prouve pas la généralisation sur de futurs
-messages. Les intervalles et effectifs restent indispensables.
+Each combination uses a single development threshold: the most restrictive of the thresholds necessary to meet the empirical budget of false positives in each stratum. The choice maximizes the lowest recall among the strata, then the average recall and the average PR-AUC. This prevents a large source from masking the errors of a small source; this does not prove the generalization on future messages. Intervals and numbers remain indispensable.
 
-Le modèle sémantique seul figure comme ablation. Le candidat exporté respecte le
-contrat natif actuel : logit lexical + contribution sémantique. Les contributions
-SMTP, authentification, réputation, signatures et LLM nécessitent une expérience
-de combinaison distincte avec leur contexte de réception fiable.
+The semantic model alone appears as ablation. The exported candidate meets the current native contract: logit lexical + semantic contribution. SMTP contributions, authentication, reputation, signatures and LLM require a distinct combination experience with their reliable receiving context.
 
-Les sorties comprennent `specification.json`, `development.json`, les prédictions
-de développement, `raw-model.json` et `raw-head.json`. Le seuil n’est pas calibré
-dans ces poids bruts. Ne pas les installer directement en production. Figer la
-sélection, calibrer le seuil sur un lot réservé, puis mesurer une seule fois le
-test indépendant et vérifier les prédictions Rust avant toute activation. Un
-score obtenu en déplaçant le biais pour correspondre au seuil 95 reste un indice
-de suspicion, pas une probabilité calibrée.
+Outputs include `specification.json`, `development.json`, development predictions, `raw-model.json` and `raw-head.json`. The threshold is not calibrated in these raw weights. Do not install them directly in production. Fig the selection, calibrate the threshold on a reserved lot, then measure the independent test only once and check Rust predictions before activation. A score obtained by moving the bias to correspond to threshold 95 remains an index of suspicion, not a calibrated probability.
 
-Le [protocole de validation](labeling-protocol.md) précise les exigences pour les
-données récentes, les probabilités, les régressions, la latence et Proton.
+The [validation protocol](labeling-protocol.md) specifies the requirements for recent data, probabilities, regressions, latency and Proton.

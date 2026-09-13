@@ -62,14 +62,14 @@ impl Policy {
             self.protected_names.len() <= 100
                 && self.reply_exceptions.len() <= 100
                 && self.link_exceptions.len() <= 100,
-            "Maximum : 100 entrées par liste de protection."
+            "Maximum: 100 entries per protection list."
         );
         for identity in &self.protected_names {
             ensure!(
                 (3..=100).contains(&identity.name.len())
                     && !identity.name.chars().any(char::is_control)
                     && crate::config::valid_domain(&identity.domain),
-                "Identité protégée invalide."
+                "Invalid protected identity."
             );
         }
         for domain in self.reply_exceptions.iter().chain(&self.link_exceptions) {
@@ -77,7 +77,7 @@ impl Policy {
                 crate::config::valid_domain(domain)
                     && domain.contains('.')
                     && domain == &domain.to_ascii_lowercase(),
-                "Exception : nom de domaine exact requis."
+                "Exception: an exact domain name is required."
             );
         }
         Ok(())
@@ -373,7 +373,7 @@ impl Runtime {
                             "link_reputation",
                             host,
                             "redirect",
-                            "Destination de redirection présente dans la base locale de phishing",
+                            "Redirection destination present in the local phishing base",
                         );
                     }
                 }
@@ -408,7 +408,7 @@ impl Runtime {
                     },
                     &indicator,
                     provider,
-                    "Indicateur signalé dans un rapport de réputation existant",
+                    "Indicator reported in an existing reputation report",
                 );
             }
         }
@@ -421,7 +421,7 @@ impl Runtime {
                 "campaign",
                 &scan.fingerprint,
                 "local_feedback",
-                "Ressemblance avec une campagne confirmée par un administrateur dans ce domaine",
+                "Similar to a campaign confirmed by an administrator in this field",
             );
         }
         report.authenticated_sender = scan.evidence.as_ref().is_some_and(|e| {

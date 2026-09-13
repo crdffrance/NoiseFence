@@ -1,120 +1,74 @@
-# Comparaison multilingue locale du 7 septembre 2026
+<a id="comparaison-multilingue-locale-du-7-septembre-2026"></a>
+# Local multilingual comparison of 7 September 2026
 
-**R&D sur le développement, aucun déploiement ni validation de qualité finale.**
-Un encodeur préentraîné optionnel complète le classifieur appris localement ;
-le moteur SMTP et le modèle lexical Rust restent distincts de cet encodeur.
+**R&D on development, no deployment or final quality validation.** An optional pre-entry encoder completes the locally learned classifier; the SMTP engine and the lexical Rust model remain distinct from this encoder.
 
-## Protocole figé avant les mesures de référence
+<a id="protocole-figé-avant-les-mesures-de-référence"></a>
+## Protocol frozen before baseline measures
 
-- Même entraînement : 27 497 représentants de campagnes.
-- Même développement : 2 022 légitimes et 2 672 spams.
-- [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small),
-  révision `614241f622f53c4eeff9890bdc4f31cfecc418b3`, licence MIT déclarée.
-- Poids figés, vecteurs de 384 dimensions, préfixe `query: `, moyenne masquée puis
-  normalisation L2, séquences tronquées à 256 tokens. Inférence PyTorch locale,
-  sans service externe, outils, liens visités ni pièces jointes exécutées.
-- Quatre têtes logistiques L2 : C = 0,1 / 1 / 10 / 100.
-- Combinaisons de logit lexical + α × logit sémantique, avec α parmi
-  0,1 / 0,25 / 0,5 / 1 / 2. Seuils comparés à 0,1 % de faux positifs empiriques.
-- Choix sur le rappel de développement, PR-AUC en cas d'égalité. Aucun choix
-  effectué sur la calibration, le test interne ou l'archive 2025.
+- Same training: 27,497 campaign representatives.
+- Same development: 2,022 legitimate and 2,672 spam.
+- [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small), `614241f622f53c4eeff9890bdc4f31cfecc418b3` revision, MIT licence declared.
+- Frozen weight, vectors of 384 dimensions, `query: ` prefix, masked average then normalization L2, truncated sequences to 256 tokens. PyTorch local inference, without external service, tools, visited links or executed attachments.
+- Four L2 logistics heads: C = 0.1 / 1 / 10 / 100.
+- Combinations of lexical logit + α × semantic logit, with α among 0.1 / 0.25 / 0.5 / 1 / 2. Thresholds compared to 0.1 % of false empirical positives.
+- Selection of the development recall, PR-AUC in case of equality. No choice made on calibration, internal test or archive 2025.
 
-## Résultat de sélection
+<a id="résultat-de-sélection"></a>
+## Selection result
 
-| Candidat | Détections / 2 672 | Rappel | Faux positifs / 2 022 |
+| Candidate | Detections / 2 672 | Recall | False positives / 2 022 |
 |---|---:|---:|---:|
-| Lexical natif seul | 2 569 | 96,15 % | 2 |
-| Meilleur encodeur seul, tête C=10 | 1 930 | 72,23 % | 2 |
-| Lexical + 0,1 × sémantique C=10 | **2 600** | **97,31 %** | **2** |
+| Native lexical model only | 2 569 | 96.15 % | 2 |
+| Best encoder alone, head C=10 | 1 930 | 72.23 % | 2 |
+| Lexical + 0.1 × semantic C=10 | **2 600** | **97.31 %** | **2** |
 
-Le gain est de 31 détections nettes sur le développement. Le modèle lexical
-reste essentiel ; la tête sur encodeur seule donne un rappel nettement inférieur
-au même niveau de faux positifs. Les 2 erreurs sur 2 022 légitimes donnent un
-intervalle de Wilson à 95 % de **0,0271 à 0,3599 %**. Cela ne prouve pas la cible
-de production et le choix parmi plusieurs candidats ajoute un biais de sélection.
+The gain is 31 net developmental detections. The lexical model remains essential; the head on encoder alone gives a much lower recall than the same level of false positives. The 2 errors out of 2,022 legitimate give a range of Wilson at 95% from **0.0271 to 0.3599%**. This does not prove the production target and the choice among several candidates adds a selection bias.
 
-Les 32 191 textes ont été encodés en 216,2 secondes sur le GPU local du Mac,
-par lots de 16. Ce débit de préparation n'est pas une latence de production sur
-le VPS. Les poids Safetensors et fichiers associés ont été vérifiés contre
-les empreintes du fichier de verrouillage avant chargement. Cette sélection Python
-a ensuite été portée en Rust et vérifiée comme décrit ci-dessous.
+The 32 191 texts were encoded in 216.2 seconds on the local Mac GPU, in batches of 16. This preparation rate is not a production latency on the VPS. The Safetensors and associated files were checked against the fingerprints of the preload lock file. This Python selection was then carried out in Rust and verified as described below.
 
-[Détail des candidats](semantic-development-20260907.json) et
-[reproduction](README.md#comparer-un-encodeur-multilingue-local).
+[Candidate details](semantic-development-20260907.json) and [reproduction](README.md#comparer-un-encodeur-multilingue-local).
 
-## Mesures de référence après calibration
+<a id="mesures-de-référence-après-calibration"></a>
+## Reference measures after calibration
 
-La combinaison ci-dessus a été figée avant ces calculs. Le seuil est ajusté sur
-les 2 008 légitimes de calibration, sans modifier les poids ni α. Les partitions
-de référence avaient déjà été examinées dans l'expérience lexicale précédente.
+The above combination was frozen before these calculations. The threshold is adjusted to the 2 008 legitimate calibration, without changing the weights or α. Reference partitions had already been examined in the previous lexical experiment.
 
-| Mesure | Lexical seul | Combinaison figée |
+| Mesure | Lexical seul | Frozen combination |
 |---|---:|---:|
-| Rappel, 5 107 spams du test historique | 95,59 % (4 882) | **95,83 % (4 894)** |
-| Faux positifs, 3 989 légitimes historiques | 2 (0,0501 %) | **1 (0,0251 %)** |
-| Intervalle de rappel à 95 % | 95,00–96,12 % | 95,25–96,34 % |
-| Intervalle du taux de faux positifs à 95 % | 0,0138–0,1826 % | **0,0044–0,1419 %** |
-| Rappel sur les 426 phishings Nazario 2025 | 93,66 % (399) | **94,84 % (404)** |
-| Intervalle du rappel 2025 à 95 % | 90,94–95,61 % | 92,30–96,57 % |
+| Reminder, 5,107 Spams from the Historical Test | 95.59 % (4 882) | **95.83 % (4 894)** |
+| False positives, 3,989 historical legitimates | 2 (0,0501 %) | **1 (0,0251 %)** |
+| 95% recall interval | 95.00–96.12 % | 95.25–96.34 % |
+| 95% false positives interval | 0,0138–0,1826 % | **0,0044–0,1419 %** |
+| Reminder on the 426 Nazario 2025 phishings | 93.66 % (399) | **94.84 % (404)** |
+| Recall interval 2025 to 95% | 90.94–95.61 % | 92.30–96.57 % |
 
-Le gain externe est de cinq détections nettes. **94,84 % reste inférieur à 95 %** ;
-la borne haute du taux de faux positifs reste supérieure à 0,1 %. Aucun légitime
-2025 n'est présent dans l'archive, donc son taux de faux positifs n'est pas mesurable.
-Le statut reste `eligible: false`. Ces observations justifient de poursuivre la
-R&D, pas de modifier le seuil sur ce test ni d'activer le marquage automatique.
+The external gain is five net detections. **94.84 % remains below 95%**; the high limit of the false positives rate remains above 0.1 %. No legitimate 2025 is present in the archive, so its false positives rate is not measurable. Status remains `eligible: false`. These observations justify continuing R&D, not changing the threshold on this test or enabling automatic marking.
 
-[Résultats détaillés et empreintes de la sélection](semantic-reference-20260907.json).
+[Detailed results and selection digests](semantic-reference-20260907.json).
 
-## Portage Rust et limites d'exécution
+<a id="portage-rust-et-limites-dexécution"></a>
+## Rust implementation and limits
 
-L'option de compilation `semantic` charge les fichiers Safetensors locaux avec
-Candle 0.11.0 et le tokenizer 0.22.2, sans client de téléchargement. Les trois
-fichiers nécessaires doivent correspondre exactement aux empreintes épinglées.
-Le manifeste de combinaison lie les coefficients au SHA-256 du modèle lexical
-calibré, à la révision de l'encodeur, au schéma de texte et au seuil.
+The `semantic` compilation option loads local Safetensors files with Candle 0.11.0 and tokenizer 0.22.2, without a download client. The three required files must match exactly the pinned fingerprints. The combination manifest binds the coefficients to the lexical calibrated SHA-256, the encoder revision, the text schema and the threshold.
 
-Les 24 messages de contrôle donnent les mêmes tokens et décisions. L'écart
-maximal de score complet Python/Rust est de **0,0000033 point sur 100**.
-Huit légitimes proches du seuil de calibration font partie de ces contrôles.
-Cinq autres entrées synthétiques couvrent accents français, arabe, japonais,
-texte vide et longueur maximale ; l'écart maximal des vecteurs est de 1,60 × 10⁻⁷.
-Ces contrôles de concordance ne mesurent pas la qualité dans ces langues.
+The 24 control messages give the same tokens and decisions. The maximum complete score difference Python/Rust is **0.0000033 points out of 100**. Eight legitimate close to the calibration threshold are part of these controls. Five other synthetic entries cover French, Arabic, Japanese accents, empty text and maximum length; the maximum deviation of vectors is 1.60 × 10−7. These match checks do not measure quality in these languages.
 
-Sur le VPS Debian 13 x86-64, 4 vCPU / 8 Go, 100 itérations et modèle chargé :
+On the Debian VPS 13 x86-64, 4 vCPU / 8 GB, 100 iterations and loaded model:
 
 | Message | p50 | p95 | p99 |
 |---|---:|---:|---:|
-| 10 127 octets | 296,460 ms | **340,490 ms** | 380,506 ms |
-| 1 048 521 octets | 340,415 ms | **373,483 ms** | 393,923 ms |
+| 10 127 bytes | 296,460 ms | **340,490 ms** | 380,506 ms |
+| 1 048 521 bytes | 340,415 ms | **373,483 ms** | 393,923 ms |
 
-Le benchmark comprend MIME, caractéristiques lexicales, encodeur et combinaison.
-Il exclut DNS, antivirus, LLM, file et chargement initial. Pendant le benchmark,
-la mémoire résidente observée est de 794 032 Kio, avec un pic de 1 220 424 Kio
-incluant le chargement. Ce relevé ponctuel ne prouve pas une limite maximale sous
-toutes les charges. Le processus comporte neuf threads, dont les threads du
-runtime et du calcul ; les pools de calcul sont configurés à quatre threads.
+The benchmark includes MIME, lexical features, encoder and combination. It excludes DNS, antivirus, LLM, file and initial loading. During the benchmark, the observed resident memory is 794 032 KiB, with a peak of 1,220 424 KiB including loading. This one-time reading does not prove a maximum limit under all loads. The process consists of nine threads, including threads for running and calculation; the calculation pools are configured to four threads.
 
-L'inférence serveur s'exécute hors des threads réseau, avec un créneau CPU par
-défaut et un délai de 500 ms. Si un calcul dépasse son délai, son créneau reste
-occupé jusqu'à sa fin ; une nouvelle demande occupée n'empile pas d'autres calculs.
-Le score lexical calibré est conservé et l'analyse devient incomplète, sans
-préfixe. Les vecteurs sont conservés avec les autres caractéristiques pendant
-30 jours ; l'API utilisateur expose le statut et la latence, pas ces vecteurs.
+The server inference runs out of network threads, with a default CPU slot and a delay of 500 ms. If a calculation exceeds its time, its niche remains occupied until its end; a new busy request does not stack any other calculations. The lexical calibrated score is retained and the analysis becomes incomplete, without prefix. The vectors are kept with the other features for 30 days; the user API exposes the status and latency, not these vectors.
 
-[Mesures natives](native-hybrid-validation-20260907.json). Le service de production
-n'a pas été remplacé et les fichiers temporaires du VPS ont été supprimés.
+[Native measurements](native-hybrid-validation-20260907.json). In that experiment the production service was not replaced, and temporary VPS files were removed.
 
-## Limites
+## Limits
 
-Les légitimes sont historiques et ne valident pas le trafic français actuel.
-Un encodeur multilingue ne rend pas cette évaluation multilingue : il manque des
-messages récents représentatifs, des annotations par langue et une mesure par
-sous-groupe. Un recouvrement avec le préentraînement de l'encodeur est inconnu.
-Le texte long est tronqué et le contenu des pièces jointes n'est pas utilisé.
+The legitimate ones are historical and do not validate the current French traffic. A multilingual encoder does not make this multilingual evaluation: there is a lack of recent representative messages, annotations by language and a measurement by sub-group. A cover with the pre-training of the encoder is unknown. The long text is truncated and the contents of the attachments are not used.
 
-Le choix de combinaison est figé avant une mesure sur les autres partitions.
-Ces tests ont déjà été examinés lors de la première expérience lexicale : ils
-servent désormais de références de R&D et ne constituent pas une nouvelle
-validation indépendante. La combinaison avec SPF, DMARC, réputation, antivirus,
-signatures et avis LLM reste à évaluer séparément. Aucun résultat présenté ici
-n'autorise à annoncer une détection parfaite.
+The combination selection is frozen before a measurement on the other partitions. These tests have already been examined during the first lexical experiment: they now serve as R&D references and do not constitute a new independent validation. The combination with SPF, DMARC, reputation, antivirus, signatures and LLM reviews remains to be evaluated separately. There are no results presented here that allow to announce perfect detection.

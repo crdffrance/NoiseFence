@@ -522,3 +522,47 @@ async fn indexed_search_handles_ten_thousand_messages_with_exact_scoped_totals()
         0
     );
 }
+
+#[tokio::test]
+async fn historical_threshold_and_api_assessment_agree_with_search() {
+    let (_dir, store, _) = fixture().await;
+    store.run(|db| {
+        db.execute("UPDATE messages SET scan=json_set(scan,'$.complete',json('true'),'$.score',90.0,'$.analysis_policy',json(?1)) WHERE id='shared-identifier'",[r#"{"version":"test","threshold":95.0,"mode":"observe","require_corroboration":true,"rule_weights":{}}"#])?;
+        Ok(())
+    }).await.unwrap();
+    let page = store
+        .search_messages(
+            "alice".into(),
+            Search {
+                filter: "legitimate".into(),
+                min_score: Some(89.),
+                max_score: Some(91.),
+                ..Default::default()
+            },
+            80.,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.total, 1);
+    let mail = &page.messages[0];
+    assert_eq!(mail.assessment.content_threshold, Some(95.));
+    assert_eq!(mail.assessment.score.value, Some(90.));
+    assert_eq!(mail.category, noisefence::mailing::Category::Legitimate);
+    assert_eq!(mail.assessment.category, mail.category);
+    assert_eq!(
+        mail.decision.outcome,
+        noisefence::fusion::runtime::Outcome::Legitimate
+    );
+    assert_eq!(
+        count(
+            &store,
+            "alice",
+            Search {
+                filter: "spam".into(),
+                ..Default::default()
+            }
+        )
+        .await,
+        0
+    );
+}

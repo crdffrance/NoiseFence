@@ -1,226 +1,87 @@
 # NoiseFence
 
-[![Release](https://img.shields.io/github/v/release/crdffrance/NoiseFence)](https://github.com/crdffrance/NoiseFence/releases/latest)
-[![Checks](https://github.com/crdffrance/NoiseFence/actions/workflows/check.yml/badge.svg)](https://github.com/crdffrance/NoiseFence/actions/workflows/check.yml)
-[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+**A Rust SMTP security gateway with an English management console.**
 
-Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. Les [actions configurables](docs/actions.md) permettent de transmettre sans préfixe, tagger ou placer en quarantaine les spams, publicités et malwares confirmés. Aucun rejet SMTP n’est fondé sur le score.
+NoiseFence receives mail for configured domains, records the analysis, stores accepted messages durably, and forwards them to an explicit upstream route. It supports Proton Mail as an upstream, with separate compatibility checks before subject tagging.
 
-**Version 0.17.3 — réplication stricte des messages et console de secours.**
-Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.17.3), puis suivre le [guide de première installation](docs/getting-started.md).
-Le projet reste en 0.x : les formats peuvent évoluer avec une migration documentée.
-La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
+```text
+Internet → NoiseFence MX → upstream mail service → recipient
+                  ↓
+       Web console: messages, policies, diagnostics
+```
 
-NoiseFence comprend les connecteurs facultatifs [ClamAV et signatures complémentaires](docs/antivirus.md), la comparaison de modèles Bayes et logistique, et un [client Scaleway avec budget local](docs/scaleway.md). Ils restent désactivés par défaut. Le [plan d'entraînement et de validation](docs/detection-roadmap.md) distingue ce qui est implémenté de ce qui reste à mesurer.
+NoiseFence is open source under **GPL-3.0-only**. Release archives contain Linux binaries for amd64 and arm64, the console, configuration examples, deployment tools and documentation. No default account, password, paid API key or trained model is included.
 
-Logiciel open source sous [GPL-3.0-only](LICENSE), développé par CRDF Labs et les contributeurs NoiseFence. Dépôt : [crdffrance/NoiseFence](https://github.com/crdffrance/NoiseFence).
+## Start here
 
-**English:** NoiseFence is a self-hosted Rust SMTP gateway with a durable queue,
-local spam analysis, configurable Spam/PUB/malware actions and a French web console.
-It starts in observation mode. Detection targets and Proton forwarding compatibility
-require independent validation; no trained model, credentials or private email data
-are bundled. See [installation](docs/getting-started.md), [contributing](CONTRIBUTING.md)
-and [security reporting](SECURITY.md).
+| Task | Guide |
+| --- | --- |
+| Try NoiseFence with Docker or install a Linux release | [Installation](docs/installation.md) |
+| Configure domains, gateways, filters, RBLs and budgets | [Web configuration](docs/web-configuration.md) |
+| Understand scores, classifications and delivery actions | [Filtering policy](docs/filter-policy.md) |
+| Read message headers and remote SMTP replies | [Headers](docs/message-headers.md), [SMTP diagnostics](docs/smtp-diagnostics.md) |
+| Deploy more MX servers and protect accepted messages | [Multiple MX servers](docs/multi-mx.md), [Two-copy availability](docs/high-availability.md) |
+| Evaluate accuracy with human labels | [Quality](docs/quality.md), [Validation results](docs/validation-results.md) |
+| Browse the remaining guides | [Documentation index](docs/README.md) |
 
-La [lecture OCR, QR codes et codes-barres](docs/vision.md) traite aussi les images
-jointes ou intégrées et les PDF scannés, en français et en anglais, dans un worker
-local isolé. Les résultats sont visibles dans la console ; `vision-inspect` permet
-de lire les textes et les codes exacts d'un fichier `.eml` local.
+## Local Docker evaluation
 
-La [console d’administration](docs/console.md) permet de gérer les domaines,
-passerelles, filtres, comptes et livraisons. Les administrateurs voient tous les
-messages de l’organisation ; les utilisateurs voient uniquement leurs accès.
-Les réglages sont validés, versionnés et appliqués sans redémarrage.
-
-Les [publicités et newsletters (PUB)](docs/mailing.md) disposent d’une catégorie,
-d’un filtre d’historique et de corrections dédiées. Le spam reste prioritaire ;
-le préfixe `[PUB]` nécessite une validation Proton propre à ce marquage.
-
-L’option [confirmation avant classement Spam](docs/confirmation.md) place les
-scores élevés insuffisamment étayés dans **À vérifier**, avec transmission sans
-préfixe. Ce compromis réduit les décisions fondées sur le seul modèle et peut
-réduire le rappel ; les corrections et abstentions doivent être mesurées ensemble.
-
-La [politique de classement](docs/filter-policy.md) précise les priorités entre antivirus, score, confirmation et PUB, ainsi que la différence entre une détection et une analyse complète.
-
-La [validation de la qualité](docs/quality.md) propose des échantillons aléatoires,
-une annotation séparée du risque et du type de courrier, et un candidat local
-calibré en observation. Les liens affichés, QR codes et destinations finales sont
-rapprochés ; la réputation des correspondants repose sur des corrections humaines
-et une identité authentifiée. Aucun gain de capture n’est revendiqué sans mesure.
-
-Les mécanismes natifs Rust de comparaison (composites, similarité des campagnes,
-OSB Bayes et motifs groupés) sont documentés dans [ce guide](docs/native-filtering.md).
-Le [module adaptatif Rust](docs/adaptive-filtering.md) ajoute des catégories humaines,
-un Bayes à cinq classes et un petit réseau neuronal par domaine, en observation.
-
-La [haute disponibilité à deux copies](docs/high-availability.md) protège les messages avant acceptation SMTP et prépare une reprise contrôlée de la console après arrêt vérifié du coordinateur. Une panne du pair impose une réponse SMTP temporaire ; aucune bascule à une seule copie n’est automatique.
-
-## Démarrage local
-
-Environnement validé : Rust 1.98, Node 24, Unix. Depuis la racine du projet :
+Install Docker Engine with Compose on Linux, then run from a checkout. Docker Desktop requires its host-networking option (4.34 or later):
 
 ```sh
-cargo build --locked
+docker compose build
+docker compose run --rm noisefence init
+docker compose run --rm noisefence user-add admin --admin
+docker compose up -d
+```
+
+Enter a password when prompted. Open **http://127.0.0.1:18080**. The example publishes SMTP on **127.0.0.1:2525**, accepts only the example recipients, and has no working external delivery route. Messages remain queued until you provide a test sink or a valid upstream. It is an evaluation setup; follow the installation guide before accepting real mail. `docker compose down` preserves the named data volume.
+
+## What the gateway does
+
+- SMTP/ESMTP, STARTTLS, SIZE, 8BITMIME and PIPELINING, with recipient allowlists or explicit domain catch-all policies. Connections, message size, parsing and processing are bounded.
+- Durable disk spool and SQLite WAL; acceptance follows persistence. Each recipient has independent retry and delivery state. Optional paired MX replication requires **two durable copies before `250`**.
+- Native Rust content rules, authentication, DNS/IP/domain reputation, local classifiers and advisory comparison models. Optional integrations include ClamAV, local OCR/QR, CRDF, VirusTotal and Scaleway text analysis.
+- A **0–100 risk index**, a separate classification, analysis coverage and recorded delivery policy. A high score can coexist with a review decision. Missing results never become a fabricated zero or a clean verdict.
+- Observation, tagging and quarantine policies; organizational, domain and recipient profiles; custom rules; marketing classification; user feedback and controlled candidate evaluation.
+- An English Web console with scoped message search, remote SMTP transcripts, filter explanations, accounts, MFA, invitations, provider credentials and quotas, configuration revisions and multiple MX management.
+
+All messaging and filter policies can be managed through the console. Host installation remains server-side: ports, TLS keys and certificates, storage, worker sockets, model artifacts and replication identities. Model replacement follows its validation procedure; the Web editor cannot bypass it with an arbitrary file path.
+
+## Defaults and limits
+
+**Observation is the default.** It records decisions while delivering without subject tagging or quarantine. Paid providers are inactive until configured with an authorized key and budget. Optional active URL following is off by default; it has separate network restrictions and resource limits.
+
+The content risk index is **not a calibrated spam probability**. Native points, log-odds, model confidence and fusion estimates have different meanings. NoiseFence does not add them together as independent votes. See the filtering policy for the exact precedence and units.
+
+The target of at least 95% capture with at most 0.1% false positives requires measurement on recent, representative, independently labelled traffic. It is not a demonstrated product-wide guarantee. Historical public corpora and selected user corrections alone cannot establish it.
+
+Proton may evaluate forwarded mail differently because the connecting IP changes and subject modification can break DKIM. ARC sealing does not automatically make the gateway trusted. Keep the existing delivery path until the [Proton compatibility matrix](docs/proton-validation.md) passes; tagging has a separate gate for `[SPAM]` and `[PUB]`.
+
+SMTP is not exactly-once delivery: a lost final acknowledgement can cause a retry and duplicate delivery. Paired replication protects accepted bodies, but console recovery still requires verified fencing and a controlled promotion. With mandatory two-copy durability, an unavailable peer delays new mail with `451`.
+
+## Build and test
+
+The validated build toolchain is Rust 1.98 and Node 24. Use a Unix development host; production targets Linux.
+
+```sh
+cargo build --locked --features semantic
 cd web
 npm ci
-npm run build
-cd ..
-cargo run -- --config config/development.toml init
-cargo run -- --config config/development.toml user-add alice --addresses alice@example.test
-cargo run -- --config config/development.toml serve
-```
-
-Le mot de passe est saisi de manière interactive, sans argument de ligne de commande. La configuration de développement écoute uniquement sur `127.0.0.1:2525` (SMTP) et `127.0.0.1:18080` (API). Elle route les messages vers un serveur SMTP de test sur `127.0.0.1:2526` ; si ce serveur est absent, les messages restent en file.
-
-Pour développer la console, lancer `npm run dev` dans `web` puis ouvrir l’URL locale affichée. Le proxy de développement transmet `/api` vers Rust. Pour consulter directement la version compilée sur le port 18080, utiliser une copie de la configuration avec `web.public_origin = "http://127.0.0.1:18080"`. L’origine doit correspondre exactement à l’URL du navigateur.
-
-Le compte `alice` ne voit que les messages livrés à `alice@example.test`, y compris ceux reçus via l’alias `billing@example.test`. Créer un compte distinct pour Bob si nécessaire. Aucun compte ni mot de passe par défaut n’est intégré. Pour administrer tous les domaines, créer un compte avec `user-add administrateur --admin`.
-
-Pour accepter `*@example.org` sans déclarer chaque boîte dans la passerelle,
-activer `accept_all_recipients = true` dans ce domaine : chaque adresse est relayée
-vers elle-même chez Proton. Les alias explicites restent prioritaires et les
-droits de console peuvent être attribués par adresse ou par domaine. Voir la
-[configuration de réception par domaine](docs/operations.md)
-dans le guide d'exploitation.
-
-## Architecture
-
-| Module | Responsabilité |
-|---|---|
-| `smtp` | Machine à états SMTP, STARTTLS, réception en flux, limites et destinataires |
-| `rbl` | Réputation IP avant DATA, DNSBL configurables, cache et refus explicites |
-| `store` | Spool sur disque, SQLite WAL, transactions, reprise et droits par adresse |
-| `relay` | SMTP sortant, validation TLS, tentatives par destinataire et notifications d’échec |
-| `engine` | MIME, signaux, SPF/DKIM/DMARC/ARC, réputation, classification et marquage |
-| `corpus` | Import, déduplication, entraînement, mesures et activation contrôlée des modèles |
-| `antivirus` | Scans ClamD bornés sur deux sockets : antivirus officiel et signatures consultatives |
-| `llm` | Extraits textuels facultatifs vers Scaleway, schéma JSON et budget durable |
-| `api` / `web` | Comptes, historique, corrections et console statique |
-
-Le service confirme `250` après synchronisation du fichier, de son répertoire et de la transaction SQLite. Les destinataires ont des états indépendants. Une réponse finale `250` de Proton marque la livraison réussie, même si la connexion échoue ensuite pendant QUIT. Si la réponse finale est perdue, SMTP peut produire un doublon : le service ne promet pas de livraison « exactement une fois ».
-
-Les corps sont supprimés après résolution de tous les destinataires. Une livraison en échec définitif produit une notification à l’expéditeur d’enveloppe ; aucun retour n’est produit pour une enveloppe vide ou pour l’échec d’une notification. Le corps original n’est pas joint aux notifications. Une enveloppe usurpée peut néanmoins provoquer un retour vers un tiers : c’est une conséquence du stockage/relais SMTP, à mesurer pendant les essais.
-
-Les métadonnées, caractéristiques et retours utilisateurs expirent après 30 jours. Les exports de corpus et sauvegardes sont des fichiers distincts dont l’exploitant doit gérer la conservation. Les caractéristiques hachées ne constituent pas une garantie d’anonymisation.
-
-## Commandes utiles
-
-```sh
-noisefence --config /etc/noisefence/config.toml check-config
-noisefence --config /etc/noisefence/config.toml queue
-noisefence --config /etc/noisefence/config.toml retry MESSAGE_UUID
-noisefence --config /etc/noisefence/config.toml user-disable alice
-noisefence --config /etc/noisefence/config.toml user-reset-password alice
-noisefence --config config/development.toml scan message.eml
-```
-
-`scan` effectue uniquement l'extraction et la classification locales, sans solliciter ClamAV, les signatures, le LLM ou l'authentification DNS. Les connecteurs configurés sont exécutés pendant une réception SMTP ou une préparation d’essai Proton. Un redémarrage charge les changements de configuration et de modèle.
-
-La commande `analyze` exécute les connecteurs configurés une fois, sans mettre le
-message en file ni l'envoyer. Une [adresse pilote](docs/proton-validation.md#adresse-pilote-sans-bascule-du-domaine-principal)
-permet aussi de tester des envois réels et de voir les analyses dans la console
-sans changer les MX du domaine principal. Le [protocole de recherche](research/README.md) décrit
-les corpus, les caractéristiques natives Rust, l'entraînement des candidats et la
-validation séparée. Les modèles de recherche ne sont pas activés automatiquement.
-
-## Entraînement et mesure
-
-```sh
-python3 scripts/fetch_corpus.py corpus/apache
-noisefence corpus-import --ham corpus/apache/ham --spam corpus/apache/spam --output corpus/apache.jsonl
-mkdir -p models
-noisefence train corpus/apache.jsonl --output models/candidate.json
-noisefence train corpus/apache.jsonl --algorithm bernoulli-nb --output models/bayes.json
-noisefence model-activate models/candidate.json --report models/candidate.json.report.json --destination models/active.json
-```
-
-L’import ignore les pièces jointes et les anciens en-têtes antispam. Le modèle est une régression logistique L2 sur mots/bigrammes et caractéristiques de structure hachés, avec pondération IDF ajustée uniquement sur l’entraînement. Les doublons normalisés sont regroupés avant une séparation déterministe 80/10/10. Cette séparation ne garantit pas que toutes les variantes d’une campagne ont été reconnues comme apparentées.
-
-L'option Bernoulli Bayes constitue un candidat de comparaison sur présence des mêmes
-caractéristiques, avec lissage de Laplace. Elle utilise un format de modèle distinct,
-refusé par les anciens binaires. Sur le test historique, son rappel de 0,52 % est
-inférieur aux 60,94 % de la régression logistique : aucun des deux n'est activé.
-
-Le seuil est calibré sur les messages légitimes du jeu de validation, puis exprimé à l’indice de suspicion demandé (95 par défaut). Cet indice n’est pas une probabilité de spam calibrée. Le jeu de test n’intervient pas dans l’ajustement du seuil. Le rapport contient rappel, précision, faux positifs et intervalles de Wilson à 95 %. `model-activate` refuse les rapports qui ne satisfont pas les objectifs, notamment la borne supérieure des faux positifs. Le petit jeu public ne suffit généralement pas à établir un taux inférieur à 0,1 % avec confiance.
-
-Le rapport du modèle textuel ne mesure pas toute la chaîne avec DNS, règles et comportement de Proton. Les corpus Apache datant principalement de 2002–2005 ne prouvent pas une efficacité sur le trafic actuel. Garder le mode observation, collecter des annotations représentatives, puis évaluer le pipeline complet sur des données récentes indépendantes avant de revendiquer 95 % de capture et 0,1 % de faux positifs.
-
-Les utilisateurs corrigent leurs propres messages. Les retours contradictoires entre destinataires sont exclus de l’export. Les services `deploy/noisefence-train.*` préparent un candidat hebdomadaire ; ils ne l’activent pas. Un manque d’exemples des deux classes fait échouer l’entraînement explicitement. Le [pipeline de corrections du schéma 3](docs/feedback-training.md) conserve les vecteurs et leur protocole, puis prépare un candidat lexical ou hybride lié à son modèle lexical. Les corrections seules ne constituent pas une évaluation représentative.
-
-## Validation et déploiement
-
-Le [guide des diagnostics SMTP et des filtres](docs/smtp-diagnostics.md) explique
-les réponses du serveur distant, les réessais et les contributions enregistrées.
-
-Les [en-têtes SMTP détaillés](docs/message-headers.md) exposent les scores partiels,
-les états des contrôles et les règles déclenchées sur les nouveaux messages.
-Les [observations de chaque contrôle](docs/decision-evidence.md) distinguent les
-résultats, erreurs et contrôles non exécutés, conservent les catégories de
-réputation et identifient les modèles chargés. La [fusion native facultative](research/fusion.md) combine ces observations et
-partage sa décision entre SMTP et console. Son activation demande des preuves
-de qualité et de latence ; les objectifs restent à démontrer.
-
-Voir [les essais Proton](docs/proton-validation.md), [l’installation Linux](docs/operations.md) et [le périmètre de sécurité](docs/security.md).
-
-Les mesures et limites effectivement vérifiées figurent dans [le rapport de validation](docs/validation-results.md).
-Le [banc de mesure du traitement complet](docs/performance.md) permet de comparer
-les durées du modèle et des connecteurs sur des cas contrôlés, sans livraison SMTP.
-
-```sh
-cargo test --locked
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cd web
+npm test
 npx tsc --noEmit
 npm run lint
 npm run build
-npm audit --audit-level=high
+cd ..
+cargo test --locked --features semantic
+cargo fmt --check
+cargo clippy --locked --all-targets --features semantic -- -D warnings
 ```
 
-Les tests SMTP utilisent exclusivement des sockets loopback et des destinataires `.test`. Le fuzzing est fourni dans `fuzz`; une campagne guidée avec instrumentation peut être lancée via `cargo +nightly fuzz run message` et `cargo +nightly fuzz run smtp`. Les tests ne certifient pas la conformité exhaustive à tous les RFC ni la résistance à une charge de production.
+For development without Docker, copy `config/development.toml` to a private configuration, set `web.public_origin` to the exact browser origin, then run `init`, `user-add admin --admin` and `serve` with that configuration. The example SMTP route is a loopback test sink, not an Internet relay.
 
-Les [contrôles de cohérence SMTP/DNS](docs/smtp-policy.md) ajoutent HELO, PTR
-confirmé et domaine d’enveloppe, avec poids plafonnés et observation initiale.
-La commande `smtp-check` permet de les essayer sans envoyer d’email.
+`scan message.eml` performs local extraction and classification. `analyze message.eml` runs configured checks without queuing or delivering the message; external providers may receive the configured indicators or text excerpts. See the CLI help and [installation guide](docs/installation.md) for an isolated SMTP test that also appears in the console.
 
-Les [listes IP RBL avant DATA](docs/early-rbl.md) permettent d’observer la
-réputation du pair avant l’analyse, puis d’appliquer explicitement un refus
-temporaire ou définitif. La commande `rbl-check` les teste sans email ; sans
-liste autorisée configurée, aucun appel DNSBL n’est effectué.
+Bodies and attachments are removed after all recipient outcomes and required replica acknowledgements are resolved. Pending or held messages follow their queue/quarantine policy. Metadata and retained features normally expire after 30 days. Exports and backups have independent retention; hashed features are not an anonymity guarantee.
 
-### Protections complémentaires
-
-La console peut gérer les noms protégés, exceptions de liens/réponses et clés
-CRDF/VirusTotal. Les nouveaux contrôles de phishing et de campagnes sont
-consultatifs, regroupés sans changer le score calibré. Consulter
-[la configuration, les limites et l’import de flux](docs/protection.md).
-
-Configurer les [règles, profils et invitations](docs/custom-filtering.md) depuis la console.
-
-La page **Fiabilité** et son [guide](docs/reliability.md) expliquent les métriques,
-les limites des comparaisons et la collecte stable. La version 0.6.0 ajoute la
-[couverture réseau et le contexte comportemental](docs/capture-coverage.md), avec
-une migration du candidat qualité et des seuils sous contrainte empirique.
-
-La console propose une [recherche avancée dans les messages](docs/message-search.md)
-par objet, adresse, règle, date, score et état de livraison, dans les métadonnées conservées.
-
-### Configuration de la messagerie
-
-L’administration Web couvre les RBL, fournisseurs, budgets, moteurs, règles,
-domaines, alias et relais. L’espace **Mes filtres** permet aux utilisateurs de
-personnaliser les niveaux, actions et règles de leurs adresses autorisées.
-Voir [le guide de configuration Web](docs/web-configuration.md) pour les droits,
-l’héritage, l’application des changements et la migration depuis une version antérieure.
-
-## Plusieurs MX
-
-La [configuration multi-MX](docs/multi-mx.md) réunit des passerelles autonomes autour
-d’une console centrale : réglages et modèles communs, historique agrégé et budgets
-partagés. Chaque serveur garde sa file locale ; la réplication des messages acceptés
-et la bascule de la console ne sont pas incluses.
-
-### Sécurité des serveurs et de la console
-
-La double authentification se configure dans **Mon compte**. Après activation, sauvegarder les codes de secours puis se reconnecter avec un nouveau code temporaire. Consulter le [guide Linux et sauvegardes](deploy/hardening/README.md) pour le durcissement des MX, les procédures de restauration et les accès de déploiement limités.
+Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities through [SECURITY.md](SECURITY.md). See [THIRD_PARTY.md](THIRD_PARTY.md) for dependencies and upstream acknowledgements.

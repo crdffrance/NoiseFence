@@ -1,39 +1,19 @@
-# Catégories adaptatives locales
+<a id="catégories-adaptatives-locales"></a>
+# Local Adaptive Categories
 
-NoiseFence 0.8 ajoute un module Rust indépendant pour `legitimate`, `publicity`,
-`spam`, `phishing` et `scam`. Le Bayes binaire et le moteur de livraison restent
-séparés. Ce module est **exclusivement en observation** : sa catégorie et son
-action proposée ne participent ni au score ni au marquage ni à la quarantaine.
-Une publicité frauduleuse doit être annotée spam, phishing ou escroquerie ; PUB
-désigne ici une campagne commerciale légitime. Une annotation incertaine reste vide.
+NoiseFence 0.8 adds an independent Rust module for `legitimate`, `publicity`, `spam`, `phishing` and `scam`. The binary Bayes and the delivery engine remain separate. This module is **exclusively in observation**: its category and proposed action does not participate in the score, marking or quarantine. A fraudulent advertisement must be annotated spam, phishing or scam; PUB here refers to a legitimate commercial campaign. An uncertain annotation remains empty.
 
-## Algorithmes et limites
+## Algorithms and limits
 
-Le Bayes utilise les présences de paires OSB, des fréquences documentaires par
-classe, un lissage additif, des a priori équilibrés et les 150 caractéristiques
-discriminantes les plus fortes. Moins de cinq caractéristiques connues entraîne
-une abstention. Les vraisemblances normalisées ne sont pas des probabilités
-calibrées de menace.
+Bayes uses the presence of OSB pairs, class-based documentary frequencies, additive smoothing, balanced a priori, and the 150 strongest discriminant characteristics. Less than five known characteristics result in forbearance. Standardized likelihoods are not calibrated probability of threat.
 
-Le réseau 16×16×5 utilise une couche cachée tanh et une sortie softmax. Ses entrées
-sont les tailles et structures du texte/HTML, six motifs locaux explicites
-(urgence, identifiants, rendement, phrase de récupération, formulaire,
-désabonnement), longueur de l’objet, majuscules, chiffres, liens HTTPS et
-exclamations. Ces entrées sont bornées et versionnées avec les motifs configurés.
-Le réseau n’utilise ni les verdicts des autres modèles, ni les composites,
-ni les corrections humaines comme caractéristiques, ni l’identité d’une boîte.
-Il complète l’encodeur E5 existant ; il ne le remplace pas et ne l’appelle pas.
+The 16×16×5 network uses a hidden tanh layer and a softmax output. Its inputs are text/HTML sizes and structures, six explicit local patterns (e.g. emergency, identifiers, yield, recovery phrase, form, unsubscribe), object length, capitals, digits, HTTPS links and exclamations. These entries are bounded and versioned with the configured patterns. The network does not use the verdicts of other models, composites, human corrections as characteristics, or the identity of a box. It completes the existing E5 encoder; it does not replace it and does not call it.
 
-L’entraînement est déterministe, avec équilibrage des classes, pénalité L2,
-poids bornés et arrêt anticipé sur validation, au maximum 120 époques.
-Les deux classifieurs doivent s’accorder et dépasser leurs seuils et marges.
-Une forte sortie softmax seule ne suffit pas. Un échec, une expiration ou une
-observation incomplète ne constitue pas un signal de spam.
+The training is deterministic, with balancing of classes, penalty L2, bounded weights and early stop on validation, at the maximum 120 epochs. Both classifiers must agree and exceed their thresholds and margins. A high softmax output alone is not enough. Failure, expiration or incomplete observation is not a spam signal.
 
-## Collecte et politiques par domaine
+## Collection and domain policies
 
-La collecte est désactivée en l’absence de configuration. Exemple à intégrer
-dans la configuration existante, sans dupliquer `[native_filter]` :
+The collection is disabled in the absence of configuration. Example to be incorporated into the existing configuration, without duplicate `[native_filter]`:
 
 ```toml
 [native_filter]
@@ -43,7 +23,7 @@ max_parallel = 2
 timeout_ms = 500
 
 [native_filter.adaptive.domains."example.org"]
-# Omettre model pour collecter avant le premier entraînement.
+# Omit model to collect before the first training run.
 # model = "/var/lib/noisefence/adaptive/example.org/candidate/model.json"
 
 [native_filter.adaptive.domains."example.org".classes.phishing]
@@ -57,40 +37,18 @@ min_margin = 0.25
 proposed_action = "tag"
 ```
 
-Les valeurs par défaut sont 0,9 et 0,2, avec action `observe`. Les actions `tag`
-et `quarantine` sont **simulées**, y compris si le filtrage principal est en mode
-application. Aucun réglage de ce module ne permet d’activer leur exécution.
-La classe légitime accepte uniquement l’observation. Un seuil issu de la
-validation ne peut pas être abaissé par la politique du domaine.
+The default values are 0.9 and 0.2, with `observe` action. `tag` and `quarantine` actions are **simulated**, including if the main filter is in application mode. No setting of this module allows to enable their execution. The legitimate class accepts only observation. A threshold from validation cannot be lowered by domain policy.
 
-Les domaines sont ceux des **destinataires de livraison** après résolution des
-alias. Chaque modèle a exactement un domaine ; aucun entraînement global ni
-repli sur le modèle d’un autre domaine. Une enveloppe visant plusieurs domaines
-ne collecte pas de vecteur adaptatif et n’affiche aucune prédiction de locataire.
-Cette abstention protège aussi les destinataires en copie cachée. Le reste de
-l’analyse et de la livraison continue normalement.
+The domains are those of the **delivery recipients** after resolution of aliases. Each model has exactly one domain; no global training or folding on the model of another domain. An envelope aimed at several domains does not collect adaptive vectors and does not display any tenant predictions. This abstention also protects recipients in hidden copy. The rest of the analysis and delivery continues normally.
 
-Maximum seize domaines configurés, modèle de 8 Mio par domaine, cinq mille
-exemples par export. L’inférence réutilise les workers, sémaphores, limites MIME
-et délai global du filtre natif. Un worker annulé garde son permis jusqu’à sa fin.
-Les fichiers modèles sont chargés au démarrage, jamais par message. Une modification
-de configuration ou de modèle nécessite un redémarrage contrôlé.
+Maximum sixteen configured domains, 8 MiB per domain, five thousand examples per export. Inference re-uses workers, semaphores, MIME limits and overall time frame of the native filter. A cancelled worker retains its permit until its end. Model files are loaded on startup, never by message. A configuration or model change requires a controlled restart.
 
-## Annotations et entraînement
+<a id="annotations-et-entraînement"></a>
+## Annotations and training
 
-Dans la fiche d’un message, « Apprentissage local » permet d’annoter une catégorie
-par domaine accessible. Phishing/escroquerie mettent aussi la correction générale
-à spam ; PUB reste légitime pour le risque binaire. Une nouvelle correction
-générale supprime l’ancienne précision. Retirer uniquement la catégorie détaillée
-laisse la correction générale intacte. Les messages déjà livrés ne changent pas.
+In the message sheet, "Local Learning" allows to annotate one category per accessible domain. Phishing/scam also put the general correction to spam; PUB remains legitimate for binary risk. A new general correction removes the old precision. Remove only the detailed category leaves the general correction intact. Messages already delivered do not change.
 
-L’API utilise les sessions, l’origine et le jeton CSRF existants. Toutes les
-lectures et écritures vérifient les droits actuels sur les destinataires, la
-période de trente jours et l’état du compte. Les exports nécessitent un compte
-administrateur actif et réévaluent aussi les droits actuels des annotateurs.
-Les conflits entre annotateurs sont exclus ; aucune prédiction n’est convertie
-automatiquement en vérité humaine. Les annotations anciennes spam/PUB ne deviennent
-pas artificiellement des annotations phishing/escroquerie.
+The API uses existing sessions, origin and tokens. All readings and writings check the current rights on the recipients, the 30-day period and the account status. Exports require an active administrator account and also re-evaluate the current rights of the annotators. Conflicts between annotators are excluded; no prediction is automatically converted into human truth. Ancient spam/PUB annotations do not artificially become phishing/scam annotations.
 
 ```sh
 noisefence -c /etc/noisefence/config.toml adaptive-export \
@@ -107,69 +65,30 @@ noisefence adaptive-evaluate /private/review/future.jsonl \
   --output /private/review/future-report.json
 ```
 
-Adapter les dates Unix au trafic collecté. Les trois périodes doivent contenir
-au moins **20 campagnes indépendantes par classe à l’entraînement**, puis cinq
-par classe en validation et cinq en test. Ce sont des minima techniques, pas
-une preuve de qualité. Chaque annotation doit avoir été disponible avant la
-frontière de sa période. Des annotations effectuées aujourd’hui sur de vieux
-messages ne permettent donc pas de simuler un apprentissage qui aurait eu lieu
-hier : continuer la collecte et fixer des frontières réalistes.
+Adapt the Unix dates to the collected traffic. The three periods must contain at least **20 independent campaigns per class to the training**, then five per class to the validation and five in the test. These are technical minima, not proof of quality. Each annotation must have been available before the border of its period. Today's annotations on old messages do not allow to simulate an apprenticeship that would have taken place yesterday: continue collecting and setting realistic boundaries.
 
-Les empreintes exactes et les sketches de texte similaires regroupent les
-campagnes avant la séparation. Les groupes traversant une frontière ou portant
-des catégories contradictoires sont exclus. Cette méthode ne garantit pas de
-reconnaître toutes les variantes d’une campagne ; auditer aussi manuellement
-les populations. Le budget de comparaison refuse les jeux trop complexes.
+The exact prints and similar text sketches group the campaigns before the separation. Groups crossing a border or bearing contradictory categories are excluded. This method does not guarantee to recognize all the variants of a campaign; to audit the populations manually as well. The comparison budget refuses to accept too complex games.
 
-Le réseau et les seuils sont sélectionnés sur la validation seule. Pour qu’une
-classe puisse émettre un avis, la validation exige au moins cinq avis corrects
-sans erreur sur la grille de seuils. Le test n’ajuste aucun paramètre. Le manifeste
-garde les campagnes de toutes les périodes et les exclusions ; l’évaluation
-ultérieure vérifie les empreintes des artefacts, les dates et les chevauchements.
+The network and thresholds are selected on the validation alone. For a class to be able to issue a notice, validation requires at least five correct notices without error on the threshold grid. The test does not adjust any parameters. The manifest keeps campaigns of all periods and exclusions; the subsequent evaluation checks the prints of artifacts, dates and overlaps.
 
-Les rapports donnent la matrice 5×6 (abstentions comprises), précision, rappel,
-faux positifs et intervalles de Wilson à 95 %. Les faux positifs de menace
-incluent les catégories légitime et PUB. La confusion entre ces deux catégories
-reste visible dans la matrice. Zéro faux positif sur un petit lot ne démontre
-pas un taux inférieur à 0,1 %. Aucun rapport ne permet l’activation automatique.
+The reports give the 5×6 matrix (including forbearances), precision, recall, false positives and 95% Wilson intervals. False threat positives include legitimate categories and PUB. The confusion between these two categories remains visible in the matrix. Zero false positive on a small batch does not show a rate of less than 0.1%. No ratio allows automatic activation.
 
-Lancer ces commandes hors du chemin SMTP, éventuellement depuis une tâche
-d’exploitation périodique. Examiner les résultats avant de référencer un modèle
-en observation. Il n’existe pas de réentraînement automatique depuis les scores.
+Run these commands off the SMTP path, possibly from a periodic operating task. Review the results before reference to a model in observation. There is no automatic retrain since the scores.
 
-## Mesures locales, confidentialité et retour arrière
+<a id="mesures-locales-confidentialité-et-retour-arrière"></a>
+## Local measures, confidentiality and reverse
 
 ```sh
 noisefence -c /etc/noisefence/config.toml adaptive-check /private/sample.eml \
   --domain example.org --iterations 1000
 ```
 
-Cette commande ne fait ni requête DNS, ni livraison, ni écriture dans la file.
-Elle restitue le rapport public et le p95 local de l’extraction et du filtre natif,
-avec réutilisation du modèle. Elle ne mesure pas le débit SMTP complet ni les
-latences des services externes. Sans modèle configuré, elle mesure la collecte.
+This command does not request DNS, delivery, or write in the queue. It restores the public ratio and the local p95 of extraction and native filter, with re-use of the model. It does not measure the full SMTP flow rate or latency of external services. Without the configured model, it measures the collection.
 
-Les caractéristiques privées restent dans les observations natives pendant la
-conservation du message ; les messages en file suivent les règles existantes.
-Les annotations expirent à trente jours, même si le message reste en file.
-Les exports ne contiennent ni corps, ni pièces jointes, ni adresses individuelles,
-mais leurs caractéristiques textuelles restent sensibles. Fichiers créés en 0600,
-répertoires candidats en 0700 ; l’opérateur doit supprimer les exports et modèles
-expirés, aucun fichier externe n’est effacé automatiquement.
+Private features remain in native observations during the retention of the message; queued messages follow existing rules. Annotations expire at 30 days, even if the message remains in queue. Exports do not contain bodies, attachments, or individual addresses, but their textual characteristics remain sensitive. Files created in 0600, candidate directories in 0700; the operator must delete expired exports and templates, no external files are deleted automatically.
 
-SQLite reste au schéma 2 : table additive `adaptive_labels` et déclencheurs de
-retrait des annotations obsolètes. La version 0.7 ignore les nouveaux champs des
-observations. Avant retour à 0.7, retirer `[native_filter.adaptive...]` de la
-configuration ; garder la base courante pour préserver les messages acceptés.
-La nouvelle empreinte du détecteur exige de reconstruire les candidats optionnels
-qui en dépendent. Les modèles lexicaux et sémantiques actifs restent indépendants.
+This feature’s original migration was additive. Current paired installations require storage schema 5 and a compatible release. Do not downgrade the database, remove its HA marker or restore an older backup over accepted mail. See [installation](installation.md) and [HA recovery](high-availability.md) for current upgrade and rollback procedures.
 
-## Inspiration et licence
+## Inspiration and licensing
 
-Implémentation indépendante en Rust des techniques publiées, sans copie de code
-C/Lua. Rspamd documente un [Bayes multiclasse](https://docs.rspamd.com/configuration/statistic/)
-séparé du risque binaire, ainsi qu’un [module neuronal](https://docs.rspamd.com/modules/neural/)
-apprenant à partir de signaux locaux. NoiseFence conserve ses propres artefacts,
-limites et étapes de validation ; aucune compatibilité binaire de modèle n’est
-revendiquée. Rspamd est distribué sous [Apache 2.0](https://github.com/rspamd/rspamd/blob/b86f72ae34ec515802aa23b60b535e9d25684d65/LICENSE.md) ;
-NoiseFence conserve sa licence GPL-3.0-only.
+Independent implementation in Rust of published techniques, without copy of C/Lua code. Rspamd documents a [Multiclass Bayes](https://docs.rspamd.com/configuration/statistic/) separated from binary risk, as well as a [neural module](https://docs.rspamd.com/modules/neural/) learning from local signals. NoiseFence retains its own artifacts, limits and validation steps; no binary model compatibility is claimed. Rspamd is distributed under [Apache 2.0](https://github.com/rspamd/rspamd/blob/b86f72ae34ec515802aa23b60b535e9d25684d65/LICENSE.md); NoiseFence retains its GPL-3.0-only license.

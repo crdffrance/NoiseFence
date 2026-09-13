@@ -1,4 +1,5 @@
 'use client';
+import type { Assessment } from './assessment';
 import { MyFilters } from './preferences';
 import { ClusterConsole } from './cluster';
 import { OnboardingGate } from './onboarding';
@@ -90,6 +91,7 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  assessment?: Assessment;
   node_id?: string | null;
   node_updated_at?: number | null;
   arbitration?: Arbitration | null;
@@ -224,24 +226,24 @@ type Stats = {
   decision_source?: 'legacy' | 'fusion';
 };
 const fusionFamilies: Record<string, string> = {
-  lexical: 'Contenu textuel',
-  semantic: 'Sens du message',
-  auth: 'Authentification',
-  reputation: 'Réputation',
-  smtp_policy: 'Cohérence SMTP et DNS',
+  lexical: "Text content",
+  semantic: "Message meaning",
+  auth: "Authentication",
+  reputation: "Reputation",
+  smtp_policy: "SMTP and DNS consistency",
   antivirus: 'Antivirus',
-  signatures: 'Signatures complémentaires',
-  llm: 'Analyse complémentaire',
+  signatures: "Additional signatures",
+  llm: "Further analysis",
 };
 function fusionReason(feature: string) {
   const family =
-    fusionFamilies[feature.split('.')[0]] ?? 'Observations combinées';
+    fusionFamilies[feature.split('.')[0]] ?? "Combined observations";
   if (feature.includes('unavailable'))
-    return `${family} : contrôle indisponible`;
-  if (feature.includes('busy')) return `${family} : capacité occupée`;
-  if (feature.includes('not_run')) return `${family} : contrôle non effectué`;
-  if (feature.includes('disabled')) return `${family} : contrôle désactivé`;
-  if (feature.includes('limited')) return `${family} : analyse limitée`;
+    return `${family} : check not available`;
+  if (feature.includes('busy')) return `${family} : capacity occupied`;
+  if (feature.includes('not_run')) return `${family} : check not run`;
+  if (feature.includes('disabled')) return `${family} : check disabled`;
+  if (feature.includes('limited')) return `${family} : limited analysis`;
   return family;
 }
 export default function Page() {
@@ -450,7 +452,7 @@ function Home() {
   ) {
     if (
       configDirty &&
-      !window.confirm('Abandonner les réglages non enregistrés ?')
+      !window.confirm("Drop the unrecorded settings?")
     )
       return;
     setAdminDirty(false);
@@ -482,7 +484,7 @@ function Home() {
   }
   const recordFeedback = useCallback(
     async (id: string, category: FeedbackCategory) => {
-      if (!user) throw new Error('Connexion requise.');
+      if (!user) throw new Error('Sign in required.');
       await api(`/messages/${id}/feedback`, { category }, user.csrf);
       setFeedbackRevision((r) => r + 1);
       if (user !== activeUser.current) return;
@@ -496,7 +498,7 @@ function Home() {
           : previous,
       );
       setNotice(
-        'Correction enregistrée. Le message déjà livré dans Proton reste inchangé.',
+        "Feedback saved. Messages already delivered to Proton remain unchanged.",
       );
       await refresh();
     },
@@ -555,10 +557,10 @@ function Home() {
       setDiagnosticsRevision((value) => value + 1);
       setNotice(
         result.status === 'queued'
-          ? 'Commande transmise au serveur propriétaire : exécution en attente.'
+          ? "Command transmitted to the owner server: execution pending."
           : action === 'release'
-            ? 'Message libéré : livraison en attente pour ce destinataire.'
-            : 'Livraison retenue supprimée pour ce destinataire.',
+            ? "Released message: delivery pending for this recipient."
+            : "Delivery discarded for this recipient.",
       );
       await refresh();
     } catch (e) {
@@ -573,7 +575,7 @@ function Home() {
       <main className="connection-screen">
         <BrandMark />
         <output>
-          <RefreshCw size={16} className="spin" /> Connexion à votre espace…
+          <RefreshCw size={16} className="spin" /> Connect to your space...
         </output>
       </main>
     );
@@ -618,13 +620,12 @@ function Home() {
             <span className="login-lock">
               <LockKeyhole size={22} />
             </span>
-            <p className="eyebrow">BIENVENUE DANS VOTRE ESPACE</p>
-            <h1>Content de vous retrouver.</h1>
+            <p className="eyebrow">WELCOME TO YOUR WORKSPACE</p>
+            <h1>Good to meet you.</h1>
             <p className="muted">
-              Connectez-vous pour retrouver vos messages et les décisions du
-              filtre.
+              Log in to find your messages and filter decisions.
             </p>
-            <label htmlFor="username">Identifiant</label>
+            <label htmlFor="username">Username</label>
             <Input
               id="username"
               autoComplete="username"
@@ -632,9 +633,9 @@ function Home() {
               onChange={(e) => setUsername(e.target.value)}
               required
               maxLength={100}
-              placeholder="Votre identifiant"
+              placeholder="Username"
             />
-            <label htmlFor="password">Mot de passe</label>
+            <label htmlFor="password">Password</label>
             <div className="password-input">
               <Input
                 id="password"
@@ -644,14 +645,14 @@ function Home() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 maxLength={128}
-                placeholder="Votre mot de passe"
+                placeholder="Your password"
               />
               <button
                 type="button"
                 aria-label={
                   showPassword
-                    ? 'Masquer le mot de passe'
-                    : 'Afficher le mot de passe'
+                    ? "Hide password"
+                    : "Show Password"
                 }
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword(!showPassword)}
@@ -665,7 +666,7 @@ function Home() {
               </p>
             )}
             <label htmlFor="login-mfa">
-              Code de sécurité <span className="small muted">si activé</span>
+              Security code <span className="small muted">if activated</span>
             </label>
             <Input
               id="login-mfa"
@@ -673,25 +674,25 @@ function Home() {
               onChange={(e) => setMfaCode(e.target.value.trim())}
               autoComplete="one-time-code"
               maxLength={32}
-              placeholder="Code temporaire ou code de secours"
+              placeholder="Temporary code or emergency code"
             />
             <Button className="login-submit" disabled={busy} type="submit">
               {busy ? (
                 <>
-                  <RefreshCw size={17} className="spin" /> Connexion…
+                  <RefreshCw size={17} className="spin" /> Signing in…
                 </>
               ) : (
                 <>
-                  Se connecter <ArrowUpRight size={18} />
+                  Sign in <ArrowUpRight size={18} />
                 </>
               )}
             </Button>
             <p className="login-help">
-              Besoin d’un accès ? Contactez votre administrateur.
+              Need access? Contact your administrator.
             </p>
           </form>
           <p className="login-footnote">
-            <LockKeyhole size={13} /> Un espace réservé à votre organisation.
+            <LockKeyhole size={13} /> A space reserved for your organization.
           </p>
         </div>
       </main>
@@ -699,7 +700,7 @@ function Home() {
   return (
     <div className="shell">
       <a className="skip-link" href="#main-content">
-        Aller au contenu
+        Skip to content
       </a>
       <aside className={`rail ${mobileMenu ? 'menu-open' : ''}`}>
         <div className="rail-brand">
@@ -708,12 +709,12 @@ function Home() {
               <BrandMark />
             </span>
             <div>
-              NoiseFence<small>LA CLARTÉ DANS VOS MESSAGES</small>
+              NoiseFence<small>CLARITY IN YOUR MAIL</small>
             </div>
           </div>
           <button
             className="mobile-menu"
-            aria-label={mobileMenu ? 'Fermer le menu' : 'Ouvrir le menu'}
+            aria-label={mobileMenu ? "Close Menu" : "Open menu"}
             aria-expanded={mobileMenu}
             aria-controls="console-navigation"
             onClick={() => setMobileMenu(!mobileMenu)}
@@ -725,15 +726,15 @@ function Home() {
           <div className="workspace-identity">
             <span className="workspace-monogram">{user.admin ? 'A' : 'M'}</span>
             <div>
-              <strong>{user.admin ? 'Mon organisation' : 'Mon espace'}</strong>
+              <strong>{user.admin ? "My organization" : "My space"}</strong>
               <small>
-                {user.admin ? 'Espace administrateur' : 'Espace personnel'}
+                {user.admin ? "Administrator space" : "Personal space"}
               </small>
             </div>
             <LockKeyhole size={13} />
           </div>
-          <div className="rail-label">MESSAGERIE</div>
-          <nav className="navigation" aria-label="Messagerie">
+          <div className="rail-label">MAIL</div>
+          <nav className="navigation" aria-label="Mail settings">
             <button
               className={`nav-item ${section === 'messages' && filter !== 'quarantined' ? 'nav-active' : ''}`}
               aria-current={
@@ -744,7 +745,7 @@ function Home() {
               onClick={() => navigate('messages')}
             >
               <Inbox size={18} />
-              {user.admin ? 'Tous les messages' : 'Mes messages'}
+              {user.admin ? "All messages" : "My messages"}
             </button>
             <button
               className={`nav-item ${section === 'messages' && filter === 'quarantined' ? 'nav-active' : ''}`}
@@ -756,11 +757,11 @@ function Home() {
               onClick={() => navigate('messages', 'quarantined')}
             >
               <Archive size={18} />
-              Quarantaine
+              Quarantined
               {stats && (
                 <span
                   className="nav-count"
-                  title="Dans le périmètre sélectionné"
+                  title="Within the selected scope"
                 >
                   {stats.quarantined}
                 </span>
@@ -787,7 +788,7 @@ function Home() {
                         (clusterDirty && n.id === 'cluster')) && (
                         <span
                           className="draft-dot"
-                          aria-label="Brouillon non enregistré"
+                          aria-label="Unrecorded draft"
                         />
                       )}
                     </button>
@@ -795,15 +796,15 @@ function Home() {
               </nav>
             </>
           )}
-          <div className="rail-label admin-label">ESPACE PERSONNEL</div>
-          <nav className="navigation" aria-label="Espace personnel">
+          <div className="rail-label admin-label">PERSONAL SPACE</div>
+          <nav className="navigation" aria-label="Personal space">
             <Button
               variant="ghost"
               className={`nav-item ${section === 'preferences' ? 'nav-active' : ''}`}
               aria-current={section === 'preferences' ? 'page' : undefined}
               onClick={() => navigate('preferences')}
             >
-              <ShieldCheck size={18} /> Mes filtres
+              <ShieldCheck size={18} /> My filters
             </Button>
             <Button
               variant="ghost"
@@ -811,7 +812,7 @@ function Home() {
               aria-current={section === 'reliability' ? 'page' : undefined}
               onClick={() => navigate('reliability')}
             >
-              <ShieldCheck size={18} /> Fiabilité
+              <ShieldCheck size={18} /> Reliability
             </Button>
             <Button
               variant="ghost"
@@ -819,7 +820,7 @@ function Home() {
               aria-current={section === 'quality' ? 'page' : undefined}
               onClick={() => navigate('quality')}
             >
-              <ShieldCheck size={18} /> Qualité du filtre
+              <ShieldCheck size={18} /> Filter quality
             </Button>
             <button
               className={`nav-item ${section === 'account' ? 'nav-active' : ''}`}
@@ -827,7 +828,7 @@ function Home() {
               onClick={() => navigate('account')}
             >
               <UserRound size={18} />
-              Mon compte
+              My account
             </button>
           </nav>
         </div>
@@ -840,8 +841,8 @@ function Home() {
               <strong>{user.username}</strong>
               <span>
                 {user.admin
-                  ? 'Administrateur · Tous les domaines'
-                  : user.addresses.join(', ') || 'Aucune adresse attribuée'}
+                  ? "Administrator · All domains"
+                  : user.addresses.join(', ') || "No address assigned"}
               </span>
             </div>
           </div>
@@ -851,7 +852,7 @@ function Home() {
               if (
                 configDirty &&
                 !window.confirm(
-                  'Des réglages ne sont pas appliqués. Quitter et les abandonner ?',
+                  "No adjustments are applied. Leave and abandon them?",
                 )
               )
                 return;
@@ -865,28 +866,28 @@ function Home() {
               }
             }}
           >
-            <LogOut size={16} /> Déconnexion
+            <LogOut size={16} /> Sign out
           </Button>
         </div>
       </aside>
       <main id="main-content" className="workspace" tabIndex={-1}>
         <header className="topline">
           <span className="breadcrumbs">
-            <span>Espace de travail</span>
+            <span>Workspace</span>
             <ChevronRight size={14} />
             <strong>
               {selected
-                ? 'Décision du filtre'
+                ? "Filter decision"
                 : section === 'preferences'
-                  ? 'Mes filtres'
+                  ? "My filters"
                   : section === 'reliability'
-                    ? 'Fiabilité'
+                    ? "Reliability"
                     : section === 'quality'
-                      ? 'Qualité du filtre'
+                      ? "Filter quality"
                       : section === 'account'
-                        ? 'Mon compte'
+                        ? "My account"
                         : section === 'messages' && filter === 'quarantined'
-                          ? 'Quarantaine'
+                          ? "Quarantined"
                           : navigation.find((n) => n.id === section)?.label}
             </strong>
           </span>
@@ -896,9 +897,9 @@ function Home() {
             <i />
             {stats
               ? stats.mode !== 'observe'
-                ? 'Actions actives'
-                : 'Mode observation'
-              : 'Chargement du mode…'}
+                ? "Actions enabled"
+                : "Observation mode"
+              : "Loading Mode..."}
           </span>
         </header>
         {error && (
@@ -976,10 +977,10 @@ function Home() {
                     setNotice('');
                   }}
                 >
-                  <ArrowLeft size={17} /> Retour aux messages
+                  <ArrowLeft size={17} /> Back to Messages
                 </Button>
                 <div className="detail-heading">
-                  <p className="eyebrow">DÉCISION DU FILTRE</p>
+                  <p className="eyebrow">FILTER DECISION</p>
                   <div className="detail-badges">
                     <span
                       className={`status ${classification(selected, historicalThreshold?.messageId === selected.id ? historicalThreshold.threshold : undefined).tone}`}
@@ -995,7 +996,7 @@ function Home() {
                     </span>
                     {publicitySignal(selected.mailing) &&
                       selected.category !== 'publicity' && (
-                        <span className="status publicity">Indices PUB</span>
+                        <span className="status publicity">Marketing signals</span>
                       )}
                     <span
                       className={`status ${deliverySummary(selected.recipients).tone}`}
@@ -1006,87 +1007,83 @@ function Home() {
                       <span className="status">
                         Correction :{' '}
                         {selected.feedback_category === 'legitimate'
-                          ? 'Légitime'
+                          ? "Legitimate"
                           : selected.feedback_category === 'publicity'
-                            ? 'PUB'
+                            ? "Marketing"
                             : 'Spam'}
                       </span>
                     )}
                   </div>
-                  <h1>{selected.subject || '(Sans objet)'}</h1>
+                  <h1>{selected.subject || "(Not applicable)"}</h1>
                   {selected.node_id && (
                     <p className="mail-node-label">
-                      Serveur {selected.node_id} · dernier état reçu{' '}
+                      Server {selected.node_id} · last received status{' '}
                       {selected.node_updated_at
                         ? new Date(
                             selected.node_updated_at * 1000,
-                          ).toLocaleString('fr-FR')
-                        : 'inconnu'}
+                          ).toLocaleString("en-GB")
+                        : "unknown"}
                     </p>
                   )}
                   <p className="muted">
-                    {selected.sender || 'Expéditeur d’enveloppe vide'} ·{' '}
-                    {new Date(selected.created * 1000).toLocaleString('fr-FR')}
+                    {selected.sender || "Empty envelope sender"} ·{' '}
+                    {new Date(selected.created * 1000).toLocaleString("en-GB")}
                   </p>
                 </div>
                 <div className="detail-grid">
                   <section className="panel analysis-panel">
-                    <h2>Pourquoi ce classement ?</h2>
+                    <h2>Why this classification?</h2>
                     <MessageScoreDetails mail={selected} />
                     {selected.arbitration && (
                       <p className="notice">
                         {arbitrationExplanation(selected.arbitration)?.detail}{' '}
-                        Indice historique :{' '}
+                        Historical index:{' '}
                         {selected.arbitration.baseline.score?.toFixed(1) ?? '—'}{' '}
                         / 100.
                       </p>
                     )}
                     {selected.decision?.source === 'antivirus' && (
                       <p className="notice">
-                        Le résultat antivirus prime sur l’indice de suspicion (
-                        {selected.score.toFixed(1)} / 100) et sur la détection
-                        de publicité.
+                        Antivirus result takes precedence over suspicion index (
+                        {selected.score.toFixed(1)} / 100) and on advertising detection.
                       </p>
                     )}
                     {!selected.complete && (
                       <p className="notice">
-                        Certains contrôles n’ont pas abouti. Les détections
-                        obtenues restent visibles ; aucun préfixe n’est ajouté à
-                        l’objet.
+                        Some checks have not been carried out. The detections obtained remain visible; no prefixes are added to the object.
                       </p>
                     )}
                     <details className="analysis-details">
-                      <summary>Contrôles et détails de l’analyse</summary>
+                      <summary>Checks and details of the analysis</summary>
                       {selected.fusion &&
                         selected.fusion.status !== 'disabled' && (
                           <div className="notice">
                             <strong>
                               {selected.fusion.mode === 'observe'
-                                ? 'Fusion en observation'
-                                : 'Décision commune'}
+                                ? "Fusion in observation"
+                                : "Joint Decision"}
                             </strong>
                             <p>
                               {
                                 {
                                   not_run:
-                                    'Contexte insuffisant pour combiner les détecteurs.',
+                                    "Not enough context to combine detectors.",
                                   complete: selected.fusion.prediction
                                     ?.tag_eligible
-                                    ? `Estimation : ${((selected.fusion.prediction?.probability ?? 0) * 100).toFixed(1)} / 100.`
-                                    : 'Contrôles incomplets : estimation inutilisable pour le marquage.',
+                                    ? `Estimate: ${((selected.fusion.prediction?.probability ?? 0) * 100).toFixed(1)} / 100.`
+                                    : "Incomplete checks: Unusable estimate for marking.",
                                   unavailable:
-                                    'Fusion indisponible pour ce message.',
+                                    "Fusion unavailable for this message.",
                                   unsupported_profile:
-                                    'Cette combinaison de contrôles n’a pas encore été validée.',
+                                    "This combination of controls has not yet been validated.",
                                   validation_expired:
-                                    'Validation du modèle expirée : aucun préfixe ajouté.',
+                                    "Validating the expired model: no prefix added.",
                                 }[selected.fusion.status]
                               }
                             </p>
                             {selected.fusion.mode === 'observe' && (
                               <p>
-                                Résultat de recherche, sans effet sur le
-                                classement.
+                                Search result, no effect on ranking.
                               </p>
                             )}
                             <small>{selected.fusion.model}</small>
@@ -1100,9 +1097,9 @@ function Home() {
                                         <span>{fusionReason(c.feature)}</span>
                                         <small>
                                           {c.contribution > 0
-                                            ? 'Augmente'
-                                            : 'Réduit'}{' '}
-                                          l’estimation
+                                            ? "Increases"
+                                            : "Reduces"}{' '}
+                                          the estimate
                                         </small>
                                       </li>
                                     ))}
@@ -1119,29 +1116,29 @@ function Home() {
                       {selected.smtp_policy &&
                         selected.smtp_policy.status !== 'disabled' && (
                           <p className="muted">
-                            Cohérence SMTP et DNS :{' '}
+                            SMTP and DNS consistency:{' '}
                             {
                               {
-                                complete: 'contrôlée',
-                                busy: 'capacité occupée, contrôle incomplet',
-                                unavailable: 'indisponible ou délai dépassé',
+                                complete: "Controlled",
+                                busy: "occupied capacity, incomplete control",
+                                unavailable: "unavailable or exceeded",
                               }[selected.smtp_policy.status]
                             }{' '}
                             · {selected.smtp_policy.elapsed_ms} ms
                             {selected.smtp_policy.status === 'complete' &&
                               !selected.smtp_policy.scoring_enabled &&
-                              ' · observation sans effet sur le score'}
+                              "· observation without effect on score"}
                           </p>
                         )}
                       {selected.semantic &&
                         selected.semantic.status !== 'disabled' && (
                           <p className="muted">
-                            Analyse multilingue locale :{' '}
+                            Local multilingual analysis:{' '}
                             {
                               {
-                                complete: 'effectuée',
-                                busy: 'capacité occupée, analyse incomplète',
-                                unavailable: 'indisponible ou délai dépassé',
+                                complete: "completed",
+                                busy: "occupied capacity, incomplete analysis",
+                                unavailable: "unavailable or exceeded",
                               }[selected.semantic.status]
                             }{' '}
                             · {selected.semantic.elapsed_ms} ms
@@ -1151,48 +1148,46 @@ function Home() {
                         selected.vision.status !== 'disabled' && (
                           <div className="notice">
                             <strong>
-                              Lecture des images et PDF :{' '}
+                              Reading images and PDF:{' '}
                               {
                                 {
                                   complete: selected.vision.parts
-                                    ? 'effectuée'
-                                    : 'aucun contenu visuel local',
+                                    ? "completed"
+                                    : "no local visual content",
                                   limited:
-                                    'partielle, limites atteintes ou document illisible',
-                                  busy: 'capacité occupée, analyse incomplète',
-                                  unavailable: 'indisponible ou délai dépassé',
+                                    "partial, reached limits or unreadable document",
+                                  busy: "occupied capacity, incomplete analysis",
+                                  unavailable: "unavailable or exceeded",
                                 }[selected.vision.status]
                               }
                             </strong>
                             {selected.vision.pages > 0 && (
                               <p>
                                 {selected.vision.pages} page(s) ·{' '}
-                                {selected.vision.text_chars} caractères ·{' '}
+                                {selected.vision.text_chars} characters ·{' '}
                                 {selected.vision.qr_codes} QR code(s) ·{' '}
-                                {selected.vision.other_codes} autre(s) code(s) ·{' '}
-                                {selected.vision.link_domains} domaine(s) dans
-                                les liens
+                                {selected.vision.other_codes} Other code(s) ·{' '}
+                                {selected.vision.link_domains} domain(s) in links
                               </p>
                             )}
                             <small>
-                              Traitement local · {selected.vision.elapsed_ms} ms
-                              · Les liens décodés ne sont pas ouverts.
+                              Local treatment · {selected.vision.elapsed_ms} ms · The decoded links are not open.
                             </small>
                           </div>
                         )}
                       {selected.llm && selected.llm.status !== 'disabled' && (
                         <p className="muted">
-                          Analyse complémentaire Scaleway :{' '}
+                          Further Scaleway analysis:{' '}
                           {
                             {
-                              not_needed: 'non sollicitée pour ce message',
-                              busy: 'capacité occupée, analyse incomplète',
+                              not_needed: "unsolicited for this message",
+                              busy: "occupied capacity, incomplete analysis",
                               budget_limited:
-                                'plafond atteint, analyse locale conservée',
+                                "ceiling reached, local analysis preserved",
                               pricing_expired:
-                                'tarifs à revalider, analyse locale conservée',
-                              unavailable: 'indisponible',
-                              complete: 'effectuée',
+                                "rates to be revalidated, local analysis retained",
+                              unavailable: "not available",
+                              complete: "completed",
                             }[selected.llm.status]
                           }
                           {selected.llm.status === 'complete' &&
@@ -1208,12 +1203,12 @@ function Home() {
                               Antivirus :{' '}
                               {
                                 {
-                                  clean: 'aucune détection',
-                                  malware: 'fichier malveillant détecté',
-                                  suspicious: 'signal suspect à examiner',
+                                  clean: "no detection",
+                                  malware: "malicious file detected",
+                                  suspicious: "suspicious signal to be examined",
                                   unscannable:
-                                    'analyse limitée ou contenu chiffré',
-                                  unavailable: 'service indisponible',
+                                    "limited analysis or encrypted content",
+                                  unavailable: "service unavailable",
                                 }[selected.antivirus.status]
                               }
                             </strong>
@@ -1228,14 +1223,14 @@ function Home() {
                       {selected.signatures &&
                         selected.signatures.status !== 'disabled' && (
                           <p className="muted">
-                            Signatures complémentaires :{' '}
+                            Additional signatures:{' '}
                             {
                               {
-                                clean: 'aucune détection',
-                                malware: 'signal consultatif à examiner',
-                                suspicious: 'signal consultatif à examiner',
-                                unscannable: 'analyse limitée',
-                                unavailable: 'service indisponible',
+                                clean: "no detection",
+                                malware: "advisory signal to be considered",
+                                suspicious: "advisory signal to be considered",
+                                unscannable: "Limited analysis",
+                                unavailable: "service unavailable",
                               }[selected.signatures.status]
                             }{' '}
                             · {selected.signatures.elapsed_ms} ms
@@ -1250,7 +1245,7 @@ function Home() {
                   <Suspense
                     fallback={
                       <section className="panel message-diagnostics">
-                        <output>Chargement des diagnostics du message…</output>
+                        <output>Loading diagnostics of the message...</output>
                       </section>
                     }
                   >
@@ -1278,10 +1273,9 @@ function Home() {
                     <ProtectionDetails report={selected.protection} />
                   )}
                   <section className="panel message-actions-panel">
-                    <h2>Corriger le classement</h2>
+                    <h2>Correct classification</h2>
                     <p className="muted">
-                      Corrigez la décision pour améliorer les prochains
-                      classements.
+                      Correct the classification to support future evaluation and training.
                     </p>
                     <div className="feedback-actions">
                       <Button
@@ -1293,7 +1287,7 @@ function Home() {
                         }
                         onClick={() => feedback('legitimate')}
                       >
-                        <Check size={17} /> Légitime
+                        <Check size={17} /> Legitimate
                       </Button>
                       <Button
                         disabled={busy}
@@ -1313,12 +1307,11 @@ function Home() {
                         }
                         onClick={() => feedback('publicity')}
                       >
-                        PUB
+                        Marketing
                       </Button>
                     </div>
                     <p className="muted small">
-                      PUB désigne une publicité ou une newsletter légitime. Une
-                      publicité frauduleuse doit être signalée comme spam.
+                      PUB refers to a legitimate advertisement or newsletter. Fraudulent advertising must be reported as spam.
                     </p>
                     <AdaptiveDetails
                       key={`${user.username}-${selected.id}`}
@@ -1330,15 +1323,15 @@ function Home() {
                       blocked={busy}
                       onBusy={setBusy}
                     />
-                    <h2 className="subheading">Livraison</h2>
+                    <h2 className="subheading">Delivery</h2>
                     {selected.action && (
                       <p className="small muted">
-                        Action à la réception :{' '}
+                        Action at reception:{' '}
                         {actionLabel[selected.action.effective]}.
                         {selected.action.reason === 'observation' &&
-                          ` Observation active ; action prévue : ${actionLabel[selected.action.requested]}.`}
+                          ` Active observation; planned action: ${actionLabel[selected.action.requested]}.`}
                         {selected.action.reason === 'incomplete' &&
-                          ' Analyse incomplète : transmission sans préfixe.'}
+                          "Incomplete analysis: transmission without prefix."}
                       </p>
                     )}
                     {selected.recipients.map((r) => (
@@ -1352,15 +1345,15 @@ function Home() {
                         )}
                         {r.pending_command && (
                           <p className="notice">
-                            Commande en attente de confirmation du serveur MX.
+                            Order pending confirmation of the MX server.
                           </p>
                         )}
                         {r.status === 'quarantined' && (
                           <>
                             <p className="small muted">
                               {r.held_until
-                                ? `Suppression prévue le ${new Date(r.held_until * 1000).toLocaleString('fr-FR')}.`
-                                : 'Message retenu sur la passerelle.'}
+                                ? `Deletion scheduled on ${new Date(r.held_until * 1000).toLocaleString("en-GB")}.`
+                                : "Message held on the gateway."}
                             </p>
                             <div className="feedback-actions">
                               <Button
@@ -1373,7 +1366,7 @@ function Home() {
                                   })
                                 )}
                               >
-                                Libérer et transmettre
+                                Release and transmit
                               </Button>
                               <Button
                                 variant="outline"
@@ -1387,7 +1380,7 @@ function Home() {
                                   })
                                 )}
                               >
-                                Supprimer
+                                Delete
                               </Button>
                             </div>
                           </>
@@ -1395,14 +1388,10 @@ function Home() {
                       </div>
                     ))}
                     <p className="small muted">
-                      L’acceptation par le serveur destinataire ne garantit pas
-                      l’arrivée dans la boîte de réception.
+                      Acceptance by the recipient server does not guarantee arrival in the inbox.
                     </p>
                     <p className="small muted">
-                      Le corps et les pièces jointes restent sur la passerelle
-                      tant qu’une livraison est en attente ou en quarantaine.
-                      Ils sont supprimés lorsque tous les destinataires sont
-                      résolus.
+                      The body and attachments remain on the gateway while any delivery is pending or quarantined. Deletion follows resolution of all recipients and required replica acknowledgements.
                     </p>
                   </section>
                 </div>
@@ -1413,20 +1402,20 @@ function Home() {
                   <div>
                     <p className="eyebrow">
                       {user.admin
-                        ? 'VUE DE L’ORGANISATION'
-                        : 'VOTRE MESSAGERIE'}
+                        ? "ORGANIZATION VIEW"
+                        : "YOUR MAIL"}
                     </p>
                     <h1>
                       {filter === 'quarantined'
-                        ? 'Quarantaine'
+                        ? "Quarantined"
                         : user.admin
-                          ? 'Tous les messages'
-                          : 'Mes messages'}
+                          ? "All messages"
+                          : "My messages"}
                     </h1>
                     <p className="muted">
                       {filter === 'quarantined'
-                        ? 'Examinez les messages retenus et choisissez leur traitement.'
-                        : 'Suivez chaque message, de son analyse à sa livraison.'}
+                        ? "Review the selected messages and choose their processing."
+                        : "Follow each message, from analysis to delivery."}
                     </p>
                   </div>
                   <Button
@@ -1435,17 +1424,17 @@ function Home() {
                     disabled={loading}
                     aria-label={
                       loading
-                        ? 'Actualisation des messages en cours'
-                        : 'Actualiser les messages'
+                        ? "Updating of current messages"
+                        : "Update Messages"
                     }
                   >
                     <RefreshCw size={16} className={loading ? 'spin' : ''} />
-                    {loading ? 'Actualisation…' : 'Actualiser'}
+                    {loading ? "Refreshing…" : "Refresh"}
                   </Button>
                 </div>
                 <div className="scope-bar">
                   <Globe2 size={16} />
-                  <label htmlFor="domain-scope">Périmètre</label>
+                  <label htmlFor="domain-scope">Scope</label>
                   <select
                     id="domain-scope"
                     value={domain}
@@ -1455,7 +1444,7 @@ function Home() {
                     }}
                   >
                     <option value="">
-                      {user.admin ? 'Tous les domaines' : 'Tous mes accès'}
+                      {user.admin ? "All domains" : "All my accesses"}
                     </option>
                     {domains.map((d) => (
                       <option key={d} value={d}>
@@ -1465,43 +1454,43 @@ function Home() {
                   </select>
                   <span className="small muted">
                     {user.admin
-                      ? 'Visibilité complète des destinataires'
-                      : 'Destinataires autorisés uniquement'}
+                      ? "Full visibility of recipients"
+                      : "Authorized recipients only"}
                   </span>
                 </div>
-                <div className="stats message-stats">
+                <div className="message-stat stats">
                   {[
                     {
                       id: 'all',
-                      label: 'Messages reçus',
+                      label: "Messages received",
                       count: stats?.received,
                       icon: Inbox,
                       tone: 'blue',
-                      detail: 'Historique disponible',
+                      detail: "History available",
                     },
                     {
                       id: 'spam',
-                      label: 'Spam détecté',
+                      label: "Spam detected",
                       count: stats?.flagged,
                       icon: ShieldCheck,
                       tone: 'orange',
-                      detail: 'Classés indésirables',
+                      detail: "Spam classifications",
                     },
                     {
                       id: 'publicity',
-                      label: 'Publicités · PUB',
+                      label: "Marketing · PUB",
                       count: stats?.publicity,
                       icon: Flag,
                       tone: 'purple',
-                      detail: 'Publicités et newsletters',
+                      detail: "Marketing and newsletters",
                     },
                     {
                       id: 'quarantined',
-                      label: 'En quarantaine',
+                      label: "Quarantine",
                       count: stats?.quarantined,
                       icon: Archive,
                       tone: 'amber',
-                      detail: 'Messages retenus',
+                      detail: "Held messages",
                     },
                   ].map((card) => (
                     <button
@@ -1518,7 +1507,7 @@ function Home() {
                       </span>
                       <span>{card.label}</span>
                       <strong>
-                        {card.count?.toLocaleString('fr-FR') ?? '—'}
+                        {card.count?.toLocaleString("en-GB") ?? '—'}
                       </strong>
                       <small className="stat-detail">{card.detail}</small>
                       <ArrowUpRight className="stat-arrow" size={16} />
@@ -1529,17 +1518,15 @@ function Home() {
                   <div className="observation-banner">
                     <ShieldCheck size={18} />
                     <p>
-                      <strong>Observation active</strong> Les messages sont
-                      analysés et transmis. Les actions de marquage et de
-                      quarantaine ne sont pas appliquées.
-                      {user.admin && ' Vous pouvez les activer dans Filtres.'}
+                      <strong>Observation active</strong> Messages are analyzed and transmitted. Marking and quarantine actions are not applied.
+                      {user.admin && "You can activate them in Filters."}
                     </p>
                     {user.admin && (
                       <Button
                         variant="ghost"
                         onClick={() => navigate('filters')}
                       >
-                        Voir les actions <ChevronRight size={15} />
+                        See actions <ChevronRight size={15} />
                       </Button>
                     )}
                   </div>
@@ -1552,10 +1539,10 @@ function Home() {
                     <div>
                       <h2>
                         {filter === 'quarantined'
-                          ? 'Messages en quarantaine'
-                          : 'Journal des messages'}
+                          ? "Quarantine messages"
+                          : "Message log"}
                       </h2>
-                      <p>Les décisions et la livraison, au même endroit.</p>
+                      <p>Decisions and delivery, same place.</p>
                     </div>
                     <Button
                       variant="outline"
@@ -1563,22 +1550,22 @@ function Home() {
                       aria-pressed={compact}
                       onClick={() => setCompact((v) => !v)}
                     >
-                      <Rows3 size={16} /> Vue compacte
+                      <Rows3 size={16} /> Compact view
                     </Button>
                   </div>
                   <div className="toolbar">
                     <fieldset
                       className="tabs"
-                      aria-label="Filtrer les messages"
+                      aria-label="Filter Messages"
                     >
                       {[
-                        ['all', 'Tous'],
-                        ['spam', 'Spam détecté'],
-                        ['publicity', 'PUB'],
-                        ['legitimate', 'Légitime'],
+                        ['all', "All"],
+                        ['spam', "Spam detected"],
+                        ['publicity', "Marketing"],
+                        ['legitimate', "Legitimate"],
                         [
                           'quarantined',
-                          `Quarantaine (${stats?.quarantined ?? 0})`,
+                          `Quarantine (${stats?.quarantined ?? 0})`,
                         ],
                       ].map(([value, label]) => (
                         <Button
@@ -1598,7 +1585,7 @@ function Home() {
                       >
                         <SlidersHorizontal size={14} />
                         <select
-                          aria-label="Autres filtres de messages"
+                          aria-label="Other message filters"
                           value={
                             [
                               'pending',
@@ -1617,14 +1604,14 @@ function Home() {
                           }}
                         >
                           <option value="" disabled>
-                            Plus de filtres
+                            More filters
                           </option>
-                          <option value="pending">En attente</option>
-                          <option value="review">À vérifier</option>
+                          <option value="pending">Pending</option>
+                          <option value="review">Needs review</option>
                           <option value="publicity_signal">
-                            Indices PUB, tous classements
+                            Marketing signals, all classifications
                           </option>
-                          <option value="incomplete">Analyse incomplète</option>
+                          <option value="incomplete">Partial analysis</option>
                         </select>
                       </label>
                     </fieldset>
@@ -1632,8 +1619,8 @@ function Home() {
                       <Search size={18} />
                       <Input
                         ref={searchInput}
-                        aria-label="Rechercher dans les objets, adresses, règles et identifiants"
-                        placeholder="Rechercher un message…"
+                        aria-label="Search subjects, addresses, rules and identifiers"
+                        placeholder="Search for a message..."
                         value={search}
                         onChange={(e) => {
                           setSearch(e.target.value);
@@ -1644,7 +1631,7 @@ function Home() {
                       {!search && (
                         <kbd
                           className="search-shortcut"
-                          title="Ctrl ou ⌘ + K"
+                          title="Ctrl, or - + K"
                           aria-hidden="true"
                         >
                           ⌘ K
@@ -1653,7 +1640,7 @@ function Home() {
                       {search && (
                         <button
                           className="clear-search"
-                          aria-label="Effacer la recherche"
+                          aria-label="Clear Search"
                           onClick={() => {
                             setSearch('');
                             setOffset(0);
@@ -1677,9 +1664,9 @@ function Home() {
                     searchFilterCount(searchFilters) > 0) && (
                     <div
                       className="search-context"
-                      aria-label="Critères actifs"
+                      aria-label="Active criteria"
                     >
-                      <span>Affichage</span>
+                      <span>View</span>
                       {domain && (
                         <span className="filter-chip">
                           <Globe2 size={13} />
@@ -1689,14 +1676,14 @@ function Home() {
                       {filter !== 'all' && (
                         <span className="filter-chip">
                           {{
-                            spam: 'Spam détecté',
-                            publicity: 'Publicités',
-                            legitimate: 'Légitimes',
-                            quarantined: 'Quarantaine',
-                            pending: 'En attente',
-                            review: 'À vérifier',
-                            publicity_signal: 'Indices PUB',
-                            incomplete: 'Analyse incomplète',
+                            spam: "Spam detected",
+                            publicity: "Marketing",
+                            legitimate: "Legitimate",
+                            quarantined: "Quarantined",
+                            pending: "Pending",
+                            review: "Needs review",
+                            publicity_signal: "Marketing signals",
+                            incomplete: "Partial analysis",
                           }[filter] ?? filter}
                         </span>
                       )}
@@ -1708,7 +1695,7 @@ function Home() {
                       )}
                       {searchFilterCount(searchFilters) > 0 && (
                         <span className="filter-chip">
-                          {searchFilterCount(searchFilters)} critères avancés
+                          {searchFilterCount(searchFilters)} advanced criteria
                         </span>
                       )}
                       <button
@@ -1722,24 +1709,24 @@ function Home() {
                         }}
                       >
                         <X size={13} />
-                        Réinitialiser
+                        Reset
                       </button>
                     </div>
                   )}
                   <div className="results-meta">
                     <span>
                       {loading
-                        ? 'Actualisation des messages…'
+                        ? "Updating messages..."
                         : searchTotal === null
-                          ? 'Recherche indisponible'
-                          : `${searchTotal} résultat${searchTotal > 1 ? 's' : ''}${mails.length ? ` · ${offset + 1}–${offset + mails.length}` : ''}`}
+                          ? "Search unavailable"
+                          : `${searchTotal} result${searchTotal > 1 ? 's' : ''}${mails.length ? ` · ${offset + 1}–${offset + mails.length}` : ''}`}
                       {domain && ` · ${domain}`}
                     </span>
                     <span>
                       <Clock3 size={13} />
                       {updatedAt
-                        ? `Actualisé à ${updatedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
-                        : 'Chargement…'}
+                        ? `Updated to ${updatedAt.toLocaleTimeString("en-GB", { hour: '2-digit', minute: '2-digit' })}`
+                        : "Loading…"}
                     </span>
                   </div>
                   {loading && !mails.length && (
@@ -1761,11 +1748,11 @@ function Home() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Message</TableHead>
-                          <TableHead>Destinataires</TableHead>
-                          <TableHead>Classement</TableHead>
-                          <TableHead>Livraison</TableHead>
+                          <TableHead>Recipients</TableHead>
+                          <TableHead>Classification</TableHead>
+                          <TableHead>Delivery</TableHead>
                           <TableHead>Score / 100</TableHead>
-                          <TableHead>Reçu le</TableHead>
+                          <TableHead>Received on</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1794,14 +1781,14 @@ function Home() {
                                     .toUpperCase()}
                                 </span>
                                 <span className="message-copy">
-                                  <strong>{m.subject || '(Sans objet)'}</strong>
+                                  <strong>{m.subject || "(Not applicable)"}</strong>
                                   {m.node_id && (
                                     <span className="mail-node-label">
                                       {m.node_id}
                                     </span>
                                   )}
                                   <span>
-                                    {m.sender || 'Notification de livraison'}
+                                    {m.sender || "Delivery notification"}
                                   </span>
                                 </span>
                               </button>
@@ -1823,18 +1810,17 @@ function Home() {
                               {publicitySignal(m.mailing) &&
                                 m.category !== 'publicity' && (
                                   <small className="tag-note">
-                                    Indices PUB · décision de sécurité
-                                    prioritaire
+                                    Marketing signals · priority safety decision
                                   </small>
                                 )}
                               {(m.tagged || m.pub_tagged) && (
                                 <small className="tag-note">
-                                  {m.tagged ? '[SPAM]' : '[PUB]'} ajouté
+                                  {m.tagged ? '[SPAM]' : '[PUB]'} added
                                 </small>
                               )}
                               {m.feedback_category && (
                                 <small className="tag-note">
-                                  Correction enregistrée
+                                  Recorded correction
                                 </small>
                               )}
                             </TableCell>
@@ -1863,7 +1849,7 @@ function Home() {
                                 <strong>
                                   {new Date(
                                     m.created * 1000,
-                                  ).toLocaleTimeString('fr-FR', {
+                                  ).toLocaleTimeString("en-GB", {
                                     hour: '2-digit',
                                     minute: '2-digit',
                                   })}
@@ -1871,7 +1857,7 @@ function Home() {
                                 <span>
                                   {new Date(
                                     m.created * 1000,
-                                  ).toLocaleDateString('fr-FR', {
+                                  ).toLocaleDateString("en-GB", {
                                     day: 'numeric',
                                     month: 'short',
                                   })}
@@ -1905,14 +1891,14 @@ function Home() {
                           {publicitySignal(m.mailing) &&
                             m.category !== 'publicity' && (
                               <span className="status publicity">
-                                Indices PUB
+                                Marketing signals
                               </span>
                             )}
                           <time
                             dateTime={new Date(m.created * 1000).toISOString()}
                           >
                             {new Date(m.created * 1000).toLocaleString(
-                              'fr-FR',
+                              "en-GB",
                               {
                                 day: 'numeric',
                                 month: 'short',
@@ -1922,13 +1908,13 @@ function Home() {
                             )}
                           </time>
                         </span>
-                        <strong>{m.subject || '(Sans objet)'}</strong>
+                        <strong>{m.subject || "(Not applicable)"}</strong>
                         {m.node_id && (
                           <span className="mail-node-label">{m.node_id}</span>
                         )}
-                        <small>{m.sender || 'Notification de livraison'}</small>
+                        <small>{m.sender || "Delivery notification"}</small>
                         <small>
-                          À : {m.recipients.map((r) => r.address).join(', ')}
+                          To: {m.recipients.map((r) => r.address).join(', ')}
                         </small>
                         <MessageScore
                           mail={m}
@@ -1941,7 +1927,7 @@ function Home() {
                             {deliverySummary(m.recipients).label}
                           </span>
                           {(m.tagged || m.pub_tagged) && (
-                            <span>{m.tagged ? '[SPAM]' : '[PUB]'} ajouté</span>
+                            <span>{m.tagged ? '[SPAM]' : '[PUB]'} added</span>
                           )}
                           <ChevronRight size={15} />
                         </span>
@@ -1953,23 +1939,23 @@ function Home() {
                       <ShieldCheck size={32} />
                       <h2>
                         {filter === 'quarantined'
-                          ? 'Aucun message en quarantaine'
+                          ? "No quarantine message"
                           : search ||
                               domain ||
                               filter !== 'all' ||
                               searchFilterCount(searchFilters) > 0
-                            ? 'Aucun résultat pour ces critères'
-                            : 'Votre historique est prêt'}
+                            ? "No results for these criteria"
+                            : "Your history is ready"}
                       </h2>
                       <p>
                         {filter === 'quarantined'
-                          ? 'Les messages retenus pour vos destinataires apparaîtront ici.'
+                          ? "The messages selected for your recipients will appear here."
                           : search ||
                               domain ||
                               filter !== 'all' ||
                               searchFilterCount(searchFilters) > 0
-                            ? 'Modifiez la recherche ou affichez tous les messages.'
-                            : 'Les prochains messages traités pour vos adresses apparaîtront ici.'}
+                            ? "Edit the search or display all messages."
+                            : "Next messages processed for your addresses will appear here."}
                       </p>
                       {(search ||
                         domain ||
@@ -1985,7 +1971,7 @@ function Home() {
                             setOffset(0);
                           }}
                         >
-                          Afficher tous les messages
+                          Show all messages
                         </Button>
                       )}
                     </div>
@@ -1996,7 +1982,7 @@ function Home() {
                       disabled={loading || offset === 0}
                       onClick={() => setOffset(Math.max(0, offset - 50))}
                     >
-                      Précédent
+                      Previous
                     </Button>
                     <span>Page {Math.floor(offset / 50) + 1}</span>
                     <Button
@@ -2004,7 +1990,7 @@ function Home() {
                       disabled={loading || !hasMore}
                       onClick={() => setOffset(offset + 50)}
                     >
-                      Suivant
+                      Next
                     </Button>
                   </div>
                 </section>
@@ -2017,13 +2003,13 @@ function Home() {
         <ConfirmDialog
           title={
             confirmation.action === 'release'
-              ? 'Libérer ce message ?'
-              : 'Supprimer cette livraison ?'
+              ? "Release this message?"
+              : "Delete this delivery?"
           }
           confirmLabel={
             confirmation.action === 'release'
-              ? 'Libérer et transmettre'
-              : 'Supprimer définitivement'
+              ? "Release and transmit"
+              : "Delete permanently"
           }
           danger={confirmation.action === 'delete'}
           busy={busy}
@@ -2036,15 +2022,15 @@ function Home() {
           }
         >
           <p className="confirmation-subject">
-            {selected.subject || '(Sans objet)'}
+            {selected.subject || "(Not applicable)"}
           </p>
           <p>
-            Destinataire : <strong>{confirmation.recipient}</strong>
+            To: <strong>{confirmation.recipient}</strong>
           </p>
           <p>
             {confirmation.action === 'release'
-              ? 'Le message sera transmis sans préfixe. Son classement et les autres destinataires restent inchangés.'
-              : 'Cette livraison sera supprimée sans envoi. Cette action est définitive pour ce destinataire.'}
+              ? "The message will be delivered without a tag. Its classification and other recipients remain unchanged."
+              : "This delivery will be deleted without sending. This action is final for this recipient."}
           </p>
           {confirmationError && (
             <p className="error" role="alert">

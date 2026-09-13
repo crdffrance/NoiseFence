@@ -12,10 +12,10 @@ use std::{
 /// A future release must review its typed policies before extending this window.
 pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
-        || (env!("CARGO_PKG_VERSION") == "0.17.3"
+        || (env!("CARGO_PKG_VERSION") == "0.18.0"
             && matches!(
                 build,
-                "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3" | "0.16.2"
+                "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3" | "0.16.2" | "0.17.3"
             ))
 }
 
@@ -82,14 +82,14 @@ pub fn credential(path: &Path) -> Result<String> {
     let file = std::fs::File::open(path)?;
     ensure!(
         file.metadata()?.permissions().mode() & 0o077 == 0,
-        "L’identité du nœud doit être privée (0600)."
+        "The identity of the node must be private (0600)."
     );
     let mut value = String::new();
     file.take(66).read_to_string(&mut value)?;
     let value = value.trim();
     ensure!(
         value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()),
-        "Identité de nœud invalide."
+        "Identity of invalid node."
     );
     Ok(value.into())
 }

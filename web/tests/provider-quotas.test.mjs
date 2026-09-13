@@ -34,12 +34,12 @@ const render = (props = {}) =>
   renderToStaticMarkup(createElement(ProviderQuotas, { ...base, ...props }));
 test('explicit unlimited is distinct from inherited budgets and current server state', () => {
   const inherited = render();
-  assert.match(inherited, /Actifs : Illimité\/min · Illimité\/jour/);
-  assert.match(inherited, /À appliquer : 2\/min · 200\/jour/);
-  assert.ok(!inherited.includes('Clé illimitée —'));
+  assert.match(inherited, /Active limits: Unlimited\/min · Unlimited\/day/);
+  assert.match(inherited, /Draft limits: 2\/min · 200\/day/);
+  assert.ok(!inherited.includes("Unlimited key —"));
   const custom = render({ value: { minute: 0, day: 100 } });
-  assert.match(custom, /À appliquer : Illimité\/min · 100\/jour/);
-  assert.match(custom, /CRDF Par minute illimité/);
+  assert.match(custom, /Draft limits: Unlimited\/min · 100\/day/);
+  assert.match(custom, /CRDF Per minute unlimited/);
 });
 test('empty, zero and malformed numeric fields cannot silently grant unlimited', () => {
   for (const value of [
@@ -57,15 +57,15 @@ test('empty, zero and malformed numeric fields cannot silently grant unlimited',
   assert.equal(numericQuota('4294967295'), 4294967295);
   assert.match(
     render({ value: { minute: -1, day: 200 } }),
-    /Saisissez un entier positif/,
+    /Enter a positive integer/,
   );
   assert.equal(
     quotaLabel({ minute: 0, day: 0 }),
-    'Illimité/min · Illimité/jour',
+    "Unlimited/min · Unlimited/day",
   );
 });
 test('usage, cooldown and unavailable counters are explicit', () => {
-  assert.match(render(), /Compteurs indisponibles/);
+  assert.match(render(), /Usage counters unavailable/);
   const html = render({
     value: { minute: 0, day: 0 },
     usage: {
@@ -76,8 +76,8 @@ test('usage, cooldown and unavailable counters are explicit', () => {
       cooldown_until: 1800000300,
     },
   });
-  assert.match(html, /15 cette minute · 300 aujourd’hui/);
-  assert.match(html, /Pause fournisseur/);
-  assert.match(html, /y compris en mode illimité/);
-  assert.match(render({ applied: null }), /module désactivé/);
+  assert.match(html, /15 this minute · 300 today/);
+  assert.match(html, /Provider cooldown/);
+  assert.match(html, /including unlimited mode/);
+  assert.match(render({ applied: null }), /module disabled/);
 });

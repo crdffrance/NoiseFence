@@ -1,86 +1,43 @@
-# Actions et quarantaine
+# Actions and quarantine
 
-Depuis **0.4.0-dev.1**, le classement et le traitement sont séparés. Dans
-**Filtres → Actions après détection**, l’administrateur choisit pour les catégories
-**Malware confirmé**, **Spam** et **PUB** :
+Classification and delivery action are separate. Under **Filters → Policy & actions**, choose an action for confirmed malware, spam and marketing (PUB).
 
-| Action | Traitement |
+| Action | Behavior |
 | --- | --- |
-| Transmettre sans préfixe | Enregistrer l’analyse puis relayer le message |
-| Tagger et transmettre | Ajouter `[SPAM]` ou `[PUB]`, puis relayer ; validation Proton et ARC obligatoire |
-| Placer en quarantaine | Accepter durablement, retenir chaque livraison, permettre une libération ou une suppression |
+| Deliver without a tag | Record analysis and relay the message |
+| Tag and deliver | Add `[SPAM]` or `[PUB]`, then relay; requires the corresponding Proton and ARC validation |
+| Quarantine | Accept and retain each affected delivery until release, discard or expiry |
 
-Le mode **Observation** transmet tous les messages sans préfixe, même lorsqu’une
-action de quarantaine est prévue. Le mode **Actif — appliquer les actions**
-(`filter.mode = "enforce"`) applique les actions enregistrées. L’ancien mode
-`tag` reste accepté avec les mêmes actions ; il est conservé pour les installations
-existantes. Sans configuration `[actions]`, le comportement historique est préservé.
-Une mise à jour du logiciel n’active ni le marquage ni la quarantaine.
+**Observation** always delivers without tagging or quarantine. `filter.mode = "enforce"` applies configured actions. The legacy `tag` mode remains supported; upgrading does not activate enforcement. Without an explicit action policy, the previous behavior is retained.
 
-La quarantaine ne modifie pas l’objet et peut être activée sans rapport de
-compatibilité de préfixe Proton. Le marquage conserve ses validations existantes,
-y compris le rapport propre au préfixe `[PUB]`. La priorité est : malware du
-scanner principal, décision spam, publicité légitime, autres messages.
-Une analyse incomplète transmet sans préfixe, sauf si un malware du scanner
-principal est confirmé et son action est explicitement **Quarantaine**.
-Les messages **À vérifier** sont transmis sans préfixe. Un résultat consultatif
-ne remplace pas à lui seul la décision du moteur.
+Primary antivirus malware detection takes priority, then spam, then legitimate marketing. Incomplete analysis delivers without a prefix, except that confirmed primary-antivirus malware may be quarantined under an explicit quarantine policy. Review decisions are delivered unchanged unless a permitted recipient policy applies. Advisory results alone do not replace the engine decision.
 
-## Gérer les messages retenus
+Quarantine does not modify the subject and does not require a Proton prefix report. Tagging requires a separate report for `[SPAM]` and `[PUB]`. See [filter policy](filter-policy.md) for precedence and [custom rules](custom-filtering.md) for recipient overrides.
 
-Ouvrir **Messages → Quarantaine**, puis un message. Pour chaque destinataire
-autorisé, la console présente la date d’expiration et deux commandes :
+<a id="gérer-les-messages-retenus"></a>
+## Manage held messages
 
-- **Libérer et transmettre** : remettre ce destinataire dans la file normale,
-  sans préfixe ajouté lors de la libération. La route et l’expéditeur d’enveloppe
-  d’origine sont conservés. Le délai de réessai SMTP recommence à la libération.
-- **Supprimer** : terminer définitivement cette livraison sans l’envoyer.
+Open **Messages → Quarantine** and select a message. For each authorized recipient:
 
-La confirmation affichée nomme le destinataire concerné. Une action ne touche pas
-les copies cachées hors périmètre. Session, CSRF, origine et droits sur le
-destinataire sont vérifiés côté serveur ; la transaction revérifie les droits et
-la validité de la session. Une seconde libération ou une action sur un message
-expiré est refusée. Le rôle administrateur couvre tous les destinataires.
+- **Release and transmit** returns that delivery to the queue without adding a prefix. It preserves classification, original route and envelope sender. The retry period starts at release.
+- **Delete** discards that delivery permanently without sending it.
 
-Une correction **Spam / PUB / Légitime** alimente les retours de classification ;
-elle ne libère pas une quarantaine et ne change pas une livraison déjà terminée.
-Une libération n’efface pas la détection, notamment celle de malware. Les corps,
-HTML et pièces jointes ne sont pas exposés dans la console.
+The confirmation identifies the recipient. The server rechecks the session, CSRF token, origin, permissions and current delivery state in the transaction. Other recipients, including hidden copies outside the user’s grants, are unaffected. Repeated or expired releases are refused. Remote commands remain pending until their owning MX acknowledges execution.
 
-La conservation est réglable de **1 à 30 jours** (14 par défaut). L’échéance est
-fixée à l’acceptation ; modifier les réglages n’affecte pas les messages déjà
-retenus. À expiration, le nettoyage périodique marque la livraison **expirée**,
-sans envoi ni notification de non-livraison. La suppression manuelle et l’expiration
-sont des décisions de la politique de quarantaine, distinctes des échecs SMTP.
-L’expiration peut être enregistrée quelques minutes après l’échéance ; aucune
-libération n’est permise après celle-ci.
+Spam, marketing or legitimate feedback supports evaluation and training; it does not release quarantine or modify mail already delivered. Releasing malware does not erase the detection. The console does not render message bodies, attachment contents or HTML.
 
-Le corps reste dans le spool privé tant qu’un destinataire est en attente,
-en cours, en échec non résolu ou en quarantaine. Il est supprimé une fois tous
-les destinataires résolus. Les messages encore conservés restent consultables
-dans l’historique même au-delà de 30 jours, par exemple après une libération
-tardive suivie de réessais. Les métadonnées résolues et l’audit suivent la
-conservation de 30 jours. Surveiller `quarantined_deliveries` et l’espace disque.
+Retention is 1–30 days, default 14. The expiry is fixed at acceptance; later policy edits do not change it. At expiry, cleanup marks the delivery expired without sending it or creating a non-delivery notification. Release is refused after expiry even if cleanup has not run yet.
 
-## Personnaliser les filtres
+Bodies remain private while any recipient is pending, sending, unresolved or quarantined, and while required replication acknowledgements remain outstanding. Unresolved mail stays searchable beyond the usual 30-day metadata period. Monitor held deliveries, queue age and free space. Backup retention is separate.
 
-Les connecteurs, la confirmation du spam, les options de réputation, d’OCR,
-d’usurpation et les catégories de mailing restent configurables dans **Filtres**.
-Le panneau **Règles heuristiques personnalisées** ajoute huit contributions
-réglables : urgence, demande d’identifiants, promesse financière, formulaire HTML,
-lien IDN, lien vers une IP, domaine de réponse différent et objet en majuscules.
+<a id="personnaliser-les-filtres"></a>
+## Customize filters
 
-Chaque poids est compris entre 0 et 3. Il est ajouté à l’indice avant sa conversion
-en score ; ce n’est pas un nombre de points de pourcentage. Zéro neutralise la
-contribution explicite de la règle. Les observations et caractéristiques des
-modèles sont conservées ; le modèle peut toujours reconnaître ces éléments.
-Le bouton de restauration supprime les surcharges et reprend les poids par défaut.
-La confirmation reste active selon son réglage, la priorité antivirus est intacte
-et une fusion validée conserve sa propre décision. Le seuil multilingue demeure
-lié à la calibration du modèle. Une modification de poids demande une évaluation
-des faux positifs et du rappel sur des messages indépendants.
+All messaging controls are mapped in [Web configuration](web-configuration.md). Rule weights adjust eight content contributions: urgency, credential requests, financial promises, HTML forms, IDN links, IP links, reply-domain mismatch and uppercase subjects.
 
-Exemple de configuration initiale (la console prend ensuite priorité) :
+Weights range from 0 to 3 in log-odds units, before conversion to the 0–100 index. Zero removes the explicit numerical contribution but preserves the observation and model features. Restoring defaults removes overrides. Corroboration, antivirus priority and validated fusion remain in force. Evaluate false positives and recall on independent messages after any weight change.
+
+Initial TOML example; saved Web settings subsequently take precedence:
 
 ```toml
 [actions]
@@ -90,34 +47,15 @@ malware = "quarantine"
 quarantine_days = 14
 
 [filter]
-mode = "observe" # passer à "enforce" pour appliquer les actions
+mode = "observe"
 threshold = 95.0
 require_corroboration = true
 
 [filter.rule_weights]
-urgency = 0.0
-financial_lure = 1.5
+urgency = 0.1
 ```
 
-Les réglages sont validés et versionnés comme les autres paramètres de la console.
-Les transactions SMTP en cours conservent leur politique jusqu’à la fin de DATA.
-Les messages acceptés conservent leur action, leur échéance et leur route.
+<a id="migration-de-stockage"></a>
+## Storage and upgrades
 
-## Migration de stockage
-
-L’ouverture de la base migre atomiquement son schéma de 1 vers **2**, sans
-modifier les messages ni les états historiques. La table `delivery_policy`
-enregistre l’action, l’échéance de quarantaine et l’instant de libération par
-livraison. Le fichier `.eml` reste unique par message. `250` n’est envoyé qu’après
-la persistance du fichier, du répertoire et de la transaction complète.
-
-Les versions 0.3 refusent une base de schéma 2. Ce verrou empêche leur ancien
-nettoyage de supprimer les corps en quarantaine. **Ne jamais diminuer manuellement
-`PRAGMA user_version`.** Après migration, conserver un binaire compatible pour une
-correction. Un retour vers 0.3 exige une restauration cohérente de la sauvegarde
-de base, spool et configuration prise à l’arrêt, et une réconciliation des messages
-acceptés depuis : une restauration aveugle peut perdre des messages.
-
-Les archives déclarent `storage_schema` dans `build.json`. L’installateur nécessite
-Python 3.11+ et refuse son retour automatique à un binaire incompatible, après
-avoir arrêté le candidat pour éviter une migration concurrente.
+Quarantine introduced schema 2. Later clustering, admission and paired replication require newer schemas, up to schema 5. Use the release’s declared storage capability and [upgrade procedure](installation.md), not the version that first introduced quarantine. Never downgrade the schema or restore an old database over accepted mail.

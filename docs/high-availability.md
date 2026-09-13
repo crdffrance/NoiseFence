@@ -1,59 +1,73 @@
-# Deux copies et console de secours (0.17.3)
+# Two durable copies and a recovery console
 
-## Garanties et limites
+## Guarantees and limits
 
-L'option locale `[replication]` forme une paire de MX indépendants. Avant `250`, le récepteur copie chaque variante finale du message et son enveloppe sur l'autre machine par HTTPS authentifié. Le pair vérifie SHA-256, taille et identité, synchronise le fichier et son répertoire puis confirme la transaction SQLite durable. La transaction locale suit. Chaque destinataire conserve sa progression ; le pair ne prend aucune livraison automatiquement.
+The host-level `[replication]` configuration pairs two independent MX servers. Before replying `250`, the receiving MX sends every prepared message variant and its envelope to its peer over authenticated HTTPS. The peer verifies the digest, size and identity, synchronizes the body and directory, and commits durable SQLite state. The local acceptance transaction follows. Delivery progress is tracked per recipient; receiving a replica does not automatically authorize delivery from the peer.
 
-Si une copie est impossible (réseau, certificat, disque ou capacité), NoiseFence répond **451**, y compris si le pair tombe pendant DATA. Le serveur expéditeur conserve la responsabilité et réessaie. Il n'existe pas de mode automatique à une seule copie. Deux MX ne constituent pas un quorum permettant de départager une partition réseau.
+If replication is unavailable because of the network, TLS, disk or capacity, NoiseFence returns **451**, including failures during DATA. The sending server retains responsibility and retries. There is no automatic one-copy fallback. Two servers cannot form an independent quorum to distinguish a network partition from a failed coordinator.
 
-L'intention d'envoi est répliquée avant de contacter le relais. La suppression locale du corps attend la confirmation des états terminaux par le pair ; un tombstone durable autorise ensuite la suppression distante. Les anciens messages en file sont protégés avant toute nouvelle tentative. Les copies reçues avant confirmation de la transaction locale restent inertes et sont conservées pour résolution manuelle. Elles ne sont pas assimilées à des messages acceptés.
+The intention to send is replicated before contacting the upstream. Local body removal waits for peer acknowledgement of terminal recipient states; a durable tombstone then permits remote deletion. Previously queued messages are protected before another delivery attempt. Copies received before the local acceptance transaction completes remain inert until manually reconciled; they are not assumed to be accepted mail.
 
-SMTP ne garantit pas l'envoi exactement une fois : une réponse perdue peut laisser l'expéditeur ou le relais dans l'incertitude. À la restauration, un destinataire déjà livré n'est pas relancé ; une acceptation non confirmée, un état `sending` ou un avis d’échec référencé mais absent du journal est mis en quarantaine sans expiration automatique. Vérifier la trace distante avant toute libération. Voir [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.1).
+SMTP cannot guarantee exactly-once delivery. A lost final acknowledgement creates uncertainty. During recovery, confirmed delivered recipients are not retried. An uncertain acceptance, `sending` state, or referenced failure notice missing from the journal is held without automatic expiry. Inspect remote SMTP records before releasing it. See [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.1).
 
-La console dispose d'instantanés cohérents, **pas d'une base partagée**. L'intervalle recommandé est 60 secondes plus le temps de copie. Les instantanés utilisent l'[API SQLite Online Backup](https://www.sqlite.org/backup.html) et contiennent comptes, MFA, réglages, modèles et budgets ; les corps de la file passent par la réplication dédiée. Ils sont privés sur disque et chiffrés en transit par SSH. Ce dispositif ne remplace pas une sauvegarde indépendante et chiffrée contre la compromission des deux machines.
+The console uses consistent checkpoints, not a shared database. A 60-second interval plus transfer time is a typical starting point. Checkpoints use the [SQLite Online Backup API](https://www.sqlite.org/backup.html) and include accounts, MFA, settings, models and budgets. Queued bodies use the dedicated replication protocol. Checkpoints are private on disk and encrypted over SSH in transit; they are not a substitute for an independent encrypted backup.
 
 ## Installation
 
-1. Installer la même release 0.17.3 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
-2. Créer une clé de paire aléatoire de 32 octets, encodée en 64 caractères hexadécimaux, dans `/etc/noisefence/replication.key`, propriétaire `noisefence`, mode `0600`, identique sur les deux machines. Ne jamais réutiliser un secret Web ou publier cette clé.
-3. Installer une route Nginx `/api/v1/replication/` vers `127.0.0.1:18080`, sans réécriture du chemin, `proxy_request_buffering off`, délai borné et taille maximale SMTP + 256 Kio. Conserver la vérification TLS. Autoriser la lecture AppArmor de `/etc/machine-id`. Aucun port API public supplémentaire.
-4. Ajouter la section de `config/replication.example.toml` avec des identités inversées sur le second MX. Redémarrer les deux : jusqu'à la première confirmation, l'admission SMTP reste différée. Vérifier « Infrastructure » : heartbeat, copies et confirmations en attente. Une fois activée, retirer la section fait refuser le démarrage ; ne pas contourner le marqueur `ha_required`.
-5. Installer les scripts `deploy/ha/*.py` dans `/usr/local/libexec/noisefence-ha`, root:root, non modifiables par le service ; installer les unités et le profil AppArmor de console. Créer `/var/lib/noisefence-standby` mode `0700` sur chaque hôte.
-6. Sur le coordinateur, créer une clé SSH dédiée `transport.key` dans ce répertoire et épingler la clé d'hôte du pair dans `known_hosts` à partir d'un canal déjà authentifié. Sur le pair, utiliser un compte sans accès général avec `restrict,from="IP_DU_COORDINATEUR",command="/usr/local/libexec/noisefence-ha/receiver.py"`. Le seul sudo autorisé est `/usr/bin/python3 /usr/local/libexec/noisefence-ha/standby.py receive`. Conserver l'accès SSH administrateur existant.
-7. Configurer `settings.json` privé : sur les deux, `owner` (identité du coordinateur), `hostname` (nom TLS du pair) et `console_url` (origine HTTPS de secours) ; ajouter `receiver` (`noisefence-standby@adresse-du-pair`) sur le coordinateur. Activer `noisefence-standby-push.timer` sur le coordinateur uniquement. Vérifier `current/manifest.json`, le hash des fichiers et `status.json` sur le pair.
-8. Préparer sur le pair `/etc/nginx/noisefence-console-upstream.conf` contenant exactement `set $noisefence_console 127.0.0.1:18080;` avec un saut de ligne. Les routes de console/cluster utiliseront cette variable après promotion ; **réplication et healthz restent sur le worker 18080**. En attente, la racine redirige vers le coordinateur. Conserver les limites d'authentification et les protections TLS.
+1. Install a compatible HA release on both MX servers, coordinator first. Preserve current queues, observation mode, identities and budgets. HA requires at least 0.17.3; use the current release on both nodes after a rolling upgrade.
+2. Generate a shared 32-byte random peer key encoded as 64 hexadecimal characters. Store it as `/etc/noisefence/replication.key`, owned by `noisefence`, mode 0600, on both hosts. Do not reuse a console secret or publish the key.
+3. Proxy `/api/v1/replication/` through verified HTTPS to the local API, without rewriting the path. Disable request buffering and bound request time and size to the SMTP maximum plus 256 KiB. Permit the service to read `/etc/machine-id` in AppArmor. No additional public API port is required.
+4. Apply `config/replication.example.toml`, reversing node identities and peer URLs on the second MX. Restart both. SMTP remains temporarily deferred until the first peer acknowledgement. Verify heartbeat, initial copies and pending updates in the infrastructure view. Once activated, removing replication causes startup to fail; never bypass the `ha_required` marker.
+5. Install `deploy/ha/*.py` under `/usr/local/libexec/noisefence-ha`, owned by root and not writable by the service. Install the supplied systemd units and console AppArmor profile. Create `/var/lib/noisefence-standby` mode 0700 on each host.
+6. On the coordinator, create a dedicated checkpoint-transport key in that directory and pin the peer's SSH host key through an already authenticated channel. On the peer, use a restricted transport account with the forced receiver command, source-IP restriction and no general shell access. Its only sudo command is `/usr/bin/python3 /usr/local/libexec/noisefence-ha/standby.py receive`. Keep existing administrator SSH access.
+7. Configure private `settings.json` on both hosts with `owner` (coordinator identity), `hostname` (peer TLS name) and `console_url` (standby HTTPS origin). Add `receiver` (`noisefence-standby@peer-address`) on the coordinator. Enable `noisefence-standby-push.timer` only on the coordinator. Verify the peer's `current/manifest.json`, file digests and `status.json`.
+8. Prepare the peer's `/etc/nginx/noisefence-console-upstream.conf` with `set $noisefence_console 127.0.0.1:18080;` and a trailing newline. Console and cluster routes use this variable after promotion. **Replication and gateway health remain on the worker's API port 18080.** Before promotion the Web root redirects to the coordinator. Preserve TLS and authentication rate limits.
 
-Les paramètres de réplication sont locaux à l'hôte et ne sont jamais écrasés par la politique Web distribuée. `allow_loopback_http` est exclusivement réservé aux tests sur une adresse IP de boucle locale. Le quota de copies sature en erreur temporaire ; surveiller aussi les candidats non confirmés.
+The local replication settings are never overwritten by distributed Web policy. `allow_loopback_http` is for isolated loopback tests only. Reaching the replica storage quota causes temporary failure; monitor unconfirmed candidates as well as accepted copies.
 
-## Bascule planifiée
+<a id="bascule-planifiée"></a>
+## Planned console promotion
 
-Opération administrateur, jamais déclenchée par un ping manquant :
+Promotion is an administrator operation, never triggered solely by a failed ping.
 
-1. Sur le coordinateur, exécuter `sudo python3 /usr/local/libexec/noisefence-ha/fence.py`. Le reçu `/var/lib/noisefence-standby/fenced.json` atteste l'arrêt des processus et empêche leur redémarrage par une condition systemd persistante. Ne pas le supprimer pendant la reprise.
-2. Toujours sur cette machine désormais arrêtée, lancer `sudo python3 /usr/local/libexec/noisefence-ha/standby.py push`. L'instantané final doit avoir commencé après le fencing et porter son identifiant d'opération.
-3. Copier le reçu par le canal d'administration authentifié sur le pair, mode `0600`. Lancer `sudo python3 /usr/local/libexec/noisefence-ha/promote.py --fence-receipt /chemin/prive/fence.json` dans l'heure qui suit.
-4. La restauration utilise un répertoire séparé `active`, vérifie chaque corps, préserve les identifiants et ouvre **uniquement la console** sur `127.0.0.1:18081`. La clé MFA copiée doit déchiffrer chaque secret enregistré avant activation. Le proxy HTTPS et l'URL de coordination du worker sont mis à jour. La file propre au worker n'est jamais remplacée. Se reconnecter ; les anciennes sessions sont révoquées.
+1. On the coordinator, run `sudo python3 /usr/local/libexec/noisefence-ha/fence.py`. Its private `fenced.json` receipt records the verified shutdown. A persistent systemd condition prevents restart; keep that fence in place throughout recovery.
+2. On the stopped coordinator, run `sudo python3 /usr/local/libexec/noisefence-ha/standby.py push`. The final checkpoint must start after fencing and carry the same operation ID.
+3. Transfer the receipt to the peer through the authenticated administration channel, mode 0600. Within one hour, run `sudo python3 /usr/local/libexec/noisefence-ha/promote.py --fence-receipt /private/path/fence.json`.
+4. Restoration uses a separate `active` directory, verifies every retained body and preserves queue identifiers. It starts **only the console** on `127.0.0.1:18081`. The copied MFA key must decrypt all recorded secrets before activation. Promotion updates the HTTPS console route and worker coordination URL. It does not replace the worker's queue. Sign in again; old sessions are revoked.
 
-Si la promotion échoue, le coordinateur reste fenced. Inspecter `active`, `promoted.json`, le journal systemd et le proxy avant toute reprise ; l'outil refuse d'écraser un état déjà restauré. Ne pas retirer ces protections pour relancer aveuglément la commande.
+If promotion fails, the old coordinator stays fenced. Inspect `active`, `promoted.json`, the service log and reverse proxy. The tool refuses to overwrite an already restored state. Do not delete its protections merely to rerun it.
 
-## Sinistre du coordinateur
+<a id="sinistre-du-coordinateur"></a>
+## Coordinator disaster
 
-Faire arrêter physiquement l'ancien hôte via la console du fournisseur. Documenter un reçu privé avec `owner`, `operation` (UUID), `created` (Unix), `fenced: true`, `method: "provider-poweroff"` et `reference` (opération réellement vérifiée). Une panne réseau seule n'est jamais une preuve. Puis utiliser `promote.py --disaster --fence-receipt ...`.
+Power off or otherwise fence the old machine through the hosting provider and verify the result. Prepare a private receipt with `owner`, `operation` (UUID), `created` (Unix time), `fenced: true`, `method: "provider-poweroff"` and the verified operation `reference`. Network unreachability is not proof of fencing. Then use `promote.py --disaster --fence-receipt ...`.
 
-Ce mode accepte un instantané âgé d'au plus 24 heures. Il désactive tous les comptes restaurés et les invitations, crée un compte de récupération dont le mot de passe reste dans le fichier root `recovery-admin.json`, et suspend les nouvelles allocations fournisseurs. Vérifier les droits actuels et réactiver les comptes via la console. Rapprocher les crédits encore présents sur chaque worker avant de retirer le marqueur `ha-recovery-budget-hold`. Les clés de fournisseurs restaurées doivent également être comparées à leur état actuel.
+Disaster recovery accepts a checkpoint no older than 24 hours. It disables restored accounts and invitations, creates a recovery administrator whose password stays in the private root-owned `recovery-admin.json`, and suspends new provider-budget allocations. Reconcile current access rights before re-enabling accounts. Reconcile credits still held by workers before removing `ha-recovery-budget-hold`. Verify that restored provider keys are still current.
 
-## Revenir à deux machines
+<a id="revenir-à-deux-machines"></a>
+## Return to two healthy nodes
 
-La console de secours n'exécute **aucun relais SMTP**. Tant que le pair requis manque, les nouvelles réceptions et tentatives restent différées, conformément au choix de deux copies obligatoires. Ne pas supprimer `[replication]` pour rendre le service artificiellement disponible.
+The recovery console never starts an SMTP relay. New reception and retries remain deferred while the mandatory peer is missing. Do not remove `[replication]` to force availability.
 
-Avant de reprendre le courrier du coordinateur sur un serveur remplacé : arrêter sa console de secours et tous ses auteurs de modifications, prendre un nouvel instantané cohérent de `active/data`, conserver les copies d'origine et leurs journaux, transférer cet état courant (pas l'ancien instantané) vers le remplaçant arrêté avec l'identité du coordinateur, adapter les chemins et rétablir la paire HTTPS. Sur chaque file arrêtée, exécuter `sudo -u noisefence /opt/noisefence/noisefence ha-resync /var/lib/noisefence` : cette commande conserve les corps et les états, augmente les générations et remet les confirmations à zéro. Elle refuse de travailler si le verrou du service est détenu. Les anciennes confirmations du worker survivant ne prouvent pas la présence des copies sur un pair reconstruit. Vérifier ensuite les empreintes, les destinataires terminaux et la confirmation de toutes les générations avant de déclarer la réintégration terminée. Remettre l'autorité du worker vers le nouveau coordinateur, puis redémarrer après les contrôles. L'ancien hôte reste éteint/fenced jusqu'à réconciliation complète. La commande `ha-restore` refuse d'écraser une file appartenant à un autre nœud.
+Before restoring the coordinator on a replacement host, stop the recovery console and all other writers to its state. Take a fresh consistent snapshot of `active/data`, retain the original replicas and journals, and transfer the current recovered state to the stopped replacement using the coordinator's identity. Do not return to the older pre-recovery checkpoint. Adjust host paths and restore the authenticated HTTPS pairing.
 
-Cette réintégration est une procédure contrôlée, pas un failback automatique. Ne jamais lancer deux coordinateurs avec la même identité, ni réinstaller une sauvegarde ancienne sur une file en cours. Vérifier les envois incertains manuellement. Garder une copie privée des reçus d'opération.
+On each stopped queue, run:
 
-## Contrôles d'exploitation
+```sh
+sudo -u noisefence /opt/noisefence/noisefence ha-resync /var/lib/noisefence
+```
 
-- Vue « Infrastructure » : deux copies obligatoires, confirmations initiales, mises à jour en attente, heartbeat et âge du dernier instantané.
-- `journalctl -u noisefence -u noisefence-standby-push` : erreurs bornées sans secrets ; surveiller place libre, quota des copies et stagnation des générations.
-- `healthz.smtp_ready` devient faux quand le pair requis manque. La console de reprise signale toujours `smtp_ready: false`.
-- Exercer périodiquement une restauration dans un répertoire séparé avec réseau isolé, sans SMTP ni comptes de production utilisés pour des essais.
-- Schéma 5 après activation : un binaire antérieur à 0.17.3 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.
+This preserves bodies and recipient states, advances generations and clears acknowledgements. It refuses to operate while the daemon holds the service lock. An old acknowledgement on the surviving worker does not prove that the replacement holds a copy.
+
+Verify body digests, terminal recipients and acknowledgements of all generations before declaring reintegration complete. Point the worker back to the replacement coordinator, restart under the compatible configuration, and keep the old host fenced until reconciliation finishes. `ha-restore` refuses to overwrite a queue owned by another node. Never run two coordinators with the same identity or place an old backup over an active queue.
+
+Reintegration is controlled, not an automatic failback. Resolve uncertain deliveries manually and retain private operation receipts.
+
+<a id="contrôles-dexploitation"></a>
+## Operational checks
+
+- Verify two-copy mode, initial acknowledgements, pending updates, heartbeat and checkpoint age in the infrastructure view.
+- Inspect `journalctl -u noisefence -u noisefence-standby-push`; monitor free space, replica quota and stalled generations.
+- `/healthz` reports `smtp_ready: false` when the required peer is unavailable. A recovery-only console always reports false.
+- Exercise restoration in a separate directory with an isolated network, without SMTP delivery or production accounts used for testing.
+- HA activation uses storage schema 5. Do not run an older incompatible binary against it. Rollback must also preserve current policy and accepted-message state.

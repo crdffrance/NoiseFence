@@ -76,53 +76,53 @@ export type FilteringAssessment = {
 };
 const empty: CustomPolicy = { profiles: [], bindings: [], rules: [] };
 const fields: Record<Field, string> = {
-  envelope_from: 'Expéditeur SMTP',
-  from_domain: 'Domaine expéditeur SMTP',
-  header_from: 'Adresse From',
-  subject: 'Objet décodé',
-  body: 'Texte MIME',
-  recipient: 'Adresse destinataire',
-  recipient_domain: 'Domaine destinataire',
-  size: 'Taille en octets',
-  score: 'Indice de suspicion',
-  category: 'Classement initial',
-  signal: 'Identifiant de signal',
-  dmarc: 'Résultat DMARC',
+  envelope_from: "Envelope sender",
+  from_domain: "SMTP sender domain",
+  header_from: "From address",
+  subject: "Decoded subject",
+  body: "MIME text",
+  recipient: "Recipient address",
+  recipient_domain: "Recipient domain",
+  size: "Size in bytes",
+  score: "Risk index",
+  category: "Initial classification",
+  signal: "Signal ID",
+  dmarc: "DMARC result",
 };
 const operators: Record<Operator, string> = {
-  equals: 'Est égal à',
-  contains: 'Contient',
-  starts_with: 'Commence par',
-  ends_with: 'Se termine par',
-  present: 'Est présent',
-  absent: 'Est absent',
-  at_least: 'Au moins',
-  at_most: 'Au plus',
+  equals: "Is equal to",
+  contains: "Contains",
+  starts_with: "Starts with",
+  ends_with: "Ends with",
+  present: "Is present",
+  absent: "Is absent",
+  at_least: "At least",
+  at_most: "At most",
 };
 const categories: Record<Category, string> = {
   spam: 'Spam',
-  publicity: 'Publicité',
-  legitimate: 'Légitime',
-  undetermined: 'À examiner',
+  publicity: "Marketing",
+  legitimate: "Legitimate",
+  undetermined: 'Needs review',
 };
 export function FilteringDetails({ value }: { value: FilteringAssessment }) {
   return (
     <div className="filter-assessment">
       <strong>
-        {value.profile || 'Politique générale'} · {categories[value.category]}
+        {value.profile || "General policy"} · {categories[value.category]}
       </strong>
       <p>
-        {actionLabel[value.action.requested]} demandé ·{' '}
-        {actionLabel[value.action.effective]} appliqué
+        {actionLabel[value.action.requested]} requested ·{' '}
+        {actionLabel[value.action.effective]} Implemented
         {value.action.reason === 'observation'
           ? ' (observation)'
           : value.action.reason === 'incomplete'
-            ? ' (analyse incomplète)'
+            ? " (incomplete analysis)"
             : ''}
       </p>
       <p className="muted small">
-        Classement initial : {categories[value.original_category]} · seuil{' '}
-        {value.threshold} · politique {value.policy.slice(0, 12)}
+        Initial classification: {categories[value.original_category]} · threshold{' '}
+        {value.threshold} · policy {value.policy.slice(0, 12)}
       </p>
       {value.matched.length > 0 ? (
         <ul>
@@ -133,11 +133,11 @@ export function FilteringDetails({ value }: { value: FilteringAssessment }) {
           ))}
         </ul>
       ) : (
-        <p className="muted small">Aucune règle personnalisée déclenchée.</p>
+        <p className="muted small">No custom rule triggered.</p>
       )}
       {value.unavailable_conditions > 0 && (
         <p className="muted small">
-          {value.unavailable_conditions} condition(s) sans donnée disponible.
+          {value.unavailable_conditions} condition(s) without data available.
         </p>
       )}
     </div>
@@ -217,20 +217,16 @@ export function CustomFiltering({
       <div className="panel">
         <div className="section-heading">
           <SlidersHorizontal size={20} />
-          <h2>Une politique adaptée à chaque destinataire</h2>
+          <h2>A policy tailored to each recipient</h2>
         </div>
         <p className="muted">
-          L’adresse exacte prime sur le domaine, puis sur l’organisation. Les
-          alias sont pris en compte. Les contrôles techniques s’exécutent une
-          seule fois par message.
+          The exact address takes precedence over the domain, then over the organization. aliases are taken into account. Technical checks run only once per message.
         </p>
         <p className="small">
-          Le mode observation transmet toujours. Les préfixes nécessitent les
-          validations Proton. Les règles ne désactivent pas la priorité de
-          l’antivirus.
+          Observation mode always transmits. Prefixes require Proton validations. Rules do not disable the priority of antivirus.
         </p>
         <datalist id="filter-scopes">
-          <option value="*">Toute l’organisation</option>
+          <option value="*">The whole organisation</option>
           {domains.map((d) => (
             <option key={d} value={`*@${d}`}>
               {d}
@@ -239,7 +235,7 @@ export function CustomFiltering({
         </datalist>
       </div>
       <div className="section-heading">
-        <h2>Profils de sensibilité</h2>
+        <h2>Sensitivity profiles</h2>
         <Button
           disabled={p.profiles.length >= 32}
           onClick={() =>
@@ -249,7 +245,7 @@ export function CustomFiltering({
                 ...p.profiles,
                 {
                   id: crypto.randomUUID(),
-                  name: 'Nouveau profil',
+                  name: "New profile",
                   threshold: null,
                   require_corroboration: true,
                   spam: 'quarantine',
@@ -261,19 +257,19 @@ export function CustomFiltering({
             })
           }
         >
-          <Plus size={16} /> Ajouter un profil
+          <Plus size={16} /> Add Profile
         </Button>
       </div>
       {p.profiles.length === 0 && (
         <p className="empty-state">
-          Tous les destinataires héritent actuellement de la politique générale.
+          All recipients currently inherit the general policy.
         </p>
       )}
       {p.profiles.map((profile, i) => (
         <div className="panel custom-card" key={profile.id}>
           <div className="custom-grid">
             <label htmlFor={`custom-filtering-1-${i}`}>
-              Nom du profil
+              Profile Name
               <Input
                 id={`custom-filtering-1-${i}`}
                 value={profile.name}
@@ -282,7 +278,7 @@ export function CustomFiltering({
               />
             </label>
             <SensitivitySelect
-              label="Sensibilité du profil"
+              label="Sensitivity of the profile"
               levels={levels}
               locked={locked}
               threshold={profile.threshold}
@@ -293,10 +289,10 @@ export function CustomFiltering({
                     threshold !== null || profile.require_corroboration,
                 })
               }
-              inheritedLabel="Hériter du niveau de la portée parente"
+              inheritedLabel="Inherit the parent scope’s level"
             />
             <label htmlFor={`custom-filtering-3-${i}`}>
-              Quarantaine (jours)
+              Quarantine (days)
               <Input
                 id={`custom-filtering-3-${i}`}
                 type="number"
@@ -314,12 +310,12 @@ export function CustomFiltering({
               onChange={(spam) => updateProfile(i, { spam })}
             />
             <ActionSelect
-              label="Publicité"
+              label="Marketing"
               value={profile.publicity}
               onChange={(publicity) => updateProfile(i, { publicity })}
             />
             <ActionSelect
-              label="À examiner"
+              label="Needs review"
               value={profile.review}
               review
               onChange={(review) => updateProfile(i, { review })}
@@ -336,12 +332,11 @@ export function CustomFiltering({
                 updateProfile(i, { require_corroboration: e.target.checked })
               }
             />{' '}
-            Exiger plusieurs preuves concordantes
+            Require corroborating evidence
           </label>
           {locked && (
             <p className="muted small">
-              La fusion validée impose son propre seuil. Les niveaux ne
-              modifient pas sa calibration.
+              Validated fusion imposes its own threshold. Levels do not change its calibration.
             </p>
           )}
           <Button
@@ -354,12 +349,12 @@ export function CustomFiltering({
               })
             }
           >
-            <Trash2 size={15} /> Supprimer ce profil et ses affectations
+            <Trash2 size={15} /> Remove this profile and its assignments
           </Button>
         </div>
       ))}
       <div className="section-heading">
-        <h2>Affectations</h2>
+        <h2>Assignments</h2>
         <Button
           disabled={!p.profiles.length || p.bindings.length >= 1000}
           onClick={() =>
@@ -372,17 +367,16 @@ export function CustomFiltering({
             })
           }
         >
-          <Plus size={16} /> Affecter un profil
+          <Plus size={16} /> Assign Profile
         </Button>
       </div>
       <p className="muted small">
-        Utilisez * pour l’organisation, *@domaine.fr pour un domaine, ou une
-        adresse complète.
+        Use * for organization, *@domain.fr for a domain, or a full address.
       </p>
       {p.bindings.map((b, i) => (
         <div className="custom-row" key={i}>
           <Input
-            aria-label="Portée du profil"
+            aria-label="Scope of the profile"
             list="filter-scopes"
             value={b.scope}
             onChange={(e) =>
@@ -395,7 +389,7 @@ export function CustomFiltering({
             }
           />
           <select
-            aria-label="Profil affecté"
+            aria-label="Assigned profile"
             value={b.profile}
             onChange={(e) =>
               onChange({
@@ -414,7 +408,7 @@ export function CustomFiltering({
           </select>
           <Button
             variant="outline"
-            aria-label="Supprimer cette affectation"
+            aria-label="Delete this assignment"
             onClick={() =>
               onChange({ ...p, bindings: p.bindings.filter((_, n) => n !== i) })
             }
@@ -424,7 +418,7 @@ export function CustomFiltering({
         </div>
       ))}
       <div className="section-heading">
-        <h2>Règles personnalisées</h2>
+        <h2>Customised rules</h2>
         <Button
           disabled={p.rules.length >= 100}
           onClick={() =>
@@ -434,7 +428,7 @@ export function CustomFiltering({
                 ...p.rules,
                 {
                   id: crypto.randomUUID(),
-                  name: 'Nouvelle règle',
+                  name: "New Rule",
                   enabled: true,
                   priority: (p.rules.length + 1) * 10,
                   scope: '*',
@@ -449,19 +443,17 @@ export function CustomFiltering({
             })
           }
         >
-          <Plus size={16} /> Ajouter une règle
+          <Plus size={16} /> Add Rule
         </Button>
       </div>
       <p className="muted small">
-        Priorité croissante. Une règle ultérieure peut remplacer l’effet
-        précédent, sauf si « Arrêter » est coché. Les valeurs textuelles
-        ignorent la casse ; aucun lien n’est ouvert par la simulation.
+        Rules run in ascending priority. A later match can replace the previous effect unless “stop” is selected. Text matching is case-insensitive. Simulation does not open links.
       </p>
       {p.rules.map((rule, i) => (
         <div className="panel custom-card" key={rule.id}>
           <div className="custom-grid">
             <label htmlFor={`custom-filtering-4-${i}`}>
-              Nom
+              Name
               <Input
                 id={`custom-filtering-4-${i}`}
                 value={rule.name}
@@ -470,7 +462,7 @@ export function CustomFiltering({
               />
             </label>
             <label htmlFor={`custom-filtering-5-${i}`}>
-              Portée
+              Scope
               <Input
                 id={`custom-filtering-5-${i}`}
                 list="filter-scopes"
@@ -481,7 +473,7 @@ export function CustomFiltering({
               />
             </label>
             <label htmlFor={`custom-filtering-6-${i}`}>
-              Priorité
+              Priority
               <Input
                 id={`custom-filtering-6-${i}`}
                 type="number"
@@ -530,7 +522,7 @@ export function CustomFiltering({
                 checked={rule.stop}
                 onChange={(e) => updateRule(i, { stop: e.target.checked })}
               />{' '}
-              Arrêter après correspondance
+              Stop after match
             </label>
             <label>
               Conditions
@@ -540,15 +532,15 @@ export function CustomFiltering({
                   updateRule(i, { any: e.target.value === 'any' })
                 }
               >
-                <option value="all">Toutes (ET)</option>
-                <option value="any">Au moins une (OU)</option>
+                <option value="all">All (AND)</option>
+                <option value="any">At least one (OR)</option>
               </select>
             </label>
           </div>
           {rule.conditions.map((c, j) => (
             <div className="custom-row condition-row" key={j}>
               <select
-                aria-label="Champ"
+                aria-label="Field"
                 value={c.field}
                 onChange={(e) =>
                   updateRule(i, {
@@ -565,7 +557,7 @@ export function CustomFiltering({
                 ))}
               </select>
               <select
-                aria-label="Opérateur"
+                aria-label="Operator"
                 value={c.op}
                 onChange={(e) =>
                   updateRule(i, {
@@ -582,7 +574,7 @@ export function CustomFiltering({
                 ))}
               </select>
               <Input
-                aria-label="Valeur"
+                aria-label="Value"
                 disabled={c.op === 'present' || c.op === 'absent'}
                 value={c.value}
                 maxLength={256}
@@ -601,7 +593,7 @@ export function CustomFiltering({
               />
               <Button
                 variant="outline"
-                aria-label="Supprimer cette condition"
+                aria-label="Delete this condition"
                 disabled={rule.conditions.length === 1}
                 onClick={() =>
                   updateRule(i, {
@@ -625,11 +617,11 @@ export function CustomFiltering({
               })
             }
           >
-            Ajouter une condition
+            Add Condition
           </Button>
           <div className="custom-grid">
             <label>
-              Classer comme
+              Classify as
               <select
                 value={rule.category || ''}
                 onChange={(e) =>
@@ -638,7 +630,7 @@ export function CustomFiltering({
                   })
                 }
               >
-                <option value="">Conserver le classement</option>
+                <option value="">Keep classification</option>
                 {Object.entries(categories).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
@@ -656,7 +648,7 @@ export function CustomFiltering({
                   })
                 }
               >
-                <option value="">Hériter du profil</option>
+                <option value="">Inheritance of the profile</option>
                 {(['deliver', 'tag', 'quarantine'] as const).map((a) => (
                   <option key={a} value={a}>
                     {actionLabel[a]}
@@ -671,7 +663,7 @@ export function CustomFiltering({
               onChange({ ...p, rules: p.rules.filter((_, n) => n !== i) })
             }
           >
-            <Trash2 size={15} /> Supprimer la règle
+            <Trash2 size={15} /> Delete Rule
           </Button>
         </div>
       ))}
@@ -698,16 +690,14 @@ export function CustomFiltering({
       >
         <div className="section-heading">
           <FlaskConical size={20} />
-          <h2>Simuler le brouillon</h2>
+          <h2>Simulate the draft</h2>
         </div>
         <p className="muted small">
-          Aucun message envoyé ni réglage enregistré. Les contrôles DNS,
-          antivirus et réputation restent inconnus. Cette simulation vérifie les
-          conditions saisies, pas la précision du moteur.
+          No messages sent or saved settings. DNS, antivirus and reputation controls remain unknown. This simulation checks the conditions entered, not the accuracy of the engine.
         </p>
         <div className="custom-grid">
           <label htmlFor="custom-filtering-8">
-            Destinataire
+            Recipient
             <Input
               id="custom-filtering-8"
               required
@@ -716,7 +706,7 @@ export function CustomFiltering({
             />
           </label>
           <label htmlFor="custom-filtering-9">
-            Expéditeur SMTP
+            Envelope sender
             <Input
               id="custom-filtering-9"
               value={sim.sender}
@@ -724,7 +714,7 @@ export function CustomFiltering({
             />
           </label>
           <label htmlFor="custom-filtering-10">
-            Objet
+            Subject
             <Input
               id="custom-filtering-10"
               value={sim.subject}
@@ -732,7 +722,7 @@ export function CustomFiltering({
             />
           </label>
           <label htmlFor="custom-filtering-11">
-            Indice simulé
+            Simulated index
             <Input
               id="custom-filtering-11"
               type="number"
@@ -746,7 +736,7 @@ export function CustomFiltering({
           </label>
         </div>
         <label>
-          Texte
+          Text
           <textarea
             rows={3}
             value={sim.body}
@@ -755,7 +745,7 @@ export function CustomFiltering({
           />
         </label>
         <Button type="submit" disabled={busy}>
-          {busy ? 'Simulation…' : 'Tester les règles'}
+          {busy ? 'Simulation…' : "Test Rules"}
         </Button>
         {error && (
           <p role="alert" className="error">

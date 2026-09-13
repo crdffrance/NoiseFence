@@ -61,7 +61,7 @@ async fn download(
         }
         ensure!(
             crate::store::available_bytes(root)? > artifact.size.saturating_add(minimum_free),
-            "Espace disque insuffisant pour les modèles et la file SMTP."
+            "Insufficient disk space for models and SMTP file."
         );
         tokio::fs::create_dir_all(path.parent().unwrap()).await?;
         let temporary = path.with_extension(format!("partial-{}", uuid::Uuid::new_v4()));
@@ -129,7 +129,7 @@ async fn poll(
         Err(error) => (
             Vec::new(),
             Some(format!(
-                "Historique non synchronisé : {}",
+                "Unsynchronized history: {}",
                 crate::delivery_log::sanitize(&error.to_string(), 280).0
             )),
         ),

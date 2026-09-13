@@ -1,144 +1,62 @@
-# Règles, profils et invitations (0.4.9)
+<a id="règles-profils-et-invitations-049"></a>
+# Rules, profiles and invitations (0.4.9)
 
-Dans **Administration → Filtres → Règles & profils**, créez des profils puis
-leurs affectations. Le bouton d’application général enregistre une révision
-atomique ; le brouillon et sa simulation ne changent pas les messages reçus.
-Les réglages ne sont pas rétroactifs.
+In **Administration → Filters → Rules & profiles**, create profiles and then assign them. The general application button records an atomic revision; the draft and its simulation do not change the received messages. The settings are not retroactive.
 
-## Portées et niveaux
+<a id="portées-et-niveaux"></a>
+## Scope and levels
 
-`*` désigne l’organisation, `*@exemple.fr` un domaine configuré et une adresse
-complète un destinataire accepté. Priorité des affectations : adresse SMTP
-initiale, destination de l’alias, domaine initial, domaine de destination,
-organisation. Une seule affectation est autorisée pour chaque portée.
-Un profil sans affectation n’a aucun effet.
+`*` means the organization, `*@exemple.fr` means a domain configured and a complete address an accepted recipient. Priority of assignments: initial SMTP address, destination of the alias, initial domain, destination domain, organization. Only one assignment is allowed for each range. An unassigned profile has no effect.
 
-Un profil définit les actions Spam, Publicité et À examiner, la durée de
-quarantaine (1 à 30 jours), la corroboration et un seuil hérité ou personnalisé.
-Depuis 0.10.0, **Filtres → Politique** propose cinq niveaux pour l’organisation
-et des exceptions par domaine. Les profils permettent aussi des exceptions par
-adresse et un seuil personnalisé de 50 à 100.
+A profile defines the actions Spam, Advertising and To Examine, the duration of quarantine (1 to 30 days), substantiation and a inherited or personalized threshold. Since 0.10.0, **Filters → Politics** offers five levels for organization and exceptions per domain. The profiles also allow exceptions per address and a personalized threshold of 50 to 100.
 
-| Niveau | Seuil de décision |
+| Niveau | Decision threshold |
 | --- | ---: |
-| 1 · Très tolérant | 99,5 |
-| 2 · Tolérant | 98 |
-| 3 · Équilibré | 95 |
+| 1 · Very tolerant | 99.5 |
+| 2 · Tolerant | 98 |
+| 3 · Balanced | 95 |
 | 4 · Strict | 90 |
-| 5 · Très strict | 85 |
+| 5 · Very strict | 85 |
 
-Un indice égal au seuil est admissible au classement Spam, sous réserve des
-confirmations et de l’arbitrage. Abaisser le seuil augmente les messages
-candidats au classement : sans confirmation, ils restent À examiner. Ces indices
-ne sont pas des probabilités et ces noms ne garantissent aucun taux de capture.
-Chaque seuil explicite impose la corroboration côté serveur, même si le client
-soumet `require_corroboration: false`. Les erreurs des fournisseurs, un avis LLM
-seul et les règles natives en observation ne fournissent pas cette confirmation.
-L’arbitrage des avis contradictoires et la priorité antivirus restent appliqués.
-Les règles administrateur explicites s’appliquent ensuite et conservent leurs effets.
+An index equal to the threshold is eligible for the Spam ranking, subject to confirmations and arbitration. Lowering the threshold increases the candidate messages to the ranking: without confirmation, they remain to be examined. These indices are not probabilities and these names do not guarantee any capture rate. Each explicit threshold imposes server-side substantiation, even if the customer submits `require_corroboration: false`. Provider errors, a LLM notification alone and native observation rules do not provide this confirmation. Arbitration of conflicting notices and the antivirus priority remain applied. The explicit administrator rules then apply and retain their effects.
 
-Le seuil d’exploitation s’applique **après** l’analyse commune. Il ne modifie ni
-les coefficients ni le seuil de référence de la combinaison multilingue, ni la
-sélection, le texte ou le budget des appels LLM. Une fusion en mode décision
-garde exclusivement son seuil validé : les seuils de profils sont alors refusés.
+The operating threshold applies **after** the common analysis. It does not change the coefficients or the reference threshold of the multilingual combination, nor does it change the selection, text or budget of LLM calls. A fusion model in decision-making mode retains only its validated threshold: the profile thresholds are then rejected.
 
-Un seuil `null` hérite du premier seuil explicite dans les portées parentes,
-puis du seuil de référence du moteur. Exemple : organisation Strict, domaine
-Tolérant, adresse Hériter → seuil 98 pour cette adresse. Les actions restent
-celles du profil le plus spécifique. Créer un niveau dans la vue simplifiée
-reprend les actions en vigueur ; modifier un profil partagé le copie avant de
-changer une seule portée. Retirer le seuil ne supprime pas les actions du profil.
-Une corroboration exigée globalement ne peut pas être désactivée par un profil.
+A `null` threshold inherits the first explicit threshold in the parent ranges, then the engine reference threshold. Example: Strict organization, Tolerant domain, inheriting address → threshold 98 for this address. Actions remain those of the most specific profile. Creating a level in the simplified view takes over the current actions; a shared profile is copied before changing a single assignment. Removing the threshold does not remove the actions from the profile. A substantiation required globally cannot be disabled by a profile.
 
-La mise à niveau ne crée aucun profil, ne change aucun seuil actif et conserve
-l’observation. Le bouton d’application de la configuration est nécessaire pour
-enregistrer un nouveau niveau. Les messages antérieurs gardent leur évaluation.
+The upgrade does not create a profile, does not change any active threshold and keeps the observation. The application button of the configuration is necessary to save a new level. Previous messages keep their evaluation.
 
-Les règles s’appliquent ensuite, par priorité croissante et identifiant stable
-pour départager les égalités. Elles combinent 1 à 8 conditions avec ET ou OU.
-Une règle suivante peut remplacer un effet précédent ; « Arrêter » empêche cela.
-Une expiration est exclusive et exprimée en UTC. Limites : 100 règles, 32 profils,
-1 000 affectations. Les valeurs sont des littéraux de 256 octets au maximum,
-insensibles à la casse, sans expression régulière ni code exécutable.
+The rules then apply, by increasing priority and stable identifier to divide the equities. They combine 1 to 8 conditions with ET or OR. A following rule may replace a previous effect; "Stop" prevents this. An expiration is exclusive and expressed in UTC. Limits: 100 rules, 32 profiles, 1,000 assignments. The values are literals of 256 bytes maximum, insensitive to the break, without regular expression or executable code.
 
-Les conditions portent sur l’enveloppe, From, l’objet décodé, le texte MIME,
-le destinataire, la taille, l’indice original, la catégorie originale, un signal
-ou DMARC. L’expéditeur SMTP et From peuvent être falsifiés : une exception large
-fondée uniquement sur ces champs est déconseillée. Pour une exception, combinez
-les preuves nécessaires et utilisez une portée limitée.
+The conditions relate to the envelope, From, the decoded object, the MIME text, the recipient, the size, the original index, the original category, a signal or DMARC. The SMTP and From sender can be falsified: a wide exception based only on these fields is not recommended. For an exception, combine the necessary evidence and use a limited scope.
 
-Une donnée absente parce qu’un contrôle n’a pas été réalisé est **inconnue**,
-y compris pour l’opérateur « Est absent ». Les corps dépassant les limites
-MIME/texte ou les messages HTML sans partie texte ne sont pas évalués par les
-conditions de texte. Le moteur de détection HTML existant continue à fonctionner.
-La simulation utilise seulement les faits saisis : aucun contrôle distant,
-aucune livraison et aucun entraînement. Elle ne mesure pas la précision.
+A missing data because a control has not been performed is **unknown**, including for the "Is absent". Bodies exceeding MIME/text limits or HTML messages without text are not evaluated by the text conditions. The existing HTML detection engine continues to work. Simulation uses only the captured facts: no remote control, no delivery and no training. It does not measure accuracy.
 
-## Priorités et livraison
+<a id="priorités-et-livraison"></a>
+## Priorities and delivery
 
-Une détection de malware par l’antivirus principal conserve la catégorie Spam
-et l’action antivirus générale. L’observation force la transmission ; une analyse
-incomplète empêche le marquage et les actions personnalisées, sauf la quarantaine
-d’un malware confirmé prévue par la politique globale. Les règles explicites
-peuvent changer une catégorie sans altérer les preuves ni les scores originaux.
-Les préfixes restent soumis à la validation Proton, à l’authentification et à ARC.
+A malware detection by the main antivirus retains the spam category and general antivirus action. Observation forces transmission; incomplete analysis prevents tagging and custom actions, except for the 40th of a confirmed malware provided by the overall policy. Explicit rules can change a category without altering the original evidence or scores. Prefixes remain subject to Proton validation, authentication and ARC.
 
-Les contrôles de contenu et réseau sont exécutés une fois. Les conditions communes
-sont réutilisées par les destinataires ; chaque livraison conserve sa propre
-évaluation. Jusqu’à six variantes de catégorie/préfixe peuvent être nécessaires.
-Leurs fichiers sont synchronisés sur disque avant une transaction SQLite unique,
-puis seulement le serveur répond 250. Une erreur ne laisse aucun sous-ensemble
-accepté. Les doublons SMTP après perte de la réponse finale restent possibles.
+Content and network controls are executed once. Common conditions are reused by recipients; each delivery maintains its own evaluation. Up to six variants of category/prefix may be required. Their files are synchronized on disk before a single SQLite transaction, then only the server answers 250. An error leaves no sub-set accepted. SMTP duplicates after loss of the final response remain possible.
 
-Le corps original reste identique dans chaque variante. Les variantes apparaissent
-comme des entrées distinctes dans l’historique ; le `transaction_id` commun est
-conservé dans les métadonnées. Les statistiques de console comptent les variantes,
-pas exclusivement les transactions SMTP. Les campagnes d’entraînement restent
-dédupliquées par leurs empreintes originales. Une évaluation par destinataire
-contient le profil, les règles déclenchées, l’action demandée/appliquée et
-l’empreinte de la politique, sans corps ni valeurs des conditions. Les ACL filtrent
-ces évaluations, y compris pour les copies cachées.
+The original body remains the same in each variant. Variations appear as separate entries in the history; the common `transaction_id` is kept in the metadata. Console statistics count variants, not exclusively SMTP transactions. Training campaigns remain deduplicated by their original fingerprints. An evaluation per recipient contains the profile, the triggered rules, the action requested/applied and the imprint of the policy, without body or value of the conditions. ACL filter these evaluations, including for hidden copies.
 
-## Inviter un utilisateur
+## Invite a user
 
-Dans **Administration → Comptes & accès → Inviter un utilisateur**, choisissez
-un identifiant neuf, ses adresses/domaines, son rôle et une validité de 1 à 7 jours.
-Copiez le lien affiché une seule fois et partagez-le avec la personne concernée.
-Aucun email n’est envoyé automatiquement. Un nouveau lien pour le même identifiant
-révoque les précédents. La liste permet aussi une révocation immédiate.
+In **Administration → Accounts & Access → Invite a user**, choose a new identifier, addresses/domains, role and validity from 1 to 7 days. Copy the link displayed only once and share it with the data subject. No email is sent automatically. A new link for the same identifier revokes the previous ones. The list also allows for immediate revocation.
 
-Le destinataire voit ses accès, choisit et confirme son mot de passe (12 à 128
-octets), puis utilise la connexion normale. Le compte n’est créé qu’à l’activation.
-L’invitation ne réinitialise jamais un compte existant. Seul un administrateur
-peut inviter ; les droits du créateur et les accès configurés sont revérifiés
-à l’activation. Modifier le compte du créateur invalide ses invitations en attente.
+The recipient sees his access, chooses and confirms his password (12 to 128 bytes), then uses the normal connection. The account is created only upon activation. The invitation never resets an existing account. Only an administrator can invite; the rights of the creator and the accesses configured are checked for activation. Changing the account of the creator invalidates his pending invitations.
 
-Le jeton aléatoire de 256 bits est haché dans SQLite, à usage unique et expirant.
-Il est transmis dans un fragment d’URL, retiré immédiatement de la barre d’adresse,
-puis conservé seulement en mémoire. Les protections Origin, CSRF administrateur,
-limitation de fréquence et Argon2id s’appliquent. Ces choix reprennent les principes
-de gestion de jetons de l’[OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html).
-Les invitations expirées sont supprimées après 30 jours ; les actions sont auditées.
+The 256-bit random token is stored as a hash in SQLite, expires, and can be used only once. It is transmitted in a fragment of URL, removed immediately from the address bar, and then stored only in memory. The protections Origin, CSRF administrator, frequency limitation and Argon2id apply. These choices are based on the principles of token management of the [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html). The expired invitations are deleted after 30 days; the actions are audited.
 
-## Mise à niveau et retour arrière
+<a id="mise-à-niveau-et-retour-arrière"></a>
+## Upgrading and back-up
 
-Les nouvelles tables sont additives au schéma 2. Les révisions existantes sont
-inchangées et `custom_filtering` est absent tant qu’aucune règle n’est enregistrée.
-Le mode observation et les réglages existants sont conservés au déploiement.
+The new tables are additive to scheme 2. Existing revisions are unchanged and `custom_filtering` is absent as long as no rule is saved. The existing observation mode and settings are kept on deployment.
 
-Le binaire 0.4.8 sait livrer les variantes standards déjà en file. Si une politique
-personnalisée a été enregistrée, **avant** de revenir à ce binaire, désactivez-la
-par une nouvelle révision de configuration contenant `custom_filtering: null`
-puis vérifiez que le champ a été omis dans la révision sérialisée. L’API accepte
-ce retrait ; l’historique des anciennes révisions reste conservé. Contrôlez aussi
-les validations de marquage de la politique générale. Ne restaurez jamais une
-ancienne base de données : elle pourrait perdre des messages acceptés depuis.
+The binary 0.4.8 can deliver the standard variants already in file. If a custom policy has been saved, **before** back to this binary, disable it by a new configuration revision containing `custom_filtering: null` then check that the field has been omitted in the serialized revision. The API accepts this removal; the history of the old revisions remains retained. Also check the general policy marking validations. Never restore an old database: it could lose messages accepted since.
 
-### Retour de 0.10 à 0.9
+<a id="retour-de-010-à-09"></a>
+### Historical compatibility note
 
-Le format JSON des politiques et des évaluations reste identique. Toutefois,
-0.9 refuse les seuils explicites de profils avec le modèle multilingue actif.
-Avant un retour à 0.9, remettre ces seuils sur Hériter et appliquer une nouvelle
-révision avec 0.10 ; vérifier la configuration effective avec l’ancien binaire.
-L’héritage de seuils entre portées n’existe pas dans 0.9. Conserver les historiques
-et la file courante, sans restaurer une ancienne base de données.
+The JSON format of policies and evaluations remains the same. However, 0.9 refuses the explicit thresholds of profiles with the active multilingual model. Before a return to 0.9, put these thresholds on Heritage and apply a new revision with 0.10; check the actual configuration with the old binary. The legacy of thresholds between ranges does not exist in 0.9. Keep history and current queue, without restoring an old database.

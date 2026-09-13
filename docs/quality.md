@@ -1,50 +1,28 @@
-# Qualité du filtrage : observations, annotations et candidats
+<a id="qualité-du-filtrage--observations-annotations-et-candidats"></a>
+# Quality of filtering: observations, annotations and candidates
 
-Depuis 0.4.8, NoiseFence conserve une observation jointe du contenu, des contrôles,
-de la réputation et du type de courrier. Le classement appliqué reste distinct
-**du candidat en observation**, qui ne peut ni tagger, ni mettre en quarantaine,
-ni remplacer la décision de livraison. Aucun modèle privé n’est livré avec le logiciel.
+Since 0.4.8, NoiseFence has maintained an attached observation of the content, controls, reputation and type of mail. The ranking applied remains separate **from the observer candidate**, who cannot tag, quarantine or replace the delivery decision. No private model is delivered with the software.
 
-## Corriger sur un échantillon représentatif
+<a id="corriger-sur-un-échantillon-représentatif"></a>
+## Correct on a representative sample
 
-La page **Qualité du filtre** est disponible aux administrateurs et aux utilisateurs.
-Elle tire au sort 25 à 200 messages parmi ceux auxquels le compte a accès, dans
-une période et un domaine choisis. La période proposée commence avec la collecte
-liée au moteur et au protocole courants. Elle inclut les analyses incomplètes. Le tirage
-ne consulte aucun score ; sa graine, sa population et ses membres sont figés.
-Les messages arrivés ensuite ne modifient pas le lot.
+The **Quality of the filter** page is available to administrators and users. It draws 25 to 200 messages from among those to which the account has access, within a selected period and domain. The proposed period begins with the collection related to the current engine and protocol. It includes incomplete analyses. The draw does not consult any score; its seed, population and members are frozen. The messages arrived then do not change the lot.
 
-Vérifier l’original dans la boîte du destinataire, puis annoter séparément :
+Check the original in the recipient's box, then annotate separately:
 
-- le risque : légitime, spam/fraude ou incertain ;
-- le type : conversation, transaction, notification, newsletter, promotion ou autre.
+- risk: legitimate, spam/fraud or uncertain;
+- type: conversation, transaction, notification, newsletter, promotion or other.
 
-Une newsletter consentie est légitime et de type newsletter. Une publicité
-frauduleuse peut être spam et de type promotion. Le type ne neutralise jamais le
-risque. L’objet seul ne constitue pas une preuve ; choisir « Je ne peux pas
-conclure » si l’original n’est pas disponible. Aucun label n’est déduit du filtre.
-Les scores sont masqués pendant cette annotation.
+An agreed newsletter is legitimate and newsletter-type. A fraudulent advertisement can be spam and promotional type. The type never neutralizes the risk. The object alone does not constitute proof; choose "I cannot conclude" if the original is not available. No label is deducted from the filter. The scores are hidden during this annotation.
 
-La console indique séparément le nombre d’annotations de risque et de type
-associées à des observations exploitables, les observations manquantes et le
-nombre de configurations de détecteurs présentes. Le type est facultatif :
-il ne bloque pas une annotation certaine du risque. Ces compteurs ne valident
-ni les effectifs par période ni un futur modèle.
+The console shows separately the number of risk and type annotations associated with exploitable observations, the missing observations and the number of detector configurations present. The type is optional: it does not block a certain annotation of the risk. These meters do not validate the number per period or a future model.
 
-Les labels certains mettent aussi à jour les corrections historiques. « Incertain »
-retire le vote binaire précédent. Une nouvelle correction historique invalide la
-double annotation devenue obsolète. Les messages déjà livrés restent inchangés.
-L’accès est revérifié côté serveur à chaque lecture et écriture, avec session,
-contrôle d’origine et CSRF pour les mutations. Les copies cachées ne deviennent
-pas visibles à d’autres comptes.
+Some labels also update the historical corrections. "Uncertain" removes the previous binary vote. A new historical correction invalidates the double annotation that has become obsolete. The messages already delivered remain unchanged. Access is rechecked on the server side at each read and write, with session, original control and CSRF for mutations. Hidden copies do not become visible to other accounts.
 
-## Préparer un candidat sur le serveur
+<a id="préparer-un-candidat-sur-le-serveur"></a>
+## Prepare a candidate on the server
 
-Pour une évaluation plus grande, le CLI autorise jusqu’à 50 000 messages dans une
-population de 50 000 maximum. Le même lot s’annote dans la console par pages de 200.
-Les dates sont des secondes Unix UTC, dans les trente derniers jours. Exemple
-à adapter, en remplaçant les variables par la période, le compte et l’identifiant
-renvoyé par la première commande :
+For a larger evaluation, the LTC allows up to 50,000 messages in a population of up to 50,000. The same batch sssnotes in the console per 200 pages. The dates are Unix UTC seconds, within the last thirty days. Example to adapt, by replacing the variables with the period, the account and the ID returned by the first order:
 
 ```sh
 noisefence --config /etc/noisefence/config.toml quality-sample \
@@ -61,68 +39,22 @@ OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
   /var/lib/noisefence/quality/candidate-01 --version candidate-01
 ```
 
-Créer préalablement le répertoire privé et installer `research/requirements.txt`
-dans un environnement Python dédié. Le chemin Python de l’exemple est à adapter.
-L’export refuse d’écraser un lot. Il ne contient ni corps, ni pièces jointes, ni
-objet, ni adresse de correspondant, ni clé privée de jointure ; les vecteurs,
-empreintes de campagne et dates restent des données privées. Ne pas les publier
-sur GitHub. Les exports et modèles hors SQLite ont une rétention à gérer par
-l’exploitant, contrairement aux métadonnées en base qui expirent après trente jours.
+Create the private directory and install `research/requirements.txt` in a dedicated Python environment. The Python path of the example is to be adapted. The export refuses to overwrite a lot. It does not contain any body, attachments, object, correspondent address, or private key of join; the vectors, campaign prints and dates remain private data. Do not publish them on GitHub. Exports and models outside SQLite have a retention to be managed by the operator, unlike the database metadata that expires after 30 days.
 
-L’entraînement exige des annotations humaines dans cinq périodes chronologiques
-figées : 50 % entraînement, 15 % choix des paramètres, 15 % calibration, 10 % seuils,
-10 % test final. Les campagnes exactes ou proches ne traversent pas ces périodes.
-Les campagnes contradictoires et celles qui traversent une frontière sont exclues
-et comptées. Une campagne conservée contribue un représentant déterministe.
-Depuis 0.4.13, les deux têtes sont entraînées séparément sur les mêmes frontières
-temporelles, fixées avec tous les messages conservés, même non annotés ou incomplets.
-Chaque période du risque doit contenir au moins douze campagnes et les deux risques :
-sinon la commande sort avec le code 3 et un rapport `insufficient_labels`, sans modèle.
-Le type utilise ses propres annotations et exige douze campagnes et les six types
-par période. S’ils manquent, seul le risque est entraîné ; le type indique
-`not_trained` et aucune distribution de types n’est inventée. Un conflit de type
-ne supprime pas une annotation de risque cohérente, et réciproquement.
-Ce minimum logiciel ne garantit pas une évaluation statistique suffisante.
+Training requires human annotations in five fixed time periods: 50% training, 15% parameter selection, 15% calibration, 10% thresholds, 10% final test. Accurate or close campaigns do not go through these periods. Contradictory campaigns and campaigns that cross a border are excluded and counted. A conserved campaign contributes a deterministic representative. Since 0.4.13, both heads are driven separately on the same temporal boundaries, fixed with all messages kept, even unannotated or incomplete. Each risk period must contain at least 12 campaigns and both risks: otherwise the order comes out with code 3 and a `insufficient_labels` ratio, without a model. The type uses its own annotations and requires 12 campaigns and the six types per period. If they are missing, only the risk is generated; the type indicates `not_trained` and no distribution of types is invented. A type conflict does not remove a consistent risk annotation, and vice versa. This minimum software does not guarantee sufficient statistical evaluation.
 
-La régression logistique est régularisée. Le risque reçoit une calibration de
-Platt et une zone d’abstention ; les six types reçoivent une calibration de température.
-Le rapport mesure rappel, faux positifs, précision et intervalles binomiaux exacts
-à 95 %, abstentions, Brier, matrice des types, résultats par type, comparaison au
-classement appliqué et douze ablations prédéfinies : sans LLM, réputation,
-historique, comportement, moteur natif, Bayes natif, modèle lexical, modèle
-sémantique, identité/authentification, vision, type de courrier, puis contenu seul. Chaque variante est réentraînée
-et calibrée sur les mêmes périodes ; elle ne se règle pas sur le test final.
-Retirer une famille mesure son apport conditionnel, pas son indépendance causale.
-Les profils de contrôles non rencontrés à l’entraînement sont des abstentions.
-Les contrôles indisponibles ne sont jamais transformés en verdict malveillant.
+The logistic regression is regulated. The risk receives a calibration of Platt and a zone of forbearance; the six types receive a calibration of temperature. The ratio measures recall, false positives, accuracy and exact binomial intervals at 95%, abstentions, Brier, matrix of types, results by type, comparison to the applied ranking and twelve predefined ablations: without LLM, reputation, history, behavior, native engine, Bayes native, lexical model, semantic model, identity/authentication, vision, type of mail, then contained alone. Each variant is re-entered and calibrated over the same periods; it does not settle on the final test. Remove a family measure its conditional contribution, not its causal independence. The control profiles not encountered at the training are abstentions. Unavailable controls are never transformed into malicious verdicts.
 
-L’unité de test est **la campagne**, pas l’ensemble du trafic. Les messages sans
-annotation, inaccessibles, incomplets ou exclus restent comptés. Un sous-ensemble
-facile à annoter ne démontre pas le taux de faux positifs de la population.
-Pour une revendication sur le trafic, réserver ensuite une population indépendante,
-annoter ses messages et compter les omissions et abstentions. Ne pas régler les
-seuils sur le lot ayant servi à publier les résultats. Une absence d’erreur sur
-quelques dizaines de courriers ne démontre pas l’objectif de 0,1 %.
+The test unit is **the campaign**, not all traffic. Messages without annotation, inaccessible, incomplete or excluded remain counted. A subset easy to annotate does not demonstrate the rate of false positives of the population. For a claim on traffic, then reserve an independent population, annotate its messages and count omissions and abstentions. Do not set the thresholds on the lot used to publish the results. A lack of error on a few dozen of mails does not show the target of 0.1%.
 
-L’option `--base-history chemin.jsonl` vérifie aussi l’absence de campagnes communes
-avec les jeux des modèles de base ou des tests précédents. Ce fichier privé contient
-`fingerprint`, `simhash` et `campaign`, comme les exports de fusion. Son absence
-reste une limite explicite du rapport ; aucun certificat d’activation n’est produit.
+The `--base-history chemin.jsonl` option also checks the absence of common campaigns with the games of the basic models or previous tests. This private file contains `fingerprint`, `simhash` and `campaign`, such as fusion exports. Its absence remains an explicit limit of the ratio; no activation certificate is produced.
 
-Le modèle `noisefence-quality-model-2` lie par SHA-256 un manifeste privé contenant
-toutes les campagnes déjà consultées, y compris celles exclues de l’entraînement,
-ainsi que l’historique fourni. Les profils de disponibilité des deux têtes sont
-distincts. En cas d’égalité exacte des probabilités de type, la dernière catégorie
-dans l’ordre du protocole gagne, comme dans le runtime Rust historique. Conserver `training-manifest.json` avec les poids ; il ne doit pas être
-publié. Le format 1 reste lisible, mais seul le format 2 porte cette provenance.
+The `noisefence-quality-model-2` model binds by SHA-256 a private manifest containing all the campaigns already consulted, including those excluded from the training, as well as the historical supplied. The availability profiles of the two heads are distinct. In case of exact equality of the probability of type, the last category in the order of protocol wins, as in the historical runtime Rust. Keep `training-manifest.json` with the weights; it must not be published. The format 1 remains legible, but only the format 2 carries this provenance.
 
-## Évaluer sur un nouveau lot indépendant
+<a id="évaluer-sur-un-nouveau-lot-indépendant"></a>
+## Evaluate on a new independent batch
 
-Figer le modèle avant le début de la période suivante. Exporter ensuite un
-nouveau tirage uniforme entièrement annoté, sans le consulter pour régler le
-candidat. Ne pas mélanger plusieurs versions de détecteur lors de l’entraînement :
-l’empreinte inclut la version de l’application. Une mise à jour exige de nouvelles
-observations compatibles ; elle ne rend pas rétroactivement les anciennes compatibles.
+Fig the model before the beginning of the next period. Then export a completely annotated uniform reprint, without consulting it to adjust the candidate. Do not mix several versions of detector during training: the print includes the version of the application. An update requires new observations compatible; it does not retroactively make the old ones compatible.
 
 ```sh
 OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
@@ -133,125 +65,47 @@ OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
   --output /var/lib/noisefence/quality/evaluation-01.json
 ```
 
-Cette commande ne modifie aucun seuil, modèle, message ou réglage. Elle refuse
-d’écraser le rapport et vérifie l’empreinte du manifeste. Les campagnes communes
-avec tous les jeux antérieurs, les doublons, conflits, labels absents, pertes de
-droits, observations incompatibles et modèles expirés empêchent une validation
-complète. Une provenance inconnue du corpus de base bloque aussi cette validation.
-Les prédictions indisponibles comptent comme abstentions, jamais comme bonnes réponses.
+This command does not change any threshold, model, message or setting. It refuses to overwrite the report and checks the footprint of the manifest. Common campaigns with all previous games, duplicates, conflicts, absent labels, loss of rights, incompatible observations and expired models prevent a complete validation. An unknown source of the basic corpus also blocks this validation. Unavailable predictions count as omissions, never as good answers.
 
-Le rapport compare le classement enregistré au candidat pur et au candidat avec
-la priorité antivirus principale déjà observée. Il sépare les unités message et
-campagne, la calibration du risque et la précision/rappel PUB (newsletter ou
-promotion), avec une matrice des six types incluant une colonne indisponible.
-Les métriques PUB portent sur les messages également annotés en risque.
-Les corrections des destinataires et le dossier choisi par Proton ne sont pas
-rejoués ; des appels fournisseurs/LLM enregistrés ne valident pas une autre
-politique de sélection de ces appels.
+The report compares the ranking recorded to the pure candidate and the candidate with the main antivirus priority already observed. It separates message and campaign units, risk calibration and PUB accuracy/recall (newsletter or promotion), with a matrix of the six types including an unavailable column. PUB metrics refer to messages also annotated at risk. Recipient corrections and Proton's chosen folder are not replayed; registered supplier/LLM calls do not validate another selection policy for these calls.
 
-Critères de pilote : au moins vingt spams et cent légitimes indépendants, moins
-de faux positifs, autant de spams capturés et pas davantage d’abstentions. Les
-objectifs finaux portent sur les bornes binomiales unilatérales à 95 % : capture
-au moins 95 %, faux positifs au plus 0,1 %, abstentions au plus 5 %. Ils demandent
-beaucoup plus d’exemples et une revue de leur représentativité. Le rapport
-contient toujours `may_activate: false`, même si ces tests numériques passent.
-Le code de sortie est 0 si le pilote passe, 3 sinon ; il n’autorise aucune activation.
+Pilot criteria: at least twenty spams and one hundred legitimate independents, less false positives, as many spams captured and no more abstentions. The final targets are on the unilateral binomial terminals at 95%: capture at least 95%, false positives at the most 0.1%, abstentions at the most 5%. They ask for much more examples and a review of their representativeness. The report still contains `may_activate: false`, even if these digital tests pass. The output code is 0 if the pilot passes, 3 otherwise; it does not allow any activation.
 
-## Expliquer les erreurs sans exporter les messages
+<a id="expliquer-les-erreurs-sans-exporter-les-messages"></a>
+## Explain errors without exporting messages
 
-Le détail d’un message décompose le score historique avant saturation entre
-modèle lexical, sémantique, règles, authentification, réputation, SMTP et LLM.
-Une contribution combinée historique reste indivisible si sa décomposition
-manque. La somme est vérifiée contre le score enregistré ; une divergence reste
-visible. Les poids appris du texte et de la structure MIME partagent des buckets
-de hachage : ce rapport ne prétend pas les séparer rétroactivement.
+The detail of a message breaks down the historical score before saturation between lexical, semantic, rules, authentication, reputation, SMTP and LLM. A combined historical contribution remains indivisible if its decomposition is lacking. The sum is verified against the recorded score; a divergence remains visible. The weights learned from the text and the MIME structure share hashbuckets: this report does not pretend to separate them retroactively.
 
-`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` produit aussi
-ces agrégats par faux positifs, spams détectés, erreurs et abstentions, ainsi que
-les erreurs propres au second avis, son statut, son coût comptabilisé et ses
-durées. Seules les décompositions réconciliées entrent dans les moyennes de
-contribution. Les retours contradictoires et inaccessibles sont exclus explicitement.
-Il s’agit de corrections ciblées, donc biaisées, pas d’une mesure du trafic.
-L’audit n’ouvre pas les corps, n’appelle aucun fournisseur et ne réécrit pas SQLite.
+`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` also produces these aggregates by false positives, spams detected, errors and omissions, as well as errors specific to the second opinion, its status, its cost recorded and its durations. Only reconciled decompositions are included in contribution averages. Conflicting and inaccessible returns are excluded explicitly. These are targeted corrections, therefore biased, not a measure of traffic. The audit does not open bodies, does not call any supplier and does not rewrite SQLite.
 
-## Charger uniquement en observation
+## Load in observation only
 
-Après revue du rapport et vérification de la parité Python/Rust :
+After reviewing the Python/Rust report and checking parity:
 
 ```toml
 [quality]
 candidate = "/var/lib/noisefence/quality/candidate-01/model.json"
 ```
 
-Le modèle est un JSON de poids, sans code exécutable, limité à 2 Mio. Redémarrer
-le service après validation de la configuration. Protocole, empreinte de politique,
-modèles de base, profils et dimensions doivent correspondre. Un candidat expiré
-après trente jours ou incompatible s’abstient. La console indique son état séparément
-du classement appliqué. Cette version ne propose aucune activation de ses actions.
-Les tâches d’entraînement historiques restent inchangées ; ce pipeline joint est
-lancé explicitement une fois le lot annoté, sans entraînement automatique sur les
-prédictions du filtre.
+The model is a JSON of weight, without executable code, limited to 2 MiB. Restart the service after validation of the configuration. Protocol, policy footprint, basic models, profiles and dimensions must match. A candidate expired after 30 days or incompatible with abstinent. The console indicates its status separately from the ranking applied. This version does not propose any activation of its actions. Historical training tasks remain unchanged; this pipeline is explicitly launched once the batch has been annotated, without automatic training on the predictions of the filter.
 
-## Identité, liens et réputation
+<a id="identité-liens-et-réputation"></a>
+## Identity, Relationships and Reputation
 
-L’historique d’un correspondant nécessite une source SMTP native, un unique From,
-un DKIM aligné validé par DMARC et un seul domaine destinataire. Il utilise uniquement
-les corrections antérieures d’administrateurs actifs et autorisés, sur trente jours.
-Cinq campagnes légitimes sur trois jours distincts, sans indésirable ni conflit,
-établissent un signal de confiance ; jamais une liste blanche. Le local-part garde
-sa casse. Une requête interrompue ou saturée devient indisponible, sous une borne
-externe de 200 ms incluse dans le délai global d’analyse.
+A correspondent's history requires a native SMTP source, a single From, an aligned DKIM validated by DMARC and a single recipient domain. It uses only the previous corrections of active and authorized administrators, over 30 days. Five legitimate campaigns over three separate days, without unwanted or conflict, establish a confidence signal; never a white list. The local-part keeps its break. An interrupted or saturated request becomes unavailable, under an external terminal of 200 ms included in the global delay d'analyse.
 
-Le contexte de phishing rapproche nom protégé, domaine affiché, domaine Reply-To,
-lien OCR/QR et site final d’une chaîne de redirection complète. Une exception
-sur un tracker ne dispense pas du contrôle du site final. Les bornes existantes
-sur les redirections, le DNS, les adresses publiques et les volumes restent actives.
-Aucun nouveau téléchargement de pièce jointe ni exécution de contenu n’est ajouté.
-Les nouveaux signaux contextuels alimentent les observations et les candidats ;
-ils ne forcent pas seuls le classement historique.
+The phishing context brings together protected name, displayed domain, Reply-To domain, OCR/QR link and final site of a complete redirect chain. An exception on a tracker does not exempt control of the final site. Existing terminals on redirects, DNS, public addresses and volumes remain active. No new attachment download or content execution is added. New contextual signals feed observations and candidates; they do not force the historical ranking alone.
 
-Chaque observation CRDF/VT conserve un digest de l’indicateur, sa portée, son statut,
-la date de requête et une borne d’âge du cache. Pour VT, l’identité et le type de
-l’objet doivent correspondre ; les analyses de plus de sept jours restent indisponibles.
-Pour CRDF, une correspondance portant sur une page précise reste suspecte à
-l’échelle de l’hôte, et la date de l’analyse est inconnue si elle n’est pas prouvée.
-Une requête synthétique à la racine n’atteste pas toutes les pages du domaine.
-Les compteurs distinguent les portées et les indicateurs communs entre fournisseurs.
-Voir la [documentation CRDF](https://threatcenter.crdf.fr/api/doc/) et les objets VT
-[domaine](https://docs.virustotal.com/reference/domain-info) et
-[fichier](https://docs.virustotal.com/reference/file-info).
+Each CRDF/VT observation retains a digest of the indicator, its scope, status, date of request and age of cache. For VT, the identity and type of object must correspond; analyses longer than seven days remain unavailable. For CRDF, a match on a specific page remains suspicious at the host scale, and the date of analysis is unknown if it is not proven. A synthetic request at the root does not attest all pages of the domain. Meters distinguish between common staves and indicators between suppliers. See [CRDF documentation](https://threatcenter.crdf.fr/api/doc/) and VT objects [domain](https://docs.virustotal.com/reference/domain-info) and [file](https://docs.virustotal.com/reference/file-info).
 
-## Vérifications logicielles et exploitation
+<a id="vérifications-logicielles-et-exploitation"></a>
+## Software verifications and operation
 
-`tests/quality.rs`, les tests de console et les tests des connecteurs couvrent la
-provenance, les portées, la fraîcheur, les droits, l’export privé et le maintien
-de la décision originale. `tests_python/test_quality.py` utilise uniquement des
-fixtures synthétiques ; la CI compare les probabilités des poids Python à Rust
-à 1e-9 près. Les tests SMTP concurrents vérifient toujours la file durable et les
-corps inchangés. Ces tests ne constituent pas une mesure de capture en production.
+`tests/quality.rs`, console tests and connector tests cover the provenance, range, freshness, rights, private export and maintenance of the original decision. `tests_python/test_quality.py` uses only synthetic fixtures; the IC compares the probabilities of Python to Rust weights within 1st-9. Competitive SMTP tests always check the durable file and unchanged bodies. These tests do not constitute a capture measure in production.
 
-Les tables d’échantillons et de labels, l’index d’historique et les champs JSON
-sont additifs au schéma 2, compatibles avec le binaire 0.4.7. En cas de retour à
-cette version, retirer la section `[quality]` si elle a été ajoutée. Ne jamais
-restaurer une vieille base qui ferait disparaître des messages acceptés après
-la mise à jour. Conserver l’observation tant que les validations Proton et les
-mesures indépendantes nécessaires ne sont pas réunies.
-Pour revenir à 0.4.11 ou avant, retirer aussi tout candidat de format 2 de la
-configuration avant de démarrer l’ancien binaire. Les poids actifs historiques,
-les budgets externes et les règles de livraison ne sont pas changés par 0.4.13.
+This feature’s original migration was additive. Current paired installations require storage schema 5 and a compatible release. Do not downgrade the database, remove its HA marker or restore an older backup over accepted mail. See [installation](installation.md) and [HA recovery](high-availability.md) for current upgrade and rollback procedures.
 
-Depuis 0.5.0, les entrées natives et leur disponibilité complètent le candidat.
-Le tableau **Fiabilité** décrit les groupes de collecte et les comparaisons.
-Voir [la procédure et la migration](reliability.md).
+Since 0.5.0, native entries and their availability complete the candidate. The table **Reliability** describes the collection groups and comparisons. See [procedure and migration](reliability.md).
 
 
-Depuis 0.6.0, les seuils utilisent les effectifs exacts de la période réservée :
-`floor(n_légitimes × 0,001)` faux positifs et `floor(n_spams × 0,01)` faux négatifs
-maximum sur cette période. Le seuil supérieur est le plus bas admissible à partir
-de 0,5, avec une garde numérique de 10⁻⁹ pour la parité Python/Rust ;
-le seuil inférieur étend la couverture légitime jusqu’à 0,5 avec la même garde. Les
-comparaisons inclusives et ex æquo sont comptés. Une saturation à 0 ou 1 qui rend
-ces contraintes impossibles interrompt la préparation ; une ablation impossible
-est indiquée séparément. Ce choix empirique ne valide pas un taux dans le trafic :
-le test indépendant, la couverture, les intervalles et les règles d’activation
-restent nécessaires. Voir [couverture et mémoire comportementale](capture-coverage.md).
+Since 0.6.0, the thresholds use the exact numbers of the reserved period: `floor(legitimate_count × 0,001)` false positives and `floor(spam_count × 0.01)` false negatives maximum over this period. The upper threshold is the lowest permissible starting from 0.5, with a digital guard of 10−9 for the Python/Rust parity; the lower threshold extends the legitimate coverage up to 0.5 with the same guard. Inclusive and tied values comparisons are counted. A saturation at 0 or 1 that makes these constraints impossible interrupt the preparation; a removal cannot be indicated separately. This empirical choice does not validate a rate in the traffic: independent testing, coverage, intervals and activation rules remain necessary. See [coverage and behavioral memory](capture-coverage.md).

@@ -40,17 +40,17 @@ export function SecondFactor({
   return (
     <section className="panel password-panel">
       <h2>
-        <ShieldCheck size={20} /> Double authentification
+        <ShieldCheck size={20} /> Two-factor authentication
       </h2>
       <p className="muted small">
-        Ajoutez un code temporaire depuis votre application d’authentification.{' '}
-        {user.admin && 'Recommandé pour votre compte administrateur.'}
+        Add a temporary code from your authentication application.{' '}
+        {user.admin && "Recommended for your admin account."}
       </p>
       {state && (
         <p className="status">
           {state.enabled
-            ? `Activée · ${state.recovery_remaining} codes de secours restants`
-            : 'À activer'}
+            ? `Activated · ${state.recovery_remaining} remaining emergency codes`
+            : 'Not enabled'}
         </p>
       )}
       {secret ? (
@@ -76,18 +76,16 @@ export function SecondFactor({
           }}
         >
           <p>
-            Dans votre application, ajoutez un compte « NoiseFence » avec cette
-            clé. Choisissez des codes basés sur le temps, à six chiffres.
+            In your application, add a &quot;NoiseFence&quot; account with this key. Choose time-based, six-digit codes.
           </p>
           <p className="mfa-secret">
             <code>{secret.match(/.{1,4}/g)?.join(' ')}</code>
           </p>
           <p className="small muted">
-            Cette clé est personnelle. Ne la partagez pas. La configuration
-            expire après dix minutes.
+            This key is personal. Do not share it. The configuration expires after ten minutes.
           </p>
           <label className="field" htmlFor="mfa-confirm">
-            Code affiché par l’application
+            Code displayed by application
             <Input
               id="mfa-confirm"
               value={code}
@@ -101,8 +99,8 @@ export function SecondFactor({
           </label>
           <Button type="submit" disabled={busy}>
             {busy
-              ? 'Vérification…'
-              : 'Activer et afficher les codes de secours'}
+              ? "Check..."
+              : "Enable and display emergency codes"}
           </Button>
           <Button
             type="button"
@@ -113,7 +111,7 @@ export function SecondFactor({
               setCode('');
             }}
           >
-            Annuler
+            Cancel
           </Button>
         </form>
       ) : (
@@ -146,7 +144,7 @@ export function SecondFactor({
             }}
           >
             <label className="field" htmlFor="mfa-password">
-              Confirmez votre mot de passe
+              Confirm your password
               <Input
                 id="mfa-password"
                 type="password"
@@ -159,7 +157,7 @@ export function SecondFactor({
             </label>
             {state.enabled && (
               <label className="field" htmlFor="mfa-disable-code">
-                Nouveau code temporaire ou code de secours
+                New temporary code or emergency code
                 <Input
                   id="mfa-disable-code"
                   value={code}
@@ -168,15 +166,15 @@ export function SecondFactor({
                   maxLength={32}
                   required
                 />
-                <small>La désactivation déconnecte toutes vos sessions.</small>
+                <small>Disabling disconnects all your sessions.</small>
               </label>
             )}
             <Button type="submit" disabled={busy}>
               {busy
-                ? 'Vérification…'
+                ? "Check..."
                 : state.enabled
-                  ? 'Désactiver la double authentification'
-                  : 'Configurer mon application'}
+                  ? "Disable two-factor authentication"
+                  : "Configure my application"}
             </Button>
           </form>
         )
@@ -202,11 +200,9 @@ export function RecoveryCodes({
     <main className="connection-screen">
       <section className="panel mfa-recovery">
         <ShieldCheck size={32} />
-        <h1>Votre compte est protégé.</h1>
+        <h1>Your account is protected.</h1>
         <p>
-          Enregistrez ces dix codes dans votre gestionnaire de mots de passe.
-          Chacun permet une seule connexion si votre application est
-          indisponible. Ils ne seront plus affichés.
+          Save these ten codes in your password manager. Each allows a single connection if your application is unavailable. They will no longer be displayed.
         </p>
         <ul>
           {codes.map((code) => (
@@ -221,15 +217,13 @@ export function RecoveryCodes({
             checked={saved}
             onChange={(e) => setSaved(e.target.checked)}
           />{' '}
-          J’ai enregistré mes codes de secours.
+          I&apos;ve saved my emergency codes.
         </label>
         <p className="small muted">
-          Toutes vos anciennes sessions sont déconnectées. Pour la prochaine
-          connexion, attendez le nouveau code de votre application ou utilisez
-          un code de secours.
+          All your old sessions are offline. For the next connection, wait for the new code of your application or use a backup code.
         </p>
         <Button disabled={!saved} onClick={onDone}>
-          Retour à la connexion
+          Back to sign-in
         </Button>
       </section>
     </main>

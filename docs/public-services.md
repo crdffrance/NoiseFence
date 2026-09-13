@@ -1,33 +1,16 @@
-# SMTP et console HTTPS
+# SMTP and the HTTPS console
 
-Le serveur SMTP écoute sur le port 25 avec STARTTLS et un certificat validé pour
-son nom DNS. La console Axum reste sur loopback ; Nginx publie HTTPS sur le port 443
-et redirige HTTP 80. Adapter `deploy/nginx.conf` au nom DNS et aux certificats de
-l'opérateur. Définir `web.public_origin` en HTTPS et `web.secure_cookies = true`.
-Seuls les domaines configurés sont acceptés, avec une liste de destinataires par
-défaut ou l'option explicite `accept_all_recipients = true` par domaine. ClamD
-utilise des sockets Unix privées, sans service TCP public.
+The SMTP server listens on port 25 with STARTTLS and a certificate validated for its DNS name. The Axum console remains on loopback; Nginx publishes HTTPS on port 443 and redirects HTTP 80. Adapt `deploy/nginx.conf` to the DNS name and operator certificates. Set `web.public_origin` to HTTPS and `web.secure_cookies = true`. Only configured domains are accepted, with a default recipient list or the explicit `accept_all_recipients = true` option per domain. ClamD uses private Unix sockets, without public TCP service.
 
-Lorsque Certbot était configuré en mode standalone, migrer sa validation avant
-les renouvellements :
+When Certbot was configured in standalone mode, migrate its validation before renewals:
 
 ```sh
 sudo certbot reconfigure --cert-name mx.example.org --webroot \
   --webroot-path /var/www/letsencrypt --non-interactive
 ```
 
-Cette commande teste la nouvelle méthode avec le serveur de staging. Installer
-`deploy/certbot-nginx.sh` comme hook exécutable de déploiement dans
-`/etc/letsencrypt/renewal-hooks/deploy/`, en plus du hook SMTP existant. Nginx lit
-le certificat Let’s Encrypt ; NoiseFence utilise sa copie privée validée et
-renouvelée atomiquement. Vérifier les deux connexions après toute modification.
+This command tests the new method with the staging server. Install `deploy/certbot-nginx.sh` as an executable deployment hook in `/etc/letsencrypt/renewal-hooks/deploy/`, in addition to the existing SMTP hook. Nginx reads the Lets Encrypt certificate; NoiseFence uses its validated and renewed private copy atomically. Check both connections after any modification.
 
-Créer les comptes via `noisefence user-add` avec leurs destinataires autorisés.
-Les mots de passe sont saisis sans écho, jamais inclus dans Git. Contrôler une
-connexion HTTPS réelle, les cookies Secure/HttpOnly, le refus sans session et
-les accès entre utilisateurs. Le proxy limite les tentatives sur la route de connexion.
+Create accounts via `noisefence user-add` with their authorized recipients. Passwords are entered without echo, never included in Git. Control a real HTTPS connection, Secure/HttpOnly cookies, sessionless refusal and user access. The proxy limits attempts on the connection route.
 
-L'exposition des services ne valide pas automatiquement le relais Proton.
-Conserver le mode observation et les MX actuels tant que les essais de livraison
-authentifiée et de modification de Subject ne passent pas. Les scans antivirus
-sont consultatifs ; les objectifs de capture et de faux positifs restent à mesurer.
+The display of services does not automatically validate the Proton relay. Keep the current observation mode and MX as long as the authenticated delivery and modification testing of Subject does not pass. Primary antivirus malware detection has priority; complementary signatures remain advisory. Capture and false-positive objectives must still be measured.

@@ -1,6 +1,6 @@
 //! Versioned, bounded SMTP diagnostics. No free-form detector/provider text,
 //! message identities, URLs, features or recipient policies belong on the wire.
-use crate::{config::Config, engine::Scan, fusion::runtime::DecisionSource};
+use crate::{assessment, config::Config, engine::Scan};
 use serde::Serialize;
 use std::net::IpAddr;
 
@@ -17,8 +17,15 @@ pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Raw-Score",
     "X-NoiseFence-Decision-Score",
     "X-NoiseFence-Status",
+    "X-NoiseFence-Assessment-Version",
+    "X-NoiseFence-Classification-Source",
+    "X-NoiseFence-Content-Threshold",
+    "X-NoiseFence-Policy-Version",
+    "X-NoiseFence-Delivery-Policy",
+    "X-NoiseFence-Subject-Tag",
     "X-NoiseFence-Decision",
     "X-NoiseFence-Decision-Source",
+    "X-NoiseFence-Decision-Recorded",
     "X-NoiseFence-Category",
     "X-NoiseFence-Analysis",
     "X-NoiseFence-Checks",
@@ -53,16 +60,6 @@ pub(crate) fn signed_fields() -> impl Iterator<Item = &'static str> {
 }
 
 const MAX_RULES: usize = 24;
-const INCOMPLETE_REASONS: &[&str] = &[
-    "analysis_budget",
-    "signature_budget",
-    "checks_unavailable",
-    "llm_unavailable",
-    "semantic_unavailable",
-    "smtp_policy_unavailable",
-    "vision_incomplete",
-    "complementary_signature_unavailable",
-];
 
 fn token(value: &str) -> Option<&str> {
     (!value.is_empty()
@@ -84,7 +81,7 @@ fn yes(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
 fn score(value: Option<f64>) -> Option<f64> {
-    value.filter(|v| v.is_finite() && (0.0..=100.0).contains(v))
+    assessment::valid_score(value)
 }
 fn number(value: Option<f64>) -> String {
     score(value)
@@ -175,89 +172,76 @@ pub(crate) fn render(
         id,
         mail_parser::DateTime::from_timestamp(crate::now()).to_rfc822()
     ));
-    let decision = scan.decision.as_ref();
-    let selected_decision = decision
-        .filter(|d| d.source != DecisionSource::Antivirus)
-        .and_then(|d| score(d.score));
-    let selected = selected_decision.or_else(|| score(Some(scan.score)));
-    let source = if selected.is_none() {
-        "unavailable"
-    } else if selected_decision.is_some() {
-        "decision"
-    } else {
-        "raw"
-    };
-    let model = if selected_decision.is_some() {
-        decision.map(|d| d.model.as_str())
-    } else {
-        Some(scan.model.as_str())
-    };
-    // Same qualification as the console; neither score nor this label is used
-    // to decide classification, recipient actions, tagging or quarantine.
-    let kind = if selected.is_none() {
-        "unavailable"
-    } else if !scan.complete {
-        "partial"
-    } else if scan.model == "dsn" {
-        "internal"
-    } else if decision.is_some_and(|d| {
-        d.source == DecisionSource::Antivirus
-            || d.outcome == crate::fusion::runtime::Outcome::Undetermined
-    }) {
-        "advisory"
-    } else if selected_decision.is_some()
-        && decision.is_some_and(|d| d.source == DecisionSource::Fusion)
-    {
-        "decision"
-    } else {
-        "content"
-    };
+    let report = assessment::assess(scan, config.filter.threshold);
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "2");
+    h.field("X-NoiseFence-Header-Version", "3");
     h.field("X-NoiseFence-Version", env!("CARGO_PKG_VERSION"));
     h.field("X-NoiseFence-Mode", word(&config.filter.mode));
-    h.field("X-NoiseFence-Score", number(selected));
-    h.field("X-NoiseFence-Score-Type", kind);
-    h.field("X-NoiseFence-Score-Source", source);
+    h.field("X-NoiseFence-Score", number(report.score.value));
+    h.field("X-NoiseFence-Score-Type", word(&report.score.kind));
+    h.field("X-NoiseFence-Score-Source", word(&report.score.source));
     h.field("X-NoiseFence-Score-Scale", "0-100");
     h.field(
         "X-NoiseFence-Model",
-        model.and_then(token).unwrap_or("unavailable"),
+        token(&report.score.model).unwrap_or("unavailable"),
     );
-    h.field("X-NoiseFence-Raw-Score", number(Some(scan.score)));
-    h.field(
-        "X-NoiseFence-Decision-Score",
-        number(decision.and_then(|d| d.score)),
-    );
+    h.field("X-NoiseFence-Raw-Score", number(report.score.raw));
+    h.field("X-NoiseFence-Decision-Score", number(report.score.decision));
     h.field(
         "X-NoiseFence-Status",
-        if !scan.complete {
-            "incomplete"
-        } else if scan.tagged {
-            "spam"
-        } else if scan.pub_tagged {
-            "pub"
+        if report.complete {
+            "complete"
         } else {
-            "observed"
+            "incomplete"
         },
     );
     h.field(
-        "X-NoiseFence-Decision",
-        decision
-            .map(|d| word(&d.outcome))
-            .unwrap_or_else(|| "undetermined".into()),
+        "X-NoiseFence-Assessment-Version",
+        report.version.to_string(),
     );
+    h.field(
+        "X-NoiseFence-Classification-Source",
+        word(&report.classification_source),
+    );
+    h.field(
+        "X-NoiseFence-Content-Threshold",
+        number(report.content_threshold),
+    );
+    h.field(
+        "X-NoiseFence-Policy-Version",
+        report
+            .policy_version
+            .as_deref()
+            .and_then(token)
+            .unwrap_or("not_recorded"),
+    );
+    h.field(
+        "X-NoiseFence-Delivery-Policy",
+        report
+            .action
+            .as_ref()
+            .map(|a| {
+                format!(
+                    "requested={}; effective={}; reason={};",
+                    word(&a.requested),
+                    word(&a.effective),
+                    token(&a.reason).unwrap_or("unknown")
+                )
+            })
+            .unwrap_or_else(|| "not_recorded".into()),
+    );
+    h.field("X-NoiseFence-Subject-Tag", word(&report.subject_tag));
+    h.field("X-NoiseFence-Decision", word(&report.decision.outcome));
     h.field(
         "X-NoiseFence-Decision-Source",
-        decision
-            .map(|d| word(&d.source))
-            .unwrap_or_else(|| "legacy".into()),
+        word(&report.decision.source),
     );
     h.field(
-        "X-NoiseFence-Category",
-        crate::mailing::category(scan, config.filter.threshold).as_str(),
+        "X-NoiseFence-Decision-Recorded",
+        yes(report.decision_recorded),
     );
+    h.field("X-NoiseFence-Category", report.category.as_str());
     h.field(
         "X-NoiseFence-Analysis",
         format!(
@@ -313,24 +297,12 @@ pub(crate) fn render(
         })
         .unwrap_or_else(|| "not_recorded".into()),
     );
-    let mut missing: Vec<_> = INCOMPLETE_REASONS
-        .iter()
-        .copied()
-        .filter(|id| scan.reasons.iter().any(|r| &r.id == id))
-        .collect();
-    match scan.antivirus.status {
-        crate::antivirus::AntivirusStatus::Unavailable => missing.push("antivirus_unavailable"),
-        crate::antivirus::AntivirusStatus::Unscannable => missing.push("antivirus_unscannable"),
-        _ => {}
-    }
     h.field(
         "X-NoiseFence-Incomplete-Reasons",
-        if scan.complete {
+        if report.incomplete_reasons.is_empty() {
             "none".into()
-        } else if missing.is_empty() {
-            "unspecified".into()
         } else {
-            missing.join("; ")
+            report.incomplete_reasons.join("; ")
         },
     );
     h.field(
@@ -494,7 +466,7 @@ mod tests {
     use super::*;
     use crate::{
         engine::Signal,
-        fusion::runtime::{Decision, Outcome},
+        fusion::runtime::{Decision, DecisionSource, Outcome},
     };
 
     fn config() -> Config {
@@ -622,6 +594,32 @@ mod tests {
     }
 
     #[test]
+    fn headers_match_shared_assessment_including_historical_decisions() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/assessment.json")).unwrap();
+        for case in cases {
+            let mut data = serde_json::to_value(Scan::default()).unwrap();
+            for (key, value) in case["scan"].as_object().unwrap() {
+                data[key] = value.clone();
+            }
+            let scan: Scan = serde_json::from_value(data).unwrap();
+            let report = assessment::assess(&scan, config().filter.threshold);
+            let h = headers(&scan);
+            assert_eq!(h["x-noisefence-score"], number(report.score.value));
+            assert_eq!(h["x-noisefence-category"], report.category.as_str());
+            assert_eq!(h["x-noisefence-decision"], word(&report.decision.outcome));
+            assert_eq!(
+                h["x-noisefence-decision-recorded"],
+                yes(report.decision_recorded)
+            );
+            assert_eq!(
+                h["x-noisefence-decision-score"],
+                number(report.score.decision)
+            );
+        }
+    }
+
+    #[test]
     fn invalid_numbers_never_turn_into_zero_and_real_zero_stays_visible() {
         for value in [f64::NAN, f64::INFINITY, -1., 101.] {
             let mut s = scan();
@@ -698,5 +696,43 @@ mod tests {
             h["x-noisefence-incomplete-reasons"],
             "antivirus_unscannable"
         );
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    #[test]
+    fn wire_and_console_share_scores_and_separate_tagging_from_classification() {
+        let c = Config::load(std::path::Path::new("config/development.toml")).unwrap();
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/assessment.json")).unwrap();
+        for case in cases {
+            let mut data = serde_json::to_value(Scan::default()).unwrap();
+            for (k, v) in case["scan"].as_object().unwrap() {
+                data[k] = v.clone();
+            }
+            let s: Scan = serde_json::from_value(data).unwrap();
+            let report = assessment::assess(&s, c.filter.threshold);
+            let wire =
+                render(&c, "192.0.2.1".parse().unwrap(), "test", &s, None).replace("\r\n\t", " ");
+            for (name, value) in [
+                ("X-NoiseFence-Score", number(report.score.value)),
+                ("X-NoiseFence-Score-Type", word(&report.score.kind)),
+                ("X-NoiseFence-Category", report.category.as_str().into()),
+                ("X-NoiseFence-Subject-Tag", "none".into()),
+                ("X-NoiseFence-Header-Version", "3".into()),
+                (
+                    "X-NoiseFence-Status",
+                    if s.complete { "complete" } else { "incomplete" }.into(),
+                ),
+            ] {
+                assert!(
+                    wire.contains(&format!("{name}: {value}\r\n")),
+                    "{} / {name}",
+                    case["name"]
+                );
+            }
+        }
     }
 }

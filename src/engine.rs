@@ -248,7 +248,7 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
         scan.complete = false;
         scan.reasons.push(Signal {
             id: "analysis_budget".into(),
-            detail: "Message supérieur au budget d’analyse locale".into(),
+            detail: "Higher message than local analysis budget".into(),
             weight: 0.0,
         });
         if let Some(m) = mail_parser::MessageParser::default().parse_headers(raw) {
@@ -322,7 +322,7 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
         .iter()
         .any(|s| lower.contains(s))
     {
-        signal("urgency", "Vocabulaire d’urgence", 0.5);
+        signal("urgency", "Urgency language", 0.5);
     }
     if [
         "verify your account",
@@ -333,7 +333,7 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     .iter()
     .any(|s| lower.contains(s))
     {
-        signal("credential_request", "Demande liée aux identifiants", 1.5);
+        signal("credential_request", "Credential request", 1.5);
     }
     if [
         "lottery",
@@ -345,20 +345,20 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
     .iter()
     .any(|s| lower.contains(s))
     {
-        signal("financial_lure", "Promesse financière suspecte", 1.5);
+        signal("financial_lure", "Suspicious financial promise", 1.5);
     }
     if html.to_lowercase().contains("<form") {
-        signal("html_form", "Formulaire intégré au message", 1.5);
+        signal("html_form", "Form integrated with the message", 1.5);
     }
     let urls = domains_in_text(&format!("{text} {html}"));
     if urls
         .iter()
         .any(|s| s.starts_with("xn--") || s.contains(".xn--"))
     {
-        signal("idn_url", "Lien vers un domaine internationalisé", 0.4);
+        signal("idn_url", "Link to an internationalized domain", 0.4);
     }
     if urls.iter().any(|s| s.parse::<IpAddr>().is_ok()) {
-        signal("ip_url", "Lien utilisant une adresse IP", 1.5);
+        signal("ip_url", "Link using IP address", 1.5);
     }
     if scan
         .sender
@@ -372,16 +372,12 @@ pub fn extract(raw: &[u8], max_bytes: usize) -> Scan {
                 .is_some_and(|(_, d)| !d.eq_ignore_ascii_case(from))
         })
     {
-        signal(
-            "reply_to",
-            "Domaine de réponse différent de l’expéditeur",
-            0.5,
-        );
+        signal("reply_to", "Response field different from sender", 0.5);
     }
     let capitals = scan.subject.chars().filter(|c| c.is_uppercase()).count();
     let letters = scan.subject.chars().filter(|c| c.is_alphabetic()).count();
     if letters > 15 && capitals as f64 / letters as f64 > 0.8 {
-        signal("caps_subject", "Objet majoritairement en majuscules", 0.5);
+        signal("caps_subject", "Subject is mostly uppercase", 0.5);
     }
     // Structural features share the same train/inference extraction path. Never
     // include old filter decisions, transport headers or attachment content.
@@ -525,7 +521,7 @@ impl Engine {
         for (name, path) in &publication.paths {
             ensure!(
                 self.cluster_models.get(path) == Some(&publication.bundle.files[name].sha256),
-                "Le modèle sur disque diffère du moteur actif ; redémarrer après validation avant de le distribuer."
+                "The model on disk differs from the active engine; validate and restart before distributing it."
             );
         }
         Ok(())
@@ -649,7 +645,7 @@ impl Engine {
                 if let Some(template) = template.filter(|_| !reload_models) {
                     ensure!(
                         config.filter.threshold == template.config.filter.threshold,
-                        "Le seuil du modèle multilingue est lié à sa calibration."
+                        "The multilingual model threshold is bound to its calibration."
                     );
                     if let Some(model) = &template.semantic {
                         return Ok(model.clone());
@@ -739,7 +735,7 @@ impl Engine {
                             .filter(|_| !reload_models)
                             .map(|t| &t.cluster_models)
                     )?,
-                "Modèles modifiés pendant leur chargement."
+                "Models changed while loading."
             );
         }
         Ok(Self {
@@ -846,7 +842,7 @@ impl Engine {
             scan.complete = false;
             scan.reasons.push(Signal {
                 id: "llm_unavailable".into(),
-                detail: "Analyse LLM indisponible ou saturée ; transmission sans préfixe".into(),
+                detail: "LLM analysis unavailable or at capacity; deliver without prefix".into(),
                 weight: 0.0,
             });
         }
@@ -860,7 +856,7 @@ impl Engine {
             scan.complete = false;
             scan.reasons.push(Signal {
                 id: "semantic_unavailable".into(),
-                detail: "Analyse multilingue incomplète ; résultat lexical conservé sans préfixe"
+                detail: "Multilingual analysis incomplete; retain lexical result without prefix"
                     .into(),
                 weight: 0.0,
             });
@@ -914,7 +910,7 @@ impl Engine {
         if self.model.is_some() {
             scan.reasons.push(Signal {
                 id: "model_contribution".into(),
-                detail: "Contribution du modèle local : texte et structure".into(),
+                detail: "Local model contribution: text and structure".into(),
                 weight: content,
             });
         }
@@ -1020,13 +1016,13 @@ impl Engine {
         if ip_positive {
             scan.reasons.push(Signal {
                 id: "ip_reputation".into(),
-                detail: "IP signalée par la source de réputation".into(),
+                detail: "IP listed by the reputation provider".into(),
                 weight: 4.0,
             });
         } else if ip_policy {
             scan.reasons.push(Signal {
                 id: "ip_reputation_policy".into(),
-                detail: "IP présente dans une liste PBL ou BCL ; observation conservée sans poids de réputation malveillante".into(),
+                detail: "IP listed in PBL or BCL; observation retained without malicious-reputation weight".into(),
                 weight: 0.0,
             });
         }
@@ -1049,7 +1045,7 @@ impl Engine {
             if positive {
                 scan.reasons.push(Signal {
                     id: "domain_reputation".into(),
-                    detail: "Domaine signalé par la source de réputation".into(),
+                    detail: "Domain listed by the reputation provider".into(),
                     weight: 4.0,
                 });
                 scan.evidence
@@ -1064,7 +1060,7 @@ impl Engine {
                 if !scan.reasons.iter().any(|r| r.id == "abused_domain_body") {
                     scan.reasons.push(Signal {
                         id: "abused_domain_body".into(),
-                        detail: "Domaine légitime signalé comme compromis dans un lien ; observation à calibrer".into(),
+                        detail: "Legitimate domain reported compromised in a link; observation requires calibration".into(),
                         weight: 0.0,
                     });
                 }
@@ -1238,17 +1234,15 @@ impl Engine {
             use crate::antivirus::AntivirusStatus;
             let (detail, weight) = match scan.antivirus.status {
                 AntivirusStatus::Disabled | AntivirusStatus::Clean => (None, 0.0),
-                AntivirusStatus::Malware => {
-                    (Some("Détection antivirus de fichier malveillant"), 0.0)
-                }
+                AntivirusStatus::Malware => (Some("Antivirus detected a malicious file"), 0.0),
                 AntivirusStatus::Suspicious => (Some("Signature antivirus consultative"), 1.0),
                 AntivirusStatus::Unscannable => {
                     scan.complete = false;
-                    (Some("Analyse antivirus limitée ou contenu chiffré"), 0.0)
+                    (Some("Antivirus analysis limited or content encrypted"), 0.0)
                 }
                 AntivirusStatus::Unavailable => {
                     scan.complete = false;
-                    (Some("Service antivirus indisponible ou délai dépassé"), 0.0)
+                    (Some("Antivirus service unavailable or timed out"), 0.0)
                 }
             };
             if let Some(detail) = detail {
@@ -1272,7 +1266,7 @@ impl Engine {
                 AntivirusStatus::Suspicious => scan.reasons.push(Signal {
                     id: "complementary_signature".into(),
                     detail: format!(
-                        "Signature complémentaire consultative : {}",
+                        "Advisory complementary signature: {}",
                         scan.signatures.signature.as_deref().unwrap_or("inconnue")
                     ),
                     weight: 1.0,
@@ -1281,8 +1275,7 @@ impl Engine {
                     scan.complete = false;
                     scan.reasons.push(Signal {
                         id: "complementary_signature_unavailable".into(),
-                        detail: "Analyse des signatures complémentaires indisponible ou limitée"
-                            .into(),
+                        detail: "Complementary signature analysis unavailable or limited".into(),
                         weight: 0.0,
                     });
                 }
@@ -1303,7 +1296,7 @@ impl Engine {
             scan.complete = false;
             scan.reasons.push(Signal {
                 id: "signature_budget".into(),
-                detail: "Nombre de signatures supérieur au budget de vérification".into(),
+                detail: "Signature count exceeds verification budget".into(),
                 weight: 0.0,
             });
         }
@@ -1422,7 +1415,7 @@ impl Engine {
                     if spf.result() == SpfResult::Fail {
                         scan.reasons.push(Signal {
                             id: "spf_fail".into(),
-                            detail: "SPF ne valide pas cet expéditeur".into(),
+                            detail: "SPF does not validate this sender".into(),
                             weight: 1.0,
                         });
                     }
@@ -1434,7 +1427,7 @@ impl Engine {
                     {
                         scan.reasons.push(Signal {
                             id: "dmarc_fail".into(),
-                            detail: "Alignement DMARC non validé".into(),
+                            detail: "DMARC alignment not validated".into(),
                             weight: 2.0,
                         });
                     }
@@ -1492,8 +1485,7 @@ impl Engine {
                 if selection == Some(crate::llm::Selection::UnconfirmedHigh) {
                     scan.reasons.push(Signal {
                         id: "llm_review_unconfirmed".into(),
-                        detail: "Second avis demandé : score élevé sans confirmation suffisante."
-                            .into(),
+                        detail: "Second opinion requested: high score lacks corroboration.".into(),
                         weight: 0.0,
                     });
                 }
@@ -1602,7 +1594,7 @@ impl Engine {
                 scan.pub_tagged = false;
                 scan.reasons.push(Signal {
                     id: "checks_unavailable".into(),
-                    detail: "Vérifications incomplètes ou délai dépassé".into(),
+                    detail: "Checks incomplete or timed out".into(),
                     weight: 0.0,
                 });
                 self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2, context.3))

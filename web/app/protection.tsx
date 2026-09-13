@@ -96,7 +96,7 @@ export function ProtectionSettings({
       setKeys((k) => ({ ...k, [provider]: '' }));
       setStatus(await api<ProviderState>('/admin/protection'));
       setNotice(
-        'Clé enregistrée sur le serveur. Activez le connecteur puis appliquez les réglages.',
+        "Key saved on the server. Activate the connector and then apply the settings.",
       );
     } catch (e) {
       setError((e as Error).message);
@@ -106,10 +106,9 @@ export function ProtectionSettings({
   }
   return (
     <section className="panel protection-settings">
-      <h2>Protections complémentaires</h2>
+      <h2>Complementary protection</h2>
       <p className="muted">
-        Observation : ces détecteurs expliquent les risques sans modifier le
-        score ni les messages livrés.
+        Observation: These sensors explain the risks without changing the score or messages delivered.
       </p>
       {error && (
         <p className="error" role="alert">
@@ -118,17 +117,17 @@ export function ProtectionSettings({
       )}
       {notice && <output className="notice">{notice}</output>}
       {!status ? (
-        <p>Chargement des connecteurs…</p>
+        <p>Loading connectors...</p>
       ) : !status.available ? (
-        <p>Module à installer sur le serveur.</p>
+        <p>Module to install on the server.</p>
       ) : (
         <>
           <label
             className="toggle-row"
-            aria-label="Activer les protections complémentaires"
+            aria-label="Enable additional protections"
           >
             <span>
-              <strong>Activer les protections complémentaires</strong>
+              <strong>Enable additional protections</strong>
             </span>
             <input
               type="checkbox"
@@ -147,23 +146,23 @@ export function ProtectionSettings({
                   [
                     [
                       'identity',
-                      'Usurpation d’identité',
-                      'Domaines ressemblants, nom protégé et adresse de réponse.',
+                      "Identity impersonation",
+                      "Similar domains, protected name and response address.",
                     ],
                     [
                       'links',
-                      'Liens de phishing',
-                      'Destination trompeuse, base locale, texte et QR codes.',
+                      "Phishing Links",
+                      "Deceptive destination, local base, text and QR codes.",
                     ],
                     [
                       'campaigns',
-                      'Campagnes répétées',
-                      'Corrections d’administrateurs du même domaine, avec recherche de contradictions.',
+                      "Repeated campaigns",
+                      "Verified feedback within the same domain, with checks for contradictory corrections.",
                     ],
                     [
                       'follow_urls',
-                      'Suivre les redirections des liens',
-                      'Requêtes HTTP actives, puis vérification des destinations. Peut comptabiliser une visite ou consommer un lien à usage unique. Aucun formulaire ni JavaScript exécuté.',
+                      "Follow the links redirects",
+                      "Active HTTP requests, then checking destinations. Can count a visit or consume a single-use link. No form or JavaScript executed.",
                     ],
                   ] as const
                 ).map(([key, title, description]) => (
@@ -182,19 +181,17 @@ export function ProtectionSettings({
                   </label>
                 ))}
               </div>
-              <h3>Noms protégés</h3>
+              <h3>Protected names</h3>
               <p className="small muted">
-                Associez chaque nom à son domaine d’envoi habituel. Les domaines
-                de réception sont protégés automatiquement contre les
-                ressemblances.
+                Match each name to its usual sending domain. The receiving domains are automatically protected against similarities.
               </p>
               {policy.protected_names.map((identity, i) => (
                 <div className="form-grid protection-identity" key={i}>
                   <label className="field" htmlFor={`protected-name-${i}`}>
-                    Nom affiché
+                    Name displayed
                     <Input
                       id={`protected-name-${i}`}
-                      aria-label={`Nom protégé ${i + 1}`}
+                      aria-label={`Protected name ${i + 1}`}
                       value={identity.name}
                       onChange={(e) =>
                         update({
@@ -206,10 +203,10 @@ export function ProtectionSettings({
                     />
                   </label>
                   <label className="field" htmlFor={`protected-domain-${i}`}>
-                    Domaine attendu
+                    Expected domain
                     <Input
                       id={`protected-domain-${i}`}
-                      aria-label={`Domaine du nom protégé ${i + 1}`}
+                      aria-label={`Protected Name Domain ${i + 1}`}
                       value={identity.domain}
                       onChange={(e) =>
                         update({
@@ -230,7 +227,7 @@ export function ProtectionSettings({
                       })
                     }
                   >
-                    Retirer ce nom
+                    Remove this name
                   </Button>
                 </div>
               ))}
@@ -245,20 +242,19 @@ export function ProtectionSettings({
                   })
                 }
               >
-                Ajouter un nom protégé
+                Add a Protected Name
               </Button>
               <div className="form-grid">
                 {(
                   [
-                    ['reply_exceptions', 'Exceptions d’adresse de réponse'],
-                    ['link_exceptions', 'Exceptions de liens de suivi'],
+                    ['reply_exceptions', "Response address exceptions"],
+                    ['link_exceptions', "Exceptions for follow-up links"],
                   ] as const
                 ).map(([key, title]) => (
                   <label className="field" key={key}>
                     {title}
                     <small>
-                      Un domaine exact par ligne. L’exception concerne
-                      uniquement cette vérification.
+                      One exact domain per line. The exception is for this verification only.
                     </small>
                     <textarea
                       rows={3}
@@ -271,22 +267,14 @@ export function ProtectionSettings({
                   </label>
                 ))}
               </div>
-              <h3>Services de réputation</h3>
+              <h3>Reputation services</h3>
               <p className="small muted">
-                Consultation de rapports existants : domaines pour CRDF (racine
-                HTTPS construite, sans chemin ni paramètre du mail) ; domaines
-                et empreintes SHA-256 des pièces jointes pour VirusTotal. Aucun
-                corps de message, fichier ou lien complet envoyé. Utilisez des
-                clés dont la licence autorise cet usage.
+                Search existing reports: CRDF domains (built HTTPS root, without path or email parameter); SHA-256 domains and fingerprints of attachments for VirusTotal. No message body, file or full link sent. Use keys licensed for this use.
               </p>
               <p className="small muted">
-                Les quotas sont partagés par tout le serveur. Les modifier ne
-                remet pas les compteurs à zéro. Même en illimité :{' '}
-                {status.capacity?.max_parallel} analyses fournisseur
-                simultanées,
-                {status.capacity?.max_indicators} indicateurs par fournisseur et
-                message, délai de {status.capacity?.timeout_ms} ms par
-                fournisseur.
+                Quotas are shared by the entire server. Changing them does not reset meters to zero. Even unlimited:{' '}
+                {status.capacity?.max_parallel} simultaneous provider analyses,
+                {status.capacity?.max_indicators} indicators by provider and message, time {status.capacity?.timeout_ms} ms per provider.
               </p>
               <Button
                 type="button"
@@ -299,7 +287,7 @@ export function ProtectionSettings({
                   }
                 }}
               >
-                Actualiser les compteurs
+                Updating meters
               </Button>
               <div className="module-grid">
                 {(['crdf', 'virustotal'] as const).map((provider) => (
@@ -313,12 +301,12 @@ export function ProtectionSettings({
                         </strong>
                         <small>
                           {status.keys[provider]
-                            ? 'Clé enregistrée'
-                            : 'Clé à renseigner'}{' '}
+                            ? "Saved key"
+                            : "Key required"}{' '}
                         </small>
                       </span>
                       <input
-                        aria-label={`Activer ${provider}`}
+                        aria-label={`Enable ${provider}`}
                         type="checkbox"
                         role="switch"
                         aria-checked={policy[provider]}
@@ -342,11 +330,11 @@ export function ProtectionSettings({
                       />
                     )}
                     <label className="field">
-                      {status.keys[provider] ? 'Remplacer la clé' : 'Clé API'}
+                      {status.keys[provider] ? "Replace key" : "API key"}
                       <Input
                         type="password"
                         autoComplete="off"
-                        aria-label={`Clé API ${provider}`}
+                        aria-label={`API key ${provider}`}
                         value={keys[provider]}
                         onChange={(e) =>
                           setKeys((k) => ({ ...k, [provider]: e.target.value }))
@@ -357,12 +345,11 @@ export function ProtectionSettings({
                       disabled={busy || keys[provider].length < 16}
                       onClick={() => saveKey(provider)}
                     >
-                      Enregistrer la clé{' '}
+                      Save Key{' '}
                       {provider === 'crdf' ? 'CRDF' : 'VirusTotal'}
                     </Button>
                     <p className="small muted">
-                      Clé conservée côté serveur, jamais affichée ni incluse
-                      dans l’historique des réglages.
+                      Server-side key, never displayed or included in settings history.
                     </p>
                   </section>
                 ))}
@@ -375,16 +362,16 @@ export function ProtectionSettings({
   );
 }
 const statuses: Record<string, string> = {
-  disabled: 'désactivé',
-  complete: 'terminé',
-  not_configured: 'à configurer',
-  not_run: 'non effectué',
-  unknown: 'inconnu',
-  limited: 'limite atteinte',
-  busy: 'capacité occupée',
-  unavailable: 'indisponible',
-  quota: 'quota ou pause fournisseur',
-  stale: 'données trop anciennes',
+  disabled: "Disabled",
+  complete: "Complete",
+  not_configured: "Not configured",
+  not_run: "Not run",
+  unknown: "unknown",
+  limited: 'Limit reached',
+  busy: "At capacity",
+  unavailable: "Unavailable",
+  quota: "Quota or provider cooldown",
+  stale: "Stale data",
 };
 type ProviderReport = {
   request_count?:number;http_status_counts?:Record<string,number>;failure_counts?:Record<string,number>;retry_after_seconds?:number|null;
@@ -423,29 +410,26 @@ export type ProtectionReport = {
 export function ProtectionDetails({ report }: { report: ProtectionReport }) {
   return (
     <section className="panel">
-      <h2>Protections complémentaires</h2>
+      <h2>Complementary protection</h2>
       <p className="notice">
-        Observations uniquement · {report.version} · {report.elapsed_ms} ms. Les
-        détections corrélées sont regroupées et ne changent pas le score actuel.
-        Plusieurs services signalant le même indicateur ne constituent pas des
-        votes indépendants.
+        Observations only · {report.version} · {report.elapsed_ms} ms. Correlated detections are grouped and do not change the current score. Several services reporting the same indicator do not constitute independent votes.
       </p>
       <div className="form-grid">
         <p>
-          Contrôles locaux : {statuses[report.local_status]}
+          Local checks: {statuses[report.local_status]}
           <br />
-          Base de phishing : {statuses[report.feed_status]}
+          Phishing feed: {statuses[report.feed_status]}
         </p>
         <p>
-          Campagnes : {statuses[report.campaign_status]}
+          Campaigns: {statuses[report.campaign_status]}
           {report.campaign_conflict
-            ? ' · retour légitime contradictoire, correspondance non retenue'
+            ? " · conflicting legitimate feedback; match withheld"
             : report.campaign_match
-              ? ' · correspondance confirmée'
+              ? " · confirmed match"
               : ''}
           <br />
-          Expéditeur aligné DMARC :{' '}
-          {report.authenticated_sender ? 'oui' : 'non confirmé'}
+          DMARC aligned sender:{' '}
+          {report.authenticated_sender ? 'Confirmed' : "Not confirmed"}
         </p>
       </div>
       {(
@@ -457,31 +441,27 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
         <div key={name}>
           <p>
             <strong>{name}</strong> :{' '}
-            {statuses[r.status] ?? 'état non enregistré'} · {r.checked}{' '}
-            indicateur(s) consulté(s), {r.malicious} signalé(s), {r.suspicious}{' '}
-            suspect(s), {r.unknown} inconnu(s) · {r.cache_hits} en cache ·{' '}
+            {statuses[r.status] ?? "unrecorded status"} · {r.checked}{' '}
+            indicators checked, {r.malicious} reported, {r.suspicious}{' '}
+            suspicious, {r.unknown} unknown · {r.cache_hits} cached ·{' '}
             {r.elapsed_ms} ms
           </p>
           {r.failure && <p className="notice">{checkFailure(r.failure)}.</p>}
-          {r.request_count!=null && <p className="muted small">{r.request_count} requêtes réseau · {Object.entries(r.http_status_counts ?? {}).map(([code,n])=>`HTTP ${code} : ${n}`).join(' · ') || 'aucune réponse HTTP enregistrée'}{r.retry_after_seconds ? ` · pause demandée : ${r.retry_after_seconds} s` : ''}</p>}
-          {Object.entries(r.failure_counts ?? {}).map(([reason,n])=><p className="muted small" key={reason}>{checkFailure(reason)} : {n} incident(s), y compris ceux récupérés.</p>)}
+          {r.request_count!=null && <p className="muted small">{r.request_count} network requests · {Object.entries(r.http_status_counts ?? {}).map(([code,n])=>`HTTP ${code} : ${n}`).join(' · ') || "no recorded HTTP response"}{r.retry_after_seconds ? ` · pause requested: ${r.retry_after_seconds} s` : ''}</p>}
+          {Object.entries(r.failure_counts ?? {}).map(([reason,n])=><p className="muted small" key={reason}>{checkFailure(reason)} : {n} incident(s), including those recovered.</p>)}
           {r.cache_hits > 0 && (
             <p className="muted small">
-              {r.cache_hits} résultat(s) réutilisé(s) du cache, sans nouvelle
-              consultation du fournisseur.
+              {r.cache_hits} re-used cache result(s) without further consultation with the provider.
             </p>
           )}
           {!!r.omitted && (
             <p className="muted small">
-              {r.omitted} indicateur(s) sans résultat exploitable : limite de
-              temps, de quota ou de travail par message.
+              {r.omitted} indicators without usable results because of a deadline, quota or per-message limit.
             </p>
           )}
           {r.status === 'quota' && (
             <p className="muted small">
-              Quota atteint ou pause imposée par le fournisseur : certaines
-              consultations n’ont pas abouti. Cela ne signifie pas que le
-              message est sûr.
+              Quota reached or pause imposed by the provider: some consultations have not been completed. This does not mean that the message is safe.
             </p>
           )}
           {[
@@ -494,8 +474,7 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
             'unknown',
           ].includes(r.status) && (
             <p className="muted small">
-              Couverture incomplète ou résultat inexploitable pour ce contrôle ;
-              aucune absence de menace ne peut en être déduite.
+              This check has incomplete coverage or no usable result. That alone is not evidence of a threat.
             </p>
           )}
         </div>
@@ -517,15 +496,15 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
                       (s) =>
                         (
                           ({
-                            headers: 'En-têtes',
+                            headers: "Headers",
                             html: 'HTML',
-                            text: 'Texte',
+                            text: "Text",
                             ocr_qr: 'OCR / QR',
                             crdf: 'CRDF',
                             virustotal: 'VirusTotal',
-                            local_feedback: 'Corrections locales',
+                            local_feedback: "Local corrections",
                             redirect: 'Redirection HTTP / HTML',
-                            form: 'Formulaire (analyse passive)',
+                            form: "Form (passive analysis)",
                           }) as Record<string, string>
                         )[s] || s,
                     )
@@ -535,11 +514,11 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
               <code>
                 {(
                   {
-                    identity: 'Identité',
-                    link_structure: 'Liens',
-                    link_reputation: 'Réputation',
-                    attachment: 'Pièce jointe',
-                    campaign: 'Campagne',
+                    identity: "Identity",
+                    link_structure: "Links",
+                    link_reputation: "Reputation",
+                    attachment: "Attachment",
+                    campaign: "Campaign",
                   } as Record<string, string>
                 )[f.family] || f.family}
               </code>
@@ -548,7 +527,7 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
         </ul>
       ) : (
         <p className="muted">
-          Aucun indice supplémentaire relevé par les contrôles effectués.
+          No additional evidence from the checks carried out.
         </p>
       )}
     </section>

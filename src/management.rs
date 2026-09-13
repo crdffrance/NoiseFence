@@ -68,10 +68,10 @@ fn patch<T: Serialize + DeserializeOwned>(
 ) -> Result<()> {
     let object = value
         .as_object()
-        .ok_or_else(|| anyhow::anyhow!("Paramètres de moteur invalides."))?;
+        .ok_or_else(|| anyhow::anyhow!("Invalid engine parameters."))?;
     ensure!(
         object.keys().all(|k| keys.contains(&k.as_str())),
-        "Paramètre non modifiable depuis cette interface."
+        "Unmodifiable parameter from this interface."
     );
     let mut full = serde_json::to_value(&*base)?;
     for (key, value) in object {
@@ -109,7 +109,7 @@ impl Detection {
         for (name, value) in &self.modules {
             ensure!(
                 Self::from_config(c).modules.contains_key(name),
-                "Moteur non installé : {name}"
+                "Engine not installed: {name}"
             );
             match name.as_str() {
                 "analysis" => {
@@ -117,14 +117,14 @@ impl Detection {
                         value
                             .as_object()
                             .is_some_and(|o| o.len() == 1 && o.contains_key("max_bytes")),
-                        "Limite d’analyse invalide."
+                        "Invalid analysis limit."
                     );
                     let n = value["max_bytes"]
                         .as_u64()
-                        .ok_or_else(|| anyhow::anyhow!("Limite d’analyse invalide."))?;
+                        .ok_or_else(|| anyhow::anyhow!("Invalid analysis limit."))?;
                     ensure!(
                         (1024..=8 * 1024 * 1024).contains(&n),
-                        "Analyse : 1 Kio à 8 Mio."
+                        "Analysis: 1 KiB to 8 MiB."
                     );
                     c.filter.max_analysis_bytes = n as usize;
                 }
@@ -159,7 +159,10 @@ impl Detection {
                             .as_object_mut()
                             .and_then(|v| v.remove("enabled"))
                             .unwrap_or(json!(true));
-                        ensure!(enabled.is_boolean(), "Activation du moteur natif invalide.");
+                        ensure!(
+                            enabled.is_boolean(),
+                            "Activation of the invalid native engine."
+                        );
                         patch(s, &values, NATIVE)?;
                         s.validate()?;
                         if enabled == json!(false) {
@@ -167,7 +170,7 @@ impl Detection {
                         }
                     }
                 }
-                _ => anyhow::bail!("Moteur inconnu : {name}"),
+                _ => anyhow::bail!("Unknown engine: {name}"),
             }
         }
         Ok(())
@@ -185,7 +188,7 @@ pub fn validate_rbl(settings: &crate::rbl::Settings, base: &Config) -> Result<()
                     .any(|l| l.key_env == list.key_env
                         && l.zone == list.zone
                         && l.provider == list.provider)),
-                "Une clé RBL ne peut être utilisée que pour son fournisseur configuré."
+                "An RBL key can only be used for its configured supplier."
             );
         }
     }
@@ -196,7 +199,7 @@ pub const WEB_DQS: &str = "NOISEFENCE_WEB_DQS";
 fn key_path(root: &std::path::Path, provider: &str) -> Result<std::path::PathBuf> {
     ensure!(
         matches!(provider, "spamhaus" | "scaleway"),
-        "Fournisseur inconnu."
+        "Unknown provider."
     );
     Ok(root.join("credentials").join(format!("{provider}.key")))
 }
@@ -223,7 +226,7 @@ pub fn save_key(root: &std::path::Path, provider: &str, key: &str) -> Result<()>
             } else {
                 b.is_ascii_graphic()
             }),
-        "Format de clé fournisseur invalide."
+        "Invalid supplier key format."
     );
     let folder = destination.parent().unwrap();
     std::fs::create_dir_all(folder)?;
@@ -252,13 +255,11 @@ pub fn dqs_key(config: &Config) -> Result<Option<String>> {
     };
     let key = match read_key(&config.data_dir, "spamhaus")? {
         Some(key) => key,
-        None => {
-            std::env::var(env).map_err(|_| anyhow::anyhow!("Clé Spamhaus DQS indisponible."))?
-        }
+        None => std::env::var(env).map_err(|_| anyhow::anyhow!("Spamhaus DQS key unavailable."))?,
     };
     ensure!(
         !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric()),
-        "Clé DQS invalide."
+        "Invalid DQS key."
     );
     Ok(Some(key))
 }

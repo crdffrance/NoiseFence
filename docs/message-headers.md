@@ -1,73 +1,65 @@
-# En-têtes des messages transmis
+# Message diagnostic headers
 
-Depuis **0.11.1**, les nouveaux messages analysés utilisent
-`X-NoiseFence-Header-Version: 2`. Les messages déjà transmis et ceux déjà préparés
-dans la file gardent leurs en-têtes d’origine : aucune réanalyse ni réexpédition.
+Newly prepared messages use **`X-NoiseFence-Header-Version: 3`**. The API and headers use the same derived assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
 
-## Score, décision et classement
+## Risk, classification and delivery
 
-`X-NoiseFence-Score` affiche le même indice que la console : score de décision
-exploitable en priorité, sinon score brut conservé. Le résultat antivirus ne
-devient pas un score artificiel. La plage est 0–100 ; une valeur réellement absente,
-non finie ou hors plage reste `unavailable`, jamais zéro.
-
-| En-tête | Signification |
+| Header | Meaning |
 | --- | --- |
-| `X-NoiseFence-Score` | Valeur affichable, avec une décimale |
+| `X-NoiseFence-Id` | Queue identifier; not an authorization token |
+| `X-NoiseFence-Header-Version` | Wire contract version, currently `3` |
+| `X-NoiseFence-Assessment-Version` | Shared API/header assessment contract, currently `1` |
+| `X-NoiseFence-Version` | NoiseFence software version |
+| `X-NoiseFence-Mode` | Processing mode: `observe`, `tag` or `enforce` |
+| `X-NoiseFence-Score` | Selected finite risk value, one decimal place, or `unavailable` |
 | `X-NoiseFence-Score-Scale` | `0-100` |
-| `X-NoiseFence-Score-Type` | `content`, `decision`, `advisory`, `partial`, `internal` ou `unavailable` |
-| `X-NoiseFence-Score-Source` | `decision`, `raw` ou `unavailable` |
-| `X-NoiseFence-Model` | Version du modèle correspondant au score sélectionné |
-| `X-NoiseFence-Raw-Score` | Indice brut du moteur historique |
-| `X-NoiseFence-Decision-Score` | Score de la décision, ou `unavailable` si elle s’abstient |
-| `X-NoiseFence-Decision` | `legitimate`, `unwanted` ou `undetermined` |
-| `X-NoiseFence-Decision-Source` | `legacy`, `fusion` ou `antivirus` |
-| `X-NoiseFence-Category` | Catégorie appliquée au message ; les règles du destinataire peuvent intervenir |
-| `X-NoiseFence-Status` | `incomplete`, `spam`, `pub` ou `observed` ; `spam`/`pub` décrivent le préfixe effectivement ajouté |
-| `X-NoiseFence-Mode` | Mode global `observe`, `tag` ou `enforce` |
-| `X-NoiseFence-Id` / `X-NoiseFence-Version` | Identifiant de suivi / version de NoiseFence |
+| `X-NoiseFence-Score-Type` | `content`, `decision`, `advisory`, `partial`, `internal` or `unavailable` |
+| `X-NoiseFence-Score-Source` | `decision`, `raw` or `unavailable` |
+| `X-NoiseFence-Model` | Identifier of the model associated with the selected score |
+| `X-NoiseFence-Raw-Score` | Recorded content score |
+| `X-NoiseFence-Decision-Score` | Usable non-antivirus decision score, or `unavailable` |
+| `X-NoiseFence-Status` | Required analysis coverage: `complete` or `incomplete` |
+| `X-NoiseFence-Decision` | Engine outcome: `legitimate`, `unwanted` or `undetermined` |
+| `X-NoiseFence-Decision-Recorded` | `yes` for a stored decision; `no` for a historical fallback |
+| `X-NoiseFence-Decision-Source` | `legacy`, `fusion` or `antivirus` |
+| `X-NoiseFence-Category` | Recorded delivery classification: `spam`, `publicity`, `legitimate` or `undetermined` |
+| `X-NoiseFence-Classification-Source` | `recipient_policy`, `recorded_decision` or `historical_fallback` |
+| `X-NoiseFence-Content-Threshold` | Content threshold captured at analysis time; `unavailable` when absent |
+| `X-NoiseFence-Policy-Version` | Recorded decision policy version, or `not_recorded` |
+| `X-NoiseFence-Delivery-Policy` | Original requested/effective action and a bounded reason code, or `not_recorded` |
+| `X-NoiseFence-Subject-Tag` | Prefix actually added: `none`, `spam` (`[SPAM]`) or `publicity` (`[PUB]`) |
 
-`partial` conserve une analyse incomplète. `advisory` accompagne l’incertitude ou
-la priorité antivirus. Ces indices ne sont pas des probabilités calibrées de spam.
-Un score fusion `decision` concerne uniquement la population de validation de ce
-modèle. `internal` désigne une valeur interne de notification, pas un email entrant.
+Version 2 mixed coverage and actual tagging in `Status` (`incomplete`, `spam`, `pub`, `observed`). **Consumers must branch on Header-Version.** In version 3, read `Category` for classification, `Status` for coverage and `Subject-Tag` for modification. Observation can therefore record `Category: spam` with `Status: complete`, delivery effective `deliver`, and `Subject-Tag: none`.
 
-**Migration des consommateurs d’en-têtes :** avant 0.11.1, `Score: unavailable`
-pouvait traduire une abstention malgré un indice brut disponible. Avec le schéma 2,
-consulter `Decision`, `Decision-Score`, `Score-Type` et `Status` pour cette distinction.
-Ne pas classer ou bloquer un message à partir du seul `Score`. Le champ numérique
-peut être élevé lorsque `Decision` reste `undetermined`.
+The risk index is not generally a spam probability. A missing decision score does not erase a valid content index. Malware does not become a fabricated 100. The captured content threshold is not a fusion model's decision threshold. The delivery-policy header describes preparation time, not a later manual quarantine release or the destination's inbox placement.
 
-## Détail des contrôles
+## Check details
 
-| En-tête | Contenu |
+| Header | Recorded information |
 | --- | --- |
-| `X-NoiseFence-Analysis` | Complétude globale et durée en millisecondes avant génération des en-têtes/ARC |
-| `X-NoiseFence-Checks` | Disponibilité de l’extraction, SPF/DKIM/DMARC/ARC, DNSBL, sémantique, antivirus, signatures, SMTP, LLM, vision et fusion |
-| `X-NoiseFence-Authentication` | Résultats SPF, DKIM, alignements DMARC SPF/DKIM et ARC enregistrés ; complète `Authentication-Results` standard |
-| `X-NoiseFence-Incomplete-Reasons` | Codes des causes connues, `none` si complète, `unspecified` si la cause n’a pas été identifiée |
-| `X-NoiseFence-Arbitration` | Accord, désaccord ou ambiguïté entre décision initiale et avis consultatif |
-| `X-NoiseFence-Rules` | Identifiants des signaux et poids en **logits**, avec compteurs `total`, `shown`, `omitted` |
-| `X-NoiseFence-LLM` | État, catégorie consultative, code d’erreur et durée ; aucune explication libre du fournisseur |
-| `X-NoiseFence-Antivirus` | Résultats et durées de l’antivirus principal et des signatures consultatives |
-| `X-NoiseFence-Vision` | État OCR, pièces/pages examinées, nombres de QR/autres codes, erreurs et durée |
-| `X-NoiseFence-Vision-Errors` | Codes OCR/QR connus (limite de pixels/pages/texte, délai, décodeur, etc.), limités à 16 entrées |
-| `X-NoiseFence-Reputation` | CRDF/VirusTotal : état, cibles contrôlées, résultats malveillants/suspects/inconnus, cache, omissions et erreur |
-| `X-NoiseFence-RBL` | Résumé des vérifications IP avant DATA et action effective, sans noms de fournisseurs privés ni domaines de requêtes |
-| `X-NoiseFence-Native` | État/mode du moteur natif, indication de calibration et effet sur la livraison |
-| `X-NoiseFence-Native-Rules` | Symboles natifs non absorbés et poids **avant plafonds de famille**, distincts du moteur historique |
+| `X-NoiseFence-Analysis` | Completion flag and elapsed milliseconds |
+| `X-NoiseFence-Checks` | States of lexical extraction, authentication, SPF/DKIM/DMARC/ARC, DNS reputation, semantic analysis, antivirus, signatures, SMTP, LLM, vision and fusion |
+| `X-NoiseFence-Authentication` | Recorded SPF, DKIM, DMARC alignment and ARC outcomes; complements standard `Authentication-Results` |
+| `X-NoiseFence-Incomplete-Reasons` | Known missing-check codes, `none` when complete, or `unspecified` |
+| `X-NoiseFence-Arbitration` | Baseline, second opinion and agreement/disagreement resolution |
+| `X-NoiseFence-Rules` | Rule identifiers and log-odds contributions, with total/shown/omitted counts |
+| `X-NoiseFence-LLM` | Status, advisory category, bounded failure code and duration |
+| `X-NoiseFence-Antivirus` | Primary antivirus and complementary signature outcomes and duration |
+| `X-NoiseFence-Vision` | OCR status, inspected parts/pages, QR/other code counts, errors and duration |
+| `X-NoiseFence-Vision-Errors` | Known bounded failure codes; at most 16 |
+| `X-NoiseFence-Reputation` | CRDF/VirusTotal states, checked/malicious/suspicious/unknown counts, cache, omissions and failure |
+| `X-NoiseFence-RBL` | IP checks before DATA, independent listings and actual admission action |
+| `X-NoiseFence-Native` | Native analysis state/mode, calibration and delivery-effect indicators |
+| `X-NoiseFence-Native-Rules` | Unabsorbed native symbols and points before family caps; distinct from content log-odds |
 
-Les états `disabled`, `not_run`, `skipped`, `limited`, `busy` ou `unavailable`
-ne signifient pas « sain ». Dans `Checks`, `complete` signifie que le contrôle
-a abouti, pas que le résultat est favorable. `not_recorded`/`unknown` signalent
-l’absence d’observation ; les erreurs de réputation ne deviennent pas des preuves
-de spam. Les contrôles consultatifs peuvent échouer sans rendre toute l’analyse
-incomplète. `LLM: not_needed` décrit un message non sélectionné pour ce contrôle.
+`complete` means a check finished, not that its result was clean. `disabled`, `not_run`, `skipped`, `limited`, `busy`, `unavailable`, `unknown` and `not_recorded` do not mean safe. An advisory check can fail without making the entire required analysis incomplete. LLM `not_needed` means the message was not selected for that check.
 
-Exemple **synthétique** d’une analyse limitée par l’OCR (champs abrégés) :
+A shortened synthetic example:
 
 ```text
-X-NoiseFence-Header-Version: 2
+X-NoiseFence-Header-Version: 3
+X-NoiseFence-Assessment-Version: 1
+X-NoiseFence-Mode: observe
 X-NoiseFence-Score: 87.4
 X-NoiseFence-Score-Type: partial
 X-NoiseFence-Score-Source: raw
@@ -76,30 +68,18 @@ X-NoiseFence-Raw-Score: 87.4
 X-NoiseFence-Decision-Score: unavailable
 X-NoiseFence-Status: incomplete
 X-NoiseFence-Decision: undetermined
+X-NoiseFence-Category: undetermined
+X-NoiseFence-Classification-Source: recorded_decision
+X-NoiseFence-Delivery-Policy: requested=deliver; effective=deliver;
+ reason=observation;
+X-NoiseFence-Subject-Tag: none
 X-NoiseFence-Incomplete-Reasons: vision_incomplete
-X-NoiseFence-Vision: status=limited; parts=2; pages=1; qr-codes=1;
- other-codes=0; errors=1; elapsed-ms=450;
 ```
 
-## Bornes et authenticité
+## Size, privacy and authenticity
 
-Les champs sont ASCII, repliés entre atomes en visant 78 caractères par ligne ;
-aucun atome ne dépasse 256 caractères. Chaque liste de règles est limitée à
-24 entrées, et chaque identifiant à 64 caractères, avec omissions explicites.
-Les poids ne s’additionnent pas en points sur 100. Les détails complets restent
-dans la console, avec ses contrôles d’accès.
+Generated fields use bounded ASCII tokens. Folding targets 78 columns between atoms; an atom is at most 256 characters. Each rule list includes at most 24 entries, with identifiers at most 64 characters and explicit omission counts. Log-odds and native points do not sum to 100. Detailed explanations remain in the authorized console.
 
-Les détails n’exposent ni corps, ni objet, ni URL, ni destinataire/Bcc, ni profil
-de destinataire, ni secret de fournisseur. Les textes libres des règles,
-des modèles et des réponses externes sont exclus. Les résultats reçus sous
-`X-NoiseFence-*` sont supprimés avant ajout des résultats locaux.
+These diagnostics exclude bodies, subjects, full URLs, recipient/Bcc addresses, recipient profile names and provider secrets. Untrusted free text is not copied into headers. Incoming `X-NoiseFence-*` fields are stripped before local results are added.
 
-Tous les champs ajoutés sont inclus dans l’inventaire ARC signé lorsque la chaîne
-peut être scellée. Si l’analyse emprunte le repli sans ARC, les détails sont tout
-de même ajoutés sans prétendre être signés. Une signature ne garantit pas la
-confiance du destinataire : vérifier la chaîne et l’intermédiaire. Voir
-[RFC 5322, format et repliement](https://www.rfc-editor.org/rfc/rfc5322.html#section-2.2.3)
-et [RFC 8617, ARC](https://www.rfc-editor.org/rfc/rfc8617.html).
-
-Cette évolution n’active aucun filtrage, aucune modification d’objet, aucun
-fournisseur et ne change pas les actions de livraison.
+All generated diagnostic fields are included in the ARC signing inventory when sealing succeeds. The unsealed fallback still adds diagnostics without claiming they are authenticated. A signature does not establish that the upstream trusts this intermediary. See [RFC 5322](https://www.rfc-editor.org/rfc/rfc5322.html#section-2.2.3), [RFC 8617](https://www.rfc-editor.org/rfc/rfc8617.html) and the [Proton validation guide](proton-validation.md).

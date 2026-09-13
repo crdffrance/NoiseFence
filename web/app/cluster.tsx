@@ -64,8 +64,8 @@ type Draft = {
 };
 const date = (value: number | null) =>
   value
-    ? new Date(value * 1000).toLocaleString('fr-FR')
-    : 'En attente du premier contact';
+    ? new Date(value * 1000).toLocaleString("en-GB")
+    : "Waiting for the first contact";
 export function ClusterConsole({
   user,
   onDirty,
@@ -132,7 +132,7 @@ export function ClusterConsole({
       setDraft(null);
       await refresh();
       setNotice(
-        'Nœud enregistré. La connexion et la synchronisation seront vérifiées à son prochain contact.',
+        "Node saved. Connection and synchronization will be checked at its next contact.",
       );
     } catch (e) {
       setError((e as Error).message);
@@ -148,7 +148,7 @@ export function ClusterConsole({
             {error}
           </p>
         ) : (
-          'Chargement des serveurs…'
+          "Loading servers..."
         )}
       </div>
     );
@@ -156,11 +156,10 @@ export function ClusterConsole({
     <div className="cluster-console">
       <div className="cluster-intro">
         <div>
-          <p className="eyebrow">CONTINUITÉ DE LA MESSAGERIE</p>
-          <h1>Serveurs MX</h1>
+          <p className="eyebrow">MAIL CONTINUITY</p>
+          <h1>MX servers</h1>
           <p className="muted">
-            Une politique commune. Chaque serveur analyse et livre ses messages
-            de manière autonome.
+            A common policy. Each server analyses and delivers its messages independently.
           </p>
         </div>
         <Button
@@ -170,7 +169,7 @@ export function ClusterConsole({
             void refresh().catch((e: Error) => setError(e.message));
           }}
         >
-          <RefreshCw size={16} /> Actualiser
+          <RefreshCw size={16} /> Refresh
         </Button>
       </div>
       {error && (
@@ -184,13 +183,13 @@ export function ClusterConsole({
         <div>
           <strong>
             {overview.role === 'coordinator'
-              ? `Console centrale · ${overview.node_id}`
-              : 'Instance indépendante'}
+              ? `Central console · ${overview.node_id}`
+              : "Local processing"}
           </strong>
           <p>
             {overview.role === 'coordinator'
-              ? `Révision ${overview.revision} · Distribution authentifiée des réglages et des modèles`
-              : 'Le rôle de coordinateur doit être activé lors du déploiement pour rattacher un autre serveur.'}
+              ? `Revision ${overview.revision} · Authenticated distribution of settings and models`
+              : "The coordinating role must be activated during deployment to attach another server."}
           </p>
         </div>
         <span className="revision-badge">
@@ -203,33 +202,33 @@ export function ClusterConsole({
                   Math.max(90, 3 * (n.status.poll_seconds || 10)),
             ).length
           }{' '}
-          connecté(s)
+          connected
         </span>
       </div>
-      {overview.recovery_console && <section className="card cluster-behavior"><h2>Console de reprise active</h2><p>Cette instance gère la console et ne reçoit ni ne relaie de courrier. L’ancien coordinateur doit rester arrêté jusqu’à la procédure de retour. La réception stricte nécessite toujours deux machines disponibles.</p></section>}
+      {overview.recovery_console && <section className="card cluster-behavior"><h2>Active recovery console</h2><p>This instance manages the console and does not receive or relay any mail. The former coordinator must remain stopped until the return procedure. Strict reception always requires two machines available.</p></section>}
       {overview.replication?.required && (
         <section className="card cluster-behavior">
-          <h2>Deux copies durables obligatoires</h2>
-          <p>Un message n’est accepté qu’après confirmation de sa copie sur l’autre MX. Une panne de réplication provoque un report SMTP temporaire avant l’analyse lorsque la panne est déjà connue.</p>
+          <h2>Two mandatory durable copies</h2>
+          <p>A message is accepted only after confirmation of its copy on the other MX. A replication failure causes a temporary SMTP delay before the analysis when the failure is already known.</p>
           <dl className="cluster-facts">
-            <div><dt>Confirmations en attente</dt><dd>{overview.replication.unprotected}</dd></div>
-            <div><dt>États à synchroniser</dt><dd>{overview.replication.pending_updates}</dd></div>
-            <div><dt>Copies hébergées ici</dt><dd>{overview.replication.remote_messages}</dd></div>
+            <div><dt>Pending confirmations</dt><dd>{overview.replication.unprotected}</dd></div>
+            <div><dt>States to be synchronized</dt><dd>{overview.replication.pending_updates}</dd></div>
+            <div><dt>Copies hosted here</dt><dd>{overview.replication.remote_messages}</dd></div>
           </dl>
-          <p className="small muted">Dernier échange confirmé : {date(overview.replication.last_success)}</p>
+          <p className="small muted">Last confirmed exchange: {date(overview.replication.last_success)}</p>
           {overview.replication.last_error && <p className="error">{overview.replication.last_error}</p>}
         </section>
       )}
       {overview.standby && (
         <section className="card cluster-behavior">
-          <h2>Console de secours</h2>
-          <p>Dernier instantané : {date(overview.standby.created ?? null)}. La promotion nécessite l’arrêt confirmé de l’ancien coordinateur ; elle ne démarre aucun relais SMTP.</p>
-          {overview.standby.console_url && <p>Adresse de reprise : {overview.standby.console_url}</p>}
+          <h2>Emergency console</h2>
+          <p>Last checkpoint: {date(overview.standby.created ?? null)}The promotion requires the confirmed stop of the former coordinator; it does not start any SMTP relays.</p>
+          {overview.standby.console_url && <p>Recovery address: {overview.standby.console_url}</p>}
           {overview.standby.last_error && <p className="error">{overview.standby.last_error}</p>}
         </section>
       )}
       <div className="cluster-toolbar">
-        <h2>Passerelles rattachées</h2>
+        <h2>Connected gateways</h2>
         <Button
           disabled={
             overview.role !== 'coordinator' ||
@@ -248,17 +247,15 @@ export function ClusterConsole({
             });
           }}
         >
-          <Plus size={16} /> Ajouter un serveur MX
+          <Plus size={16} /> Add MX Server
         </Button>
       </div>
       {!overview.nodes.length && (
         <div className="card cluster-empty">
           <Server size={32} />
-          <h3>Préparer une seconde entrée pour vos emails</h3>
+          <h3>Prepare a second entry for your emails</h3>
           <p>
-            Créez son identité, installez NoiseFence sur un serveur indépendant,
-            puis vérifiez la synchronisation avant de publier son enregistrement
-            MX.
+            Create its identity, install NoiseFence on an independent server, and then check the synchronization before releasing its MX record.
           </p>
         </div>
       )}
@@ -273,14 +270,14 @@ export function ClusterConsole({
             node.applied_digest === overview.digest &&
             !node.status.last_error;
           const state = !node.enabled
-            ? 'Révoqué'
+            ? "Revoked"
             : !node.last_seen
-              ? 'À connecter'
+              ? 'Not connected'
               : !fresh
-                ? 'Contact interrompu'
+                ? "Contact lost"
                 : synchronized
-                  ? 'Synchronisé'
-                  : 'Synchronisation en cours';
+                  ? "Synchronized"
+                  : "Synchronization in progress";
           return (
             <article className="card cluster-node" key={node.id}>
               <div className="cluster-node-heading">
@@ -299,25 +296,25 @@ export function ClusterConsole({
               </div>
               <dl className="cluster-facts">
                 <div>
-                  <dt>En file</dt>
+                  <dt>In queue</dt>
                   <dd>{node.status.queued ?? '—'}</dd>
                 </div>
                 <div>
-                  <dt>Quarantaine</dt>
+                  <dt>Quarantined</dt>
                   <dd>{node.status.quarantined ?? '—'}</dd>
                 </div>
                 <div>
-                  <dt>Révision</dt>
+                  <dt>Revision</dt>
                   <dd>{node.applied_revision ?? '—'}</dd>
                 </div>
               </dl>
               <p className="small muted">
-                Dernier contact : {date(node.last_seen)}
+                Last contact: {date(node.last_seen)}
               </p>
-              {node.status.replication?.required && <p className="small">Réplication obligatoire · {node.status.replication.unprotected} confirmation(s) en attente · {node.status.replication.pending_updates} état(s) à synchroniser</p>}
+              {node.status.replication?.required && <p className="small">Mandatory replication · {node.status.replication.unprotected} confirmation(s) pending · {node.status.replication.pending_updates} status(s) to be synchronized</p>}
               {node.status.pending_metadata ? (
                 <p className="small">
-                  {node.status.pending_metadata} analyse(s) à synchroniser
+                  {node.status.pending_metadata} Analysis(s) to be synchronized
                 </p>
               ) : null}
               {node.status.last_error && (
@@ -336,7 +333,7 @@ export function ClusterConsole({
                   })
                 }
               >
-                Configurer <ArrowRight size={14} />
+                Configure <ArrowRight size={14} />
               </Button>
             </article>
           );
@@ -353,13 +350,13 @@ export function ClusterConsole({
           <div className="cluster-toolbar">
             <h2>
               {draft.version < 0
-                ? 'Ajouter un serveur'
-                : `Configurer ${draft.id}`}
+                ? "Add Server"
+                : `Configure ${draft.id}`}
             </h2>
             <Button
               type="button"
               variant="ghost"
-              aria-label="Fermer la configuration du nœud"
+              aria-label="Close node configuration"
               disabled={busy}
               onClick={() => setDraft(null)}
             >
@@ -368,7 +365,7 @@ export function ClusterConsole({
           </div>
           <div className="cluster-form-grid">
             <label htmlFor="cluster-node-id">
-              Identifiant
+              Username
               <Input
                 id="cluster-node-id"
                 required
@@ -381,13 +378,13 @@ export function ClusterConsole({
               />
             </label>
             <label htmlFor="cluster-node-name">
-              Nom affiché
+              Name displayed
               <Input
                 id="cluster-node-name"
                 required
                 value={draft.name}
                 maxLength={100}
-                placeholder="MX2 · Site secondaire"
+                placeholder="MX2 · Secondary site"
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
             </label>
@@ -400,7 +397,7 @@ export function ClusterConsole({
                 setDraft({ ...draft, enabled: e.target.checked })
               }
             />{' '}
-            Autoriser les échanges avec ce serveur
+            Allow exchanges with this server
           </label>
           {draft.version >= 0 && (
             <label className="cluster-check">
@@ -411,37 +408,32 @@ export function ClusterConsole({
                   setDraft({ ...draft, rotate: e.target.checked })
                 }
               />{' '}
-              Renouveler son identité de connexion
+              Renewing your login identity
             </label>
           )}
           {draft.rotate && (
             <p className="notice">
-              L’ancienne identité cessera de fonctionner. Installez la nouvelle
-              sur le nœud pour rétablir la synchronisation.
+              The old identity will stop working. Install the new identity on the node to restore synchronization.
             </p>
           )}
           {!draft.enabled && (
             <p className="notice">
-              Les prochains échanges seront refusés. Un nœud isolé peut encore
-              utiliser sa configuration locale jusqu’à son expiration ; le
-              retrait du DNS et l’arrêt du serveur sont des opérations
-              distinctes.
+              The next exchanges will be refused. An isolated node can still use its local configuration until it expires; the removal of the DNS and the shutdown of the server are separate operations.
             </p>
           )}
           <Button type="submit" disabled={busy}>
-            {busy ? 'Enregistrement…' : 'Enregistrer le nœud'}
+            {busy ? "Saving…" : "Save Node"}
           </Button>
         </form>
       )}
       {identity && (
         <section className="card cluster-identity">
-          <h2>Identité privée de {identity.id}</h2>
+          <h2>Private identity of {identity.id}</h2>
           <p>
-            Enregistrez cette valeur dans le fichier privé du nœud. Elle ne sera
-            plus affichée après fermeture.
+            Save this value in the private node file. It will no longer be displayed after closing.
           </p>
           <label>
-            Identité de connexion
+            Login Identity
             <textarea
               readOnly
               rows={2}
@@ -455,45 +447,43 @@ export function ClusterConsole({
               onClick={() => {
                 void navigator.clipboard
                   .writeText(identity.credential)
-                  .then(() => setNotice('Identité copiée.'))
+                  .then(() => setNotice("Identity copied."))
                   .catch(() =>
                     setError(
-                      'Copie indisponible ; sélectionnez la valeur manuellement.',
+                      "Copy not available; select the value manually.",
                     ),
                   );
               }}
             >
-              <Copy size={16} /> Copier
+              <Copy size={16} /> Copy
             </Button>
             <Button onClick={() => setIdentity(null)}>
-              J’ai enregistré l’identité
+              I have registered the identity
             </Button>
           </div>
           <p className="small muted">
-            Le serveur doit posséder sa propre IP, ses certificats et sa file.
-            Son identité autorise la synchronisation de la messagerie de cette
-            organisation.
+            The server needs its own IP, certificates and queue. Its identity authorizes synchronization of this organization’s messaging configuration and analysis history.
           </p>
         </section>
       )}
       <div className="card cluster-behavior">
-        <h2>Comportement en cas de panne</h2>
+        <h2>Failure behaviour</h2>
         <p>
           {overview.replication?.required
-            ? 'La réception nécessite une politique valide et la confirmation du second MX. Une politique en cache ne permet pas de recevoir à une seule copie ; un pair indisponible entraîne un report SMTP temporaire.'
-            : 'Les nœuds continuent à recevoir avec leur dernière politique valide, dans leur durée d’autonomie configurée.'}
-          {' '}Les crédits LLM et quotas restent bornés. Les analyses et états de livraison sont synchronisés au retour de la connexion.
+            ? "Reception requires a valid policy and confirmation from the peer. A cached policy does not permit a single copy; an unavailable peer produces a temporary SMTP deferral."
+            : "The nodes continue to receive with their last valid policy, in their set autonomy duration."}
+          {' '}LLM credits and allowances remain limited. Analysis and delivery statements are synchronized when the connection returns.
         </p>
         <p>
           {overview.replication?.required
-            ? 'Les messages sont copiés sur un autre serveur avant acceptation. La reprise des copies et de la console est contrôlée pour éviter deux propriétaires actifs. Les envois au résultat incertain restent à vérifier.'
-            : 'La réplication durable doit être configurée sur les deux serveurs pour protéger les messages déjà acceptés.'}
-          {' '}Les commandes distantes expirent après cinq minutes si elles ne sont pas exécutées.
+            ? "Messages are copied to the peer before acceptance. Recovery requires controlled promotion and fencing to prevent two active owners. Uncertain delivery outcomes require review."
+            : "Durable replication must be configured on both servers to protect already accepted messages."}
+          {' '}Remote commands expire after five minutes if not executed.
         </p>
       </div>
       {!!overview.commands.length && (
         <section className="card">
-          <h2>Dernières commandes distantes</h2>
+          <h2>Latest Remote Commands</h2>
           <div className="cluster-command-list">
             {overview.commands.map((c) => (
               <div key={c.id}>
@@ -503,12 +493,12 @@ export function ClusterConsole({
                 <span>
                   {(
                     {
-                      done: 'Exécutée',
-                      conflict: 'État modifié',
-                      expired: 'Expirée',
-                      revoked: 'Annulée',
+                      done: "Implemented",
+                      conflict: "State changed",
+                      expired: "Expires",
+                      revoked: "Cancelled",
                     } as Record<string, string>
-                  )[c.result || ''] || 'En attente'}
+                  )[c.result || ''] || "Pending"}
                 </span>
                 <time>{date(c.created)}</time>
               </div>

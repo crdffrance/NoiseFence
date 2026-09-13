@@ -31,9 +31,8 @@ export function MessageSearchControls({
     <div className="advanced-mail-search">
       <div className="search-help-row">
         <p>
-          Objets, adresses, règles et identifiants · Tous les mots sont
-          recherchés. Utilisez «&nbsp;<code>&quot;expression exacte&quot;</code>
-          &nbsp;» pour une expression.
+          Subjects, addresses, rules and IDs · All words must match. Use &quot;&nbsp;<code>&quot;exact phrase&quot;</code>
+          &nbsp;&quot; for an exact phrase.
         </p>
         <Button
           variant={count ? 'secondary' : 'ghost'}
@@ -41,7 +40,7 @@ export function MessageSearchControls({
           aria-controls="mail-search-fields"
           onClick={() => setOpen(!open)}
         >
-          <SlidersHorizontal size={15} /> Recherche avancée
+          <SlidersHorizontal size={15} /> Advanced Search
           {count ? ` (${count})` : ''}
         </Button>
       </div>
@@ -63,12 +62,12 @@ export function MessageSearchControls({
           <div className="search-fields-grid">
             {(
               [
-                ['node', 'Serveur MX', 'mx2 ou local'],
-                ['sender', 'Expéditeur', 'adresse ou domaine'],
-                ['recipient', 'Destinataire', 'adresse ou alias autorisé'],
-                ['subject', 'Objet', 'mots ou "expression exacte"'],
-                ['rule', 'Règle déclenchée', 'identifiant de règle'],
-                ['id', 'Identifiant NoiseFence', 'identifiant ou fragment'],
+                ['node', "MX server", "mx2 or local"],
+                ['sender', "Sender", "address or domain"],
+                ['recipient', "Recipient", "address or alias authorized"],
+                ['subject', "Subject", "words or \"exact expression\""],
+                ['rule', "Rule triggered", "Rule ID"],
+                ['id', "NoiseFence ID", "identifier or fragment"],
               ] as const
             ).map(([field, label, placeholder]) => (
               <label key={field}>
@@ -84,24 +83,24 @@ export function MessageSearchControls({
               </label>
             ))}
             <label>
-              Livraison
+              Delivery
               <select
                 value={draft.status}
                 onChange={(e) => setDraft({ ...draft, status: e.target.value })}
               >
-                <option value="">Tous les états</option>
-                <option value="pending">En attente</option>
-                <option value="sending">En cours</option>
-                <option value="delivered">Livré</option>
-                <option value="failed">Échec</option>
-                <option value="notified">Échec traité</option>
-                <option value="dsn_suppressed">Avis bloqué (anti-backscatter)</option>
-                <option value="quarantined">En quarantaine</option>
-                <option value="discarded">Supprimé</option>
+                <option value="">All states</option>
+                <option value="pending">Pending</option>
+                <option value="sending">In progress</option>
+                <option value="delivered">Delivered</option>
+                <option value="failed">Failed</option>
+                <option value="notified">Processed failure</option>
+                <option value="dsn_suppressed">Blocked (anti-backscatter)</option>
+                <option value="quarantined">Quarantine</option>
+                <option value="discarded">Deleted</option>
               </select>
             </label>
             <label htmlFor="search-after">
-              Reçu à partir du
+              Received from
               <Input
                 type="date"
                 id="search-after"
@@ -110,7 +109,7 @@ export function MessageSearchControls({
               />
             </label>
             <label htmlFor="search-before">
-              Reçu jusqu’au (inclus)
+              Received until (included)
               <Input
                 type="date"
                 id="search-before"
@@ -150,10 +149,7 @@ export function MessageSearchControls({
             </label>
           </div>
           <p className="search-retention">
-            Recherche locale dans les métadonnées conservées 30 jours et les
-            messages encore en file. Les corps et pièces jointes ne sont pas
-            indexés. Les dates utilisent votre fuseau horaire et les scores
-            correspondent aux valeurs affichées, y compris les scores partiels.
+            Search retained metadata from the last 30 days and unresolved messages. Bodies and attachments are not indexed. Dates use your time zone; score filters match the displayed index, including partial results.
           </p>
           {error && (
             <p className="error" role="alert">
@@ -161,7 +157,7 @@ export function MessageSearchControls({
             </p>
           )}
           <div className="search-field-actions">
-            <Button type="submit">Appliquer les critères</Button>
+            <Button type="submit">Apply criteria</Button>
             <Button
               type="button"
               variant="ghost"
@@ -171,7 +167,7 @@ export function MessageSearchControls({
                 setError('');
               }}
             >
-              <X size={14} /> Effacer les critères
+              <X size={14} /> Clear criteria
             </Button>
           </div>
         </form>

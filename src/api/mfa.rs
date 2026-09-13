@@ -24,7 +24,7 @@ fn key(app: &App) -> ApiResult<Arc<factor::Key>> {
     app.mfa_key.clone().ok_or_else(|| {
         Error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Second facteur indisponible.".into(),
+            "Second factor unavailable.".into(),
         )
     })
 }
@@ -38,10 +38,7 @@ async fn status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> 
 }
 async fn reauthenticate(app: &App, user: &User, password: String) -> ApiResult<()> {
     if password.len() > 128 {
-        return Err(Error(
-            StatusCode::BAD_REQUEST,
-            "Mot de passe incorrect.".into(),
-        ));
+        return Err(Error(StatusCode::BAD_REQUEST, "Incorrect password.".into()));
     }
     let name = user.username.clone();
     let hash = app
@@ -61,13 +58,13 @@ async fn reauthenticate(app: &App, user: &User, password: String) -> ApiResult<(
         .map_err(|_| {
             Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Trop de tentatives. Réessayez dans dix minutes.".into(),
+                "Too many attempts, try again in ten minutes.".into(),
             )
         })?;
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans quelques instants.".into(),
+            "Try again in a few moments.".into(),
         )
     })?;
     let valid = tokio::task::spawn_blocking(move || {
@@ -77,10 +74,7 @@ async fn reauthenticate(app: &App, user: &User, password: String) -> ApiResult<(
     .await
     .map_err(anyhow::Error::from)?;
     if !valid {
-        return Err(Error(
-            StatusCode::BAD_REQUEST,
-            "Mot de passe incorrect.".into(),
-        ));
+        return Err(Error(StatusCode::BAD_REQUEST, "Incorrect password.".into()));
     }
     Ok(())
 }
@@ -109,7 +103,7 @@ async fn enroll(
     if !saved {
         return Err(Error(
             StatusCode::CONFLICT,
-            "Second facteur déjà actif ou session expirée.".into(),
+            "Second factor already active or session expired.".into(),
         ));
     }
     Ok(Json(
@@ -127,7 +121,7 @@ async fn confirm(
     if body.code.len() != 6 {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Code à six chiffres requis.".into(),
+            "Six-digit code required.".into(),
         ));
     }
     let key = key(&app)?;
@@ -155,7 +149,7 @@ async fn confirm(
     if !success {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Code incorrect, configuration expirée ou trop de tentatives.".into(),
+            "Invalid code, expired configuration or too many attempts.".into(),
         ));
     }
     Ok(Json(
@@ -185,7 +179,7 @@ async fn disable(
     if !success {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Un nouveau code valide ou un code de secours est requis.".into(),
+            "A new valid code or emergency code is required.".into(),
         ));
     }
     Ok(Json(json!({"enabled":false,"reauthenticate":true})))

@@ -1,15 +1,8 @@
-# Protections complémentaires
+# Reputation and complementary protection
 
-Disponibles depuis 0.3.0-dev.16. Les observations sont visibles dans le détail des
-messages et l’export `export-learning`, conservées 30 jours avec les métadonnées.
-Elles ne changent pas le score, le modèle, le préfixe, les corps ou les décisions
-Proton. Une nouvelle calibration indépendante sera nécessaire pour les intégrer
-au classement. Les indicateurs d’un même domaine et les familles de détection
-sont regroupés : une détection HTML, QR, CRDF et VT ne constitue pas quatre preuves
-indépendantes. Les rapports sont calculés localement ; aucun en-tête fourni par
-l’expéditeur ne peut forger une observation NoiseFence.
+These checks retain structured observations for the console and `export-learning`. They do not independently change delivery or establish a calibrated probability. HTML, QR, CRDF and VirusTotal reports about the same indicator are correlated evidence, not independent votes. Incoming headers cannot forge a locally computed observation.
 
-Ajouter au TOML initial, puis redémarrer le service :
+Install the optional module in the initial host configuration, then manage its messaging policy through the Web console:
 
 ```toml
 [protection]
@@ -21,168 +14,63 @@ virustotal_per_minute = 4
 virustotal_per_day = 500
 ```
 
-Les plafonds sont des budgets locaux conservateurs, à adapter au contrat réel.
-Leurs compteurs persistent sur disque et ne sont pas réinitialisés par le redémarrage du
-service ni par un changement de plafond. Les réglages de la console priment sur ceux du TOML une fois une
-révision enregistrée ; activer le module dans Filtres après son installation.
+These are conservative example budgets, not provider entitlements. Saved Web settings take precedence. Timeouts and concurrency can be changed under **Filters → Advanced settings**; accounts must have administrator access.
 
-## Console et clés
+<a id="console-et-clés"></a>
+## Console and credentials
 
-Dans **Filtres → Protections complémentaires**, renseigner une clé CRDF et/ou
-VirusTotal, cliquer sur **Enregistrer la clé**, activer le connecteur puis
-**Vérifier et appliquer**. Les clés sont stockées dans
-`/var/lib/noisefence/protection/crdf.key` et `virustotal.key`, fichiers 0600 dans
-un répertoire 0700. Elles ne sont jamais renvoyées par l’API, incluses dans les
-révisions, les journaux, les commandes, Git ou les archives publiques. La
-modification nécessite un administrateur actif, une session valide, la bonne
-origine et un jeton CSRF. Chaque sauvegarde de clé est auditée sans sa valeur.
-Le remplacement prend effet aux prochains appels, sans redémarrage. Désactiver
-le connecteur dans la console pour arrêter les consultations.
+Under **Filters → Protection & reputation**, save an authorized CRDF/VirusTotal key, select the intended connector, then **Review and apply**. Keys are private server files under `data_dir/protection/`, mode 0600 in a 0700 directory. They are not returned by subsequent API reads, exported, recorded in policy revisions or included in logs. Key saves require an active administrator session, the configured origin and CSRF protection; audit records omit the value. Rotation applies to future calls.
 
-Les paramètres `identity`, `links`, `campaigns`, `crdf`, `virustotal`, `follow_urls`, les noms
-protégés et les exceptions de réponse/suivi sont versionnés dans la console.
-Les exceptions portent sur un hôte exact et une seule heuristique : elles ne
-contournent jamais SPF/DKIM/DMARC, la réputation, l’antivirus ou le modèle.
+Identity checks, links, campaign checks, providers, URL following, protected names and reply/tracking exceptions are revisioned Web policies. An exception applies only to the named heuristic and exact domain; it does not bypass authentication, antivirus or the classifier.
 
-## Quotas configurables (depuis 0.4.5)
+<a id="quotas-configurables-depuis-045"></a>
+## Quotas
 
-Dans chaque carte de fournisseur, désactiver **Utiliser les plafonds du serveur**
-pour choisir des limites par minute et par jour. **Clé illimitée** enlève les deux
-plafonds ; les cases **Illimité** permettent aussi de ne lever qu’une limite.
-Enregistrer avec **Vérifier et appliquer**. Le changement est audité, versionné et
-s’applique dès la prochaine transaction SMTP, sans redémarrage. Un message déjà
-en cours conserve sa politique. **Actualiser les compteurs** affiche l’usage actuel.
+Each provider card supports installation defaults, explicit per-minute/per-day limits and unlimited access. `0` means unlimited; an absent or null override inherits the installation value. Positive limits are integers up to 4,294,967,295. Both fields are required in a quota object:
 
-L’API de configuration accepte `crdf_quota` et `virustotal_quota` dans `protection`,
-par exemple `"crdf_quota": {"minute": 0, "day": 0}`. Zéro signifie explicitement
-illimité ; tout entier positif jusqu’à 4 294 967 295 est un plafond. Les deux champs
-sont obligatoires dans un objet de quota. Un quota absent ou `null` hérite des valeurs
-du TOML (`crdf_per_minute`, etc.), qui acceptent également zéro. Les anciennes
-révisions conservent donc leurs plafonds initiaux. Le connecteur se désactive avec
-son interrupteur, jamais avec un quota zéro. Les budgets sont indépendants par
-fournisseur et partagés entre domaines, utilisateurs et connexions du serveur.
+```json
+{"crdf_quota": {"minute": 0, "day": 0}}
+```
 
-Les compteurs mesurent les requêtes réservées avant l’appel HTTP, même si celui-ci
-échoue ou est annulé. Le cache ne les consomme pas. Les fenêtres sont fixes :
-minute UTC et jour UTC (remise à zéro à minuit UTC). Modifier les limites ou la clé
-ne remet pas les compteurs à zéro. Le mode illimité continue de compter les appels.
-L’API administrateur `/admin/protection` expose les limites effectives, celles du
-TOML, la consommation, les échéances et la pause éventuelle ; une lecture impossible
-donne un compteur indisponible, pas un faux zéro.
+Apply the draft explicitly. Already started transactions retain their policy. Disabling the connector stops calls; zero quota does not disable it. Counters reserve requests before HTTP, including failed or cancelled calls, and persist across restart, credential rotation and policy changes. Cached results do not consume a new request. Windows use UTC minutes and days. The administrator `/admin/protection` API exposes counters and current provider cooldowns without secrets.
 
-« Illimité » retire uniquement les budgets locaux. La concurrence, les délais,
-les douze indicateurs maximum par fournisseur/message, le cache et les pauses de
-cinq minutes en cas de refus du fournisseur restent actifs. Les quotas ne changent
-pas les scores. Les limites de capacité restent dans le TOML et nécessitent un
-redémarrage. Revenir à un ancien binaire exige d’abord de restaurer une révision
-sans les nouveaux champs de quota ; aucun changement du schéma SQLite n’est requis.
+Unlimited quotas remove local request ceilings only. Concurrency, deadlines, per-message indicator limits and provider cooldowns remain enforced. In a cluster, limited credits are shared by the coordinator; see [multiple MX servers](multi-mx.md). Provider failure, exhausted quota and omitted checks remain distinct from a malicious verdict.
 
-## CRDF et VirusTotal
+## CRDF and VirusTotal
 
-CRDF utilise **POST `search_urls.json`**, droit `lookup`, clé dans `X-API-Key`.
-Seuls des domaines sont communiqués, sous la forme d’une racine synthétique
-`https://domaine/` acceptée par cette API. Aucun chemin, paramètre ou fragment
-du message n’est transmis. Les domaines nus étaient refusés comme URL invalides ;
-ce format est corrigé depuis 0.4.5. La méthode ne soumet pas d’URL à l’analyse et
-n’appelle pas `submit_url`, `ai_score` ou les API de modification. Une absence de
-résultat reste « inconnu ». Une correspondance portant seulement sur un chemin
-ou une requête reste suspecte au niveau du domaine, sans condamner tout un
-service partagé. Un résultat contradictoire, mal formé, refusé ou
-indisponible ne devient pas une détection.
+CRDF uses `POST search_urls.json` with the `lookup` permission and an `X-API-Key` header. It queries a synthetic HTTPS root for each domain, such as `https://example.org/`. Message paths, query strings and fragments are not sent. It does not submit URLs for scanning or call modification endpoints. An unknown result stays unknown; a path-specific match is not enough to classify an entire shared domain as malicious. Malformed, inconsistent or denied responses are unavailable evidence.
 
-VirusTotal utilise seulement **GET `/api/v3/domains/{domain}`** et
-**GET `/api/v3/files/{sha256}`**, clé dans `x-apikey`. Aucun message, fichier,
-URL complète, paramètre de lien ou texte OCR n’est envoyé. Un fichier inconnu
-n’est pas téléversé. Un rapport de plus de sept jours est signalé comme ancien.
-Les détections de moins de trois moteurs restent suspectes, pas un verdict
-malveillant automatique. Le nombre de moteurs ne constitue pas une probabilité
-calibrée ni une preuve d’indépendance des signatures.
+VirusTotal uses existing domain and SHA-256 file reports through `GET /api/v3/domains/{domain}` and `GET /api/v3/files/{sha256}`. It never uploads unknown attachments, message bodies, OCR text or complete private URLs. Reports older than seven days are stale. Fewer than three reporting engines remain suspicious rather than an automatic malicious result; engine counts are not independent votes or calibrated confidence.
 
-L’API publique VirusTotal interdit certains usages en produit/service commercial
-et les processus métier ne contribuant pas de nouveaux fichiers. Pour cette
-passerelle d’organisation, utiliser une licence autorisant explicitement ces
-consultations ; une simple clé gratuite n’est pas suffisante. Les données des
-fournisseurs ne sont pas redistribuées avec le logiciel GPL.
+Use provider contracts that authorize organizational filtering. A free key does not by itself establish authorization for every product or business use. See [VirusTotal’s public and premium API terms](https://docs.virustotal.com/reference/public-vs-premium-api). Provider data is not redistributed with the GPL software.
 
-Les appels aux fournisseurs utilisent TLS vérifié et les deux API fixes, sans
-suivre leurs redirections HTTP. Les réponses sont limitées à 256 Kio. Huit
-domaines et huit empreintes au maximum sont extraits du message. Le suivi
-optionnel des liens ajoute les domaines des sauts effectivement visités et
-traite leurs dernières destinations en priorité. Il reste au plus douze
-consultations par fournisseur et message ; les cibles omises et les quotas
-sont indiqués dans le rapport. Le délai est commun à toutes les consultations d’un
-fournisseur, pas renouvelé pour chaque cible. Les caches durent au plus 30
-minutes (cinq minutes pour inconnu/ancien) et contiennent des empreintes, jamais
-les clés ou URLs. Les erreurs de droits/quota déclenchent une pause de cinq
-minutes. Les plafonds, pauses et états incomplets sont explicites ; aucun ne
-change le classement actuel.
+Requests use fixed APIs and certificate-verified TLS, without following API redirects. Responses are limited to 256 KiB. Extraction considers up to eight domains and eight attachment hashes, with at most 12 queries per provider/message. Active URL following can add visited domains and prioritize final destinations. A common deadline is not renewed per indicator. Caches last at most 30 minutes, or five minutes for unknown/stale results. Authorization/quota errors impose a five-minute cooldown. Reports expose omissions and failures without copying raw provider replies.
 
-Spamhaus DQS reste disponible via `filter.spamhaus_key_env`, avec une clé
-commercialement autorisée dans l’environnement systemd. Il possède déjà ses
-contrôles de codes de retour, cache DNS et traitement séparé des erreurs.
+Spamhaus DQS has a separate IP/domain connector, return-code validation and DNS cache. Configure an authorized key under **Advanced settings** or through the allowed host environment; see [RBL admission](early-rbl.md).
 
-## Usurpation et campagnes
+## Impersonation and campaigns
 
-Les domaines sont normalisés avec IDNA et comparés avec une Public Suffix List
-embarquée, y compris les suffixes privés. Les ressemblances couvrent les fautes
-à une modification et un sous-ensemble d’homoglyphes courants ; elles ne
-constituent pas une couverture exhaustive d’Unicode. Les noms affichés doivent
-correspondre exactement à un nom protégé configuré. L’alignement DMARC est
-présenté séparément : le simple nom affiché n’est jamais authentifié.
+IDNA normalization and an embedded Public Suffix List handle registrable domains, including private suffixes. Similarity checks cover common edits and selected homoglyphs; they are not exhaustive Unicode confusable detection. A display name must exactly match a configured protected name. DMARC alignment is independent: a familiar display name is not authenticated identity.
 
-Les campagnes utilisent au plus les 1 000 messages récents de la fenêtre de
-30 jours. Seuls les retours d’administrateurs encore actifs sont utilisés. Au
-moins deux messages de contenus distincts confirmés spam sont requis ; un
-retour légitime contradictoire annule la correspondance. Les messages trop
-courts ou les transactions couvrant plusieurs domaines restent non évalués.
-Les empreintes exactes/SimHash sont comparées dans le domaine de destination,
-sans révéler des identifiants, destinataires cachés ou messages d’autres domaines.
-Les corrections peuvent prendre effet sur les prochains messages, jamais sur
-les messages déjà livrés. La recherche reste consultative et bornée en temps.
+Campaign comparison uses at most 1,000 recent messages in the 30-day window. It requires feedback from active administrators and at least two distinct spam examples. Contradictory legitimate feedback cancels reinforcement. Short messages and transactions spanning multiple destination domains may lack sufficient context. Exact/SimHash comparison stays within the destination domain; it does not expose other domains or Bcc recipients. Results remain advisory and affect only future analysis.
 
-## Base locale de liens
+## Local link database
 
-Les liens HTML sont parsés avec un parseur HTML5. Les URLs du texte, des ancres,
-des formulaires et du texte OCR/QR rejoignent le même ensemble pour l’analyse
-passive. Par défaut, les liens ne sont pas ouverts. Depuis 0.4.4,
-**Suivre les redirections des liens** active les visites HTTP des liens du texte,
-des ancres et de l’OCR/QR ; les actions de formulaire restent passives.
-Le détail des limites, effets des visites et protections réseau figure dans
-[Suivi des URLs](url-resolution.md).
-Une base correspond à des URLs exactes (chemin/requête
-conservés), sans condamner tout un service partagé pour une page malveillante.
+Passive analysis combines text links, HTML anchors/forms and OCR/QR findings. Active following is separately enabled in the console, subject to [URL resolution limits](url-resolution.md); form actions remain passive. Local feed matches use complete URLs, including path/query, so a malicious page does not automatically condemn its whole hosting service.
 
-Importer un flux texte autorisé, une URL par ligne :
+Import an authorized URL-per-line feed:
 
 ```sh
 sudo -u noisefence python3 /opt/noisefence/current/deploy/update-url-feed.py \
-  --input /chemin/flux-autorise.txt
+  --input /private/authorized-feed.txt
 ```
 
-Ou installer les unités `noisefence-url-feed.service` et `.timer`, créer
-`/etc/noisefence/url-feed.env` en 0600 contenant
-`NOISEFENCE_PHISHING_FEED_URL=https://fournisseur/flux-autorise`, puis activer le
-timer. Les unités ne sont pas activées sans source autorisée configurée.
-Le flux OpenPhish Community est un exemple de format compatible ; vérifier ses
-conditions d’usage avant configuration. Aucun flux commercial n’est embarqué.
+Alternatively, configure `NOISEFENCE_PHISHING_FEED_URL` in a private `/etc/noisefence/url-feed.env`, then install the supplied feed service/timer. No paid feed or access entitlement is bundled. The [OpenPhish community feed](https://www.openphish.com/phishing_feeds.html) is one compatible format; verify its usage terms before configuring it.
 
-Téléchargement HTTPS de 20 secondes maximum, 8 Mio/50 000 URLs, remplacement
-atomique après validation ; un échec conserve le flux précédent. La base est
-rechargée sous 60 secondes, et ignorée si elle a plus de 72 heures. Une base
-absente ou ancienne reste distincte d’une base sans correspondance. Les liens
-et paramètres du flux restent côté serveur et ne sont pas affichés dans la
-console. Le parseur local limite les MIME, le HTML et les indicateurs examinés.
+Downloads are bounded to 20 seconds, 8 MiB and 50,000 URLs. Atomic replacement follows validation; failure preserves the prior feed. Reload takes up to 60 seconds. Feeds older than 72 hours are ignored and reported as stale. Feed paths and URL parameters remain server-side. Runtime reports follow metadata retention; feed files, exports and backups have independent retention.
 
-## Validation
+## Verification
 
-Les fixtures locales couvrent domaines ressemblants, liens trompeurs, entités
-HTML, suffixes publics/privés, exceptions exactes, QR/HTML corrélés, expiration
-de flux, pièces jointes encodées, erreurs fournisseurs, quotas persistants,
-contradictions de campagnes, accès administrateur/CSRF et invariance du score.
-Aucun test n’envoie de message, de pièce jointe privée ou d’appel payant.
+Synthetic tests cover deceptive links, entities, public/private suffixes, exact exceptions, correlated OCR/HTML findings, expiry, attachment hashes, provider failures, durable quotas, contradictory feedback, administrator/CSRF controls and unchanged scoring. They do not measure traffic-wide detection quality or make paid requests.
 
-Sources : [CRDF](https://threatcenter.crdf.fr/api/doc/),
-[VirusTotal domaines](https://docs.virustotal.com/reference/domain-info),
-[VirusTotal fichiers](https://docs.virustotal.com/reference/file-info),
-[restrictions VirusTotal](https://docs.virustotal.com/reference/public-vs-premium-api),
-[OpenPhish](https://www.openphish.com/phishing_feeds.html).
+Provider references: [CRDF API](https://threatcenter.crdf.fr/api/doc/), [VirusTotal domains](https://docs.virustotal.com/reference/domain-info), [VirusTotal files](https://docs.virustotal.com/reference/file-info).

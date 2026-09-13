@@ -1,91 +1,45 @@
-# Fiabilité du filtre
+<a id="fiabilité-du-filtre"></a>
+# Reliability of the filter
 
-Depuis 0.5.0, la page **Fiabilité** complète l’annotation à scores masqués dans
-**Qualité du filtre**. Elle n’écrit aucun réglage et n’active aucun modèle.
+Since 0.5.0, the page **Reliability** completes the annotation with hidden scores in **Quality of the filter**. It does not write any setting and does not activate any model.
 
-## Lire le bilan
+<a id="lire-le-bilan"></a>
+## Read the report
 
-Les fenêtres couvrent 1 à 29 jours, au maximum 5 000 messages récents accessibles,
-32 Mio de diagnostics et deux secondes de calcul. Les lignes de plus de 512 Kio
-ou illisibles sont signalées. Les limites SQLite et la concurrence des lectures
-restent celles de la console. Un bilan partiel ne calcule pas d’alerte de changement
-de distribution. Un même message avec plusieurs destinataires autorisés compte
-une fois. Seules les annotations du compte courant sont utilisées ; les droits
-sur les destinataires sont revérifiés à chaque requête.
+The windows cover 1 to 29 days, up to 5,000 recent accessible messages, 32 MiB of diagnostics and two seconds of calculation. Lines of more than 512 KiB or illegible are indicated. SQLite limits and the competition of readings remain those of the console. A partial balance does not calculate a distribution change alert. The same message with several authorized recipients counts once. Only the current account annotations are used; the rights to the recipients are reverified at each request.
 
-- **Annotations de qualité** : corrections explicites de risque, y compris celles
-  conservées dans les lots. **Corrections ciblées** : retours historiques hors de
-  ces annotations. Ces derniers sont souvent concentrés sur les erreurs.
-- Les réponses incertaines ne deviennent jamais légitimes. Une abstention sur
-  un spam diminue le rappel ; une abstention n’est pas un faux positif de marquage.
-- Rappel, faux positifs, précision et abstention portent sur les annotations
-  disponibles. Les intervalles de Wilson à 95 % ne corrigent ni le biais de
-  sélection ni la dépendance entre campagnes. Sans annotations, le résultat est
-  indisponible. Zéro erreur sur dix messages ne démontre pas 0,1 % de faux positifs.
-- Les variations comparent les dernières 24 h au reste de la période : au moins
-  trente observations dans chaque groupe, hausse d’au moins quinze points et
-  intervalles séparés. Ce sont des alertes descriptives à examiner, pas une preuve
-  statistique de régression, ni un mécanisme de désactivation automatique.
-- Les quotas, limites et indisponibilités restent distincts d’une absence de
-  détection. Les alertes de disponibilité demandent au moins trois incidents
-  sur 10 % des contrôles configurés observés dans les dernières 24 h.
+- **Quality annotations**: explicit risk corrections, including those stored in batches. **Target corrections**: historical returns out of these annotations, often focused on errors.
+- Uncertain answers never become legitimate. Abstention on a spam reduces the recall; an abstention is not a false positive marking.
+- Reminder, false positives, precision and forbearance relate to the annotations available. The 95% Wilson intervals do not correct the selection bias or the dependence between campaigns. Without annotations, the result is unavailable. Zero error on ten messages does not show 0.1% false positives.
+- Variations compare the last 24 hours to the rest of the period: at least 30 observations in each group, increase by at least 15 points and separate intervals. These are descriptive alerts to be examined, not statistical evidence of regression, nor an automatic deactivation mechanism.
+- Quotas, limits and unavailability remain distinct from a lack of detection. Availability alerts require at least three incidents out of 10% of the configured controls observed in the last 24 hours.
 
-La latence p95 est celle enregistrée par le parcours d’analyse, avec ses vérifications
-externes. Elle ne mesure ni le délai total SMTP ni le benchmark à caches chauds.
+The p95 latency is the one recorded by the analysis route, with its external checks. It does not measure the total SMTP delay or the warm cache benchmark.
 
-## Mesurer l’apport des règles
+<a id="mesurer-lapport-des-règles"></a>
+## Measuring the contribution of rules
 
-Le tableau conserve occurrences, annotations, regroupements et cooccurrences.
-Pour les observations historiques complètes dont le score peut être reconstruit
-et la politique de décision rejouée, le retrait d’un poids recalcule la décision.
-Il compte les faux positifs évités et les spams détectés qui seraient perdus.
+The table retains occurrences, annotations, groupings and co-occurrences. For complete historical observations whose score can be reconstructed and the policy of decision replayed, the withdrawal of a weight recalculates the decision. It counts the false positives avoided and the detected spams that would be lost.
 
-Cette ablation retire **le poids uniquement** : l’antivirus, les preuves, la
-corroboration et l’avis LLM restent figés. Elle ne simule pas de nouveaux appels,
-les actions par destinataire ou le dossier Proton. Les symboles natifs restent
-consultatifs ; aucun effet fictif sur la livraison ne leur est attribué.
+This removal removes **the weight only**: antivirus, evidence, corroboration and LLM notice remain frozen. It does not simulate new calls, actions per recipient or Proton folder. Native symbols remain advisory; no fictitious effect on delivery is attributed to them.
 
-Les comparaisons candidates utilisent uniquement les prédictions enregistrées et
-les mêmes messages annotés. La sélection des cas couverts doit être examinée dans
-l’évaluation indépendante décrite dans [le protocole qualité](quality.md).
+Candidate comparisons use only the recorded predictions and the same annotated messages. The selection of the cases covered should be examined in the independent evaluation described in [the quality protocol](quality.md).
 
-## Stabiliser la collecte et entraîner
+<a id="stabiliser-la-collecte-et-entraîner"></a>
+## Stabilize collection and train
 
-La compatibilité lie tous les sources Rust et SQL, les protocoles et auxiliaires
-runtime, les dépendances verrouillées, le compilateur, la cible, les options de
-compilation, les modèles et les paramètres. Seule la version de notre propre
-paquet est normalisée dans les manifests ; la version publiée et le verrou brut
-restent conservés comme provenance. Le champ `application` existant porte la
-version et l’empreinte dans le suffixe `-nf1.…`, sans ajouter de
-champ au format strict lu par les anciens binaires. Les agents HTTP de vérification ont leur propre
-version de protocole, indépendante de la version du logiciel.
+Compatibility links all Rust and SQL sources, protocols and runtime auxiliaries, locked dependencies, compiler, target, compilation options, models and parameters. Only the version of our own package is normalized in the manifests; the published version and the raw lock remain as source. The existing `application` field carries the version and the fingerprint in the `-nf1.…` suffix, without adding any field to the strict format read by the old binary. HTTP verification agents have their own protocol version, independent of the software version.
 
-Une modification du moteur, d’un modèle, du système de compilation ou des paramètres
-crée un nouveau groupe. Les anciens enregistrements sans empreinte de compatibilité
-restent strictement séparés. Une mise à jour du frontend seul ou du numéro de version
-peut préserver le groupe, à moteur, compilation et paramètres identiques. Ce mécanisme
-ne prétend pas figer les bases de réputation externes ou leurs réponses.
+A modification of the engine, model, compilation system or parameters creates a new group. The old records without compatibility imprint remain strictly separate. An update of the frontend alone or version number can preserve the group, with motor, compilation and identical parameters. This mechanism does not pretend to freeze external reputational bases or their responses.
 
-1. Garder la collecte et les paramètres stables. Utiliser le début de collecte du
-   moteur courant proposé dans la console. Le tirage inclut les analyses incomplètes
-   et n’est jamais fondé sur le score.
-2. Annoter les originaux, puis exporter un lot privé avec `quality-export`. Conserver
-   les anciens lots ; ne pas recalculer leurs signaux à partir des seuls objets.
-3. Exécuter `train_quality.py` selon [la procédure](quality.md). Les contributions
-   natives de contenu, campagne et Bayes sont des entrées supplémentaires, avec
-   leurs états de disponibilité. Les logits Bayes sont bornés et ne sont pas des
-   probabilités calibrées. Les poids lexicaux historiques ne sont pas recomptés.
-4. Le candidat compare onze ablations, dont sans moteur natif et sans Bayes natif.
-   S’il manque des annotations ou des campagnes dans les cinq périodes, aucun
-   modèle n’est produit. Un échantillon mélangeant des groupes est refusé : choisir
-   une période homogène, conserver les exclusions et leur portée dans le rapport.
-5. Geler le modèle, les seuils et le manifeste. Tirer un nouveau lot futur, indépendant
-   des campagnes d’apprentissage et des tests précédents. Exécuter `evaluate_quality.py`.
-   Mesurer couverture, abstention, calibration, rappel, erreurs et intervalles.
-6. Ne pas activer un candidat sur la seule base de l’accord avec le filtre existant
-   ou d’une poignée de corrections. Les cibles ≥95 % / ≤0,1 % restent à démontrer.
+1. Keep collection and parameters stable. Use the start of collection of the current engine proposed in the console. The draw includes incomplete analyses and is never based on the score.
+2. Annotate the originals, then export a private lot with `quality-export`. Keep the old lots; do not recalculate their signals from the only objects.
+3. Run `train_quality.py` using the [quality procedure](quality.md). Native content, campaign and Bayes contributions are additional inputs with availability states. Bayes logits are bounded and are not calibrated probabilities. Historical lexical weights are not counted twice.
+4. The candidate compares eleven ablations, of which no native motor and no native Bayes. If annotations or campaigns are missing in the five periods, no model is produced. A mixing sample of groups is refused: choose a homogeneous period, keep the exclusions and their scope in the report.
+5. Freeze the model, thresholds and manifest. Draw a new batch, independent of previous learning campaigns and tests. Run `evaluate_quality.py`. Measure coverage, forbearance, calibration, recall, errors and intervals.
+6. Do not activate a candidate solely on the basis of agreement with the existing filter or a handful of corrections. Targets ≥95% / ≤0.1% remain to be demonstrated.
 
-Commandes de bilan local (sans contenu exporté ni mutation de politique) :
+Local report orders (no content exported or policy changes):
 
 ```sh
 noisefence --config /etc/noisefence/config.toml reliability-audit \
@@ -93,40 +47,16 @@ noisefence --config /etc/noisefence/config.toml reliability-audit \
 noisefence --config /etc/noisefence/config.toml proton-check
 ```
 
-`GET /api/v1/quality/reliability?days=7&domain=example.org` exige une session.
-Les utilisateurs voient uniquement leur périmètre. Les contrôles système et
-rapports Proton sont réservés aux administrateurs. Aucune clé ni réponse brute
-fournisseur ne figure dans le bilan.
+`GET /api/v1/quality/reliability?days=7&domain=example.org` requires a session. Users only see their scope. Proton system controls and reports are reserved for administrators. No key or gross supplier response is included in the report.
 
-## Signatures et Proton
+## Signatures and Proton
 
-L’administration interroge ClamD avec `zVERSION`, sans envoyer de message : deux
-requêtes locales concurrentes au maximum, délai de 500 ms, réponse de 512 octets
-maximum. Une date non reconnue ou une commande indisponible donnent un état inconnu.
-L’absence de fuseau dans la date impose une incertitude de ±14 h. La fraîcheur est
-comparée à trois jours ; elle ne certifie pas le jeu exact de signatures chargé.
-Voir le [protocole ClamD officiel](https://docs.clamav.net/manual/Usage/ClamdProtocol.html).
+The administration questions ClamD with `zVERSION`, without sending a message: two competing local queries at the maximum, 500 ms delay, response of 512 bytes maximum. An unrecognized date or an unavailable command give an unknown state. L-absence of a spindle in the date imposes an uncertainty of ±14 h. The freshness is compared to three days; it does not certify the exact set of loaded signatures. See the [official ClamD protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html).
 
-Les checklists SPAM et PUB contrôlent les rapports existants : préfixe, domaines,
-hôte, date, huit cas documentés et limite de contournement acceptée. Une acceptation
-SMTP seule ne prouve pas l’arrivée en réception. Suivre la [matrice Proton](proton-validation.md),
-avec arrivée directe, relais intact, relais marqué, dossier constaté et en-têtes
-finaux. Le mode observation reste nécessaire tant que cette validation manque.
+SPAM and PUB checklists control existing reports: prefix, domains, host, date, eight documented cases and accepted bypass limit. SMTP acceptance alone does not prove arrival in receipt. Follow the [proton-validation.md matrix](proton-validation.md), with direct arrival, intact relays, marked relays, record folder and final headers. The observation mode remains necessary as long as this validation is missing.
 
 ## Migration 0.4.x → 0.5.0
 
-Le nouveau protocole d’observations ajoute les entrées natives. Le protocole du
-contenu natif passe à `noisefence-native-content-2` pour exclure les exemples HTML
-inertes. Les anciens modèles candidats conjoints, modèles OSB et artefacts de
-fusion sont incompatibles : retirer leurs chemins optionnels avant `check-config`,
-puis collecter et entraîner de nouveaux candidats. Le modèle lexical/sémantique
-historique conserve son format et son comportement. Vérifier explicitement toute
-installation utilisant une fusion en décision avant mise à jour.
+The new observation protocol adds native entries. The native content protocol moves to `noisefence-native-content-2` to exclude inert HTML examples. The old joint candidate models, OSB models and fusion artifacts are incompatible: remove their optional paths before `check-config`, then collect and train new candidates. The historical lexical/semantic model retains its format and behavior. Explicitly check any installation using a decision-based merge before updating.
 
-Aucune migration SQLite ; les nouvelles observations restent dans les champs JSON
-existants. Le déploiement doit sauvegarder configuration et données, conserver
-les modèles antérieurs, vérifier `check-config`, puis contrôler file, TLS et API.
-Pour un retour à 0.4.15, restaurer la configuration antérieure et conserver la base
-courante afin de ne pas perdre les messages acceptés depuis la sauvegarde. Les
-motifs personnalisés contenant `exclude_negated` doivent être retirés de cette
-ancienne configuration. Aucun historique n’est réécrit.
+This feature’s original migration was additive. Current paired installations require storage schema 5 and a compatible release. Do not downgrade the database, remove its HA marker or restore an older backup over accepted mail. See [installation](installation.md) and [HA recovery](high-availability.md) for current upgrade and rollback procedures.

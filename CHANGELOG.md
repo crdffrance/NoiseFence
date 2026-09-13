@@ -1,795 +1,529 @@
 # Changelog
 
-## 0.17.3 — Deux copies et console de secours
+## 0.18.0 — Consistent assessments and English release
 
-Les candidates 0.17.0 à 0.17.2 sont remplacées avant déploiement après les contrôles de rétention, de reprise et de flux HTTP.
+- Share a versioned Rust assessment across the message API, search, console and new SMTP diagnostics. Distinguish the 0–100 risk index, engine decision, recipient classification, analysis coverage, requested/effective delivery action and actual subject tag. Invalid values never become fabricated zeroes.
+- Preserve recorded thresholds for historical fallback decisions in message search and dashboard counts. Expose historical provenance instead of presenting current configuration as past evidence. No retained message is rescanned or rewritten.
+- Publish diagnostic header schema 3. `X-NoiseFence-Status` now means `complete` or `incomplete`; consumers must use `Category` and `Subject-Tag` for classification and modification. Add assessment, threshold, policy, delivery action and recorded-decision provenance. Keep bounded ASCII output and the ARC signing inventory aligned.
+- Finish the English console and documentation. Improve filter navigation, settings search, score explanations and the distinction between draft and applied policy. Keep all messaging/filter settings in the Web console; ports, TLS, storage, model artifacts and replication installation remain host operations.
+- Use English explanations in LLM prompt `noisefence-classify-3`. Its fingerprint starts a distinct observation group; previous model validation must not be reused across changed protocols. Existing explanations and user-created labels remain recorded data.
+- Add a non-root Docker image, isolated local Compose evaluation and Linux production template with host networking, durable storage, private configuration and dependency notices. Test container bootstrap, authorization, SMTP acceptance, open-relay refusal and restart persistence on amd64/arm64 in CI.
+- Update native installation, security, configuration, header and two-copy recovery guides. Verify local documentation links and preserve referenced historical anchors.
 
-- Réplication Rust par paire HTTPS authentifiée, corps et enveloppes durables avant SMTP 250 ; réponse 451 si le pair, sa capacité ou son stockage manque.
-- Le récepteur consomme et vérifie tout le flux avant confirmation, y compris pour une copie existante ; celle-ci n’est pas réécrite.
-- Progression par destinataire, intention d’envoi répliquée avant contact du relais, nettoyage après confirmation et reprise conservatrice des envois incertains.
-- Instantanés SQLite cohérents, modèles, MFA et budgets transférés par SSH restreint ; console de secours activable après fencing explicite, sans écraser la file du worker.
-- Bascule de sinistre avec révocation des accès anciens et suspension des nouvelles allocations fournisseurs ; pas de quorum ou de reprise SMTP automatique à une seule copie.
-- Synchronisation finale après arrêt avec `ha-flush` ; l’original reste en attente si une notification référencée manque lors de la reprise.
-- Réintégration contrôlée avec `ha-resync`, contrôle du déchiffrement MFA restauré, instantané final strictement postérieur au fencing et effacement des incidents résolus.
-- État de réplication et de la console de secours dans Infrastructure. Schéma 5 dès activation ; guide de reprise dans `docs/high-availability.md`.
+**Compatibility:** storage capability remains schema 5. Upgrade the coordinator before workers; 0.17.3 remains in the audited policy window. Existing observation, provider budgets, Proton tagging gates and mandatory peer acknowledgements remain unchanged. No new detector, model training or automatic activation is included. Passing tests do not establish perfect filtering or the target capture/false-positive rates.
+
+## 0.17.3 — Two copies and a recovery console
+
+Candidates 0.17.0 to 0.17.2 are replaced before deployment after retention, recovery and HTTP flow checks.
+
+- Rust replication by authenticated HTTPS pair, durable body and envelopes before SMTP 250; 451 response if the pair, capacity or storage is missing.
+- The receiver consumes and checks the entire stream before confirmation, including for an existing copy; it is not rewritten.
+- Progression by recipient, intention to send replicated before contact of relay, cleaning after confirmation and conservative resumption of uncertain shipments.
+- SQLite Instants consistent, models, MFA and budgets transferred by SSH restricted; backup console activated after explicit fencing, without overwriting the worker's line.
+- Claim switch with revocation of old accesses and suspension of new supplier allowances; no quorum or automatic SMTP take-over at one copy.
+- Final synchronization after shutdown with `ha-flush`; the original remains on hold if a referenced notification is missing during resumption.
+- Controlled re-integration with `ha-resync`, restored MFA decryption control, final snapshot strictly after the fencing and erasure of resolved incidents.
+- Replication state and backup console in Infrastructure. Diagram 5 as soon as enabled; recovery guide in `docs/high-availability.md`.
 
 ## 0.16.2 — Admission SMTP intelligente
 
-- Greylisting sélectif avant DATA, avec état durable commun aux MX et repli permissif en cas de panne du coordinateur.
-- Quotas de tentatives par IP, rafales contrôlées et ralentissement Tokio borné par connexion et par serveur.
-- Réglages Web, exceptions IP/CIDR, compteurs de décisions et diagnostics sans effet sur le score.
-- Déploiement progressif compatible avec les workers 0.15.3 ; politique désactivée par défaut.
+- Selective Greylisting before DATA, with durable condition common to MX and permissible withdrawal in case of coordinator failure.
+- Quotas of IP attempts, controlled gusts and slow down Tokio bounded by connection and server.
+- Web settings, IP/CIDR exceptions, decision meters and diagnostics without effect on score.
+- Progressive deployment compatible with workers 0.15.3; default policy disabled.
 
 
 ## 0.15.3 — 2026-09-13
 
-- Protection anti-backscatter après un refus antispam distant, avec preuves concordantes de contenu hostile et expéditeur non authentifié ; score seul et erreurs de contrôle ne suffisent pas.
-- État terminal « Avis bloqué (anti-backscatter) », recherche, diagnostics et réplication de cet état ; trace d’audit transactionnelle, reprise sans recréer de notification.
-- Les avis légitimes conservent le code étendu et le diagnostic SMTP distant, bornés et protégés contre les injections.
-- Les classements non-spam des règles personnelles et les corrections utilisateur conservent les notifications normales.
-- Enregistrement idempotent des DSN sans écraser leur corps lors d’une reprise. Le mode observation et les règles de livraison restent inchangés.
-- Mise à jour du coordinateur avant les workers ; politiques compatibles avec 0.15.1, nouveau statut de livraison pris en charge à partir de 0.15.3.
+- Anti-backscatter protection after remote antispam refusal, with consistent evidence of hostile content and unauthenticated sender; score alone and control errors are not enough.
+- Terminal status "Blocked notification" (anti-backscatter), search, diagnoses and replication of this state; transactional audit trace, resume without recreating notification.
+- Legitimate opinions retain the extended code and diagnosis SMTP remote, bounded and protected against injections.
+- Non-spam rankings of personal rules and user corrections keep normal notifications.
+- Recording of DSNs without crushing their body during a recovery. The observation mode and delivery rules remain unchanged.
+- Coordinator update before workers; policies compatible with 0.15.1, new delivery status supported from 0.15.3.
 
-## 0.15.2 — candidate non publiée
+<a id="0152--candidate-non-publiée"></a>
+## 0.15.2 — Unpublished candidate
 
-- Remplacée par 0.15.3 avant déploiement, pour préserver aussi les notifications des messages reclassés par leurs destinataires. Le tag reste immuable.
+- Replaced by 0.15.3 before deployment, to also preserve notifications of messages reclassified by their recipients. The tag remains immutable.
 
 ## 0.15.1 — 2026-09-13
 
-- Mise à jour séquentielle du cluster depuis 0.14.0 : le coordinateur sert le protocole inchangé aux anciens workers et les nouveaux workers peuvent reprendre leur politique en cache.
-- Compatibilité limitée aux versions explicitement vérifiées ; empreintes, identités, budgets et expiration des politiques restent contrôlés. Mettre à jour le coordinateur avant les workers.
-- Inclut le durcissement et le MFA de la candidate 0.15.0, remplacée avant sa mise en production.
+- The cluster has been updated sequentially since 0.14.0: the coordinator serves the unchanged protocol to old workers and new workers can resume their policy in cache.
+- Compatibility limited to explicitly verified versions; fingerprints, identities, budgets and expiry of policies remain monitored. Update the coordinator before the workers.
+- Includes the hardening and MFA of candidate 0.15.0, replaced before it was put into production.
 
 ## 0.15.0 — 2026-09-13
 
-- Durcissement Debian des MX avec SSH par clé, pare-feu IPv4/IPv6, profils AppArmor et budgets de ressources systemd ; transactions avec retour arrière temporaire et déploiement séquentiel.
-- Audit ciblé, rapports de sécurité sans contenu des messages, collecte centrale et sauvegardes chiffrées restic avec vérification de restauration sans réseau.
-- Modes de sauvegarde distincts : métadonnées/configuration/modèles ou file complète, cette dernière exigeant une conservation explicitement autorisée.
-- Double authentification TOTP dans « Mon compte », secrets chiffrés, codes de secours à usage unique, contrôle côté serveur et révocation des anciennes sessions.
-- Protection contre les retours à un binaire ignorant le MFA : schéma 4 dès la première activation ; procédure locale de récupération auditée.
-- Rôle Ansible, outils de déploiement limités aux releases approuvées par l’administrateur et guide d’exploitation dans `deploy/hardening/README.md`. Les outils Linux s’installent séparément du binaire.
-- Aucun changement automatique du filtrage, du DNS ou de l’enrôlement des comptes existants.
+- Debian hardening of MXs with SSH by key, IPv4/IPv6 firewall, AppArmor profiles and systemd resource budgets; transactions with temporary backlash and sequential deployment.
+- Targeted audit, message content-free security reports, central collection and restic encrypted backups with network-free restoration check.
+- Separate backup modes: metadata/configuration/models or full file, which requires explicitly authorized retention.
+- Double TOTP authentication in "My account", encrypted secrets, single-use backup codes, server-side control and cancellation of old sessions.
+- Protection against returns to a binary ignoring the MFA: schema 4 from the first activation; local procedure of recovered audited.
+- Ansible role, deployment tools limited to administrator-approved releases and operating guide in `deploy/hardening/README.md`. Linux tools install separately from binary.
+- No automatic change in the filtering, DNS or enrolment of existing accounts.
 
 ## 0.14.0 — 2026-09-13
 
-- Passerelles SMTP autonomes avec console centrale, configuration versionnée et modèles vérifiés via HTTPS.
-- Historique multi-MX et recherche par nœud ; les corps et files restent sur leur serveur d’origine.
-- Identités de nœuds révocables, commandes distantes de quarantaine et relance avec confirmation durable.
-- Crédits LLM et quotas CRDF/VirusTotal partagés, persistants et protégés contre une double attribution.
-- Politique en cache pendant une panne du coordinateur, puis refus SMTP temporaire après expiration ; observation conservée.
-- Migration au schéma 3 à l’activation du cluster ; pas de réplication des files ni de bascule automatique de la console. Installation et retour arrière : `docs/multi-mx.md`.
+- Autonomous SMTP gateways with central console, versioned configuration and HTTPS-verified models.
+- Multi-MX history and node search; bodies and files remain on their original server.
+- Removable node identities, remote quarantine commands and re-launch with lasting confirmation.
+- LLM credits and CRDF/VirusTotal allowances shared, persistent and protected against double allocation.
+- Policy cached during a coordinator's breakdown, then refusal temporary SMTP after expiration; observed retained.
+- Migration to schema 3 at cluster activation; no file replication or automatic switch of console. Installation and reverse: `docs/multi-mx.md`.
 
 ## 0.13.0 — 2026-09-12
 
-- Configuration Web des listes RBL, tests DNS des brouillons et paramètres détaillés des moteurs, du LLM, des budgets, de l’OCR et des redirections.
-- Gestion privée des clés Spamhaus DQS et Scaleway, export/import validé et historique des changements sans secrets.
-- Espace « Mes filtres » : niveaux, actions, règles et héritage par boîte ou domaine, dans les limites accordées par l’administrateur.
-- Application aux nouvelles transactions SMTP, limites de concurrence partagées entre révisions et maintien des budgets persistants.
-- Vérification des accès au moment d’enregistrer, protection des références de clés DNS, priorité des règles globales et isolation des boîtes dont la casse diffère.
-- Migration automatique des anciennes révisions sans changement de politique ; retour arrière des réglages documenté dans `docs/web-configuration.md`.
+- Web configuration of RBL lists, DNS tests of drafts and detailed parameters of engines, LLM, budgets, OCR and redirections.
+- Private key management Spamhaus DQS and Scaleway, export/import validated and history of change without secrets.
+- "My filters" space: levels, actions, rules and inheritance by box or domain, within the limits granted by the administrator.
+- Application to new SMTP transactions, limits of competition shared between revisions and maintenance of persistent budgets.
+- Checking accesses at the time of registration, protecting DNS key references, priority of global rules and isolation of boxes whose breakage differs.
+- Automatic migration of old revisions without policy change; backend of documented settings in `docs/web-configuration.md`.
 
 ## 0.12.0 — 2026-09-12
 
-- Recherche locale indexée des objets, expéditeurs et règles ; mots combinés,
-  accents, préfixes et expressions exactes, identifiants et destinataires autorisés.
-- Recherche avancée par adresse, objet, règle, identifiant, période, score et
-  livraison, avec total exact et pagination dans la console.
-- Indexation transactionnelle de l’historique et purge synchronisée ; aucune
-  conservation supplémentaire des corps ni modification des décisions du filtre.
-- Vérifications de l’isolation entre utilisateurs, des copies cachées, des droits
-  révoqués, des migrations, des requêtes invalides et des scores partiels.
+- Local search indexed objects, senders and rules; combined words, accents, prefixes and exact expressions, authorized identifiers and recipients.
+- Advanced search by address, object, rule, ID, period, score and delivery, with exact total and pagination in the console.
+- Transactional indexation of history and synchronized purging; no additional body preservation or modification of filter decisions.
+- Checks for user isolation, hidden copies, revoked rights, migrations, invalid queries and partial scores.
 
 
-Les versions suivent Semantic Versioning. Le projet reste en 0.x : un changement
-incompatible demande une version mineure et une migration documentée.
+The versions follow Semantic Versioning. The project remains in 0.x: an incompatible change requires a minor version and a documented migration.
 
 ## 0.11.1 — 2026-09-12
 
-- En-têtes SMTP de schéma 2 : score disponible, qualification partielle/indicative,
-  source/modèle et score de décision distinct, alignés sur la console.
-- Diagnostics bornés des contrôles, causes d’incomplétude, arbitrage, règles et
-  poids, antivirus, OCR/QR, LLM, CRDF/VirusTotal, RBL et moteur natif consultatif.
-- Les résultats RBL sont transmis depuis la session au rendu, y compris en analyse
-  incomplète, sans changer le score ni les étapes de classification.
-- Champs ASCII repliés et couverts par ARC lorsque le scellement est possible ;
-  suppression des résultats reçus et exclusion des contenus privés.
-- Migration de `X-NoiseFence-Score` documentée. Les classements, modèles, réglages
-  et messages déjà préparés sont conservés. La version 0.11.0 n’a pas été déployée.
+- Schematic 2 SMTP headers: available score, partial/indicative qualification, source/model and separate decision score aligned to the console.
+- Check-bound diagnostics, causes of incompleteness, arbitration, rules and weights, antivirus, OCR/QR, LLM, CRDF/VirusTotal, RBL and native Consultative engine.
+- The RBL results are transmitted from the session to the rendering, including incomplete analysis, without changing the score or the classification steps.
+- ASCII fields folded and covered by ARC where possible; deletion of received results and exclusion of private content.
+- Documented `X-NoiseFence-Score` migration. Already prepared rankings, templates, settings and messages are kept. Version 0.11.0 has not been deployed.
 
 ## 0.11.0 — 2026-09-12
 
-- En-têtes SMTP de schéma 2 : score disponible aligné sur la console, qualification
-  partielle/indicative, source/modèle et score de décision distinct.
-- Diagnostics bornés des contrôles, causes d’incomplétude, arbitrage, règles et
-  poids, antivirus, OCR/QR, LLM, CRDF/VirusTotal, RBL et moteur natif consultatif.
-- Champs ASCII repliés et intégralement couverts par ARC lorsque le scellement
-  est possible ; suppression des résultats reçus et exclusion des contenus privés.
-- Migration documentée de `X-NoiseFence-Score`, sans modification des classements,
-  modèles, réglages ou messages déjà livrés/en file.
+- Figure 2 SMTP headers: available score aligned to console, partial/indicative qualification, source/model and separate decision score.
+- Check-bound diagnostics, causes of incompleteness, arbitration, rules and weights, antivirus, OCR/QR, LLM, CRDF/VirusTotal, RBL and native Consultative engine.
+- ASCII fields folded and fully covered by ARC where possible; deletion of results received and exclusion of private content.
+- Documented migration of `X-NoiseFence-Score`, without changing the rankings, models, settings or messages already delivered/in file.
 
 ## 0.10.4 — 2026-09-12
 
-- Le journal, sa vue mobile et le détail affichent les scores déjà enregistrés
-  des messages « À vérifier » et « Analyse incomplète », avec les mentions
-  « Score indicatif » ou « Score partiel » et les contrôles manquants connus.
-- L’affichage distingue le score, l’incertitude du moteur et les règles du
-  destinataire. Les valeurs absentes ou invalides ne deviennent jamais zéro.
-- Aucun recalcul historique ni changement des décisions, actions de livraison,
-  modèles, délais ou paramètres des fournisseurs en production.
-- Deux tests fonctionnels CRDF disposent d’un délai de fixture borné adapté aux
-  écritures SQLite sur les machines CI. Les assertions sur les quotas, le cache,
-  la concurrence et les tests spécifiques de dépassement de délai sont conservés.
-- Cette version regroupe les corrections préparées dans 0.10.2 et 0.10.3,
-  qui n’ont pas été déployées en production.
+- The log, its moving view and detail display the already recorded scores of the messages "To be verified" and "Incomplete analysis", with the words "Indicative score" or "Partial score" and the known missing controls.
+- The display distinguishes the score, the engine uncertainty and the recipient's rules. The absent or invalid values never become zero.
+- No historical recalculation or change in the decisions, delivery actions, models, deadlines or parameters of suppliers in production.
+- Two CRDF functional tests have a bounded fixture time suitable for SQLite writings on CI machines. Claims on quotas, cache, competition and specific time-out tests are kept.
+- This version includes the corrections prepared in 0.10.2 and 0.10.3, which have not been deployed in production.
 
 ## 0.10.3 — 2026-09-12
 
-- L’explication d’un score indicatif décrit l’incertitude du moteur tout en
-  respectant le classement appliqué par une règle personnalisée du destinataire.
-- Cette version finalise la correction des scores de 0.10.2, qui n’a pas été
-  déployée en production.
+- The explanation of an indicative score describes the uncertainty of the engine while respecting the classification applied by a custom rule of the recipient.
+- This version finalises the correction of the scores of 0.10.2, which was not deployed in production.
 
 ## 0.10.2 — 2026-09-12
 
-- Les messages « À vérifier » conservent un score visible, même lorsque les avis
-  sont contradictoires ou incertains. Le classement reste distinct du score.
-- Les analyses incomplètes affichent le score déjà calculé avec la mention
-  « Score partiel » et les contrôles manquants connus. Une extraction limitée
-  est explicitement signalée ; aucune indisponibilité ne devient un score zéro.
-- Le journal mobile affiche également les scores. La liste et le détail utilisent
-  la même présentation, qui distingue fusion, indice de contenu et valeur interne.
-- Aucun recalcul des messages historiques, changement de politique de livraison
-  ou appel supplémentaire aux fournisseurs : cette correction révèle les
-  résultats déjà conservés par le moteur et l’API.
+- "To be verified" messages retain a visible score, even when the reviews are contradictory or uncertain. The ranking remains distinct from the score.
+- Incomplete analyses show the score already calculated with the mention "Partial score" and the known missing controls. Limited extraction is explicitly reported; no unavailability becomes a zero score.
+- The mobile journal also displays scores. The list and detail use the same presentation, which distinguishes fusion, content index and internal value.
+- No recalculation of historical messages, change of delivery policy or additional call to suppliers: this correction reveals the results already kept by the engine and the API.
 
 ## 0.10.1 — 2026-09-12
 
-- Console : navigation contrastée, textes et statuts plus lisibles, cartes de
-  réglages avec descriptions, niveaux de sensibilité plus compacts sur mobile.
-- Journal : vue compacte, recherche sur toute la largeur, critères actifs
-  visibles et réinitialisation du périmètre, états de chargement plus explicites.
-- Le filtre « Indices PUB » reste correctement sélectionné dans le menu avancé.
-  Une recherche vide dans un domaine permet de revenir à tous les accès autorisés.
-- Les décisions, autorisations, actions de livraison et configurations des
-  fournisseurs restent inchangées.
+- Console: contrasting navigation, more readable texts and status, adjustment maps with descriptions, more compact sensitivity levels on mobile.
+- Journal: compact view, search all width, visible active criteria and perimeter reset, more explicit loading states.
+- The "PUB Indices" filter remains correctly selected from the advanced menu. An empty search in a domain allows you to return to all the accesses allowed.
+- The decisions, authorizations, delivery actions and supplier configurations remain unchanged.
 
 ## 0.10.0 — 2026-09-12
 
-- Cinq niveaux de sensibilité dans l’administration, avec un choix général,
-  des exceptions par domaine et les profils par destinataire existants.
-- Seuil de décision distinct de la calibration du modèle multilingue ;
-  héritage adresse → domaine → organisation, copie des profils partagés
-  avant une modification ciblée et conservation des actions de livraison.
-- Confirmation obligatoire pour les seuils explicites, arbitrage des avis
-  contradictoires conservé et fusion validée protégée côté serveur.
-- La simulation applique aussi la confirmation générale. Aucun changement
-  automatique des réglages actifs, des modèles, des appels LLM ou de l’observation.
-- Voir `docs/custom-filtering.md` pour les limites et le retour à 0.9.
+- Five levels of sensitivity in administration, with general choice, domain exceptions and existing recipient profiles.
+- Decision threshold distinct from the calibration of the multilingual model; legacy address → domain → organization, copy of shared profiles before a targeted modification and retention of delivery actions.
+- Mandatory confirmation for explicit thresholds, arbitration of conflicting notices retained and validated merge protected on server side.
+- The simulation also applies the general confirmation. No automatic change of active settings, models, LLM calls or observation.
+- See `docs/custom-filtering.md` for limits and return to 0.9.
 
 ## [Unreleased]
 
 ## [0.9.0] — 2026-09-12
 
-- Douze règles locales HTML, MIME et d’identité affichée inspirées des sources de Rspamd, transposées en Rust : formulaires de mot de passe, destinations externes ou HTTP, texte masqué, liens HTTPS trompeurs, URL data actives, redirections HTML, extensions exécutables/doubles, binaires déguisés et noms de fichiers obfusqués.
-- Deux composites regroupent les preuves liées aux formulaires et aux pièces jointes. Désactivation et pondération par règle, plafonds de famille, limites MIME/HTML/DOM et diagnostic sans contenu privé.
-- Commande `native-rules` pour consulter la banque ou examiner un fichier local sans réseau ni livraison. Cas adverses et contre-exemples légitimes, ajout de l’inspection au harnais de fuzzing MIME.
-- Le module reste en observation : aucun nouveau signal ne modifie le score de livraison ou les appels LLM. Les modèles, le schéma SQLite 2 et les caractéristiques Bayes/adaptatives restent compatibles ; l’empreinte du détecteur distingue la nouvelle collecte. Provenance, configuration et limites dans [le guide](docs/rspamd-rules.md).
+- Twelve local HTML, MIME and ID rules displayed based on Rspamd sources, translated into Rust: password forms, external or HTTP destinations, hidden text, misleading HTTPS links, active data URLs, HTML redirects, executable/double extensions, disguised binary and obfuscated file names.
+- Two composites combine evidence related to forms and attachments. Deactivation and rule weighting, family ceilings, MIME/HTML/DOM limits and diagnosis without private content.
+- Order `native-rules` to view the bank or examine a local file without a network or delivery. Adverse cases and legitimate counter-examples, addition of inspection to MIME buzzing harness.
+- The module remains in observation: no new signal changes the delivery score or LLM calls. In this historical release, models, SQLite schema 2 and Bayes/adaptive features remained compatible; the detector fingerprint identifies the new collection. See the [guide](docs/rspamd-rules.md) for provenance, configuration and limits.
 
 ## [0.8.0] — 2026-09-12
 
-- Apprentissage natif Rust de cinq catégories : légitime, publicité, spam, phishing et escroquerie. Bayes OSB multiclasse et réseau neuronal local 16×16×5 régularisé, distincts du moteur binaire de livraison.
-- Modèles et politiques propres à chaque domaine, seuils et marges par classe, abstention en cas de désaccord, de modèle expiré ou d’enveloppe partagée entre domaines. Actions simulées uniquement : aucun nouveau score, marquage ni mise en quarantaine automatique.
-- Annotations détaillées dans la console, contrôles d’accès et protection CSRF côté serveur. Les corrections générales ultérieures invalident les annotations détaillées devenues obsolètes.
-- Export privé de caractéristiques, entraînement Rust hors ligne, périodes chronologiques séparées, déduplication des campagnes exactes et similaires, exclusion des conflits et des annotations tardives. Sélection sur validation seulement, test indépendant, matrice de confusion et intervalles de confiance.
-- Commandes `adaptive-export`, `adaptive-train`, `adaptive-evaluate` et `adaptive-check`, avec mesure locale des latences. Modèles bornés, expiration à trente jours, aucune analyse externe ajoutée et aucune performance réelle présumée.
-- SQLite conserve le schéma 2 avec une table additive d’annotations. Nouvelle empreinte du détecteur ; configuration et procédure de retour dans [le guide](docs/adaptive-filtering.md). Les modèles lexicaux et sémantiques existants restent indépendants.
+- Rust native learning in five categories: legitimate, advertising, spam, phishing and scam. Multiclass OSB Bayes and regulated 16×16×5 local neural network, distinct from the binary delivery engine.
+- Models and policies specific to each domain, threshold and margin by class, forbearance in the event of disagreement, expired model or shared envelope between domains. Simulated actions only: no new score, marking or automatic quarantine.
+- Detailed annotations in the console, access controls and server-side CSRF protection. Subsequent general corrections invalidate detailed annotations that have become obsolete.
+- Private export of characteristics, offline Rust training, separate time periods, deduplication of accurate and similar campaigns, exclusion of conflicts and late annotations. Selection on validation only, independent test, confusion matrix and confidence intervals.
+- Commands `adaptive-export`, `adaptive-train`, `adaptive-evaluate` and `adaptive-check`, with local measurement of latency. Limited models, 30 day expiry, no external analysis added and no actual performance assumed.
+- This release retained SQLite schema 2 with an additive annotation table. It introduced a new detector fingerprint; see the [guide](docs/adaptive-filtering.md) for configuration and rollback. Existing lexical and semantic models remained independent.
 
 ## [0.7.0] — 2026-09-12
 
-- Contrôles IP DNSBL avant DATA, stockage et analyse : connecteur Spamhaus ZEN DQS existant et jusqu’à sept listes IP supplémentaires, avec codes explicites et regroupement par fournisseur.
-- Observation par défaut, consensus de deux fournisseurs distincts et refus SMTP 451/550 configurables uniquement en mode application. PBL/BCL, erreurs DNS, codes inconnus et contrôles incomplets ne provoquent pas de refus.
-- Requêtes concurrentes, capacité partagée, budget global et cache borné respectant les TTL. IPv4/IPv6, normalisation des adresses mappées, exclusion des adresses privées et diagnostics sans clé ni contenu.
-- Commande `rbl-check`, rapports avant réception dans les journaux et fiches des messages acceptés ; aucun poids supplémentaire dans le score. Les contrôles de domaines/URL après DATA restent distincts.
-- Tests DNS/SMTP locaux couvrant consensus, erreurs, cache, annulation, refus avant stockage et livraison en observation. Mode observation et modèles actifs conservés. Empreinte de détecteur renouvelée, SQLite reste au schéma 2 ; voir [configuration et migration](docs/early-rbl.md).
+- DNSBL IP controls before DATA, storage and analysis: existing ZEN DQS Spamhaus connector and up to seven additional IP lists, with explicit codes and grouping by supplier.
+- Default observation, consensus of two separate suppliers and refusal SMTP 451/550 configurable only in application mode. PBL/BCL, DNS errors, unknown codes and incomplete controls do not cause refusal.
+- Competing requests, shared capacity, global budget and limited cache respecting TTL. IPv4/IPv6, normalization of mapped addresses, exclusion of private addresses and diagnostics without key or content.
+- Command `rbl-check`, reports before receiving in the logs and cards of accepted messages; no extra weight in the score. Domain/URL controls after DATA remain separate.
+- Local DNS/SMTP tests covering consensus, errors, cache, cancellation, refusal before storage and delivery in observation. Observation mode and active models retained. Renewed sensor imprint, SQLite remains in schema 2; see [configuration and migration](docs/early-rbl.md).
 
 ## [0.6.0] — 2026-09-12
 
-- Recherches CRDF groupées (douze domaines maximum), résultats associés strictement aux cibles et cache consulté avant les limites réseau. Une cible déjà en cache reste utilisable pendant un quota ou une indisponibilité.
-- Quotas réservés après obtention d’une capacité de requête ; une seule reprise bornée sur certaines erreurs temporaires. Prise en compte persistante de `Retry-After`, comptage des requêtes, codes HTTP et incidents sans conserver les réponses privées.
-- Redirections exécutées concurremment dans le délai global avec un plafond partagé : une URL lente ne prive plus systématiquement les autres de contrôle. DNS épinglé, TLS, protections SSRF et limites de lecture conservés.
-- Diagnostics de couverture par version courante ou historique et contexte des spams annotés non capturés, séparant échantillons qualité et corrections ciblées. Une association ne prouve pas la cause d’une erreur.
-- Observation des changements de destinataire, domaines de liens et types de demandes sur des expéditeurs DKIM alignés, à partir de campagnes humaines légitimes récentes. Données cloisonnées, hachées et bornées ; les enveloppes partagées et historiques insuffisants s’abstiennent.
-- Sélection exacte des seuils sous budgets empiriques de faux positifs et faux négatifs, comparaisons inclusives et ex æquo pris en compte. Douze ablations, dont le contexte comportemental, avec test futur indépendant et intervalles toujours requis.
-- Nouveau protocole de candidat qualité : les anciens candidats optionnels doivent être retirés avant mise à niveau et réentraînés sur une collecte compatible. Modèles lexicaux/sémantiques et schéma SQLite 2 inchangés ; aucun candidat activé automatiquement. Voir [le détail et la migration](docs/capture-coverage.md).
+- Grouped CRDF searches (maximum of 12 domains), results strictly associated with the targets and cache consulted before network limits. A target already in cache remains usable during a quota or unavailability.
+- Quotas reserved after obtaining a query capability; only one recapture limited to certain temporary errors.Continuing consideration of `Retry-After`, counting requests, HTTP codes and incidents without keeping private responses.
+- Redirections executed simultaneously within the overall time frame with a shared ceiling: a slow URL no longer systematically deprives others of control. DNS pinned, TLS, SSRF protections and read limits retained.
+- Coverage diagnostics by current or historical version and context of uncaptured annotated spam, separating quality samples and targeted corrections. An association does not prove the cause of an error.
+- Observation of changes in recipients, areas of links and types of requests on DKIM senders aligned, from recent legitimate human campaigns. Partitioned, minced and bounded data; insufficient shared and historical envelopes are abstinent.
+- Accurate selection of empirical budget thresholds of false positives and false negatives, inclusive comparisons and tied values taken into account. Twelve ablations, including the behavioural context, with future independent test and always required intervals.
+- New quality-candidate protocol: remove incompatible optional candidates before upgrading and retrain on compatible observations. This historical release kept lexical/semantic models and SQLite schema 2 unchanged; no candidate was activated automatically. See [details and migration](docs/capture-coverage.md).
 
 ## [0.5.0] — 2026-09-12
 
-- Console Fiabilité pour administrateurs et utilisateurs : historique cloisonné, annotations et corrections ciblées séparées, métriques avec intervalles, disponibilité des contrôles, variations du trafic et groupes de collecte.
-- Audit Rust borné des règles : occurrences, cooccurrences, regroupements et retrait de poids sur les observations historiques rejouables ; comparaison des candidats enregistrés sans modifier les décisions.
-- Compatibilité de collecte liée au code Rust/SQL, aux dépendances, à la compilation, aux paramètres et aux modèles. Une simple version applicative ne suffit plus à fragmenter les observations ; les anciens artefacts restent strictement distincts.
-- Entrées natives de contenu, campagne et Bayes dans le candidat calibré, avec états manquants explicites et onze ablations. Aucun modèle entraîné privé ni activation automatique.
-- Motifs natifs plus contextuels : normalisation bornée de certains caractères invisibles et pleine chasse, demandes de récupération distinguées des avertissements français/anglais, HTML inerte exclu des formulaires.
-- Contrôle local borné de la date annoncée par ClamD et checklists de compatibilité Proton SPAM/PUB ; une acceptation SMTP ne valide pas le dossier d’arrivée.
-- Migration des protocoles de candidats et contenu natif ; stockage SQLite inchangé. Voir [la migration et le protocole de validation](docs/reliability.md). La qualité de capture en production reste à mesurer sur des annotations récentes indépendantes.
+- Reliability console for administrators and users: partitioned history, separate annotations and targeted corrections, metrics with intervals, control availability, traffic variations and collection groups.
+- Audit Rust limited rules: occurrences, co-occurrences, consolidations and withdrawal of weight on replayable historical observations; comparison of registered candidates without changing decisions.
+- Collection compatibility related to Rust/SQL code, dependencies, compilation, parameters and models. A simple application version is no longer enough to fragment observations; the old artifacts remain strictly distinct.
+- Native content entries, campaign and Bayes in the calibrated candidate, with explicit missing states and eleven ablations. No private driven model nor automatic activation.
+- More contextual native grounds: limited standardization of certain invisible characters and full hunting, distinguished recovery requests from English/French warnings, inert HTML excluded from the forms.
+- Local control limited to the date announced by ClamD and Proton SPAM/PUB compatibility checklists; SMTP acceptance does not validate the arrival folder.
+- Migration of candidate protocols and native content; SQLite storage unchanged. See [migration and validation protocol](docs/reliability.md). The quality of capture in production remains to be measured on recent independent annotations.
 
 ## [0.4.15] — 2026-09-12
 
-- Moteur complémentaire natif Rust : motifs compilés et groupés par vue MIME, symboles explicites, composites déterministes et plafonds de contribution par famille. Les contributions remplacées restent visibles dans les diagnostics.
-- Similarité des campagnes par shingles et MinHash du texte et de la structure HTML. La mémoire consulte uniquement les corrections humaines récentes autorisées du domaine ; les contradictions, répétitions exactes, délais et indisponibilités empêchent un renforcement.
-- Classifieur OSB Bayes Rust : fréquences documentaires, bigrammes distants, export privé avec contrôle d’accès, entraînement et évaluation chronologiques séparant les campagnes, seuil figé et manifeste d’historique lié aux poids. Les modèles expirent après trente jours.
-- Configuration bornée, exécution locale concurrente, conservation privée des caractéristiques et diagnostics français. Commande de mesure du débit et comparaison de la recherche groupée avec des expressions évaluées individuellement.
-- Ces mécanismes sont en observation uniquement. Aucun nouveau score ne modifie l’arbitrage, les actions, les appels externes ou les messages livrés. La qualité en production exige des annotations humaines récentes et un test indépendant ; les scores Bayes ne sont pas des probabilités calibrées.
+- Rust native complementary motor: compiled and grouped patterns by MIME view, explicit symbols, deterministic composites and contribution ceilings per family. The contributions replaced remain visible in the diagnostics.
+- Similarity of shingles and MinHash campaigns of HTML text and structure. The memory only consults the recently authorized human corrections of the domain; contradictions, exact repetitions, delays and unavailability prevent a reinforcement.
+- OSB Bayes Rust Classifier: Documentary frequencies, remote bigrams, private export with access control, training and time evaluation separating campaigns, frozen threshold and weight-related history manifest. Models expire after 30 days.
+- Configuration bounded, concurrent local execution, private preservation of French characteristics and diagnostics. Control of flow measurement and comparison of group search with individually evaluated expressions.
+- These mechanisms are in observation only. No new score changes arbitration, actions, external calls or delivered messages. Quality in production requires recent human annotations and an independent test; Bayes scores are not calibrated probabilities.
 
 ## [0.4.13] — 2026-09-11
 
-- Choix identique en Python et Rust lorsque plusieurs types de courrier ont la même probabilité ; contrôle de parité sur les catégories, en plus des probabilités.
-- Apprentissage du risque indépendant des six types de courrier : un type rare ou inconnu ne bloque plus un candidat de risque. Format 2 avec profils distincts, manifeste privé lié aux poids et lecture des anciens candidats conservée.
-- Évaluation prospective séparée : campagnes antérieures, exclusions et abstentions comptées, seuils figés, calibration, métriques PUB et critères de capture/faux positifs assortis d’intervalles de confiance. Aucun rapport ne permet une activation automatique.
-- Neuf comparaisons par retrait de familles de signaux, parité Python/Rust, contrôles d’encodage MIME et de contexte cité. Ces tests synthétiques ne démontrent pas une performance sur le trafic.
-- Diagnostics : décomposition vérifiée du score avant saturation, agrégats des erreurs du moteur et du second avis, disponibilité et coût comptabilisé, sans exporter le contenu privé.
-- Console : annotations exploitables, données manquantes, configurations distinctes et type facultatif. Les poids actifs, budgets et actions restent inchangés ; les objectifs de qualité exigent encore des annotations humaines et un test indépendant.
+- Same choice in Python and Rust when several types of mail have the same probability; parity control over categories, in addition to probabilities.
+- Risk learning independent of the six types of mail: a rare or unknown type no longer blocks a risk candidate. Format 2 with distinct profiles, private manifest related to the weights and reading of former candidates retained.
+- Separate prospective evaluation: previous campaigns, exclusions and omissions counted, fixed thresholds, calibration, PUB metrics and positive capture/false criteria with confidence intervals. No ratio allows automatic activation.
+- Nine comparisons by removal of signal families, Python/Rust parity, MIME encoding controls and context cited. These synthetic tests do not show performance on traffic.
+- Diagnostics: verified decomposition of score before saturation, aggregates of engine and second notice errors, availability and cost recorded, without exporting private content.
+- Console: exploitable annotations, missing data, separate configurations and optional type. Active weights, budgets and actions remain unchanged; quality objectives still require human annotations and an independent test.
 
 ## [0.4.11] — 2026-09-11
 
-- Arbitrage explicite du second avis : un désaccord avec le classement historique donne « À vérifier », sans déclarer automatiquement le message légitime. Un avis ambigu est traité séparément des erreurs de fournisseur.
-- Conservation du score brut et des caractéristiques, priorité de l’antivirus principal, respect de la politique de fusion et réapplication cohérente des profils par destinataire.
-- Console et diagnostics : avis contradictoires visibles, absence de score décisionnel trompeur lors d’une abstention, compteurs et actions fondés sur la décision finale.
-- Audit natif en lecture seule : comparaison séparée des détections, erreurs et abstentions, et transitions sur les 100 messages récents. Aucun historique réécrit, aucun nouveau modèle activé ni taux de capture présumé.
+- Explicit arbitration of the second notice: a disagreement with the historical ranking gives "To be verified", without automatically declaring the legitimate message. An ambiguous notice is dealt with separately from supplier errors.
+- Preservation of raw score and characteristics, priority of the main antivirus, respect of fusion policy and consistent reapplication of profiles per recipient.
+- Console and diagnostics: visible conflicting opinions, lack of misleading decision score in forbearance, meters and actions based on the final decision.
+- Read-only native audit: separate comparison of detections, errors and omissions, and transitions on the 100 recent messages. No rewritten history, no new activated model, and no assumed capture rate.
 
 ## [0.4.10] — 2026-09-11
 
-- Second avis facultatif sur les scores élevés sans corroboration : option explicite, motif conservé même en cas d’annulation, budget et délais inchangés.
-- Normalisation des anciens préfixes de filtrage dans l’objet soumis au LLM, identique au modèle local, sans modifier les messages livrés ni les poids actifs. Ces corrections ne démontrent pas un taux de capture en production.
+- Second optional opinion on high scores without substantiation: explicit option, motif retained even in case of cancellation, budget and deadlines unchanged.
+- Normalization of the old prefixes of filtering in the object submitted to the LLM, identical to the local model, without changing the messages delivered or the active weights. These corrections do not show a rate of capture in production.
 
-- Apprentissage correctif privé à partir des erreurs humaines, ancré sur le modèle lexical existant et un corpus de rappel ; conservation de l’IDF, du biais, du seuil et de la tête sémantique.
-- Comparaison hors campagne, contrôle temporel et contrôles de régression par corpus. Une baisse des faux positifs accompagnée d’une perte de capture rejette le candidat ; aucune activation automatique.
-- Regroupement des retours humains : conserver les dates extrêmes de toute la campagne transitive afin de ne pas faire passer une annotation future pour une observation antérieure.
-- Concordance des poids correctifs avec l’inférence Rust existante, sans nouveau calcul dans le chemin SMTP. Voir [le protocole](docs/corrective-learning.md).
+- Private corrective learning from human errors, anchored to the existing lexical model and a corpus of reminder; preservation of the IDF, bias, threshold and semantic head.
+- Off-campaign comparison, time control and regression checks by corpus. A drop in false positives accompanied by a loss of capture rejects the candidate; no automatic activation.
+- Regrouping human returns: keep the extreme dates of the entire transitive campaign in order not to make a future annotation for a previous observation.
+- Corrective weights agree with existing Rust inference, without another calculation in the SMTP path. See the [protocol](docs/corrective-learning.md).
 
 ## [0.4.9] — 2026-09-11
 
-- Profils de sensibilité et actions par organisation, domaine et destinataire, avec héritage explicite et priorité des alias.
-- Règles personnalisées bornées, ordre, expiration, combinaisons ET/OU, simulation du brouillon et détail des décisions par destinataire.
-- Une analyse commune, des variantes de livraison indépendantes et une acceptation atomique après persistance de tous les messages.
-- Invitations d’accès à la console : liens temporaires à usage unique, révocation, choix du mot de passe, contrôle des droits à l’activation et audit. Aucun envoi automatique.
-- Conservation du mode observation, des validations Proton et de la priorité du malware. Stockage additif ; voir les précautions de [retour arrière](docs/custom-filtering.md).
+- Sensitivity profiles and actions by organization, domain and recipient, with explicit legacy and priority of aliases.
+- Custom rules bounded, order, expiry, ET/OR combinations, draft simulation and details of decisions by recipient.
+- A common analysis, independent delivery variants and atomic acceptance after the persistence of all messages.
+- Invitations to access the console: temporary single-use links, revocation, password choice, activation rights control and audit. No automatic sending.
+- Observation mode, Proton validation and malware priority are preserved. Storage changes are additive; see the [rollback precautions](docs/custom-filtering.md).
 
 ## [0.4.8] — 2026-09-11
 
-### Filtrage et validation
+<a id="filtrage-et-validation"></a>
+### Filtering and Validation
 
-- Le LLM ne corrobore plus sa propre contribution au score historique (`confirmation-3`). Les scores élevés insuffisamment étayés restent « À vérifier » ; ce changement peut réduire le rappel.
-- Analyse contextuelle du phishing : nom protégé, lien affiché, Reply-To et QR rapprochés de la destination finale vérifiée. Les exceptions concernent le site final exact.
-- Réponses CRDF et VirusTotal liées à l’indicateur demandé, avec portée et bornes de fraîcheur. Une URL CRDF précise ne devient pas une condamnation de tout le domaine.
-- Historique de correspondants limité au domaine destinataire, à une identité DKIM alignée et aux corrections antérieures des administrateurs autorisés. Expiration, conflits et diversité des campagnes ; aucun contournement des contrôles.
-- Console « Qualité du filtre » pour tous les comptes : tirages uniformes figés, scores masqués, annotation du risque et de six types de courrier, pagination et autorisations par destinataire.
-- Observations versionnées, export privé sans corps, entraînement local régularisé et calibré, séparation temporelle/campagnes, comparaison au classement appliqué, ablations et intervalles de confiance. Modèles JSON vérifiés par parité Python/Rust, exclusivement en observation.
-- Stockage additif compatible avec le retour au binaire 0.4.7 ; aucune activation du marquage Proton, aucun modèle privé distribué, aucune performance de production présumée.
+- The LLM no longer corroborates its own contribution to the historical score (`confirmation-3`). High scores that are insufficiently supported remain "To be verified"; this change may reduce the recall.
+- Contextual analysis of phishing: protected name, link displayed, Reply-To and QR close to the final destination verified. Exceptions apply to the exact final site.
+- CRDF and VirusTotal responses related to the requested indicator, with scope and freshness terminals. A specific CRDF URL does not become a condemnation of the entire domain.
+- History of correspondents limited to the recipient domain, an aligned DKIM identity and previous corrections of authorized administrators. Expiry, conflict and diversity of campaigns; no circumvention of controls.
+- "Filter quality" console for all accounts: fixed uniform prints, masked scores, risk annotation and six types of mail, pagination and authorizations per recipient.
+- Versioned observations, private export without body, regulated and calibrated local training, time separation/campaigns, comparison to applied ranking, ablations and confidence intervals. JSON models checked by Python/Rust parity, exclusively in observation.
+- Additive storage compatible with the return to binary 0.4.7; no activation of Proton marking, no distributed private model, no presumed production performance.
 
 ## [0.4.7] - 2026-09-11
 
-- Rétablir le suivi des URL sous systemd : autoriser l’inventaire des interfaces
-  via Netlink, conserver les exclusions des adresses internes et distinguer un
-  inventaire indisponible d’une destination interdite. Tester le confinement Linux.
-- Exécuter les consultations de réputation avec trois indicateurs au plus par
-  fournisseur et message, sous un plafond global de requêtes partagé. Préserver
-  la priorité des destinations finales, les quotas durables et le cache ; compter
-  aussi les indicateurs omis en raison d’un quota, d’un échec ou du délai global.
-- Chevaucher le LLM consultatif et les vérifications de réputation. Continuer les
-  contrôles indépendants après un OCR limité sans déclarer l’analyse complète,
-  sans préfixer le message et sans effacer une détection antivirus acquise.
-- Expliquer les erreurs LLM et fournisseurs avec des causes bornées : délai,
-  connexion, authentification, quota distant, réponse invalide ou trop volumineuse.
-  Aucun corps de réponse fournisseur ni secret n’est ajouté aux diagnostics.
-- Afficher les indices PUB même lorsqu’une décision de sécurité reste prioritaire,
-  avec un filtre dédié qui conserve les droits par destinataire. Les décisions
-  historiques et les modèles ne sont pas réécrits. Aucune migration de stockage.
+- Restore the tracking of URLs under systemd: allow the inventory of interfaces via Netlink, keep exclusions from internal addresses and distinguish an unavailable inventory from a prohibited destination. Test Linux containment.
+- Perform reputational consultations with no more than three indicators per supplier and message, under an overall shared request ceiling. Preserving the priority of final destinations, sustainable quotas and cache; counting also the indicators omitted due to a quota, failure or overall delay.
+- Scroll the advisory LLM and reputation checks. Continue independent controls after a limited OCR without declaring the full analysis, without prefixing the message and without erasing an acquired antivirus detection.
+- Explain LLM errors and suppliers with limited causes: delay, connection, authentication, remote quota, invalid or too large response. No supplier response body nor secret is added to the diagnostics.
+- Show PUB indices even when a security decision remains a priority, with a dedicated filter that retains rights per recipient. Historical decisions and templates are not rewritten. No storage migration.
 
 ## [0.4.6] - 2026-09-11
 
-- Repenser la console avec une identité orange, une navigation claire, une page
-  de connexion illustrée et un habillage commun aux espaces administrateur et
-  utilisateur. Adapter les listes, les réglages et les confirmations aux petits écrans.
-- Rendre le journal plus lisible avec des statuts distincts, des indices de suspicion
-  accessibles et les filtres secondaires regroupés. Ajouter le raccourci Ctrl/⌘+K
-  pour la recherche et la possibilité d’afficher temporairement le mot de passe.
-- Conserver les décisions, les autorisations, les requêtes API et les politiques
-  de livraison existantes. Aucune migration de stockage ni modification du moteur.
+- Rethink the console with an orange identity, clear navigation, an illustrated login page and a common dress to admin and user spaces. Adapt lists, settings and confirmations to small screens.
+- Make the log more readable with separate statuses, available suspicion clues and grouped secondary filters. Add the shortcut Ctrl/的+K for searching and the possibility of temporarily displaying the password.
+- Maintain existing decisions, authorizations, API requests and delivery policies. No storage migration or engine modification.
 
 ## [0.4.5] - 2026-09-10
 
-- Configurer les quotas CRDF et VirusTotal par minute et par jour depuis la console,
-  avec mode illimité explicite et héritage des plafonds du serveur pour les anciennes
-  configurations. Appliquer les changements sans redémarrer ni réinitialiser l’usage.
-- Afficher les limites actives, les compteurs persistants, leurs échéances et les
-  pauses fournisseur. Conserver le cache, les délais, la concurrence bornée et les
-  plafonds de travail par message, même avec une clé illimitée.
-- Corriger les consultations CRDF : construire une racine HTTPS depuis le domaine,
-  les domaines nus étant refusés par l’API. Aucun chemin ni paramètre du mail transmis.
-- Versionner et contrôler les modifications via l’API d’administration existante.
-  Aucun changement du score, des modèles, du routage ou du schéma de stockage.
-  Avant retour à un binaire antérieur, restaurer une révision sans champs de quota.
+- Configure CRDF and VirusTotal allowances per minute per day from the console, with explicit unlimited mode and legacy of server ceilings for old configurations. Apply changes without restarting or reset usage.
+- Display active limits, persistent meters, their deadlines and supplier breaks. Keep cache, deadlines, limited competition and message-based work ceilings, even with unlimited key.
+- Fix CRDF consultations: build an HTTPS root from the domain, the bare domains being refused by the API. No path or parameter of the transmitted mail.
+- Version and control changes via the existing administration API. No change in score, models, routing or storage scheme. Before returning to a previous binary, restore a revision without quota fields.
 
 ## [0.4.4] - 2026-09-10
 
-- Suivre les redirections HTTP et HTML des liens du texte et de l’OCR/QR avec
-  un réglage administrateur explicite. Vérifier chaque saut DNS/IP et le
-  certificat TLS, exclure les adresses internes et borner temps, volume et
-  concurrence. Ne pas exécuter JavaScript ni soumettre de formulaires.
-- Comparer les URLs visitées à la base locale de phishing et consulter les
-  domaines découverts via les connecteurs configurés, avec priorité aux dernières
-  destinations et indication des quotas et omissions.
-- Afficher les parcours et leurs interruptions dans les diagnostics, sans
-  conserver chemins, paramètres ou pages. Conserver les observations
-  consultatives, les modèles et les actions de livraison existants.
-- Reporter cette capacité de 0.5.0-dev.15 sur la branche stable 0.4.3, sans
-  migration de stockage. Les configurations existantes gardent le suivi désactivé
-  jusqu’à son activation depuis la console.
+- Track HTTP and HTML redirects of text and OCR/QR links with explicit admin setting. Check each DNS/IP jump and TLS certificate, exclude internal addresses and limit time, volume and competition. Do not run JavaScript or submit forms.
+- Compare the URLs visited to the local phishing database and consult the domains discovered via the configured connectors, with priority to the last destinations and indication of quotas and omissions.
+- Display the routes and their interruptions in the diagnostics, without keeping paths, parameters or pages. Keep the existing advisory observations, models and delivery actions.
+- Report this 0.5.0-dev.15 capacity to the stable 0.4.3 branch, without storage migration. Existing configurations keep tracking disabled until it is activated from the console.
 
 ## [0.4.3] - 2026-09-10
 
-- Accepter le point final des noms MX pour le relais SMTP, notamment les avis
-  d’échec déjà en file. Conserver la résolution DNS absolue, le nom TLS canonique,
-  la vérification des certificats et les contrôles contre les boucles.
-- Documenter les tentatives arrêtées avant toute réponse SMTP et couvrir les
-  routes avec ou sans port, les noms invalides et la livraison locale des avis.
+- Accept the final point of the MX names for the SMTP relay, including failed notices already in file. Keep absolute DNS resolution, canonical TLS name, certificate verification and loop checks.
+- Document attempts stopped before any SMTP response and cover roads with or without port, invalid names and local delivery of notices.
 
 ## [0.4.2] - 2026-09-10
 
-- Masquer les adresses pouvant être réaffichées dans les réponses SMTP distantes,
-  y compris les alias, les copies cachées et les représentations encodées usuelles.
-  Le masquage intervient avant troncature et s’applique aussi à la consultation des
-  anciens journaux et erreurs dans la console.
-- Conserver les codes SMTP, codes étendus, étapes, durées et motifs utiles au
-  diagnostic. Les textes importés dépassant le budget d’inspection sont omis.
-- Couvrir les réponses distantes, les journaux structurés et l’API authentifiée
-  avec des régressions sur les droits par destinataire et la confidentialité.
+- Hide addresses that can be retrieved in remote SMTP responses, including aliases, hidden copies, and usual encoded representations. The masking occurs before truncation and also applies to viewing old logs and errors in the console.
+- Keep SMTP codes, extended codes, steps, durations and reasons for diagnosis. Imported texts exceeding the inspection budget are omitted.
+- Cover remote responses, structured logs and authenticated API with regressions on recipient rights and confidentiality.
 
 ## [0.4.1] - 2026-09-09
 
-- Historique SMTP sortant par destinataire : serveurs essayés, IP, TLS vérifié,
-  réponses positives et négatives, codes étendus, durée et prochaine tentative.
-  Les erreurs réseau et de protocole conservent leur contexte ; une déconnexion
-  après le `250` final ne provoque pas de nouvelle livraison.
-- Diagnostics dans la console : règles déclenchées, effets consultatifs ou
-  numériques, contributions du modèle, authentification, durée et réglages
-  réellement appliqués à l’analyse. Aucun seuil historique n’est inventé.
-- Traces bornées enregistrées avec le résultat de livraison et accessibles
-  uniquement aux destinataires autorisés. Migration additive du schéma 2,
-  suppression avec les métadonnées, aucun corps ni argument SMTP sortant journalisé.
-- Journaux structurés enrichis pour relier analyse, acceptation durable et relais.
-  Les modèles, seuils et comportements de filtrage existants sont conservés.
+- History of outgoing SMTP by recipient: tested servers, IP, verified TLS, positive and negative responses, extended codes, duration and next attempt. Network and protocol errors keep their context; a disconnection after the final `250` does not cause any new delivery.
+- Console diagnostics: triggered rules, advisory or numerical effects, model contributions, authentication, duration and settings actually applied to the analysis. No historical threshold is invented.
+- Restricted tracks recorded with the delivery result and accessible only to authorized recipients. Additive migration of schema 2, deletion with metadata, no body or SMTP argument out-of-date updated.
+- Structured journals enriched to link analysis, sustainable acceptance and relays. Existing models, thresholds and filtering behaviors are retained.
 
 ## [0.4.0] - 2026-09-09
 
-Release finale du cycle 0.4, regroupant les versions de développement jusqu’à
-0.4.0-dev.4. Elle conserve les comportements de filtrage de ce dernier candidat.
+Final release of the 0.4 cycle, combining the development versions up to 0.4.0-dev.4. It retains the filtering behavior of the latter candidate.
 
-### Fonctionnalités
+<a id="fonctionnalités"></a>
+### Features
 
-- Passerelle SMTP Rust concurrente, STARTTLS, file durable et suivi des livraisons
-  par destinataire. Domaines, alias et réception de toutes les adresses d’un domaine.
-- Analyse locale, authentification email, détection de publicités/newsletters,
-  confirmations croisées et connecteurs facultatifs : OCR/QR/PDF, ClamAV,
-  Spamhaus DQS, CRDF et VirusTotal. Modèles appris chargés séparément.
-- Actions configurables par catégorie : transmettre, tagger ou mettre en
-  quarantaine. Libération, suppression et expiration par destinataire.
-- Console française adaptée aux mobiles : messages, raisons, corrections,
-  quarantaine, compte personnel, domaines, passerelles, filtres et comptes.
-  Autorisations vérifiées côté serveur ; réglages versionnés et brouillons conservés.
+- Competitive SMTP Rust gateway, STARTTLS, durable file and delivery tracking by recipient. Domains, alias and receipt of all addresses of a domain.
+- Local analysis, email authentication, advertising/newsletter detection, cross confirmations and optional connectors: OCR/QR/PDF, ClamAV, Spamhaus DQS, CRDF and VirusTotal. Models learned loaded separately.
+- Actions configurable by category: transmit, tag or quarantine. Release, deletion and expiration by recipient.
+- French console adapted to mobiles: messages, reasons, corrections, quarantine, personal account, domains, gateways, filters and accounts. Server-side checks; versioned settings and drafts retained.
 
-### Distribution et installation
+### Distribution and installation
 
-- Mise à jour des outils de recherche vers PyTorch 2.13.0 et Transformers 5.10.1
-  pour leurs correctifs de sécurité ; versions consignées dans les nouveaux exports.
-  Les modèles déployés et les résultats historiques ne sont pas modifiés.
-- Archives Linux x86-64 et ARM64 : binaire avec moteur sémantique disponible,
-  frontend statique, services systemd, exemples, documentation et licences.
-  Debian 12+ ou Linux avec glibc 2.36+, Python 3.11+ et systemd.
-- Sommes SHA-256 et métadonnées de construction liant chaque archive au commit.
-  La publication est conditionnée aux tests Rust, frontend, Python, SMTP et workers Linux.
-- [Guide de première installation](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/docs/getting-started.md),
-  [contributions](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/CONTRIBUTING.md)
-  et [signalement privé de sécurité](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/SECURITY.md).
-  Licence GPL-3.0-only. Aucune clé, configuration de production, corpus privé ou modèle entraîné inclus.
+- Updating the search tools to PyTorch 2.13.0 and Transformers 5.10.1 for their security patches; versions recorded in new exports. Deployed models and historical results are not changed.
+- Linux Archives x86-64 and ARM64: binary with available semantic engine, static frontend, systemd services, examples, documentation and licenses. Debian 12+ or Linux with glibc 2.36+, Python 3.11+ and systemd.
+- SHA-256 and construction metadata linking each archive to the commit. The publication is conditioned to Rust, frontend, Python, SMTP and Linux workers tests.
+- [First installation guide](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/docs/getting-started.md), [contributing](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/CONTRIBUTING.md) and [private security reporting](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/SECURITY.md). GPL-3.0-only. No keys, production configurations, private corpora or trained models are included.
 
-### Mise à niveau et limites
+<a id="mise-à-niveau-et-limites"></a>
+### Upgrading and limitations
 
-- Depuis 0.4.0-dev.4 : aucune nouvelle migration ni modification de politique.
-  Depuis 0.3 : sauvegarder configuration et données à l’arrêt avant la migration
-  vers le schéma de stockage 2. Les anciens binaires sont incompatibles avec ce schéma ;
-  suivre la [procédure de restauration](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/docs/actions.md#migration-de-stockage).
-- Observation par défaut. Le marquage nécessite les validations Proton/ARC
-  correspondantes ; une release ne modifie ni les MX ni le mode de filtrage.
-- Capture ≥ 95 %, faux positifs ≤ 0,1 % et analyse p95 < 500 ms sont des objectifs
-  à démontrer sur des données récentes représentatives. Cette publication n’est
-  ni une certification de conformité SMTP, ni une garantie de livraison chez Proton.
-  SMTPUTF8 reste désactivé ; les analyses incomplètes sont signalées.
+- Since 0.4.0-dev.4: no new migration or policy changes. Since 0.3: save configuration and data at the stop before migration to the storage scheme 2. The old binary are incompatible with this scheme; follow the [restore procedure](https://github.com/crdffrance/NoiseFence/blob/v0.4.0/docs/actions.md#migration-de-stockage).
+- Default observation. Marking requires corresponding Proton/ARC validations; a release does not change MX or filter mode.
+- Capture ≥ 95%, false positives ≤ 0.1% and p95 analysis < 500 ms are objectives to be demonstrated on recent representative data. This publication is neither SMTP conformity certification nor a guarantee of delivery at Proton. SMTPUTF8 remains disabled; incomplete analyses are reported.
 
-## 0.4.0-dev.4 — Réglages adaptés aux petits écrans
+<a id="040-dev4--réglages-adaptés-aux-petits-écrans"></a>
+## 0.4.0-dev.4 — Adjustments suitable for small screens
 
-- Limite la largeur intrinsèque des sélecteurs dans les formulaires : les options longues ne font plus déborder la politique de filtrage sur téléphone.
-- Validation de la politique à 320 pixels et de la navigation clavier des rubriques.
-- La version 0.4.0-dev.3 a été publiée pour validation mais n’a pas été installée en production ; la refonte est livrée avec cette correction.
+- Limit the intrinsic width of the selectors in the forms: long options no longer go beyond the policy of filtering on the phone.
+- Validation of 320 pixels policy and keyboard navigation of headings.
+- Version 0.4.0-dev.3 was published for validation but was not installed in production; the recast is delivered with this correction.
 
-## 0.4.0-dev.3 — Console administrateur et utilisateur
+## 0.4.0-dev.3 — Administrator and user console
 
-- Navigation séparant messagerie, administration et espace personnel ; accès direct à la quarantaine et menu mobile.
-- Tableau de messages distinguant classement et livraison, compteurs interactifs, recherche effaçable, actualisation périodique en arrière-plan et cartes adaptées aux téléphones.
-- Détail donnant priorité aux actions et aux principaux indices, avec contrôles techniques repliables.
-- Confirmation intégrée de quarantaine : destinataire explicite, annulation clavier, restitution du focus et erreurs dans la fenêtre.
-- Écran Mon compte : périmètre autorisé et changement du mot de passe avec confirmation.
-- Administration des filtres en cinq rubriques préservant le brouillon ; recherche des comptes par nom, accès et rôle.
-- Tests de présentation pour décisions canoniques, antivirus, livraisons multiples et recherche des comptes. Moteur, API, stockage et politique de production inchangés.
+- Navigation separating messaging, administration and personal space; direct access to quarantine and mobile menu.
+- Message table distinguishing classification and delivery, interactive meters, eraseable search, periodic background update and maps adapted to telephones.
+- Detail giving priority to stocks and main indices, with foldable technical controls.
+- Integrated quarantine confirmation: explicit recipient, keyboard cancellation, focus return and window errors.
+- My account screen: authorized scope and password change with confirmation.
+- Administration of filters in five headings preserving the draft; searching for accounts by name, access and role.
+- Presentation tests for canonical decisions, antivirus, multiple deliveries and account search. Engine, API, storage and production policy unchanged.
 
 ## [0.4.0-dev.2] - 2026-09-09
 
-- Normaliser les anciens réglages lors de leur chargement pour examen : les
-  actions et poids affichés correspondent aux valeurs que le serveur applique,
-  y compris lors du retour à la politique historique sans actions explicites.
-- Afficher ce rétablissement dans le récapitulatif et couvrir la compatibilité
-  des anciennes révisions par des tests du frontend exécutés dans la CI.
-- Conserver le tag dev.1 comme étape de développement ; il n’a pas été installé.
+- Normalize old settings when loading for review: the displayed actions and weights correspond to the values that the server applies, including when returning to historical policy without explicit actions.
+- Show this recovery in the summary and cover compatibility of old revisions with frontend tests performed in the IC.
+- Keep the dev.1 tag as a development step; it has not been installed.
 
 ## [0.4.0-dev.1] - 2026-09-09
 
-- Séparer les actions des classements : transmission sans préfixe, marquage ou
-  quarantaine, configurables pour spam, PUB et malware confirmé. Conserver
-  l’observation par défaut et les validations Proton/ARC pour le marquage.
-- Ajouter une quarantaine durable par destinataire, avec libération, suppression,
-  expiration de 1 à 30 jours, historique, compteurs et contrôles de session/ACL.
-  Le corps reste conservé jusqu’à résolution de toutes les copies ; une libération
-  dispose d’un nouveau délai de réessai SMTP.
-- Personnaliser huit contributions heuristiques bornées dans la console, avec
-  restauration des valeurs par défaut, sans modifier les caractéristiques apprises
-  ni supprimer la priorité antivirus et la confirmation du spam.
-- Migrer la base au schéma 2. Les versions 0.3 refusent ce schéma pour protéger
-  les corps en quarantaine. L’installateur bloque un retour automatique incompatible ;
-  sauvegarder avant migration et consulter [la procédure](docs/actions.md).
+- Separate the actions from the rankings: transmission without prefix, marking or quarantine, configurables for spam, PUB and confirmed malware. Keep the observation by default and Proton/ARC validations for marking.
+- Add a durable quarantine per recipient, with release, deletion, expiration of 1 to 30 days, history, counters and session/ACL controls. The body remains retained until all copies are resolved; a release has a new SMTP retest period.
+- Customize eight bounded heuristic contributions in the console, with default values restored, without changing the features learned or removing the antivirus priority and spam confirmation.
+- Migrate the base to the diagram 2. Versions 0.3 refuse this scheme to protect quarantined bodies. L-installer blocks an incompatible automatic return; save before migration and consult [the procedure](docs/actions.md).
 
 ## [0.3.0-dev.22] - 2026-09-09
 
-- Publier les corrections de cohérence de dev.21 avec le libellé exact
-  « indice de suspicion » : le score historique comprend aussi les signaux
-  consultatifs actifs.
-- Réessayer au maximum trois fois le téléchargement de l’image de construction
-  verrouillée par digest, puis échouer si elle reste indisponible. Les tests et
-  vérifications d’intégrité restent obligatoires.
-- Conserver le tag dev.21 ; sa publication a été interrompue après l’erreur
-  HTTP 502 du registre Docker. Aucun binaire dev.21 n’a été installé en production.
+- Publish the consistency corrections of dev.21 with the exact wording "suspicion index": the historical score also includes the active advisory signals.
+- Retry the download of the digest-locked construction image no more than three times, then fail if it remains unavailable. Integrity tests and checks remain mandatory.
+- Keep the dev.21 tag; its publication was interrupted after the HTTP 502 error of the Docker register. No dev.21 binary n
 
 ## [0.3.0-dev.21] - 2026-09-09
 
-- Donner la priorité aux malwares reconnus par l’antivirus principal, même avec
-  un score textuel faible ou une détection de publicité. Conserver l’alerte si
-  un autre contrôle échoue, en transmettant toujours sans préfixe dans ce cas.
-- Utiliser la même décision pour la catégorie, les en-têtes, les compteurs et
-  la console. Identifier la source antivirus sans inventer un score à 100.
-- Unifier l’interprétation des avis LLM et des codes ZEN ; conserver PBL/BCL
-  sans le poids attribué aux listes de réputation malveillante.
-- Conserver les raisons lors d’une nouvelle application de la confirmation,
-  et tester les désaccords entre moteurs, les pannes et la persistance des alertes.
-- Ajouter la source de décision `antivirus` : les nouvelles analyses nécessitent
-  dev.21 ou plus récent pour être lues ; voir la politique de compatibilité dans
-  [la documentation](docs/filter-policy.md).
+- Give priority to malware recognized by the main antivirus, even with a low text score or advertising detection. Keep alert if another control fails, always transmitting without prefix in this case.
+- Use the same decision for category, headers, meters and console. Identify the antivirus source without inventing a score of 100.
+- Unify the interpretation of LLM and ZEN codes; keep PBL/BCL without the weight assigned to malicious reputation lists.
+- Maintain the reasons for a new application of the confirmation, and test engine disagreements, failures and persistent alerts.
+- Added the `antivirus` decision source: reading those new analyses requires dev.21 or newer; see compatibility in the [filter policy](docs/filter-policy.md).
 
 ## [0.3.0-dev.20] - 2026-09-09
 
-- Ajouter une option de confirmation du score historique : conserver en
-  « À vérifier » les suspicions sans contrôle supplémentaire suffisamment fort,
-  avec score et caractéristiques intacts, sans préfixe ni reclassement en légitime.
-- Administrer cette option et rechercher les analyses complètes à vérifier,
-  en conservant les autorisations par destinataire et la distinction des pannes.
-- Préciser les consignes LLM contre les faux positifs fondés sur la brièveté,
-  un fournisseur gratuit, un transfert ou une notification de service.
-- Tester la conservation des décisions corroborées, l’absence de confiance
-  dans les en-têtes fournis, les erreurs des fournisseurs et les droits de console.
+- Add an option to confirm the historical score: keep suspicions in "To be checked" without sufficient additional control, with score and characteristics intact, without prefixing or reclassification as a legitimate.
+- Administer this option and search for the complete analyses to be checked, keeping the authorizations per recipient and the distinction of faults.
+- Specify LLM guidelines against false positives based on brevity, free provider, transfer or service notification.
+- Test for retention of substantiated decisions, lack of confidence in the headers provided, supplier errors and console rights.
 
 ## [0.3.0-dev.19] - 2026-09-09
 
-- Verrouiller la dépendance transitive de compilation `sharp` sur 0.35.4 pour
-  corriger [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
-  Conserver les contrôles d’audit ; ne pas rétrograder les outils Cloudflare.
-- Publier la catégorie PUB de dev.18 avec cette correction. Le tag dev.18 reste
-  conservé ; sa publication a été interrompue après l’échec de l’audit frontend.
+- Lock the `sharp` transitive compilation dependency on 0.35.4 to fix [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c). Keep audit controls; do not downgrade Cloudflare tools.
+- Publish the PUB category of dev.18 with this correction. The dev.18 tag remains unchanged; its publication was interrupted after the failure of the frontend audit.
 
 ## [0.3.0-dev.18] - 2026-09-09
 
-- Distinguer les publicités et newsletters légitimes dans une catégorie PUB,
-  sans modifier le score antispam ; conserver la priorité au spam et exclure
-  les messages transactionnels, de service et les conversations identifiables.
-- Ajouter les réglages PUB, le filtre et le compteur d’historique, les raisons
-  et les corrections explicites PUB/Spam/Légitime avec les mêmes contrôles d’accès.
-- Préparer le préfixe [PUB] avec corps inchangé, déduplication des préfixes et
-  scellement ARC ; exiger une validation Proton propre à [PUB] avant marquage.
-- Exporter les labels PUB sans polluer l’apprentissage binaire ; conserver
-  l’ambiguïté des anciens votes et des corrections de sous-types contradictoires.
+- Distinguish legitimate ads and newsletters in a PUB category, without changing the antispam score; retain priority to spam and exclude transactional, service and identifiable conversations.
+- Add PUB settings, filter, and history counter, reasons and explicit PUB/Spam/Legitime corrections with the same access controls.
+- Prepare the prefix [PUB] with unchanged body, prefix deduplication and ARC seal; require a Proton validation specific to [PUB] before marking.
+- Export PUB labels without polluting binary learning; keep the ambiguity of old votes and contradictory subtype corrections.
 
 ## [0.3.0-dev.17] - 2026-09-08
 
-- Borner et annuler le faux serveur HTTP des tests de réputation : une échéance
-  expirée avant connexion ne laisse plus les contrôles Linux attendre indéfiniment.
-- Séparer les délais des tests de quota, de réponse excessive et d’expiration
-  pour vérifier chaque erreur même sur un runner chargé. Aucun changement du
-  comportement de filtrage par rapport à la version 0.3.0-dev.16.
+- Born and cancelled the fake HTTP server of reputation tests: an expired deadline before connection no longer leaves Linux controls waiting indefinitely.
+- Separate the deadlines from quota, excessive response and expiration tests to check each error even on a loaded runner. No change in filtering behavior compared to version 0.30-dev.16.
 
 ## [0.3.0-dev.16] - 2026-09-08
 
-- Ajouter les protections consultatives contre l’usurpation, les liens trompeurs
-  et les campagnes répétées confirmées dans le domaine destinataire.
-- Regrouper les indices HTML, texte et OCR/QR ; utiliser une base locale d’URLs
-  exactes, avec import atomique, expiration et unités systemd facultatives.
-- Consulter les rapports CRDF Threat Center et VirusTotal avec cache, délais,
-  quotas persistants et états d’erreur distincts. Ne soumettre aucun message,
-  pièce jointe ou lien complet aux fournisseurs.
-- Administrer les noms protégés, exceptions et clés API dans la console, sans
-  exposer les secrets dans les réponses, les révisions ou les journaux.
-- Conserver le score calibré et les décisions de livraison ; exporter les
-  observations pour une validation indépendante avant contribution au classement.
+- Add advisory protections against usurpation, deceptive links and repeated campaigns confirmed in the recipient domain.
+- Consolidate HTML, text, and OCR/QR indices; use a local database of exact URLs, with atomic import, expiration, and optional systemd units.
+- Refer to CRDF Threat Center and VirusTotal reports with separate caches, deadlines, persistent quotas and error states. Do not submit a complete message, attachment or link to suppliers.
+- Administer protected names, exceptions and API keys in the console, without exposing secrets in answers, revisions or logs.
+- Keep the score calibrated and delivery decisions; export the observations for independent validation before contributing to the ranking.
 
 ## [0.3.0-dev.15] - 2026-09-08
 
-- Conserver le modèle lexical chargé et son empreinte avec le moteur multilingue
-  résident pendant les changements de configuration. Un fichier remplacé sur
-  disque n’est activé qu’au redémarrage, après validation de leurs liens.
-- Maintenir les domaines désactivés dans le sélecteur de l’historique, sous réserve
-  des accès du compte, pour consulter les messages déjà reçus.
+- Keep the loaded lexical model and its footprint with the multilingual engine reside during configuration changes. A file replaced on disk is enabled only upon restarting, after validation of their links.
+- Maintain deactivated domains in the history selector, subject to account access, to view messages already received.
 
 ## [0.3.0-dev.14] - 2026-09-08
 
-- Administrer les domaines, leurs alias, la réception de toutes les adresses et
-  les passerelles de livraison depuis la console française, avec TLS vérifié.
-- Appliquer une configuration validée et versionnée sans redémarrage, à la
-  prochaine transaction SMTP ; préserver les routes des messages déjà en file.
-  Réutiliser les moteurs lourds et leurs limites de concurrence ; isoler et borner
-  les recherches SQLite pour préserver les écritures de la file.
-- Configurer les détecteurs installés, leur contribution au score et le mode
-  observation/marquage. Conserver les exigences de calibration et de validation
-  Proton/ARC. Les secrets et ressources restent dans la configuration serveur.
-- Donner aux administrateurs une visibilité globale et aux utilisateurs des
-  droits par adresse ou domaine (`*@domaine`). Réutiliser les mêmes autorisations
-  pour l’historique, les statistiques, les corrections et les exports d’apprentissage.
-- Créer, modifier et désactiver les comptes, réinitialiser leurs mots de passe,
-  révoquer leurs sessions et protéger le dernier administrateur.
-- Afficher la file, les métriques et le journal ; relancer les livraisons temporaires,
-  charger une ancienne révision pour examen et restaurer la configuration initiale.
-  Ajouter `console-reset` pour la récupération locale, service arrêté.
+- Administer domains, their aliases, receiving all addresses and delivery gateways from the French console, with TLS verified.
+- Apply a validated and versioned configuration without restarting, to the next SMTP transaction; preserve the routes of messages already in file. Reuse heavy engines and their limits of competition; isolate and limit SQLite searches to preserve the file entries.
+- Configure the installed sensors, their contribution to the score and the observation/marking mode. Keep the calibration and validation requirements Proton/ARC. Secrets and resources remain in the server configuration.
+- Give administrators overall visibility and users rights by address or domain (`*@domaine`). Reuse the same permissions for history, statistics, corrections and learning exports.
+- Create, edit and disable accounts, reset their passwords, revoke their sessions, and protect the last administrator.
+- Show queue, metrics and log; restart temporary deliveries, load an old revision for review and restore the initial configuration. Add `console-reset` for local recovery, service stopped.
 
 ## [0.3.0-dev.13] - 2026-09-08
 
-- Alimenter les workers de relais dès qu’une livraison se termine ou qu’un
-  message est persisté, sans attendre le prochain tick de reprise.
-- Regrouper les écritures DATA par blocs de 64 Kio, conserver les contrôles SMTP
-  et la confirmation après synchronisation durable du corps et de SQLite.
-- Configurer la concurrence DATA/analyse avec `smtp.max_processing` (1–64),
-  indépendamment des connexions et du relais ; répondre temporairement avant
-  DATA lorsque cette capacité est occupée.
-- Attendre brièvement le moteur sémantique dans son budget total, préchauffer
-  ses kernels au démarrage et analyser en parallèle avec les scanners locaux.
-- Fournir un banc SMTP synthétique isolé : débit, latences, reprises, intégrité,
-  corps inchangés, analyses complètes et mémoire. Vérifier petits et gros mails
-  dans la CI. Les chiffres SMTP seul ne mesurent pas le filtrage complet.
+- Power relay workers as soon as a delivery ends or a message is maintained, without waiting for the next pick up.
+- Consolidate DATA entries by 64 Kio blocks, retain SMTP controls and confirmation after lasting synchronization of the body and SQLite.
+- Configure the DATA/Analyse competition with `smtp.max_processing` (1–64), regardless of connections and relay; respond temporarily before DATA when this capacity is occupied.
+- Wait briefly for the semantic engine in its total budget, preheat its kernels at startup and analyze in parallel with the local scanners.
+- Provide an isolated synthetic SMTP bench: flow rate, latency, cover, integrity, unchanged body, complete analysis and memory. Check small and large mails in the IC. SMTP numbers alone do not measure full filtering.
 
 ## [0.3.0-dev.12] - 2026-09-08
 
-- Lire localement le texte français/anglais, les QR codes et codes-barres des
-  images jointes, intégrées et des PDF avec Tesseract, ZBar et Poppler isolés.
-- Borner temps, mémoire, pixels, pages, octets et sorties ; rendre l'analyse
-  incomplète en cas de panne ou de limite, sans bloquer la livraison.
-- Afficher les résultats dans la console, intégrer les domaines décodés à la
-  réputation configurée et conserver des observations sans texte ni codes bruts.
-- Ajouter `vision-inspect` pour lire explicitement un `.eml` local sans DNS,
-  LLM, stockage ou livraison. Les nouvelles règles restent consultatives par
-  défaut ; aucune performance de capture ou de faux positifs n'est présumée.
+- Read locally the English/French text, QR codes and barcodes of attached, integrated images and PDFs with isolated Tesseract, ZBar and Poppler.
+- Time, memory, pixels, pages, bytes and outputs; make the analysis incomplete in case of failure or limit, without blocking delivery.
+- Display the results in the console, integrate decoded domains with the configured reputation and keep observations without text or raw codes.
+- Add `vision-inspect` to explicitly read a local `.eml` without DNS, LLM, storage or delivery. New rules remain advisory by default; no capture or false positive performance is assumed.
 
 ## [0.3.0-dev.11] - 2026-09-07
 
-- Évaluer hors ligne chaque ligne d'un export de population avec
-  `fusion-population-predict`, sans transformer les observations manquantes ou
-  incompatibles en messages légitimes. Vérifier les compteurs, les identités,
-  le modèle et les octets exacts du jeu ; publier atomiquement sans écrasement.
-- Comparer les cinq candidats figés sur toute la population, avec annotations
-  humaines et arbitrages documentés, détection des campagnes déjà utilisées,
-  comptage des inconnus et bornes conservatrices. Distinguer mesures par message
-  et stabilité par campagne ; empêcher une réévaluation accidentelle du même jeu.
-- Tester la chaîne complète d'évaluation sur des cas synthétiques incluant les
-  pannes, conflits et données anciennes. Ces mesures ne valident aucun modèle
-  pour le trafic réel et n'activent aucun nouveau classement en production.
+- Evaluate offline each line of a population export with `fusion-population-predict`, without turning missing or incompatible observations into legitimate messages. Check the exact meters, identities, model and bytes of the game; publish atomically without crushing.
+- Compare the five candidates frozen on the entire population, with human annotations and documented arbitrations, detection of campaigns already used, counting unknowns and conservative limits. Distinguish measurements by message and stability per campaign; prevent accidental re-evaluation of the same game.
+- Test the complete evaluation chain on synthetic cases including old faults, conflicts and data. These measures do not validate any models for actual traffic and do not activate any new production rankings.
 
 ## [0.3.0-dev.10] - 2026-09-07
 
-- Unifier la décision persistée entre le SMTP, la console, les recherches et les
-  statistiques. Distinguer indésirable, légitime et indéterminé ; conserver le
-  score historique pour les comparaisons.
-- Intégrer la fusion native facultative en observation, puis en décision avec
-  modèle lié aux détecteurs et dossier de validation récent. Refuser le marquage
-  pour profils inconnus, contrôles incomplets et validation expirée. Le contrôle
-  de compatibilité Proton reste indépendant et obligatoire.
-- Exporter la population retenue sur un intervalle, y compris les messages
-  incomplets, non annotés, contradictoires ou dépourvus d'observations SMTP.
-  Conserver une empreinte des octets originaux même lorsque MIME est limité,
-  distincte de l'empreinte de campagne. Aucun corps n'est exporté.
-- Corriger la saturation LLM : elle rend aussi la décision historique
-  indéterminée, sans préfixe ni dépense. Ajouter des tests SMTP, d'accès et de
-  cohérence des exports. Aucun nouveau modèle de recherche n'est activé.
+- Unify the persistent decision between the SMTP, console, research and statistics. Distinguish undesirable, legitimate and indeterminate; keep the historical score for comparisons.
+- Integrate the optional native fusion into observation, then into decision-making with detector-related model and recent validation file. Refuse the marking for unknown profiles, incomplete checks and expired validation. The Proton compatibility check remains independent and mandatory.
+- Export the selected population over an interval, including incomplete, unannotated, contradictory or non-SMTP messages. Keep an original byte print even when MIME is limited, distinct from the campaign print. No body is exported.
+- Correcting LLM saturation: it also makes the historical decision undetermined, without prefixing or spending. Add SMTP tests, access and consistency of exports. No new search model is enabled.
 
 ## [0.3.0-dev.9] - 2026-09-07
 
-- Ajouter le contrat natif de fusion de 218 observations typées, l'export privé
-  `fusion-export` et les prédictions hors ligne `fusion-predict`. Vérifier la
-  cohérence des contrôles, les versions des détecteurs et les profils disponibles.
-- Apprendre une régression logistique régularisée, calibrer ses probabilités et
-  sélectionner un seuil commun sur des lots distincts. Détecter les campagnes
-  partagées avec les modèles de contenu ou entre les lots de fusion.
-- Figer cinq ablations avant le test, publier mesures, incertitude et couverture,
-  et comparer les décisions Python/Rust dans la CI. Les modèles produits restent
-  des candidats de recherche ; le score du service et les MX restent inchangés.
-- Inclure les modules Rust imbriqués et les protocoles embarqués dans l'empreinte
-  des sources des archives, avec la liste des entrées et un schéma explicite.
-- Porter le plafond mémoire de FreshClam à 2 Gio : la validation des nouvelles
-  bases dépassait 768 Mio et provoquait des redémarrages répétés par manque de
-  mémoire. Conserver la vérification des bases et les autres limites du service.
+- Add the native fusion contract of 218 typical observations, the private export `fusion-export` and offline predictions `fusion-predict`. Check the consistency of controls, detector versions and available profiles.
+- Learn a regularized logistic regression, calibrate its probabilities and select a common threshold on separate lots. Detect campaigns shared with content models or between merge lots.
+- Fig five ablations before the test, publish measurements, uncertainty and coverage, and compare Python/Rust decisions in the IC. The models produced remain search candidates; the service score and MX remain unchanged.
+- Include embedded Rust modules and embedded protocols in the archive source footprint, with the list of entries and an explicit schema.
+- Bringing FreshClam's memory ceiling to 2 Gio: the validation of the new bases exceeded 768 Mio and caused repeated restarts due to lack of memory. Keep checking the bases and other service limits.
 
 ## [0.3.0-dev.8] - 2026-09-07
 
-- Conserver les résultats typés SPF, DKIM, DMARC, ARC, réputation et autres
-  moteurs, avec états individuels et résultats partiels malgré un délai dépassé.
-  Distinguer réception SMTP, enveloppe fournie et analyse locale ; laisser les
-  données anciennes inconnues.
-- Identifier les octets des modèles chargés et les réglages de détection.
-  Conserver les limites d’attestation des signatures ClamAV et du modèle cloud.
-- Préserver les catégories et rôles DQS, distinguer les domaines légitimes
-  compromis des domaines malveillants, rejeter les erreurs fournisseur comme
-  signaux indisponibles et respecter le TTL positif.
-- Ajouter ces observations à l’API et à l’export privé de corrections, avec les
-  droits et la rétention existants. Les diagnostics fournis manuellement ne
-  deviennent pas des observations SMTP d’apprentissage.
-- Versionner le protocole d’étiquetage et l’expérience d’augmentation du contenu.
-  Aucun nouveau modèle de contenu ou de fusion n’est activé par cette version.
+- Keep the SPF, DKIM, DMARC, ARC, reputation and other engine typed results, with individual statements and partial results despite a delay. Distinguish SMTP reception, envelope provided and local analysis; leave the old data unknown.
+- Identify the bytes of loaded models and the detection settings. Keep the limits of certification of ClamAV signatures and cloud model.
+- Preserving DQS categories and roles, distinguishing compromised legitimate domains from malicious domains, rejecting supplier errors as unavailable signals, and respecting positive TTL.
+- Add these observations to the API and to the private export of corrections, with the existing rights and retention. The diagnoses provided manually do not become SMTP learning observations.
+- Version the labelling protocol and the experience of increasing content. No new content or fusion model is enabled by this version.
 
 ## [0.3.0-dev.7] - 2026-09-07
 
-- Ajouter un module Rust de cohérence HELO/IP, PTR confirmé et domaine
-  d'enveloppe, inspiré des techniques de policyd-weight. Respecter IPv6,
-  les enveloppes vides, Null MX et le repli A/AAAA sans MX. Les serveurs
-  sortants ne sont pas obligés de correspondre aux MX entrants.
-- Borner les recherches DNS, les délais, la concurrence et le cache. Une
-  indisponibilité abandonne les contributions partielles et conserve la
-  livraison sans préfixe ; aucun rejet SMTP fondé sur ces signaux.
-- Observer les poids candidats avant activation explicite de leur contribution
-  plafonnée. Afficher les raisons et statuts dans la console, les conserver
-  avec les métadonnées et les mesurer avec le banc du pipeline complet.
-- Étendre DQS aux domaines HELO et MAIL FROM, prioritaires sur les liens du
-  corps, sans dupliquer les contributions ni activer de nouvelle liste.
-- Fournir `smtp-check` pour les essais DNS seuls, sans email ni appel payant.
-  Tester les réponses DNS réelles sur serveur local et les cas limites.
+- Add a Helo/IP consistency Rust module, confirmed PTR and envelope domain, inspired by policy-weight techniques. Respect IPv6, empty envelopes, Null MX and A/AAAA fold without MX. Outbound servers are not required to match incoming MXs.
+- Start DNS searches, deadlines, competition and cache. Unavailability abandons partial contributions and keeps delivery without prefix; no SMTP rejection based on these signals.
+- Observe candidate weights before explicit activation of their capped contribution. Show reasons and status in console, keep them with metadata and measure them with the complete pipeline bench.
+- Extend DQS to HELO and MAIL FROM domains, priority on the body links, without duplicating contributions or activating a new list.
+- Provide `smtp-check` for single DNS tests, without email or fee-based call. Test real DNS responses on local server and limit cases.
 
 ## [0.3.0-dev.6] - 2026-09-07
 
-- Accepter toutes les adresses valides d'un domaine avec l'option explicite
-  `accept_all_recipients`, sans liste de boîtes obligatoire. Transmettre chaque
-  adresse à elle-même en conservant la partie locale et les routes configurées.
-- Préserver la priorité des alias explicites et les droits de console par
-  destination ; refuser les domaines externes, les chaînes et boucles d'alias.
-  Tester le relais SMTP de destinataires non déclarés après redémarrage et
-  l'isolation des copies cachées.
-- Banc de mesure du traitement complet avec modèle chargé une fois, chauffe
-  séparée, statuts des connecteurs et p50/p95 par cas. Aucun envoi SMTP, aucun
-  contenu ou vecteur enregistré ; appels LLM payants uniquement sur demande
-  explicite et avec le budget configuré. Les échecs restent dans les mesures.
+- Accept all valid addresses of a domain with the explicit `accept_all_recipients` option, without a mandatory list of boxes. Forward each address to itself by keeping the local part and the routes configured.
+- Preserving the priority of explicit aliases and console rights by destination; refusing external domains, chains and loops of aliases. Test the SMTP relay of undeclared recipients after restarting and isolation of hidden copies.
+- Full processing measuring bench with loaded model once, separate heating, connector status and p50/p95 per case. No SMTP sending, no content or registered vector; LLM calls paid only on explicit request and with the budget configured. Failures remain in the measurements.
 
 ## [0.3.0-dev.5] - 2026-09-07
 
-- Router les alias explicites entre domaines configurés vers une boîte canonique
-  autorisée, avec la route et les droits de cette boîte. Permettre un domaine
-  réservé aux alias sans route propre ; refuser les chaînes, boucles, collisions
-  et destinations absentes de la liste autorisée.
-- Comparer les domaines sans distinction de casse et conserver exactement la
-  partie locale et l'adresse canonique utilisée pour les autorisations.
-- Documenter les essais depuis un fournisseur externe via une adresse pilote,
-  sans bascule des MX principaux. Vérifier le contenu mis en file, les copies
-  cachées et la suppression du corps après résolution de tous les destinataires.
+- Route explicit aliases between configured domains to an authorized canonical box, with the road and the rights of this box. Allow a domain reserved for akas without clean road; refuse chains, loops, collisions and destinations absent from the authorized list.
+- Compare domains without distinction of break and keep exactly the local part and canonical address used for authorizations.
+- Document testing from an external provider via a pilot address, without tipping the main MXs. Check for filed content, hidden copies and body removal after resolution of all recipients.
 
 ## [0.3.0-dev.4] - 2026-09-07
 
-- Distinguer l'extraction locale des vérifications externes : une panne de DNS,
-  scanner ou LLM n'exclut plus des corrections dont les caractéristiques locales
-  sont complètes. Conserver le repli sans préfixe et exclure les anciens résultats
-  incomplets dont l'extraction ne peut pas être attestée.
-- Placer les snapshots d'apprentissage périodique dans le répertoire temporaire
-  privé de systemd ; vérifier leur suppression après sortie normale et SIGKILL.
-  Publier les poids et métriques agrégées, sans prédictions individuelles.
-- Créer les répertoires du service au démarrage, préserver le candidat précédent
-  lorsqu'il manque des corrections et enregistrer un statut d'entraînement agrégé.
-  Utiliser une même release pour l'export et l'entraînement pendant les mises à jour.
+- Distinguish local extraction from external checks: a failure of DNS, scanner or LLM no longer excludes corrections whose local characteristics are complete. Keep the withdrawal without prefix and exclude old incomplete results whose extraction cannot be attested.
+- Place periodic learning snapshots in the temporary private systemd directory; check their removal after normal output and SIGKILL. Publish aggregate weights and metrics, without individual predictions.
+- Create the start-up service directories, preserve the previous candidate when there are no corrections and record an aggregated training status. Use the same release for export and training during updates.
 
 ## [0.3.0-dev.3] - 2026-09-07
 
-- Export privé et atomique des corrections de schéma 3, avec empreinte de campagne,
-  vecteur sémantique et protocole exact de l’encodeur. Exclure les désaccords,
-  droits révoqués, lignes expirées et caractéristiques incompatibles.
-- Entraîner des candidats lexicaux/hybrides à partir des caractéristiques retenues,
-  sans corps ni accès réseau. Séparer apprentissage, développement, calibration
-  et test par campagne ; publier ensemble les poids, la combinaison liée et le
-  rapport. Les corrections seules ne rendent jamais un candidat éligible.
-- Adapter le service d’entraînement au schéma actif, limiter ses ressources et
-  préserver le précédent candidat lors d’un échec. Aucune activation automatique.
+- Private and atomic export of scheme 3 corrections, with campaign footprint, semantic vector and exact encoder protocol. Exclude disagreements, revoked rights, expired lines and incompatible features.
+- Train lexical/hybrid candidates based on the selected characteristics, without body or network access. Separate learning, development, calibration and campaign testing; publish together weights, tied combination and report. Corrections alone never make a candidate eligible.
+- Adapt the training service to the active scheme, limit its resources and preserve the previous candidate in a failure. No automatic activation.
 
 ## [0.3.0-dev.2] - 2026-09-07
 
-- Tester les archives Linux avec le profil optimisé effectivement distribué.
-  Le profil debug de la dépendance `gemm-f16` échouait à compiler sur Linux ARM64
-  et a empêché la publication des archives de `0.3.0-dev.1`.
-- Ajouter le contrôle ARM64 du moteur multilingue avant la création d'une release.
-  Aucun changement des poids, des scores ni de la configuration de filtrage.
+- Testing the Linux archive with the effectively distributed optimized profile. The `gemm-f16` dependency debug profile failed to compile on Linux ARM64 and prevented the publication of `0.3.0-dev.1` archives.
+- Add the ARM64 control of the multilingual engine before creating a release. No change in weights, scores or filtering configuration.
 
 ## [0.3.0-dev.1] - 2026-09-07
 
-- R&D reproductible sur Apache, Enron-Spam brut et Nazario 2015–2025 : sources
-  épinglées, regroupement des doublons proches et partitions indépendantes pour
-  apprentissage, sélection, calibration et test. Nazario 2025 reste hors apprentissage.
-- Modèles logistiques TF-IDF et avec rapports de vraisemblance bayésiens, comparaison
-  de régularisations et export de poids JSON pour une inférence native Rust.
-- Schéma de caractéristiques 3 : mots, bigrammes, groupes de caractères et structure,
-  avec exclusion du contenu HTML non visible et des anciens marqueurs antispam.
-  Conservation du support des anciens modèles et versionnement des caractéristiques.
-- Commandes `features-export` et `analyze` pour les essais sans livraison SMTP.
-  Aucun candidat de recherche n'est automatiquement activé en production.
-- Comparaison facultative d'un encodeur multilingue local figé, avec fichiers
-  épinglés, tête logistique et sélection sur le développement uniquement.
-- Vérification de réputation sur les liens des corps MIME décodés : les liens
-  Base64 et quoted-printable ne disparaissent plus, et les anciens en-têtes de
-  filtres ne fournissent plus de domaines à interroger.
-- Mesures natives du modèle sur macOS ARM64 et Debian x86-64 de 4 vCPU / 8 Go.
-- Encodeur multilingue optionnel exécuté en Rust avec Candle, empreintes vérifiées,
-  combinaison liée au modèle lexical et concordance Python/Rust contrôlée.
-  Inférence hors des threads réseau, concurrence et délais bornés, score de repli
-  calibré et statut visible dans la console. Aucun modèle activé automatiquement.
+- Reproducible R&D on Apache, Enron-Spam Crude and Nazario 2015–2025: pinned sources, grouping of close duplicates and independent scores for learning, selection, calibration and testing. Nazario 2025 remains out of learning.
+- Logistical models TF-IDF and with Bayesian likelihood ratios, comparison of regularizations and JSON weight export for a native Rust inference.
+- Character diagram 3: words, bigrams, character groups and structure, excluding non-visible HTML content and old antispam markers. Retention of old model support and versioning of features.
+- Orders `features-export` and `analyze` for tests without SMTP delivery. No search applicants are automatically activated in production.
+- Optional comparison of a local frozen multilingual encoder, with pin-pin files, logistics head and selection on development only.
+- Reputation check on decoded MIME body links: Base64 and quoted-printable links no longer disappear, and the old filter headers no longer provide domains to question.
+- Native measurements of the model on macOS ARM64 and Debian x86-64 of 4 vCPU / 8 GB.
+- Optional multilingual encoder run in Rust with Candle, checked prints, lexical model combination and Python/Rust match controlled. Inference out of network threads, competition and bounded deadlines, calibrated fold score and visible status in console. No model activated automatically.
 
 ## [0.2.0-dev.2] - 2026-09-06
 
-- Accepter le champ `tool_calls: []` effectivement renvoyé par Scaleway lorsqu'aucun
-  outil n'est appelé ; continuer à refuser les appels réels et les anciens
-  `function_call`. Test de régression HTTPS et contrôle des cas interdits.
-- Conserver le rapport d'analyse des essais Proton incomplets pour leur diagnostic.
-- Configurations Nginx HTTPS, renouvellement Certbot via webroot et services pour
-  ClamAV amont 1.4.6, afin d'éviter la version Debian 13 encore vulnérable.
-- Supervision périodique des services, scanners, signatures, file, disque, certificat
-  et budget LLM. L'analyse reste consultative jusqu'aux validations de livraison.
-- Normaliser les permissions de l'archive installée pour permettre son exécution
-  par le compte de service après une extraction dans un répertoire privé.
+- Accept the `tool_calls: []` field actually returned by Scaleway when no tools are called; continue to refuse the actual calls and old `function_call`. HTTPS regression test and check for prohibited cases.
+- Keep the analysis report of the Proton trials incomplete for diagnosis.
+- Nginx HTTPS configurations, Certbot renewal via webroot and services for upstream ClamAV 1.4.6, to avoid the Debian 13 version still vulnerable.
+- Periodic supervision of services, scanners, signatures, file, disk, certificate and LLM budget. The analysis remains advisory until the delivery validations.
+- Normalize permissions for the installed archive to enable it to be executed by the service account after extraction into a private directory.
 
 ## [0.2.0-dev.1] - 2026-09-06
 
-- Préversion de développement `0.2.0-dev.1` : connecteurs ClamAV officiels et
-  signatures complémentaires sur sockets Unix distinctes, limites et verdicts
-  visibles dans la console. Profil Sanesecurity LOW, sources et clé épinglées,
-  services systemd et test réel EICAR fournis. Pas de quarantaine implémentée.
-- Client Scaleway facultatif : HTTPS vérifié, extrait MIME borné, JSON fermé,
-  budget SQLite réservé avant appel, tarification explicite et aucune relance
-  automatique. Échanges testés localement ; validation cloud encore nécessaire.
-- Candidat Bernoulli Bayes et comparaison reproductible avec la régression
-  logistique. Contrôles d'activation conservés ; objectifs de qualité non atteints.
-- Plan de données récentes, comparaison des technologies, calibration et validation
-  du pipeline complet. Aucun de ces nouveaux connecteurs n'est activé par défaut.
-- Déploiement des certificats SMTP Let’s Encrypt par hook Certbot : validation du nom,
-  de la chaîne et de la clé, permissions restreintes, bascule atomique et retour arrière
-  si le redémarrage échoue. Tests du renouvellement ajoutés à la CI.
+- `0.2.0-dev.1` development preversion: official ClamAV connectors and complementary signatures on separate Unix sockets, limits and verdicts visible in the console. Sanesesecurity LOW profile, pin-pinted sources and key, systemd services and actual EICAR testing provided. No quarantine implemented.
+- Optional Scaleway Client: HTTPS verified, limited MIME extract, JSON closed, reserved SQLite budget before call, explicit pricing and no automatic restart. Locally tested exchanges; cloud validation still needed.
+- Candidate Bernoulli Bayes and reproducible comparison with logistic regression. Activation controls retained; quality objectives not achieved.
+- Recent data plan, technology comparison, calibration and validation of the complete pipeline. None of these new connectors are enabled by default.
+- Emplacement of SMTP Lets Certificates Encrypt by hook Certbot: validation of name, string and key, restricted permissions, atomic tilt and reverse return if restart fails. Renewal tests added to the IC.
 
 ## [0.1.0] - 2026-09-06
 
-Première version open source de **NoiseFence**, sous GPL-3.0-only.
+First open source version of **NoiseFence**, under GPL-3.0-only.
 
-- Réception SMTP en Rust avec STARTTLS, SIZE, 8BITMIME et PIPELINING.
-- File durable SQLite/WAL et spool sur disque, reprise par destinataire et notifications d’échec.
-- Analyse locale MIME, règles, régression logistique, SPF/DKIM/DMARC/ARC et connecteur Spamhaus DQS optionnel.
-- Console française avec comptes locaux, sessions sécurisées, historique, corrections et droits par destinataire.
-- Services systemd, configurations d’exemple et archives Linux x86-64/ARM64.
-- Mode observation par défaut ; le marquage exige la validation préalable du relais Proton.
+- SMTP reception in Rust with STARTTLS, SIZE, 8BITMIME and PIPELING.
+- Durable file SQLite/WAL and spool on disk, retrieved by recipient and failed notifications.
+- MIME local analysis, rules, logistic regression, SPF/DKIM/DMARC/ARC and optional Spamhaus DQS connector.
+- French console with local accounts, secure sessions, history, corrections and rights per recipient.
+- systemd services, example configurations and Linux x86-64/ARM64 archives.
+- Default observation mode; marking requires prior validation of the Proton relay.
 
-Limites connues : compatibilité réelle Proton non validée ; rappel du candidat historique
-60,94 %, sous l’objectif de 95 % ; le taux ≤ 0,1 % de faux positifs n’est pas démontré.
-Le modèle candidat ne passe pas le contrôle d’activation. SMTPUTF8 reste désactivé.
+Known limits: actual Proton compatibility not validated; historical candidate recall 60.94%, below the 95% target; the rate ≤ 0.1% of false positives is not demonstrated. The candidate model does not pass the activation check. SMTPUTF8 remains disabled.
 
 [Unreleased]: https://github.com/crdffrance/NoiseFence/compare/v0.3.0-dev.7...HEAD
 [0.3.0-dev.7]: https://github.com/crdffrance/NoiseFence/releases/tag/v0.3.0-dev.7

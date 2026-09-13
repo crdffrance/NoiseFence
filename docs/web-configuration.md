@@ -1,121 +1,58 @@
-# Configurer la messagerie depuis le Web
+# Web configuration
 
-Depuis la version 0.13.0, **Filtres** regroupe les politiques, niveaux, actions,
-poids, règles, fournisseurs et paramètres des moteurs. Les domaines, adresses,
-alias et relais restent dans **Domaines** et **Passerelles**.
+The console manages **messaging and filter policies**. Installation settings stay on the host: listening ports, TLS certificates and keys, storage, worker sockets, model files, replication identities and recovery tooling.
 
-## Administration
+## Where to find each setting
 
-- **Réputation IP · RBL** : ajouter, modifier, désactiver et supprimer des listes ;
-  définir les codes exacts, la prise en charge IPv6, le nombre de fournisseurs
-  indépendants, le délai, la concurrence, le cache et l’action SMTP.
-  Les ajouts sont désactivés initialement. Les préréglages sont des raccourcis de
-  saisie, pas une autorisation d’usage. Vérifier les conditions du fournisseur.
-- **Tester ce brouillon** : recherches DNS sur l’IP saisie, pour les listes IP
-  activées du brouillon. Aucun email n’est envoyé, aucun réglage n’est appliqué.
-  Ce test ne teste pas le connecteur Spamhaus DQS intégré ni les listes de domaines
-  URIBL. Une erreur, une réponse inconnue ou un délai dépassé reste indisponible.
-- **Moteurs de détection** : activer les connecteurs installés, l’authentification
-  et les contributions expérimentales. Le connecteur Spamhaus DQS s’active ici
-  après enregistrement d’une clé autorisée.
-- **Paramètres avancés** : limites d’analyse ; modèle/projet Scaleway, sélection
-  des scores, budget, prix vérifiés, texte envoyé, sortie, délais et concurrence ;
-  limites OCR/images/PDF/QR ; politique DNS/SMTP ; réputation CRDF/VirusTotal et
-  redirections ; règles HTML/MIME natives, motifs, composites et plafonds.
-  Les prix et budgets sont présentés en euros. Le serveur conserve ses unités
-  entières en micro-euros. La vérification tarifaire n’est pas renouvelée
-  automatiquement : renseigner la date réelle de vérification.
-- **Protection avancée** : clés CRDF/VirusTotal, quotas, identités protégées,
-  exceptions et activation du suivi des liens. Un quota nul signifie illimité.
-- **Préférences des utilisateurs** : autoriser la personnalisation, borner les
-  seuils et le nombre de règles, sélectionner les actions permises et consulter
-  ou supprimer les préférences existantes.
+| Area | Controls | Who can change it |
+| --- | --- | --- |
+| Domains | Accepted domains, enabled state, recipients, catch-all and aliases | Administrator |
+| Gateways | Explicit upstream hosts, route assignment and destination port | Administrator |
+| Filters → Policy & actions | Observation/enforcement, reference threshold, sensitivity, spam/marketing/malware actions and quarantine retention | Administrator |
+| Filters → Rules & profiles | Profiles, domain/address assignments, conditions, rule priority, expiry and actions | Administrator |
+| Filters → Rule weights | Bounded contributions of supported content signals | Administrator |
+| Filters → Detection engines | Installed checks and optional score contributions | Administrator |
+| Filters → IP reputation · RBL | DNSBL providers, exact return codes, IPv6, independent-provider threshold, timeout, cache, concurrency and admission action | Administrator |
+| Filters → SMTP admission | Greylisting, rate limits and bounded delays | Administrator |
+| Filters → Advanced settings | Analysis limits; LLM model/project, selection, budget and pricing date; OCR limits; DNS checks; URL following; native patterns, composites and family caps | Administrator |
+| Filters → Protection & reputation | CRDF/VirusTotal keys and quotas, protected identities, exceptions and indicator checks | Administrator |
+| Filters → Marketing & newsletters | Marketing recognition and newsletter policy | Administrator |
+| Filters → User preferences | Permitted personal actions, sensitivity bounds, rule limits and existing preferences | Administrator |
+| My filters | Preferences and rules for authorized mailboxes or domains | Authorized user |
+| Accounts & access | Accounts, grants, invitations and revocation | Administrator |
+| My account | Password, MFA and recovery codes | Account owner |
+| MX servers | Enrolment, policy synchronization, health and replication status | Administrator; host setup remains server-side |
 
-Les réglages natifs sont consultatifs. Les modèles entraînés et la calibration
-continuent à suivre la procédure de validation existante ; l’éditeur ne permet
-pas de remplacer un modèle par un chemin arbitraire. Les motifs associés à un
-modèle adaptatif sont liés à son protocole et ne peuvent pas être modifiés sans
-revalidation. Les limites système, ports d’écoute, certificats et stockage
-restent administrés sur le serveur.
+Some modules require a host-installed worker, model or initial provider configuration before they can be enabled. Unavailable modules are identified in the console. Trained model replacement and adaptive protocol changes retain their validation gates.
 
-## Clés et changements
+## Save, review and apply
 
-Les clés Scaleway et Spamhaus sont saisies dans **Paramètres avancés**. Le serveur
-les stocke dans `data_dir/credentials/` avec un répertoire 0700 et des fichiers
-0600, écrits puis synchronisés avant renommage. Une clé enregistrée par le Web
-prévaut sur la variable d’environnement du même fournisseur. Seul son état de
-configuration est exposé. Son contenu n’entre ni dans les révisions, ni dans
-l’audit, ni dans l’export. La rotation recharge la configuration courante ; elle
-n’applique pas le brouillon de filtres et n’active pas un fournisseur désactivé.
-Si le rechargement échoue, la réponse indique que la clé est enregistrée mais
-qu’une réapplication est nécessaire. Sauvegarder également le répertoire privé
-des clés ; sa rotation est distincte de la restauration d’une révision.
+Edits form a draft. Review its changes and apply it explicitly. The server validates the complete configuration, checks the revision and records the change. A conflicting revision requires a reload; it never silently overwrites another administrator's work. Advanced JSON blocks must be validated before saving the overall draft. JSON import prepares a validated draft; export omits secrets.
 
-Un fournisseur RBL personnalisé peut réutiliser une référence de clé déjà
-configurée sur le serveur uniquement pour sa zone et son fournisseur d’origine.
-Il ne peut pas obtenir une variable d’environnement arbitraire via les requêtes
-DNS. Spamhaus DQS possède son propre connecteur IP et domaines, avec traitement
-spécifique des codes ; ne pas dupliquer ZEN avec SBL/XBL/PBL dans les listes IP.
+The last 100 configuration revisions are available for review. New SMTP transactions use the new settings. A transaction already in progress retains its policy snapshot, and accepted messages are not rescanned, retagged or redelivered. Lowering a concurrency limit waits for already admitted work; it does not cancel it. Provider accounting is not reset by saving a configuration.
 
-**Enregistrer** affiche les modifications à examiner avant application.
-L’import d’un export JSON prépare un brouillon validé côté serveur. L’export
-contient les réglages et préférences de messagerie, sans secrets. Les blocs JSON
-avancés nécessitent leur validation explicite avant l’enregistrement global.
-Un conflit de révision demande un rechargement et ne remplace jamais silencieusement
-une modification concurrente. Les 100 dernières révisions restent consultables.
+The risk index, classification, analysis coverage and delivery action are separate. Changing sensitivity does not change a previously recorded decision. Observation, malware priority, incomplete-analysis safeguards and Proton tagging validation still apply to personal rules.
 
-Les nouvelles transactions SMTP utilisent un instantané cohérent : une modification
-entre MAIL et DATA ne change pas les contrôles du message en cours. Les files et
-messages déjà acceptés ne sont pas retraités. Les instances des moteurs partagent
-leurs limites de concurrence pendant les changements. Baisser une limite attend
-la fin du travail déjà admis ; la modification ne l’annule pas. Les budgets
-persistants ne sont pas remis à zéro par un changement de configuration.
+## Provider credentials and limits
 
-## Mes filtres
+Scaleway and Spamhaus credentials are under Advanced settings; CRDF and VirusTotal are under Protection & reputation. Only configured/missing status is returned to the browser. Keys are stored in a private `data_dir/credentials/` directory (0700; files 0600), written durably, and excluded from configuration revisions, audit records and JSON exports. Include this directory in private backups.
 
-Tout utilisateur connecté peut ouvrir **Mes filtres** pour une adresse autorisée.
-Un droit `*@domaine` permet aussi une préférence de domaine et des préférences
-pour ses boîtes. Un droit sur une seule boîte n’accorde pas la gestion du domaine.
-Les permissions sont revérifiées dans la transaction d’enregistrement, avec la
-validité de la session. Les noms de boîtes conservent leur casse.
+A Web-managed key takes precedence over its provider's environment variable. Rotation reloads the saved settings, not an unsaved draft, and does not enable a disabled provider. If reload fails, the console reports that the key was saved but the configuration must be reapplied. Restoring a policy revision does not restore an older key.
 
-Une préférence appartient à la **boîte ou au domaine**, pas au compte qui l’a
-créée : les comptes autorisés sur une boîte partagée gèrent la même préférence.
-Révoquer un compte retire son accès sans effacer les réglages de la boîte.
-Les destinataires et règles des autres portées ne sont pas renvoyés par l’API.
+CRDF/VirusTotal quota **zero explicitly means unlimited**; an empty or invalid input does not. A missing override inherits installation defaults. Provider cooldowns still apply with unlimited quotas. LLM budgets use euros in the UI and integer micro-euros on the server; a zero LLM budget disables calls. Pricing verification dates are not renewed automatically.
 
-Chaque portée peut définir un seuil, une action pour Spam/PUB/À vérifier,
-une durée de quarantaine et jusqu’à 20 règles à 1–8 conditions. Les champs
-comprennent expéditeur, From, objet, texte MIME, destinataire, taille, score,
-catégorie initiale, signal et DMARC. Les comparaisons sont bornées : pas de code
-ni de regex utilisateur. Une règle peut expirer.
+RBL presets are configuration shortcuts, not permission to use a provider. Check access terms and exact response codes. Provider errors and unknown codes are unavailable signals, not listings. Spamhaus DQS has dedicated IP/domain handling; do not duplicate its ZEN results with SBL/XBL/PBL. Custom RBL credentials can only be used with their configured provider and zone.
 
-L’ordre de sélection est : adresse SMTP originale, destination canonique de
-l’alias, domaine original, domaine de destination. Une préférence exacte remplace
-celle du domaine ; son seuil peut hériter des profils administrateur. Supprimer
-la préférence rétablit l’héritage. Les règles personnelles s’exécutent d’abord,
-les règles administrateur ensuite ; une règle personnelle ne peut pas arrêter
-les règles globales. L’antivirus, les protections pour analyse incomplète et le
-mode Observation restent prioritaires. Le marquage personnel exige lui aussi les
-validations Proton et ARC. En observation, les décisions sont consignées mais les
-messages sont transmis sans marquage ni quarantaine.
+## User preferences and inheritance
 
-## Mise à niveau et retour arrière
+A mailbox preference belongs to the mailbox, not the account that edited it. Authorized users of a shared mailbox share its preferences. Removing a user's access does not delete those preferences. `*@example.org` grants domain scope; a grant to one mailbox does not grant domain administration. Permissions and the session are checked again in the save transaction.
 
-Les révisions antérieures héritent des paramètres de moteurs et RBL du fichier
-serveur. Une liste RBL explicitement vide désactive les listes personnalisées ;
-elle n’est pas remplacée par les valeurs du fichier au redémarrage. Aucune
-préférence personnelle n’est créée lors de la mise à niveau et aucune action
-n’est activée automatiquement.
+Preference selection follows the original SMTP address, canonical alias destination, original domain, then destination domain. An exact preference replaces a domain preference; its threshold may still inherit administrator profiles. Deleting a preference restores inheritance. Personal rules run before administrator rules and cannot stop the global rules.
 
-Le schéma de file reste 2. **Un ancien binaire ne comprend pas une révision contenant
-les nouveaux champs.** Avant de redescendre sous 0.13.0, utiliser cette version
-pour examiner les préférences, arrêter brièvement la réception, sauvegarder
-l’état courant et convertir uniquement la configuration de console vers l’ancien
-format, ou revenir à une révision antérieure dépourvue de ces champs. Ne pas
-restaurer une ancienne copie de la base complète : elle ferait perdre les messages
-acceptés depuis la sauvegarde. La nouvelle couche de paramètres doit être reportée
-dans le fichier de l’ancienne version si l’on veut la conserver. Désactiver une
-référence `NOISEFENCE_WEB_DQS` avant retour arrière et remettre les variables de
-clés attendues par l’ancien binaire. Les messages et états de livraison restent
-compatibles ; conserver la file courante.
+Within administrator limits, users can choose sensitivity, actions for spam/marketing/review, quarantine duration and up to 20 rules with 1–8 conditions. Conditions cover envelope sender, From, subject, MIME text, recipient, size, score, category, signal and DMARC. There is no executable user code or arbitrary user regex. Recipient data outside the user's grants is excluded from the API, including Bcc recipients.
+
+## Upgrade and recovery
+
+Older saved settings inherit missing module parameters from the host configuration. An explicitly empty RBL list remains empty. Upgrading does not activate providers, personal preferences or enforcement.
+
+Storage is **schema 5 once paired replication is activated**. Never downgrade an active HA queue to a pre-0.17.3 binary, remove its `ha_required` marker, or restore an older database over accepted mail. A policy revision rollback is different from a binary/database rollback. See [operations](operations.md) and [high availability](high-availability.md) for compatible recovery procedures.

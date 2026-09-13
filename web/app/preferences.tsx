@@ -15,33 +15,33 @@ type View = {
   sensitivity_locked: boolean;
 };
 const fields: Record<Rule['conditions'][number]['field'], string> = {
-  envelope_from: 'Expéditeur SMTP',
-  from_domain: 'Domaine expéditeur',
-  header_from: 'Adresse From',
-  subject: 'Objet',
-  body: 'Texte du message',
-  recipient: 'Destinataire',
-  recipient_domain: 'Domaine destinataire',
-  size: 'Taille (octets)',
+  envelope_from: "Envelope sender",
+  from_domain: "Sending field",
+  header_from: "From address",
+  subject: "Subject",
+  body: "Text of message",
+  recipient: "Recipient",
+  recipient_domain: "Recipient domain",
+  size: "Size (bytes)",
   score: 'Score',
-  category: 'Catégorie',
-  signal: 'Signal du moteur',
+  category: "Category",
+  signal: "Engine signal",
   dmarc: 'DMARC',
 };
 const ops: Record<Rule['conditions'][number]['op'], string> = {
-  equals: 'Égal à',
-  contains: 'Contient',
-  starts_with: 'Commence par',
-  ends_with: 'Se termine par',
-  present: 'Présent',
+  equals: "Equal to",
+  contains: "Contains",
+  starts_with: "Starts with",
+  ends_with: "Ends with",
+  present: "Present",
   absent: 'Absent',
-  at_least: 'Au moins',
-  at_most: 'Au plus',
+  at_least: "At least",
+  at_most: "At most",
 };
 const actions = {
-  deliver: 'Transmettre',
-  tag: 'Marquer [SPAM] / [PUB]',
-  quarantine: 'Quarantaine',
+  deliver: "Deliver",
+  tag: "Tag [SPAM] / [PUB]",
+  quarantine: "Quarantined",
 };
 export function MyFilters({
   user,
@@ -87,7 +87,7 @@ export function MyFilters({
   function choose(s: string) {
     if (
       dirty &&
-      !window.confirm('Abandonner les modifications non enregistrées ?')
+      !window.confirm("Drop unrecorded changes?")
     )
       return;
     setScope(s);
@@ -108,7 +108,7 @@ export function MyFilters({
       const next = await api<View>('/preferences');
       setView(next);
       setDraft(next.settings.mailboxes[scope] ?? { profile: null, rules: [] });
-      setNotice('Préférences enregistrées pour les prochains messages.');
+      setNotice("Saved preferences for future messages.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -124,13 +124,12 @@ export function MyFilters({
   return (
     <div className="management-settings personal-filters">
       <div className="page-title">
-        <p className="eyebrow">ESPACE PERSONNEL</p>
+        <p className="eyebrow">PERSONAL SPACE</p>
         <h1>
-          <SlidersHorizontal size={26} /> Mes filtres
+          <SlidersHorizontal size={26} /> My filters
         </h1>
         <p>
-          Choisissez la sensibilité et les actions pour vos adresses, puis
-          affinez avec vos règles.
+          Choose sensitivity and actions for your addresses, then refine with your rules.
         </p>
       </div>
       {error && (
@@ -141,7 +140,7 @@ export function MyFilters({
             onClick={async () => {
               if (
                 dirty &&
-                !window.confirm('Recharger et abandonner le brouillon ?')
+                !window.confirm("Reloading and abandoning the draft?")
               )
                 return;
               try {
@@ -156,24 +155,24 @@ export function MyFilters({
               }
             }}
           >
-            Recharger
+            Reload
           </Button>
         </p>
       )}
       {notice && <output className="notice">{notice}</output>}
       {!view ? (
-        <p>Chargement des préférences…</p>
+        <p>Loading Preferences...</p>
       ) : (
         <>
           <section className="management-card">
             <label>
-              Adresse ou domaine autorisé
+              Authorized address or domain
               <select
                 value={view.scopes.includes(scope) ? scope : ''}
                 onChange={(e) => choose(e.target.value)}
               >
                 <option value="" disabled>
-                  Choisir une portée
+                  Select a Scope
                 </option>
                 {view.scopes.map((s) => (
                   <option key={s}>{s}</option>
@@ -182,12 +181,12 @@ export function MyFilters({
             </label>
             {view.scopes.some((s) => s.startsWith('*@')) && (
               <label>
-                Ou une adresse précise de votre domaine
+                Or a specific address in your domain
                 <input
-                  aria-label="Adresse précise"
+                  aria-label="Specific address"
                   key={scope}
                   defaultValue={scope.startsWith('*@') ? '' : scope}
-                  placeholder="prenom@domaine.fr"
+                  placeholder="name@example.org"
                   onBlur={(e) => {
                     if (e.target.value && e.target.value !== scope)
                       choose(
@@ -201,25 +200,21 @@ export function MyFilters({
               </label>
             )}
             <p>
-              Portée sélectionnée :{' '}
-              <strong>{scope || 'Aucune adresse attribuée'}</strong>
+              Selected scope:{' '}
+              <strong>{scope || "No address assigned"}</strong>
             </p>
             <p>
-              Une adresse précise prévaut sur les réglages du domaine. Les
-              règles globales de l’administrateur et la protection antivirus
-              restent prioritaires.
+              A precise address prevails over the domain settings. The administrator&apos;s global rules and antivirus protection remain a priority.
             </p>
             {view.mode === 'observe' && (
               <p className="notice">
-                Observation active : les décisions sont visibles dans
-                l’historique, tous les messages sont transmis sans marquage ni
-                quarantaine.
+                Active observation: decisions are visible in history, all messages are transmitted without marking or quarantine.
               </p>
             )}
           </section>
           {!view.settings.enabled && (
             <p className="notice">
-              La personnalisation est désactivée par l’administrateur.
+              Customization is disabled by the administrator.
             </p>
           )}
           <fieldset
@@ -240,7 +235,7 @@ export function MyFilters({
                               view.defaults['*@' + scope.split('@').pop()] ??
                               view.defaults['*']),
                             id: 'personal',
-                            name: 'Préférences personnelles',
+                            name: "Personal preferences",
                             threshold: null,
                             require_corroboration: true,
                           }
@@ -248,12 +243,12 @@ export function MyFilters({
                     })
                   }
                 />
-                Personnaliser le niveau et les actions
+                Customize Level and Actions
               </label>
               {draft.profile && (
                 <div className="management-grid">
                   <label>
-                    Sensibilité
+                    Sensitivity
                     <select
                       disabled={view.sensitivity_locked}
                       value={draft.profile.threshold ?? 'inherit'}
@@ -271,14 +266,14 @@ export function MyFilters({
                       }
                     >
                       <option value="inherit">
-                        Hériter du seuil administrateur
+                        Inherited from the admin threshold
                       </option>
                       {[
-                        [99.5, 'Très tolérant'],
-                        [98, 'Tolérant'],
-                        [95, 'Équilibré'],
+                        [99.5, "Very tolerant"],
+                        [98, "Lenient"],
+                        [95, "Balanced"],
                         [90, 'Strict'],
-                        [85, 'Très strict'],
+                        [85, "Very strict"],
                       ]
                         .filter(
                           ([n]) =>
@@ -287,7 +282,7 @@ export function MyFilters({
                         )
                         .map(([n, label]) => (
                           <option key={n} value={n}>
-                            {label} · seuil {n}
+                            {label} · threshold {n}
                           </option>
                         ))}
                       {draft.profile.threshold !== null &&
@@ -295,13 +290,13 @@ export function MyFilters({
                           draft.profile.threshold,
                         ) && (
                           <option value={draft.profile.threshold}>
-                            Personnalisé · {draft.profile.threshold}
+                            Customized · {draft.profile.threshold}
                           </option>
                         )}
                     </select>
                   </label>
                   <label>
-                    Seuil précis ({view.settings.minimum_threshold}–
+                    Specific threshold ({view.settings.minimum_threshold}–
                     {view.settings.maximum_threshold})
                     <input
                       type="number"
@@ -310,7 +305,7 @@ export function MyFilters({
                       min={view.settings.minimum_threshold}
                       max={view.settings.maximum_threshold}
                       value={draft.profile.threshold ?? ''}
-                      placeholder="Hériter"
+                      placeholder="Inherit"
                       onChange={(e) =>
                         setDraft({
                           ...draft,
@@ -328,10 +323,10 @@ export function MyFilters({
                   {(['spam', 'publicity', 'review'] as const).map((k) => (
                     <label key={k}>
                       {k === 'spam'
-                        ? 'Spam détecté'
+                        ? "Spam detected"
                         : k === 'publicity'
-                          ? 'Publicité / mailing'
-                          : 'Message à vérifier'}
+                          ? "Advertising / mailing"
+                          : "Message to be checked"}
                       <select
                         value={draft.profile![k]}
                         onChange={(e) =>
@@ -352,7 +347,7 @@ export function MyFilters({
                     </label>
                   ))}
                   <label>
-                    Conservation en quarantaine (jours)
+                    Quarantine storage (days)
                     <input
                       type="number"
                       min={1}
@@ -374,12 +369,10 @@ export function MyFilters({
             </section>
             <section className="management-card">
               <h2>
-                Mes règles · {draft.rules.length}/{view.settings.max_rules}
+                My rules {draft.rules.length}/{view.settings.max_rules}
               </h2>
               <p>
-                Les règles s’appliquent dans cet ordre, puis les règles de
-                l’administrateur. Les corrections ne changent pas les messages
-                déjà livrés.
+                The rules apply in this order, then the rules of the administrator. Corrections do not change messages already delivered.
               </p>
               <Button
                 variant="outline"
@@ -391,7 +384,7 @@ export function MyFilters({
                       ...draft.rules,
                       {
                         id: crypto.randomUUID(),
-                        name: 'Nouvelle règle',
+                        name: "New Rule",
                         enabled: true,
                         priority: draft.rules.length,
                         scope,
@@ -409,7 +402,7 @@ export function MyFilters({
                 }
               >
                 <Plus size={16} />
-                Ajouter une règle
+                Add Rule
               </Button>
             </section>
             {draft.rules.map((r, i) => (
@@ -421,16 +414,16 @@ export function MyFilters({
                       checked={r.enabled}
                       onChange={(e) => rule(i, { enabled: e.target.checked })}
                     />
-                    Règle {i + 1}
+                    Rule {i + 1}
                   </label>
                   <input
-                    aria-label={`Nom de la règle ${i + 1}`}
+                    aria-label={`Name of the rule ${i + 1}`}
                     value={r.name}
                     onChange={(e) => rule(i, { name: e.target.value })}
                   />
                   <Button
                     variant="ghost"
-                    aria-label={`Supprimer la règle ${i + 1}`}
+                    aria-label={`Delete Rule ${i + 1}`}
                     onClick={() =>
                       setDraft({
                         ...draft,
@@ -443,19 +436,19 @@ export function MyFilters({
                 </div>
                 <div className="management-grid">
                   <label>
-                    Correspondance
+                    Match
                     <select
                       value={r.any ? 'any' : 'all'}
                       onChange={(e) =>
                         rule(i, { any: e.target.value === 'any' })
                       }
                     >
-                      <option value="all">Toutes les conditions</option>
-                      <option value="any">Au moins une condition</option>
+                      <option value="all">All conditions</option>
+                      <option value="any">At least one condition</option>
                     </select>
                   </label>
                   <label>
-                    Ordre de priorité
+                    Order of priority
                     <input
                       type="number"
                       min={0}
@@ -467,7 +460,7 @@ export function MyFilters({
                     />
                   </label>
                   <label>
-                    Expiration facultative (UTC)
+                    Optional expiry (UTC)
                     <input
                       type="date"
                       value={
@@ -494,7 +487,7 @@ export function MyFilters({
                 {r.conditions.map((c, j) => (
                   <div className="personal-condition" key={j}>
                     <label>
-                      Champ
+                      Field
                       <select
                         value={c.field}
                         onChange={(e) =>
@@ -518,7 +511,7 @@ export function MyFilters({
                       </select>
                     </label>
                     <label>
-                      Comparaison
+                      Comparison
                       <select
                         value={c.op}
                         onChange={(e) =>
@@ -539,7 +532,7 @@ export function MyFilters({
                       </select>
                     </label>
                     <label>
-                      Valeur
+                      Value
                       <input
                         disabled={c.op === 'present' || c.op === 'absent'}
                         maxLength={256}
@@ -554,7 +547,7 @@ export function MyFilters({
                       />
                     </label>
                     <Button
-                      aria-label={`Supprimer la condition ${j + 1}`}
+                      aria-label={`Delete condition ${j + 1}`}
                       disabled={r.conditions.length <= 1}
                       variant="ghost"
                       onClick={() =>
@@ -579,11 +572,11 @@ export function MyFilters({
                     })
                   }
                 >
-                  Ajouter une condition
+                  Add Condition
                 </Button>
                 <div className="management-grid">
                   <label>
-                    Classement
+                    Classification
                     <select
                       value={r.category ?? ''}
                       onChange={(e) =>
@@ -593,11 +586,11 @@ export function MyFilters({
                         })
                       }
                     >
-                      <option value="">Conserver le classement</option>
+                      <option value="">Keep classification</option>
                       <option value="spam">Spam</option>
-                      <option value="publicity">Publicité</option>
-                      <option value="legitimate">Légitime</option>
-                      <option value="undetermined">À vérifier</option>
+                      <option value="publicity">Advertising</option>
+                      <option value="legitimate">Legitimate</option>
+                      <option value="undetermined">Needs review</option>
                     </select>
                   </label>
                   <label>
@@ -610,7 +603,7 @@ export function MyFilters({
                         })
                       }
                     >
-                      <option value="">Conserver l’action</option>
+                      <option value="">Maintain action</option>
                       {view.settings.allowed_actions.map((a) => (
                         <option key={a} value={a}>
                           {actions[a]}
@@ -624,8 +617,8 @@ export function MyFilters({
             <div className="personal-save">
               <span>
                 {dirty
-                  ? 'Modifications non enregistrées'
-                  : 'Préférences enregistrées'}
+                  ? "Unsaved changes"
+                  : "Saved Preferences"}
               </span>
               <Button
                 variant="outline"
@@ -633,18 +626,18 @@ export function MyFilters({
                 onClick={() => {
                   if (
                     window.confirm(
-                      'Supprimer ces préférences et hériter des réglages globaux ?',
+                      "Remove these preferences and inherit global settings?",
                     )
                   )
                     void save(true);
                 }}
               >
                 <RotateCcw size={16} />
-                Hériter
+                Inherit
               </Button>
               <Button disabled={!dirty} onClick={() => void save()}>
                 <Save size={16} />
-                {busy ? 'Enregistrement…' : 'Enregistrer mes filtres'}
+                {busy ? "Saving…" : "Save My Filters"}
               </Button>
             </div>
           </fieldset>

@@ -9,19 +9,19 @@ type Batch = {id:string;created:number;since:number;until:number;domain:string;p
 type Member = {id:string;created:number;sender:string;subject:string;risk:Risk|null;kind:MailKind|null;joint_observations:boolean};
 export function QualityDetails({report}:{report:QualityReport}) {
   return <section className="panel message-diagnostics">
-    <h2>Risque et type de courrier</h2>
+    <h2>Risk and type of mail</h2>
     <p>{candidateLabel(report.candidate_status)}</p>
     {report.prediction && <>
-      <p><strong>{report.prediction.risk === 'spam' ? 'Spam probable' : report.prediction.risk === 'legitimate' ? 'Légitime probable' : 'À vérifier'}</strong>
+      <p><strong>{report.prediction.risk === 'spam' ? "Likely spam" : report.prediction.risk === 'legitimate' ? "Likely legitimate" : "Needs review"}</strong>
         {' · '}{mailKindLabel(report.prediction.kind)}</p>
-      <p className="muted small">Modèle {report.prediction.model} · probabilité de risque estimée {(report.prediction.risk_probability*100).toFixed(1)} % dans le contexte évalué.</p>
+      <p className="muted small">Model {report.prediction.model} · Probability of estimated risk {(report.prediction.risk_probability*100).toFixed(1)} % in the context assessed.</p>
     </>}
-    <p className="muted small">Cette analyse candidate ne modifie ni le classement appliqué ni la livraison.</p>
-    <p>{report.sender.established ? 'Correspondant authentifié avec un historique validé.' : report.sender.conflict ? 'Corrections contradictoires dans l’historique du correspondant.' : 'Confiance historique non établie.'}</p>
-    {report.sender.status === 'complete' && <p className="muted small">{report.sender.legitimate_campaigns} campagnes légitimes, {report.sender.unwanted_campaigns} indésirables · {report.sender.observed_days} jours distincts. Aucun contrôle de sécurité n’est contourné.</p>}
-    {report.sender.behavior && <p className="muted small">Habitudes du correspondant : {report.sender.behavior.status==='complete'
-      ? [report.sender.behavior.new_recipient && 'destinataire non rencontré',report.sender.behavior.new_link_domain && 'nouveau domaine de lien',report.sender.behavior.new_request && 'nouveau type de demande'].filter(Boolean).join(' · ') || 'aucun changement observé'
-      : report.sender.behavior.status==='insufficient_history'?'historique annoté insuffisant':'comparaison indisponible'}. Observation consultative ; une nouveauté ne prouve pas une fraude.</p>}
+    <p className="muted small">This candidate analysis does not alter the classification applied or the delivery.</p>
+    <p>{report.sender.established ? "Authenticated correspondence with a validated history." : report.sender.conflict ? "Contradictory corrections in correspondent's history." : "Historical confidence not established."}</p>
+    {report.sender.status === 'complete' && <p className="muted small">{report.sender.legitimate_campaigns} legitimate campaigns, {report.sender.unwanted_campaigns} undesirable · {report.sender.observed_days} No security checks are bypassed.</p>}
+    {report.sender.behavior && <p className="muted small">Contact person&apos;s habits: {report.sender.behavior.status==='complete'
+      ? [report.sender.behavior.new_recipient && "recipient not met",report.sender.behavior.new_link_domain && "new area of link",report.sender.behavior.new_request && "new type of application"].filter(Boolean).join(' · ') || "no changes observed"
+      : report.sender.behavior.status==='insufficient_history'?"insufficient annotated history":"comparison not available"}. Advisory observation; a novelty does not prove fraud.</p>}
   </section>;
 }
 function Annotation({member,user,onSaved}:{member:Member;user:User;onSaved:()=>void}) {
@@ -32,20 +32,20 @@ function Annotation({member,user,onSaved}:{member:Member;user:User;onSaved:()=>v
     if (!risk) return;
     setBusy(true);setError('');
     try {await api(`/messages/${member.id}/quality-label`,{risk,kind:kind || null},user.csrf);onSaved();}
-    catch(e){setError(e instanceof Error ? e.message : 'Correction indisponible.');}
+    catch(e){setError(e instanceof Error ? e.message : "Correction not available.");}
     finally{setBusy(false);}
   }
   return <article className="quality-member">
-    <div><h3>{member.subject || '(Sans objet)'}</h3><p>{member.sender}</p>
-      <p className="muted small">{new Date(member.created*1000).toLocaleString('fr-FR')}{!member.joint_observations && ' · Analyse antérieure au nouveau protocole'}</p></div>
+    <div><h3>{member.subject || "(Not applicable)"}</h3><p>{member.sender}</p>
+      <p className="muted small">{new Date(member.created*1000).toLocaleString("en-GB")}{!member.joint_observations && " · Analysis prior to the new protocol"}</p></div>
     <div className="quality-annotation">
-      <label>Risque<select aria-label={`Risque : ${member.subject || 'sans objet'}`} value={risk} disabled={busy} onChange={e=>setRisk(e.target.value as Risk|'')}>
-        <option value="">Choisir après vérification</option><option value="legitimate">Légitime</option><option value="spam">Spam / fraude</option><option value="uncertain">Je ne peux pas conclure</option>
+      <label>Risk<select aria-label={`Risk: ${member.subject || "Not applicable"}`} value={risk} disabled={busy} onChange={e=>setRisk(e.target.value as Risk|'')}>
+        <option value="">Select after verification</option><option value="legitimate">Legitimate</option><option value="spam">Spam / fraud</option><option value="uncertain">I can&apos;t conclude.</option>
       </select></label>
-      <label>Type de courrier, facultatif<select aria-label={`Type : ${member.subject || 'sans objet'}`} value={kind} disabled={busy} onChange={e=>setKind(e.target.value as MailKind|'')}>
-        <option value="">Indéterminé</option>{Object.entries(mailKinds).map(([key,label])=><option value={key} key={key}>{label}</option>)}
+      <label>Type of mail, optional<select aria-label={`Type : ${member.subject || "Not applicable"}`} value={kind} disabled={busy} onChange={e=>setKind(e.target.value as MailKind|'')}>
+        <option value="">Undetermined</option>{Object.entries(mailKinds).map(([key,label])=><option value={key} key={key}>{label}</option>)}
       </select></label>
-      <Button disabled={busy || !risk} onClick={save}>{busy?'Enregistrement…':member.risk?'Mettre à jour':'Valider'}</Button>
+      <Button disabled={busy || !risk} onClick={save}>{busy?"Saving…":member.risk?"Update":"Validate"}</Button>
     </div>{error && <p role="alert" className="error">{error}</p>}
   </article>;
 }
@@ -78,43 +78,43 @@ export function QualityConsole({user}:{user:User}) {
     try {const until=Math.floor(Date.now()/1000);
       const result=await api<{id:string}>('/quality/samples',{since:Math.max(until-days*86400,observationStart ?? until),until,count,domain:domain.trim().toLowerCase()},user.csrf);
       setSelected(result.id);setOffset(0);setRevision(x=>x+1);
-    }catch(e){setError(e instanceof Error?e.message:'Création indisponible.');}
+    }catch(e){setError(e instanceof Error?e.message:"Creation not available.");}
     finally{setBusy(false);}
   }
   const current=batches.find(b=>b.id===selected);
   const loading=!!selected && (loaded.id!==selected || loaded.revision!==revision || loaded.offset!==offset);
   const members=selected && !loading ? loaded.members : [];
   return <div className="quality-console">
-    <section className="panel"><p className="eyebrow">QUALITÉ DU FILTRE</p><h1>Apprendre avec des décisions vérifiées</h1>
-      <p>Évaluez un échantillon tiré au sort parmi vos messages accessibles. La sélection ignore le score du filtre et reste figée.</p>
-      <p className="muted">{configured?'Un modèle candidat est configuré en observation.':'Le moteur collecte les observations ; aucun nouveau modèle n’est encore configuré.'}</p>
-      <p className="muted small">{observationStart ? `La période commence au plus tôt le ${new Date(observationStart*1000).toLocaleString('fr-FR')}, au début de cette collecte.` : 'En attente du premier message analysé avec le moteur courant. Actualisez après son arrivée.'}</p>
+    <section className="panel"><p className="eyebrow">QUALITY OF THE FILTER</p><h1>Learning with verified decisions</h1>
+      <p>Evaluate a random sample among your accessible messages. The selection ignores the filter score and remains frozen.</p>
+      <p className="muted">{configured?"A candidate model is configured for observation.":"The engine is collecting observations. No candidate model is configured yet."}</p>
+      <p className="muted small">{observationStart ? `The period begins as soon as possible on ${new Date(observationStart*1000).toLocaleString("en-GB")}, at the beginning of this collection.` : "Waiting for the first message analyzed with the current engine. Refresh after arrival."}</p>
       <div className="quality-controls">
-        <label>Période<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Dernières 24 heures</option><option value={7}>7 derniers jours</option><option value={14}>14 derniers jours</option><option value={29}>29 derniers jours</option></select></label>
+        <label>Period<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={29}>Last 29 days</option></select></label>
         <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option></select></label>
-        <label htmlFor="quality-domain">Domaine, facultatif<Input id="quality-domain" value={domain} onChange={e=>setDomain(e.target.value)} placeholder="Tous mes domaines accessibles" /></label>
-        <Button disabled={busy || observationStart===null} onClick={create}>{busy?'Tirage en cours…':'Créer un échantillon'}</Button>
-        <Button variant="outline" disabled={busy} onClick={()=>setRevision(x=>x+1)}>Actualiser</Button>
+        <label htmlFor="quality-domain">Domain (optional)<Input id="quality-domain" value={domain} onChange={e=>setDomain(e.target.value)} placeholder="All my accessible domains" /></label>
+        <Button disabled={busy || observationStart===null} onClick={create}>{busy?"Drawing in progress...":"Create a sample"}</Button>
+        <Button variant="outline" disabled={busy} onClick={()=>setRevision(x=>x+1)}>Refresh</Button>
       </div>{error && <p className="error" role="alert">{error}</p>}
     </section>
-    <section className="panel"><h2>Échantillons conservés</h2>
-      {!batches.length?<p>Aucun échantillon. Créez-en un pour commencer la validation.</p>:<label>Échantillon<select value={selected} onChange={e=>{setSelected(e.target.value);setOffset(0);}}><option value="">Choisir un échantillon</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString('fr-FR')} · {b.labelled}/{b.selected} annotés{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
-      {current && <><p>{current.selected} messages tirés parmi {current.population} · {current.available} encore accessibles · {current.labelled} annotés.</p>
-        <p className="notice">Vérifiez l’original dans votre boîte avant de répondre. L’objet seul ne suffit pas. En cas de doute, choisissez « Je ne peux pas conclure ».</p>
-        <p className="muted small">Les scores sont masqués ici pour éviter d’influencer votre jugement. Les annotations alimentent des candidats ; elles ne changent pas les messages déjà livrés.</p></>}
+    <section className="panel"><h2>Samples retained</h2>
+      {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} onChange={e=>{setSelected(e.target.value);setOffset(0);}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
+      {current && <><p>{current.selected} messages drawn from {current.population} · {current.available} still accessible · {current.labelled} annotated.</p>
+        <p className="notice">Check the original in your mailbox before answering. The subject alone is insufficient. If unsure, choose “I cannot conclude”.</p>
+        <p className="muted small">The scores are hidden here to avoid influencing your judgment. Annotations feed candidates; they do not change messages already delivered.</p></>}
       {current && current.available > 200 && <div className="quality-controls">
-        <Button variant="outline" disabled={loading || offset===0} onClick={()=>setOffset(x=>Math.max(0,x-200))}>Précédents</Button>
+        <Button variant="outline" disabled={loading || offset===0} onClick={()=>setOffset(x=>Math.max(0,x-200))}>Prev</Button>
         <span>Page {Math.floor(offset/200)+1} / {Math.ceil(current.available/200)}</span>
-        <Button variant="outline" disabled={loading || offset+200>=current.available} onClick={()=>setOffset(x=>x+200)}>Suivants</Button>
+        <Button variant="outline" disabled={loading || offset+200>=current.available} onClick={()=>setOffset(x=>x+200)}>Next</Button>
       </div>}
       {current && !loading && loaded.readiness && <div className="notice">
-        <p>{loaded.readiness.risk_with_observations} annotations de risque avec observations exploitables · {loaded.readiness.kind_with_observations} annotations de type exploitables.</p>
-        <p>Vous pouvez valider le risque sans connaître le type de courrier. Les réponses incertaines ne sont pas transformées en exemples légitimes.</p>
-        {loaded.readiness.missing_or_incompatible_observations>0 && <p>{loaded.readiness.missing_or_incompatible_observations} messages n’ont pas les observations nécessaires à ce pipeline. Leurs corrections restent conservées.</p>}
-        {loaded.readiness.detector_cohorts>1 && <p>Ce lot couvre plusieurs versions des contrôles ; elles devront être évaluées séparément.</p>}
-        <p className="muted small">Ces comptes décrivent les données disponibles. La diversité des exemples et leur séparation dans le temps restent à vérifier avant tout apprentissage.</p>
+        <p>{loaded.readiness.risk_with_observations} risk annotations with usable observations · {loaded.readiness.kind_with_observations} usable mail-type annotations.</p>
+        <p>You can validate the risk without knowing the type of mail. Uncertain answers are not transformed into legitimate examples.</p>
+        {loaded.readiness.missing_or_incompatible_observations>0 && <p>{loaded.readiness.missing_or_incompatible_observations} messages do not have the necessary observations for this pipeline. Their corrections remain.</p>}
+        {loaded.readiness.detector_cohorts>1 && <p>This batch covers several versions of the controls; they will have to be evaluated separately.</p>}
+        <p className="muted small">These accounts describe the available data. The diversity of the examples and their separation over time remain to be verified before any learning.</p>
       </div>}
-      {loading && <output>Chargement des messages…</output>}
+      {loading && <output>Loading messages...</output>}
       <div className="quality-members">{members.map(m=><Annotation key={`${m.id}:${revision}`} member={m} user={user} onSaved={()=>setRevision(x=>x+1)}/>)}</div>
     </section>
   </div>;

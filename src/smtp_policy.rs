@@ -102,16 +102,15 @@ impl PolicyResult {
         if self.status == PolicyStatus::Complete {
             scan.reasons.push(crate::engine::Signal {
                 id: "smtp_policy_contribution".into(),
-                detail: format!("Cohérence SMTP/DNS : contribution plafonnée ({VERSION})"),
+                detail: format!("SMTP/DNS consistency: capped contribution ({VERSION})"),
                 weight: self.applied_weight,
             });
         } else if self.status != PolicyStatus::Disabled {
             scan.complete = false;
             scan.reasons.push(crate::engine::Signal {
                 id: "smtp_policy_unavailable".into(),
-                detail:
-                    "Contrôles SMTP/DNS incomplets ; aucune contribution, livraison sans préfixe"
-                        .into(),
+                detail: "SMTP/DNS checks incomplete; no contribution, deliver without prefix"
+                    .into(),
                 weight: 0.0,
             });
         }
@@ -332,13 +331,13 @@ impl<R: Resolver> Policy<R> {
             return Ok(if literal.to_canonical() == ip {
                 signal(
                     "helo_literal_match",
-                    "HELO : adresse littérale conforme à la connexion",
+                    "HELO IP literal matches the connection",
                     0.0,
                 )
             } else {
                 signal(
                     "helo_literal_mismatch",
-                    "HELO : adresse littérale différente de la connexion",
+                    "HELO IP literal differs from the connection",
                     0.5,
                 )
             });
@@ -346,14 +345,14 @@ impl<R: Resolver> Policy<R> {
         let Some(name) = host(helo) else {
             return Ok(signal(
                 "helo_invalid",
-                "HELO : nom non pleinement qualifié ou syntaxe inhabituelle",
+                "HELO is not fully qualified or has unusual syntax",
                 0.5,
             ));
         };
         if name == hostname.to_ascii_lowercase().trim_end_matches('.') {
             return Ok(signal(
                 "helo_local_identity",
-                "HELO : le client annonce l’identité de cette passerelle",
+                "HELO claims this gateway’s identity",
                 0.75,
             ));
         }
@@ -361,19 +360,15 @@ impl<R: Resolver> Policy<R> {
         Ok(if addresses.contains(&ip) {
             signal(
                 "helo_verified",
-                "HELO : résolution DNS conforme à l’IP de connexion",
+                "HELO DNS resolution matches the connecting IP",
                 -0.15,
             )
         } else if addresses.is_empty() {
-            signal(
-                "helo_no_address",
-                "HELO : aucune adresse A/AAAA trouvée",
-                0.5,
-            )
+            signal("helo_no_address", "HELO has no A/AAAA address", 0.5)
         } else {
             signal(
                 "helo_address_mismatch",
-                "HELO : résolution différente de l’IP de connexion",
+                "HELO DNS resolution differs from the connecting IP",
                 0.25,
             )
         })
@@ -381,11 +376,7 @@ impl<R: Resolver> Policy<R> {
     async fn reverse(&self, ip: IpAddr) -> std::result::Result<crate::engine::Signal, ()> {
         let records = self.lookup(Query::Ptr(ip)).await?;
         if records.is_empty() {
-            return Ok(signal(
-                "ptr_missing",
-                "DNS inverse : aucun PTR trouvé",
-                0.25,
-            ));
+            return Ok(signal("ptr_missing", "Reverse DNS has no PTR record", 0.25));
         }
         // Do not turn an incomplete search of a large RRset into a failed confirmation.
         if records.len() > MAX_PTR {
@@ -404,7 +395,7 @@ impl<R: Resolver> Policy<R> {
                 Ok(ips) if ips.contains(&ip) => {
                     return Ok(signal(
                         "ptr_verified",
-                        "DNS inverse : PTR confirmé par sa résolution A/AAAA",
+                        "Reverse DNS PTR is confirmed by A/AAAA resolution",
                         -0.15,
                     ));
                 }
@@ -417,7 +408,7 @@ impl<R: Resolver> Policy<R> {
         }
         Ok(signal(
             "ptr_unconfirmed",
-            "DNS inverse : aucun PTR ne revient à l’IP de connexion",
+            "No reverse DNS PTR resolves back to the connecting IP",
             0.5,
         ))
     }
@@ -425,7 +416,7 @@ impl<R: Resolver> Policy<R> {
         if sender.is_empty() {
             return Ok(signal(
                 "sender_null",
-                "Enveloppe vide : notification de livraison autorisée",
+                "Null envelope: delivery notification permitted",
                 0.0,
             ));
         }
@@ -440,13 +431,13 @@ impl<R: Resolver> Policy<R> {
             return Ok(if self.addresses(&domain).await?.is_empty() {
                 signal(
                     "sender_no_mail_route",
-                    "Domaine d’enveloppe : aucun MX ni repli A/AAAA",
+                    "Envelope domain has no MX or A/AAAA fallback",
                     0.75,
                 )
             } else {
                 signal(
                     "sender_implicit_mx",
-                    "Domaine d’enveloppe : repli SMTP A/AAAA valide sans MX explicite",
+                    "Envelope domain has a valid SMTP A/AAAA fallback without explicit MX",
                     0.0,
                 )
             });
@@ -454,7 +445,7 @@ impl<R: Resolver> Policy<R> {
         if records == [Record::Mx(0, ".".into())] {
             return Ok(signal(
                 "sender_null_mx",
-                "Domaine d’enveloppe : Null MX, domaine déclarant ne pas recevoir de courrier",
+                "Envelope domain publishes Null MX: it declares that it does not receive mail",
                 0.75,
             ));
         }
@@ -467,7 +458,7 @@ impl<R: Resolver> Policy<R> {
         // Outbound SMTP servers need not be inbound MX servers. Do not compare their IPs.
         Ok(signal(
             "sender_mx_present",
-            "Domaine d’enveloppe : MX explicite présent",
+            "Envelope domain has an explicit MX",
             0.0,
         ))
     }

@@ -35,17 +35,16 @@ export function MailingSettings({
 }) {
   return (
     <section className="panel mailing-settings">
-      <h2>Publicités et newsletters</h2>
+      <h2>Marketing and newsletters</h2>
       <p className="muted">
-        La catégorie PUB distingue les diffusions commerciales des autres
-        messages légitimes. Un classement spam reste toujours prioritaire.
+        Marketing (PUB) identifies legitimate commercial mail and newsletters. Spam and malware classifications take priority.
       </p>
       <label
         className="toggle-row"
-        aria-label="Distinguer les publicités (PUB)"
+        aria-label="Distinguish Ads (PUB)"
       >
         <span>
-          <strong>Distinguer les publicités (PUB)</strong>
+          <strong>Distinguish Ads (PUB)</strong>
         </span>
         <input
           type="checkbox"
@@ -66,18 +65,18 @@ export function MailingSettings({
         />
       </label>
       {!available && (
-        <p className="notice">Module à installer sur le serveur.</p>
+        <p className="notice">Module to install on the server.</p>
       )}
       {policy && (
         <>
           <label
             className="toggle-row"
-            aria-label="Inclure les newsletters éditoriales"
+            aria-label="Include editorial newsletters"
           >
             <span>
-              <strong>Inclure les newsletters éditoriales</strong>
+              <strong>Include editorial newsletters</strong>
               <small>
-                Les lettres d’information sont également classées PUB.
+                Information letters are also classified as PUB.
               </small>
             </span>
             <input
@@ -94,13 +93,12 @@ export function MailingSettings({
             <>
               <label
                 className="toggle-row"
-                aria-label="Ajouter [PUB] dans l’objet en mode marquage"
+                aria-label="Add [PUB] to the subject in tagging mode"
               >
                 <span>
-                  <strong>Ajouter [PUB] dans l’objet en mode marquage</strong>
+                  <strong>Add [PUB] to the subject in tagging mode</strong>
                   <small>
-                    Un seul préfixe est ajouté. Le corps du message est
-                    conservé.
+                    Only one prefix is added. The body of the message is kept.
                   </small>
                 </span>
                 <input
@@ -116,20 +114,16 @@ export function MailingSettings({
             </>
           )}
           <p className="muted small">
-            Les factures, reçus, codes de connexion et conversations bénéficient
-            de critères d’exclusion. Les corrections permettent d’évaluer et
-            d’améliorer la détection.
+            Invoices, receipts, login codes and conversations are subject to exclusion criteria. Corrections are used to evaluate and improve detection.
           </p>
           {mode === 'observe' && (
             <p className="notice">
-              Observation active : PUB apparaît dans la console. Aucun préfixe
-              n’est ajouté aux messages livrés.
+              Active observation: PUB appears in the console. No prefix is added to the delivered messages.
             </p>
           )}
           {!tagReady && (
             <p className="muted small">
-              Le marquage [PUB] nécessite une validation de livraison Proton
-              propre à ce préfixe et une configuration ARC valide.
+              The [PUB] marking requires a Proton delivery validation specific to this prefix and a valid ARC configuration.
             </p>
           )}
         </>
@@ -148,37 +142,37 @@ export function MailingDetails({
   tagged: boolean;
 }) {
   const verdicts = {
-    none: 'Aucun indice PUB concordant',
-    promotion: 'Publicité commerciale',
+    none: "No corroborated marketing signals",
+    promotion: "Commercial advertising",
     newsletter: 'Newsletter',
-    transactional: 'Message transactionnel ou de service',
-    conversation: 'Conversation ou liste de discussion',
+    transactional: "Transactional or service message",
+    conversation: "Conversation or discussion list",
   };
   return (
     <section className="panel">
-      <h2>Publicités et newsletters</h2>
+      <h2>Marketing and newsletters</h2>
       <p>
         <strong>
           {report.status === 'limited'
-            ? 'Catégorisation limitée'
+            ? "Limited categorization"
             : verdicts[report.verdict]}
         </strong>
       </p>
       {category === 'spam' && (
         <p className="notice">
-          Le classement spam est prioritaire sur les indices publicitaires.
+          Spam classification takes priority over marketing signals.
         </p>
       )}
       {category === 'undetermined' && (
         <p className="notice">
-          L’analyse de sécurité ne permet pas de retenir la catégorie PUB.
+          The safety analysis does not allow the PUB category to be retained.
         </p>
       )}
       {category === 'publicity' && (
         <p className="notice">
           {tagged
-            ? 'Préfixe [PUB] ajouté à la livraison.'
-            : 'Catégorie PUB détectée. Aucun préfixe [PUB] ajouté à la livraison.'}
+            ? "Prefix [PUB] added to delivery."
+            : "Category PUB detected. No prefix [PUB] added to delivery."}
         </p>
       )}
       <ul className="reasons">
@@ -187,8 +181,7 @@ export function MailingDetails({
         ))}
       </ul>
       <p className="muted small">
-        Détecteur {report.version} · {(report.elapsed_us / 1000).toFixed(1)} ms
-        · Indépendant du score spam.
+        Detector {report.version} · {(report.elapsed_us / 1000).toFixed(1)} ms · Independent of spam score.
       </p>
     </section>
   );

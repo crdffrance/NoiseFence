@@ -14,7 +14,7 @@ export function AdaptiveDetails({ id, csrf, report, feedbackRevision, onCorrect,
     let current = true;
     api<{domains:typeof domains}>(`/messages/${id}/adaptive-label`).then(data => {
       if (current) { setDomains(data.domains); setError(''); }
-    }).catch(() => { if (current) setError('Annotations indisponibles pour ce message.'); });
+    }).catch(() => { if (current) setError("Annotations not available for this message."); });
     return () => { current = false; };
   }, [id, feedbackRevision, revision]);
   async function save(domain: string, value: string) {
@@ -23,27 +23,27 @@ export function AdaptiveDetails({ id, csrf, report, feedbackRevision, onCorrect,
     try {
       await api(`/messages/${id}/adaptive-label`, {domain, class:category}, csrf);
       setRevision(r=>r+1); onCorrect(category);
-      setNotice(category ? 'Annotation humaine enregistrée. La livraison reste inchangée.' : 'Catégorie détaillée retirée. La correction générale reste enregistrée.');
-    } catch { setError('Enregistrement impossible. Réessayez après actualisation.'); }
+      setNotice(category ? "Human annotation recorded. Delivery remains unchanged." : "Detailed category withdrawn. The general correction remains recorded.");
+    } catch { setError("Record impossible. Try again after updating."); }
     finally { setBusy(false); onBusy(false); }
   }
-  return <section aria-label="Apprentissage local multiclasse" className="mt-5 space-y-3 rounded-xl border p-4">
-    <h3>Apprentissage local · Bayes et réseau neuronal</h3>
-    <p className="muted">Observation uniquement. Les modèles apprennent de vos annotations par domaine. Aucun de ces avis ne change le score ni la livraison.</p>
-    <p className="muted">Précisez uniquement les catégories que vous avez vérifiées : Phishing pour le vol d’identifiants, Escroquerie pour la fraude, PUB pour les campagnes commerciales légitimes. En cas de doute, laissez sans annotation.</p>
+  return <section aria-label="Local multiclass learning" className="mt-5 space-y-3 rounded-xl border p-4">
+    <h3>Local learning · Bayes and neural network</h3>
+    <p className="muted">Observation only. Models learn from your annotations by domain. None of these reviews changes the score or delivery.</p>
+    <p className="muted">Annotate only categories you have verified: phishing for credential theft, scam for fraud, and marketing for legitimate campaigns. Leave uncertain cases unlabelled.</p>
     {domains.map(d=><label key={d.domain} className="flex flex-wrap items-center gap-3">
       <span>Annotation · {d.domain}</span>
-      <select aria-label={`Catégorie humaine pour ${d.domain}`} value={d.class ?? ''} disabled={busy || blocked} onChange={e=>void save(d.domain,e.target.value)} className="rounded-lg border bg-background p-2">
-        <option value="">Sans catégorie détaillée</option>
+      <select aria-label={`Human label for ${d.domain}`} value={d.class ?? ''} disabled={busy || blocked} onChange={e=>void save(d.domain,e.target.value)} className="rounded-lg border bg-background p-2">
+        <option value="">No detailed category</option>
         {adaptiveClasses.map(c=><option key={c} value={c}>{adaptiveLabels[c]}</option>)}
       </select>
     </label>)}
-    <details><summary>Avis Bayes et neuronal</summary>
-    <p>{report ? adaptiveStatus(report.status) : 'Pas d’observation multiclasse enregistrée pour ce message.'}{report?.model && ` · ${report.model}`}</p>
-    {report?.category && <p>Avis : <strong>{adaptiveLabels[report.category]}</strong>{report.proposed_action && ` · action simulée : ${{observe:'observation',tag:'marquage',quarantine:'quarantaine'}[report.proposed_action]}`}</p>}
+    <details><summary>Bayes and neural opinions</summary>
+    <p>{report ? adaptiveStatus(report.status) : "No multiclass observation recorded for this message."}{report?.model && ` · ${report.model}`}</p>
+    {report?.category && <p>Opinion: <strong>{adaptiveLabels[report.category]}</strong>{report.proposed_action && ` · simulated action: ${{observe:'observation',tag:'tagging',quarantine:"quarantine"}[report.proposed_action]}`}</p>}
     {report?.bayes_strengths?.length === 5 && report.neural_strengths?.length === 5 && <div className="overflow-x-auto">
-      <table className="adaptive-scores"><caption>Forces relatives non calibrées ; ce ne sont pas des probabilités de menace.</caption>
-        <thead><tr><th>Catégorie</th><th>Bayes</th><th>Neuronal</th></tr></thead>
+      <table className="adaptive-scores"><caption>Uncalibrated relative forces; these are not threat probabilities.</caption>
+        <thead><tr><th>Category</th><th>Bayes</th><th>Neural</th></tr></thead>
         <tbody>{adaptiveClasses.map((c,i)=><tr key={c}><th>{adaptiveLabels[c]}</th><td>{report.bayes_strengths![i].toFixed(3)}</td><td>{report.neural_strengths![i].toFixed(3)}</td></tr>)}</tbody>
       </table>
     </div>}

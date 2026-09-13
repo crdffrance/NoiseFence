@@ -1,23 +1,23 @@
-# Valider le relais devant Proton
+<a id="valider-le-relais-devant-proton"></a>
+# Validate relay in front of Proton
 
-La passerelle conserve Proton comme destination. Sa mise en production dépend des essais ci-dessous, et non du seul succès d’un dialogue SMTP.
+The gateway retains Proton as its destination. Its production depends on the tests below, not on the success of a SMTP dialogue.
 
-## Préparer l’environnement
+<a id="préparer-lenvironnement"></a>
+## Preparing the environment
 
-1. Utiliser une adresse ou un sous-domaine de test contrôlé dans Proton, et un expéditeur de test contrôlé. Renseigner les adresses et le serveur de test dans une configuration locale exclue de Git.
-2. Confirmer auprès de l’hébergeur que TCP/25 est disponible dans les deux sens. Contrôler A/AAAA, reverse DNS et certificat de la passerelle. Ne publier AAAA que si le routage IPv6 fonctionne.
-3. Copier `config/production.example.toml` vers `config/local.toml`, renseigner les destinataires réels et les certificats, conserver `mode = "observe"`.
-4. Préparer une clé RSA ARC et publier la clé publique sous `SELECTEUR._domainkey.example.org`. Fournir la clé privée, le domaine et le sélecteur dans la configuration. Les clés PKCS#1 et PKCS#8 PEM sont acceptées. La clé reste lisible uniquement par le service.
-5. Vérifier le support actuel du relais avec Proton. [Proton décrit une confiance ARC limitée à certains intermédiaires](https://proton.me/blog/what-is-authenticated-received-chain-arc) ; une chaîne ARC valide ne suffit pas à nous ajouter à cette liste. ARC reste implémenté pour l’interopérabilité Proton ; le protocole historique n’est pas présenté comme une garantie de délivrabilité.
+1. Use a controlled test address or subdomain in Proton, and a controlled test sender. Inform addresses and test server in a local configuration excluded from Git.
+2. Confirm with the host that TCP/25 is available in both directions. Check A/AAAA, DNS reverse and bridge certificate. Only publish AAAA if the IPv6 routing works.
+3. Copy `config/production.example.toml` to `config/local.toml`, provide actual recipients and certificates, keep `mode = "observe"`.
+4. Prepare an ARC RSA key and publish the public key under `SELECTOR._domainkey.example.org`. Provide the private key, domain and selector in the configuration. PKCS#1 and PKCS#8 PEM keys are accepted. The key remains readable only by the service.
+5. Check the current support of the relay with Proton. [Proton describes an ARC confidence limited to certain intermediaries](https://proton.me/blog/what-is-authenticated-received-chain-arc); a valid ARC string is not enough to add us to this list. ARC remains implemented for Proton interoperability; the historical protocol is not presented as a guarantee of delivability.
 
-## Adresse pilote sans bascule du domaine principal
+<a id="adresse-pilote-sans-bascule-du-domaine-principal"></a>
+## Pilot address without changing the main MX
 
-Un sous-domaine contrôlé peut recevoir les essais sur la passerelle et les router
-vers une boîte Proton existante. Cela permet d'envoyer depuis un compte normal
-d'un autre fournisseur, avec les signatures et l'IP SMTP de ce fournisseur.
-Conserver les MX du domaine principal et le mode `observe` pendant ces essais.
+A controlled subdomain can receive the trials on the gateway and route them to an existing Proton box. This allows sending from a normal account of another provider, with the signatures and SMTP IP of that provider. Keep the MX of the main domain and `observe` mode during these tests.
 
-Exemple à adapter dans la configuration privée :
+Example to be adapted in the private configuration:
 
 ```toml
 [[domains]]
@@ -32,83 +32,63 @@ recipients = []
 "test@pilot.example.org" = "canonical@example.org"
 ```
 
-Publier un MX du sous-domaine vers la passerelle. Un hôte ayant une adresse A/AAAA
-mais aucun enregistrement MX peut aussi recevoir par le repli MX implicite de
-[SMTP, section 5.1](https://www.rfc-editor.org/rfc/rfc5321.html#section-5.1).
-Vérifier le résultat DNS public réel : un MX existant, notamment un MX nul,
-change ce comportement. Vérifier aussi TCP/25 et STARTTLS depuis l'extérieur.
+Publish an MX from the subdomain to the gateway. A host with an A/AAAA address but no MX record can also receive via the implicit MX fold from [SMTP, section 5.1](https://www.rfc-editor.org/rfc/rfc5321.html#section-5.1). Check the actual public DNS result: an existing MX, including a null MX, changes this behavior. Also check TCP/25 and STARTTLS from the outside.
 
-L'alias doit viser directement une adresse de `recipients` ou une adresse d'un
-domaine avec `accept_all_recipients = true`, éventuellement dans un autre domaine
-configuré. La route sortante et les droits de console sont ceux de cette
-destination. Les chaînes et boucles d'alias restent interdites, même entre domaines
-acceptant toutes les adresses. Les domaines sont comparés sans tenir compte de la
-casse ; la partie locale reste exacte. `user-add --addresses` attend l'adresse
-canonique de destination, et non l'adresse de l'alias.
+The alias must directly target an address of `recipients` or an address of a domain with `accept_all_recipients = true`, possibly in another domain configured. The outgoing route and the console rights are those of that destination. The alias chains and loops remain prohibited, even between domains accepting all addresses. The domains are compared without regard to the case; the local part remains accurate. `user-add --addresses` waits for the canonical address of destination, not the address of the alias.
 
-Après `check-config` et redémarrage, envoyer quelques messages légitimes depuis
-un compte externe contrôlé vers l'alias. Se connecter à la console avec le compte
-autorisé pour la boîte canonique : les entrées affichent l'alias reçu, le score,
-les raisons, les contrôles incomplets et l'état de livraison. Les alias reçus en
-copie cachée restent limités au compte autorisé pour leur propre destination.
-Confirmer aussi le dossier d'arrivée dans Proton et conserver les en-têtes des
-exemples autorisés pour comparer SPF, DKIM et DMARC avant et après relais.
+After `check-config` and restart, send some legitimate messages from a controlled external account to the alias. Connect to the console with the account allowed for the canonical box: entries show the received aliases, score, reasons, incomplete controls and delivery status. All aliases received in hidden copy remain limited to the account allowed for their own destination. Also confirm the arrival folder in Proton and keep the headers of the allowed examples to compare SPF, DKIM and DMARC before and after relay.
 
-La modification porte sur le destinataire d'enveloppe sortant. L'expéditeur
-d'enveloppe et le contenu d'origine sont conservés en observation ; les en-têtes
-internes de la passerelle sont ajoutés comme pour une réception ordinaire. Une
-analyse `.eml` hors ligne, telle que `scan` ou `analyze`, ne crée pas d'entrée de
-livraison dans la console.
+The modification is for the outgoing envelope recipient. The envelope sender and the original content are kept in observation; the gateway's internal headers are added as for an ordinary reception. An offline `.eml` scan, such as `scan` or `analyze`, does not create a delivery input in the console.
 
-Ce pilote ne valide pas à lui seul le préfixe `[SPAM]`, ARC, le routage interne
-Proton ou les chemins de contournement. Quelques essais légitimes ne mesurent
-pas le taux de capture ni les faux positifs sur un corpus représentatif.
+This pilot does not validate the `[SPAM]` prefix, ARC, Proton internal routing or bypass paths alone. Some legitimate tests do not measure the capture rate or false positives on a representative corpus.
 
-## Comparaison contrôlée
+<a id="comparaison-contrôlée"></a>
+## Controlled comparison
 
-Pour chaque famille de messages, conserver trois exemplaires et leur résultat : livraison directe, livraison relayée sans préfixe, livraison relayée avec préfixe. Vérifier arrivée, délai, dossier, objet et `Authentication-Results` dans Proton. Une acceptation SMTP `250` ne garantit pas une arrivée en boîte principale.
+For each family of messages, keep three copies and their result: direct delivery, relayed delivery without prefix, relayed delivery with prefix. Check arrival, delay, folder, object and `Authentication-Results` in Proton. SMTP `250` acceptance does not guarantee a main box arrival.
 
-Préparer les variantes d’un message de test contrôlé, en fournissant l’IP réelle de son expéditeur SMTP et son enveloppe. Cette commande écrit des fichiers et effectue les vérifications DNS ; elle n’envoie aucun email et n’active pas le marquage de la passerelle :
+Prepare variants of a controlled test message, providing the actual IP of its SMTP sender and envelope. This command writes files and performs DNS checks; it does not send any emails and does not activate the gateway marking:
 
 ```sh
 noisefence --config config/local.toml proton-prepare test.eml \
-  --source-ip IP_REELLE_EMETTEUR \
-  --helo HOTE_EMETTEUR \
-  --mail-from EXPEDITEUR_DE_TEST \
+  --source-ip SENDER_IP \
+  --helo SENDER_HOST \
+  --mail-from TEST_SENDER \
   --output reports/probe
 ```
 
-Le répertoire reçoit `direct.eml`, `relay-untagged.eml`, `relay-tagged.eml` et `analysis.json`. Pour la comparaison directe, soumettre l’original depuis l’infrastructure de l’expéditeur de test afin de conserver son contexte SPF. Soumettre les exemplaires relayés depuis la passerelle vers les MX Proton. L’outil de soumission exige TLS validé et un destinataire explicite :
+The directory receives `direct.eml`, `relay-untagged.eml`, `relay-tagged.eml` and `analysis.json`. For direct comparison, submit the original from the test sender's infrastructure in order to keep its SPF context. Submit the copies relayed from the gateway to the Proton MX. The submission tool requires TLS validated and an explicit recipient:
 
 ```sh
 python3 scripts/send_probe.py reports/probe/relay-tagged.eml \
   --host mail.protonmail.ch --helo mx.example.org \
-  --mail-from EXPEDITEUR_DE_TEST --recipient DESTINATAIRE_DE_TEST
+  --mail-from TEST_SENDER --recipient TEST_RECIPIENT
 ```
 
-Sans `--send`, aucun envoi n’a lieu. Après contrôle des paramètres, ajouter ce drapeau pour envoyer exactement un message. N’utiliser que des comptes destinataires contrôlés.
+Without `--send`, no sending takes place. After checking the settings, add this flag to send exactly a message. Use only controlled recipient accounts.
 
-| Cas dans le rapport | Vérification |
+| Case in the report | Verification |
 |---|---|
-| `dkim` | Original DKIM valide ; observer la différence quand Subject est modifié |
-| `spf_only` | Message légitime sans DKIM ; mesurer l’impact du changement d’IP |
-| `dmarc_reject` | Domaine de test avec politique stricte et identifiants alignés à l’origine |
-| `mailing_list` | En-têtes et signatures d’une vraie liste de test |
-| `forwarded` | Chaîne ARC préexistante et transfert légitime |
-| `international_subject` | Objets UTF-8 encodés RFC 2047, repliés, vides et déjà préfixés |
-| `bypass` | Livraison directement aux MX Proton malgré les MX publics de passerelle |
-| `proton_internal` | Messages issus de Proton et susceptibles d’être routés en interne |
+| `dkim` | Original DKIM valid; observe difference when Subject is changed |
+| `spf_only` | Legitimate message without DKIM; measure the impact of the change of IP |
+| `dmarc_reject` | Test area with strict policy and identifiers aligned at origin |
+| `mailing_list` | Headers and signatures of a real test list |
+| `forwarded` | Pre-existing ARC chain and legitimate transfer |
+| `international_subject` | UTF-8 objects encoded RFC 2047, folded, empty and prefixed |
+| `bypass` | Direct delivery to MX Proton despite public gateway MXs |
+| `proton_internal` | Messages from Proton likely to be routed internally |
 
-Pour `bypass` et `proton_internal`, `passed` signifie que la couverture réelle a été mesurée et documentée. Cela ne signifie pas que ces chemins ont été bloqués. Renseigner `bypass_limit_accepted` seulement après acceptation explicite de cette limite par l’exploitant. Le produit filtre le trafic qui traverse son SMTP ; il ne contrôle pas les flux internes à Proton.
+For `bypass` and `proton_internal`, `passed` means that the actual coverage has been measured and documented. This does not mean that these paths have been blocked. Inform `bypass_limit_accepted` only after explicit acceptance of this limit by the operator. The product filters the traffic that is passing through its SMTP; it does not control the internal flows to Proton.
 
-## Décision de bascule
+<a id="décision-de-bascule"></a>
+## MX cutover decision
 
 ```sh
 noisefence --config config/local.toml proton-report-template reports/proton-validation.json
 ```
 
-Le modèle de rapport est volontairement non validé. Après les essais, y inscrire la date Unix, le résultat de chaque cas et une référence d’évidence détaillée (identifiants de messages, résultats d’authentification, emplacement des captures ou exports). Ne pas y mettre de secrets. Un rapport doit correspondre au hostname et aux domaines, porter sur `[SPAM]` et dater de moins de 30 jours pour permettre le démarrage en mode `tag`.
+The report template is voluntarily not validated. After testing, enter the Unix date, the result of each case, and a detailed reference of evidence (message identifiers, authentication results, capture location or export). Do not put any secrets in it. A report must correspond to the hostname and domains, carry on `[SPAM]` and date less than 30 days to allow booting in `tag` mode.
 
-Si le préfixe dégrade la livraison, laisser le mode observation et les MX actuels. Un libellé Proton via Sieve peut être étudié ensuite comme changement de comportement, mais ce projet n’effectue pas cette substitution automatiquement.
+If the prefix degrades delivery, leave the current observation mode and MX. Proton wording via Sieve can then be studied as a behavioral change, but this project does not perform this substitution automatically.
 
-La bascule DNS reste manuelle : publier uniquement les MX des passerelles filtrantes, et conserver une procédure de retour vers les deux MX Proton actuels. Ajouter Proton comme MX secondaire pendant le filtrage créerait un chemin de contournement. Après rollback, laisser le relais drainer les messages déjà acceptés avant de l’arrêter.
+The DNS switch remains manual: to publish only the MX of the filtering gateways, and to keep a procedure for returning to the two current Proton MXs. Adding Proton as a secondary MX during filtering would create a bypass path. After rollback, let the relay drain the already accepted messages before stopping.

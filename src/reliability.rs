@@ -475,7 +475,7 @@ impl Accumulator {
         }
         let mut alerts = vec![];
         if truncated {
-            alerts.push(json!({"code":"limited_history","level":"notice","detail":"Le bilan est partiel ; les tests de changement de distribution sont désactivés."}));
+            alerts.push(json!({"code":"limited_history","level":"notice","detail":"The balance sheet is partial; distribution change tests are disabled."}));
         }
         if self.quality.tp
             + self.quality.fp
@@ -485,10 +485,10 @@ impl Accumulator {
             + self.quality.legitimate_review
             < 100
         {
-            alerts.push(json!({"code":"insufficient_labels","level":"notice","detail":"Les annotations restent insuffisantes pour valider la qualité du filtre."}));
+            alerts.push(json!({"code":"insufficient_labels","level":"notice","detail":"The annotations remain insufficient to validate the filter quality."}));
         }
         if self.invalid_scans > 0 {
-            alerts.push(json!({"code":"invalid_observations","level":"warning","detail":"Certaines observations conservées ne peuvent pas être interprétées."}));
+            alerts.push(json!({"code":"invalid_observations","level":"warning","detail":"Some of the observations retained cannot be interpreted."}));
         }
         if !truncated
             && self.invalid_scans == 0
@@ -512,7 +512,7 @@ impl Accumulator {
                     .as_f64()
                     .unwrap();
                 if p - q >= 0.15 && low > high {
-                    alerts.push(json!({"code":name,"level":"warning","detail":"Hausse à examiner : campagne réelle, évolution du trafic ou dégradation possible. Aucune désactivation automatique."}));
+                    alerts.push(json!({"code":name,"level":"warning","detail":"Increase to examine: real campaign, traffic evolution or possible degradation. No automatic deactivation."}));
                 }
             }
         }
@@ -534,7 +534,7 @@ impl Accumulator {
                 .map(|(_, n)| n)
                 .sum();
             if unavailable >= 3 && unavailable * 10 >= total {
-                alerts.push(json!({"code":"detector_degraded","detector":name,"level":"warning","detail":"Contrôles incomplets ou indisponibles récurrents ; examiner le service et ses quotas."}));
+                alerts.push(json!({"code":"detector_degraded","detector":name,"level":"warning","detail":"Recurrent incomplete or unavailable checks; review service and its quotas."}));
             }
         }
         let mut pairs: Vec<_> = self
@@ -554,10 +554,10 @@ impl Accumulator {
             "unlabelled":self.unlabelled,"invalid_labels":self.invalid_labels,"invalid_scans":self.invalid_scans,"saturated_scores":self.saturation,
             "symbols":self.symbols,"cooccurrences":pairs,"historical_replays_unavailable":self.historical_replays_unavailable,
             "candidate_comparisons":comparisons,"alerts":alerts,"may_activate":false,"affects_delivery":false,
-            "limitations":["Les annotations et corrections peuvent être sélectionnées ; aucune estimation du trafic sans échantillon indépendant représentatif.",
-                "Les retraits de poids rejouent des observations historiques figées : ils ne simulent pas de nouveaux appels LLM, les actions par destinataire ou le dossier Proton.",
-                "Les symboles natifs sont consultatifs. Leurs correspondances et cooccurrences ne prouvent ni causalité ni indépendance.",
-                "Les comparaisons portent uniquement sur les prédictions candidates enregistrées et annotées ; leur couverture et leur sélection restent à évaluer."]})
+            "limitations":["Annotations and corrections can be selected; no traffic estimate without representative independent sample.",
+                "Weight withdrawals replay frozen historical observations: they do not simulate new LLM calls, recipient actions or Proton folder.",
+                "Native symbols are advisory, and their correspondence and co-occurrence do not prove causality or independence.",
+                "Comparisons are only made with the candidate predictions recorded and annotated; their coverage and selection remain to be evaluated."]})
     }
 }
 fn add_symbol(row: &mut Symbol, label: Option<(bool, bool)>, actual: Outcome, weight: f64) {

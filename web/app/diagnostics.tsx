@@ -29,19 +29,17 @@ function AuthenticationDetails({ auth }: { auth?: AuthenticationEvidence }) {
   return (
     <section
       className="diagnostic-section"
-      aria-label="Authentification du message"
+      aria-label="Authentication of the message"
     >
-      <h3>Authentification SPF, DKIM, DMARC et ARC</h3>
+      <h3>SPF, DKIM, DMARC and ARC authentication</h3>
       {!auth ? (
         <p className="diagnostic-muted">
-          Aucune preuve d’authentification historique enregistrée.
+          No evidence of historical authentication recorded.
         </p>
       ) : (
         <>
           <p className="diagnostic-muted">
-            Contrôles SPF / DKIM / DMARC : {evidenceState(auth.state)}. ARC est
-            contrôlé séparément. Un contrôle absent ou indisponible n’est pas un
-            résultat réussi.
+            SPF / DKIM / DMARC controls: {evidenceState(auth.state)}. ARC is controlled separately. An absent or unavailable check is not a successful result.
           </p>
           <dl className="diagnostic-facts diagnostic-auth">
             <div>
@@ -52,9 +50,9 @@ function AuthenticationDetails({ auth }: { auth?: AuthenticationEvidence }) {
               <dt>DKIM · {evidenceState(auth.dkim_state)}</dt>
               <dd>
                 {auth.dkim == null ? (
-                  'Résultat non enregistré'
+                  "Result not recorded"
                 ) : auth.dkim.length === 0 ? (
-                  'Aucune signature DKIM enregistrée'
+                  "No DKIM signature recorded"
                 ) : (
                   <ul>
                     {auth.dkim.map((result, index) => (
@@ -69,9 +67,9 @@ function AuthenticationDetails({ auth }: { auth?: AuthenticationEvidence }) {
             <div>
               <dt>DMARC · {evidenceState(auth.dmarc_state)}</dt>
               <dd>
-                Alignement SPF : {authenticationResult(auth.dmarc_spf)}
+                SPF alignment: {authenticationResult(auth.dmarc_spf)}
                 <br />
-                Alignement DKIM : {authenticationResult(auth.dmarc_dkim)}
+                DKIM alignment: {authenticationResult(auth.dmarc_dkim)}
               </dd>
             </div>
             <div>
@@ -80,10 +78,10 @@ function AuthenticationDetails({ auth }: { auth?: AuthenticationEvidence }) {
                 {authenticationResult(auth.arc)}
                 <br />
                 {auth.arc_can_seal == null
-                  ? 'Possibilité de scellement non enregistrée'
+                  ? "Sealing capability not recorded"
                   : auth.arc_can_seal
-                    ? 'Scellement possible'
-                    : 'Scellement non possible'}
+                    ? "Sealing available"
+                    : "Sealing not possible"}
               </dd>
             </div>
           </dl>
@@ -108,94 +106,92 @@ function AnalysisDetails({
   return (
     <section
       className="diagnostic-section"
-      aria-label="Analyse enregistrée à la réception"
+      aria-label="Analysis recorded at receipt"
     >
-      <h3>Analyse enregistrée à la réception</h3>
+      <h3>Analysis recorded at receipt</h3>
       <dl className="diagnostic-facts">
         <div>
-          <dt>Durée totale de l’analyse</dt>
+          <dt>Total duration of analysis</dt>
           <dd>{duration(analysis.elapsed_ms)}</dd>
         </div>
         <div>
-          <dt>Version d’extraction</dt>
+          <dt>Extraction version</dt>
           <dd>{analysis.feature_version}</dd>
         </div>
         <div>
-          <dt>Extraction des caractéristiques</dt>
+          <dt>Feature extraction</dt>
           <dd>
             {analysis.features_complete == null
-              ? 'Complétude historique non enregistrée'
+              ? "Historical completion not recorded"
               : analysis.features_complete
-                ? 'Complète'
-                : 'Partielle'}
+                ? "Complete"
+                : "Partial"}
           </dd>
         </div>
       </dl>
       <p className="diagnostic-callout">{policySummary(analysis.policy)}</p>
       {analysis.policy && (
         <p className="diagnostic-muted">
-          Version de politique : <code>{analysis.policy.version}</code>.
+          Policy version: <code>{analysis.policy.version}</code>.
           {source === 'fusion' &&
-            ' Ce seuil appartient au calcul historique, pas au modèle de fusion.'}
+            " This threshold belongs to the historical calculation, not to the fusion model."}
           {source === 'antivirus' &&
-            ' La priorité antivirus ne dépend pas de ce seuil.'}
+            " The antivirus priority does not depend on this threshold."}
         </p>
       )}
       <dl className="diagnostic-facts">
         <div>
-          <dt>Modèle lexical · log-odds</dt>
+          <dt>lexical · log-odds model</dt>
           <dd>{contribution(analysis.lexical_logit)}</dd>
           <dd className="diagnostic-muted">
             {evidenceState(analysis.evidence?.lexical_state)}
           </dd>
         </div>
         <div>
-          <dt>Contribution sémantique · log-odds</dt>
+          <dt>Semantic contribution · log-odds</dt>
           <dd>{contribution(analysis.semantic_contribution)}</dd>
           <dd className="diagnostic-muted">
             {evidenceState(analysis.evidence?.semantic_state)}
           </dd>
         </div>
         <div>
-          <dt>Total des poids de règles · log-odds</dt>
+          <dt>Total weight of rules · log-odds</dt>
           <dd>{contribution(analysis.rule_weight_total)}</dd>
         </div>
       </dl>
       <p className="diagnostic-muted">
-        Valeurs du calcul historique, avant conversion en score : ce ne sont pas
-        des pourcentages et elles ne totalisent pas 100. Une contribution non
-        enregistrée n’est pas un zéro. Les indices peuvent être corrélés.
+        Recorded contributions before conversion to a score. They are not percentages, do not sum to 100 and may be correlated. An unrecorded contribution is not zero.
       </p>
       {analysis.score_breakdown && <details className="diagnostic-disclosure">
-        <summary>Contributions par famille de contrôles</summary>
+        <summary>Contributions by control family</summary>
         <dl className="diagnostic-facts">{Object.entries(analysis.score_breakdown.families).map(([family,value])=><div key={family}>
-          <dt>{({lexical:'Texte et structure',semantic:'Analyse sémantique',content_unseparated:'Contenu, détail historique absent',heuristics:'Règles de contenu',authentication:'Authentification',reputation:'Réputation',smtp:'Contrôles SMTP',llm:'Second avis',other_rules:'Autres règles'} as Record<string,string>)[family] ?? 'Autres contributions'}</dt><dd>{contribution(value)}</dd>
+          <dt>{({lexical:"Text and structure",semantic:"Semantic analysis",content_unseparated:"Content, historical detail absent",heuristics:"Content rules",authentication:"Authentication",reputation:"Reputation",smtp:"SMTP controls",llm:"Second opinion",other_rules:"Other rules"} as Record<string,string>)[family] ?? "Other contributions"}</dt><dd>{contribution(value)}</dd>
         </div>)}</dl>
-        <p className="diagnostic-muted">{analysis.score_breakdown.matches_recorded_score ? 'La somme reproduit le score historique enregistré.' : 'Les observations conservées ne suffisent pas à reproduire exactement le score historique.'}
-          {analysis.score_breakdown.saturated && ' L’indice est proche d’une extrémité ; ce n’est pas une preuve de certitude.'}</p>
+        <p className="diagnostic-muted">{analysis.score_breakdown.matches_recorded_score ? "The sum reproduces the recorded historical score." : "The observations retained are not sufficient to accurately reproduce the historical score."}
+          {analysis.score_breakdown.saturated && " The index is close to one end; it is not proof of certainty."}</p>
       </details>}
       {analysis.native_filter && <details className="diagnostic-disclosure">
-        <summary>Moteur Rust : règles composites, campagnes et Bayes</summary>
-        <p className="diagnostic-muted">Observation comparative sans effet sur la livraison. Les points et le résultat Bayes ne sont pas des probabilités calibrées.</p>
+        <summary>Native engine: composite rules, campaigns and Bayes</summary>
+        <p className="diagnostic-muted">Comparative observation without effect on delivery. Points and result Bayes are not calibrated probabilities.</p>
         <dl className="diagnostic-facts">
-          <div><dt>Analyse locale</dt><dd>{evidenceState(analysis.native_filter.status)} · {duration(analysis.native_filter.elapsed_ms)}</dd></div>
-          <div><dt>Points après plafonds</dt><dd>{contribution(analysis.native_filter.score?.total)}</dd></div>
-          <div><dt>Classifieur OSB Bayes</dt><dd>{({untrained:'Aucun modèle entraîné',complete:'Analyse disponible',scope_mismatch:'Domaine hors du modèle',expired:'Modèle expiré',insufficient_features:'Indices insuffisants',incompatible:'Protocole incompatible'} as Record<string,string>)[analysis.native_filter.bayes.status] ?? 'Analyse indisponible'}</dd></div>
-          <div><dt>Mémoire de campagnes</dt><dd>{evidenceState(analysis.native_filter.fuzzy.status)} · {analysis.native_filter.fuzzy.matches} correspondance(s) textuelle(s)
-            {analysis.native_filter.fuzzy.conflict && ' · corrections contradictoires, aucun renforcement'}</dd></div>
+          <div><dt>Local analysis</dt><dd>{evidenceState(analysis.native_filter.status)} · {duration(analysis.native_filter.elapsed_ms)}</dd></div>
+          <div><dt>Points after ceilings</dt><dd>{contribution(analysis.native_filter.score?.total)}</dd></div>
+          <div><dt>OSB Bayes Classifier</dt><dd>{({untrained:"No model trained",complete:"Analysis available",scope_mismatch:"Domain outside model scope",expired:"Model expired",insufficient_features:"Insufficient evidence",incompatible:"incompatible protocol"} as Record<string,string>)[analysis.native_filter.bayes.status] ?? "Analysis not available"}</dd></div>
+          <div><dt>Campaign memory</dt><dd>{evidenceState(analysis.native_filter.fuzzy.status)} · {analysis.native_filter.fuzzy.matches} text correspondence(s)
+            {analysis.native_filter.fuzzy.conflict && " · conflicting corrections, no reinforcement"}</dd></div>
         </dl>
         {analysis.native_filter.score && <>
-          <table className="diagnostic-table"><caption>Contributions regroupées</caption><thead><tr><th>Famille</th><th>Brute</th><th>Retenue</th></tr></thead>
-            <tbody>{Object.entries(analysis.native_filter.score.families).map(([family,weight])=><tr key={family}><td>{({lexical:'Texte et structure',semantic:'Sémantique',content:'Règles de contenu',authentication:'Authentification',reputation:'Réputation',smtp:'SMTP',llm:'Second avis',campaign:'Campagnes',bayes:'OSB Bayes',other:'Autres'} as Record<string,string>)[family] ?? family}</td><td>{contribution(weight.raw)}</td><td>{contribution(weight.effective)}{weight.capped && ' · plafonnée'}</td></tr>)}</tbody>
+          <table className="diagnostic-table"><caption>Consolidated contributions</caption><thead><tr><th>Family</th><th>Raw</th><th>Retained</th></tr></thead>
+            <tbody>{Object.entries(analysis.native_filter.score.families).map(([family,weight])=><tr key={family}><td>{({lexical:"Text and structure",semantic:"Semantics",content:"Content rules",authentication:"Authentication",reputation:"Reputation",smtp:'SMTP',llm:"Second opinion",campaign:"Campaigns",bayes:'OSB Bayes',other:"Other"} as Record<string,string>)[family] ?? family}</td><td>{contribution(weight.raw)}</td><td>{contribution(weight.effective)}{weight.capped && " · capped"}</td></tr>)}</tbody>
           </table>
           <ul>{analysis.native_filter.score.symbols.map(symbol=><li key={symbol.id}><code>{symbol.id}</code> · {symbol.label} · {contribution(symbol.weight)}
-            {symbol.absorbed_by.length>0 && ` · regroupé dans ${symbol.absorbed_by.join(', ')}`}</li>)}</ul>
+            {symbol.absorbed_by.length>0 && ` · grouped in ${symbol.absorbed_by.join(', ')}`}</li>)}</ul>
         </>}
       </details>}
       {overrides.length > 0 && (
         <details className="diagnostic-disclosure">
           <summary>
-            Poids personnalisés enregistrés pour les règles déclenchées
+            Custom weight recorded for triggered rules
           </summary>
           <dl className="diagnostic-facts">
             {overrides.map(([id, weight]) => (
@@ -216,12 +212,12 @@ function AnalysisDetails({
 function SmtpAttempt({ log, latest }: { log: SmtpLog; latest: boolean }) {
   return (
     <details
-      className="smtp-attempt diagnostic-disclosure"
+      className="diagnostic-disclosure smtp-attempt"
       open={latest ? true : undefined}
     >
       <summary>
         <span>
-          Tentative {log.attempt} · {smtpOutcome(log.outcome)}
+          Attempt {log.attempt} · {smtpOutcome(log.outcome)}
         </span>
         <span className="diagnostic-muted">
           {timestamp(log.started)} · {duration(log.elapsed_ms)}
@@ -229,30 +225,30 @@ function SmtpAttempt({ log, latest }: { log: SmtpLog; latest: boolean }) {
       </summary>
       <dl className="diagnostic-facts">
         <div>
-          <dt>Route SMTP</dt>
-          <dd>{log.route || 'Route non enregistrée'}</dd>
+          <dt>SMTP route</dt>
+          <dd>{log.route || "Unrecorded route"}</dd>
         </div>
         <div>
-          <dt>Serveur joint (pair)</dt>
-          <dd>{log.peer || 'Pair non enregistré'}</dd>
+          <dt>Connected server (peer)</dt>
+          <dd>{log.peer || "Peer not recorded"}</dd>
         </div>
       </dl>
       {log.truncated && (
         <p className="diagnostic-callout">
-          Journal tronqué : des étapes ou réponses peuvent manquer.
+          Truncated log: steps or replies may be missing.
         </p>
       )}
       {log.events.length ? (
         <ol
           className="smtp-timeline"
-          aria-label={`Échanges SMTP de la tentative ${log.attempt}`}
+          aria-label={`SMTP exchanges for attempt ${log.attempt}`}
         >
           {log.events.map((event, index) => (
             <li key={index}>
               <div className="smtp-event-heading">
                 <strong>{smtpPhase(event.phase)}</strong>
                 <span className="diagnostic-muted">
-                  + {duration(event.elapsed_ms)} depuis le début
+                  + {duration(event.elapsed_ms)} from the beginning
                 </span>
               </div>
               {(event.code != null || event.enhanced_code) && (
@@ -268,7 +264,7 @@ function SmtpAttempt({ log, latest }: { log: SmtpLog; latest: boolean }) {
               )}
               {event.code == null && !event.response && !event.detail && (
                 <p className="diagnostic-muted">
-                  Aucune réponse détaillée enregistrée.
+                  No detailed response recorded.
                 </p>
               )}
             </li>
@@ -276,7 +272,7 @@ function SmtpAttempt({ log, latest }: { log: SmtpLog; latest: boolean }) {
         </ol>
       ) : (
         <p className="diagnostic-muted">
-          Aucune étape SMTP détaillée enregistrée pour cette tentative.
+          No detailed SMTP steps recorded for this attempt.
         </p>
       )}
     </details>
@@ -343,7 +339,7 @@ function RecipientDetails({
         error:
           error instanceof Error
             ? error.message
-            : 'Le chargement de l’historique a échoué.',
+            : "The loading of history failed.",
       }));
     } finally {
       refreshSignal.removeEventListener('abort', abort);
@@ -362,18 +358,18 @@ function RecipientDetails({
       </p>
       <dl className="diagnostic-facts">
         <div>
-          <dt>Destination de transmission</dt>
-          <dd>{displayedHistory.destination || 'Non enregistrée'}</dd>
+          <dt>Delivery destination</dt>
+          <dd>{displayedHistory.destination || "Not recorded"}</dd>
         </div>
         <div>
-          <dt>Tentatives effectuées</dt>
+          <dt>Attempts made</dt>
           <dd>{displayedHistory.attempts}</dd>
         </div>
       </dl>
       <p>{nextRetry(displayedHistory.status, displayedHistory.next_attempt)}</p>
       {displayedHistory.last_error && (
         <div className="diagnostic-callout">
-          <strong>Dernière erreur enregistrée</strong>
+          <strong>Last recorded error</strong>
           <p className="smtp-response">{displayedHistory.last_error}</p>
         </div>
       )}
@@ -392,7 +388,7 @@ function RecipientDetails({
             variant="outline"
             disabled={history.loading || refreshing}
             onClick={() => void loadHistory()}
-            aria-label={`${history.error ? 'Réessayer le chargement de' : history.data ? 'Actualiser' : 'Charger'} l’historique SMTP de ${recipient.address}`}
+            aria-label={`${history.error ? "Retry loading of" : history.data ? "Refresh" : "Load"} the historical SMTP of ${recipient.address}`}
           >
             <RefreshCw
               size={16}
@@ -400,31 +396,29 @@ function RecipientDetails({
               className={history.loading ? 'spin' : ''}
             />
             {history.loading
-              ? 'Chargement de l’historique…'
+              ? "Loading history..."
               : history.error
-                ? 'Réessayer'
+                ? "Retry"
                 : history.data
-                  ? 'Actualiser l’historique SMTP'
-                  : 'Charger l’historique SMTP'}
+                  ? "Updating SMTP history"
+                  : "Load SMTP history"}
           </Button>
           <p className="diagnostic-muted">
-            Les 50 journaux les plus récents de ce destinataire au maximum.
-            L’actualisation globale recharge la vue limitée de tous les
-            destinataires.
+            Up to 50 recent logs for this recipient. Refresh all to return to the combined view.
           </p>
         </div>
       )}
       <output className="diagnostic-muted diagnostic-loading-status">
         {history.loading
-          ? 'Chargement des journaux de ce destinataire…'
+          ? "Loading this recipient’s logs…"
           : history.data && !history.error
-            ? 'Historique de ce destinataire actualisé.'
+            ? "History of this updated recipient."
             : ''}
       </output>
       {history.error && (
         <div className="diagnostic-callout" role="alert">
-          <p>Historique indisponible : {history.error}</p>
-          <p>Les journaux déjà reçus restent affichés.</p>
+          <p>History not available: {history.error}</p>
+          <p>Previously loaded logs remain visible.</p>
         </div>
       )}
       <div aria-busy={history.loading}>
@@ -489,7 +483,7 @@ export default function Diagnostics({
         if (!active) return;
         if (data.message_id !== messageId)
           throw new Error(
-            'Le diagnostic reçu ne correspond pas au message sélectionné.',
+            "The diagnosis received does not correspond to the selected message.",
           );
         setState({
           messageId,
@@ -512,7 +506,7 @@ export default function Diagnostics({
           error:
             error instanceof Error
               ? error.message
-              : 'Le chargement des diagnostics a échoué.',
+              : "The loading of diagnostics failed.",
         }));
       });
     return () => {
@@ -529,7 +523,7 @@ export default function Diagnostics({
   return (
     <section className="panel message-diagnostics" aria-labelledby={titleId}>
       <div className="diagnostic-heading">
-        <h2 id={titleId}>Diagnostics du message</h2>
+        <h2 id={titleId}>Message diagnostics</h2>
         <Button
           variant="outline"
           disabled={loading}
@@ -547,32 +541,31 @@ export default function Diagnostics({
             className={loading ? 'spin' : ''}
           />
           {loading
-            ? 'Chargement…'
+            ? "Loading…"
             : error
-              ? 'Réessayer'
-              : 'Actualiser les diagnostics'}
+              ? "Retry"
+              : "Update diagnostics"}
         </Button>
       </div>
       <p className="diagnostic-queue-id">
-        <span className="diagnostic-muted">Identifiant de file : </span>
+        <span className="diagnostic-muted">Queue ID: </span>
         <code>{messageId}</code>
       </p>
       <output className="diagnostic-muted diagnostic-loading-status">
         {loading
           ? data
-            ? 'Actualisation des tentatives SMTP… Les dernières données reçues restent affichées.'
-            : 'Chargement de l’analyse et des journaux SMTP…'
+            ? "Updating SMTP attempts... The latest data received remains on display."
+            : "Loading analysis and SMTP logs..."
           : visible?.updated
-            ? `Dernière lecture : ${timestamp(visible.updated)}.`
+            ? `Last updated: ${timestamp(visible.updated)}.`
             : ''}
       </output>
       {error && (
         <div className="diagnostic-callout" role="alert">
-          <p>Diagnostics indisponibles : {error}</p>
+          <p>Diagnostics not available: {error}</p>
           {data && (
             <p>
-              Les données affichées datent de la dernière lecture réussie ; la
-              livraison a pu évoluer.
+              The data displayed is from the last successful reading; delivery may have evolved.
             </p>
           )}
         </div>
@@ -590,18 +583,14 @@ export default function Diagnostics({
             />
             <section
               className="diagnostic-section"
-              aria-label="Transmission SMTP par destinataire"
+              aria-label="SMTP transmission per recipient"
             >
-              <h3>Transmission SMTP par destinataire</h3>
+              <h3>SMTP transmission per recipient</h3>
               <p className="diagnostic-callout">
-                « Accepté » signifie que le serveur destinataire a accepté le
-                message après son transfert. Cela ne garantit pas son arrivée
-                dans la boîte de réception : le fournisseur peut encore le
-                filtrer ou le classer.
+                &quot;Accepted&quot; means that the recipient server accepted the message after its transfer. This does not guarantee its arrival in the inbox: the provider can still filter or classify it.
               </p>
               <p className="diagnostic-muted">
-                Seuls les destinataires autorisés sont affichés. Actualisez pour
-                suivre les nouvelles tentatives.
+                Only authorized recipients are displayed. Refresh to follow new attempts.
               </p>
               {data.recipients.length ? (
                 data.recipients.map((recipient) => (
@@ -616,7 +605,7 @@ export default function Diagnostics({
                   />
                 ))
               ) : (
-                <p>Aucun destinataire autorisé disponible pour ce message.</p>
+                <p>No authorized recipients available for this message.</p>
               )}
             </section>
           </>

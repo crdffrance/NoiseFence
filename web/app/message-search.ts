@@ -29,7 +29,7 @@ export function searchFilterCount(filters: SearchFilters) {
 }
 function day(value: string, end: boolean) {
   const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!parts) throw new Error('Date invalide.');
+  if (!parts) throw new Error("Invalid date.");
   const [, y, m, d] = parts.map(Number);
   const date = new Date(y, m - 1, d);
   if (
@@ -37,7 +37,7 @@ function day(value: string, end: boolean) {
     date.getMonth() !== m - 1 ||
     date.getDate() !== d
   )
-    throw new Error('Date invalide.');
+    throw new Error("Invalid date.");
   // Calendar arithmetic keeps the entire selected day, including DST changes.
   if (end) date.setDate(date.getDate() + 1);
   return Math.floor(date.getTime() / 1000);
@@ -69,14 +69,14 @@ export function searchParameters(
   const after = filters.after ? day(filters.after, false) : undefined;
   const before = filters.before ? day(filters.before, true) : undefined;
   if (after !== undefined && before !== undefined && after >= before)
-    throw new Error('La date de début doit précéder ou égaler la date de fin.');
+    throw new Error("The start date must precede or equal the end date.");
   if (after !== undefined) params.set('after', String(after));
   if (before !== undefined) params.set('before', String(before));
   for (const field of ['min_score', 'max_score'] as const) {
     if (filters[field].trim() !== '') {
       const value = Number(filters[field]);
       if (!Number.isFinite(value) || value < 0 || value > 100)
-        throw new Error('Le score doit être compris entre 0 et 100.');
+        throw new Error("The score must be between 0 and 100.");
       params.set(field, String(value));
     }
   }
@@ -85,6 +85,6 @@ export function searchParameters(
     params.has('max_score') &&
     Number(params.get('min_score')) > Number(params.get('max_score'))
   )
-    throw new Error('Le score minimum dépasse le maximum.');
+    throw new Error("The minimum score exceeds the maximum.");
   return params.toString();
 }

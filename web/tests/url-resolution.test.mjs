@@ -47,8 +47,8 @@ test('an unavailable local inventory is distinct from a forbidden destination', 
       },
     ],
   });
-  assert.match(html, /Inventaire réseau du serveur indisponible/);
-  assert.doesNotMatch(html, /adresse interne, réservée ou exclue bloqué/);
+  assert.match(html, /Server network inventory unavailable/);
+  assert.doesNotMatch(html, /adresse internal, reserved or excluded address blocked/);
 });
 
 test('historical messages do not invent a URL visit', () => {
@@ -70,8 +70,8 @@ test('a followed chain reports HTTP arrival, not a safe URL verdict', () => {
       },
     ],
   });
-  assert.match(html, /Destination HTTP atteinte/);
-  assert.match(html, /ne signifie pas que le lien est sûr/);
+  assert.match(html, /HTTP destination reached/);
+  assert.match(html, /does not mean that the link is safe/);
   assert.match(html, /example.com \(302\).*example.org \(200\)/);
   assert.ok(!html.includes('<a '));
 });
@@ -90,9 +90,9 @@ test('blocked and omitted URLs are visibly incomplete and server text is escaped
       },
     ],
   });
-  assert.match(html, /Parcours incomplet/);
-  assert.match(html, /non parcouru/);
-  assert.match(html, /interne, réservée ou exclue bloqué/);
+  assert.match(html, /Incomplete redirect chain/);
+  assert.match(html, /skipped/);
+  assert.match(html, /internal, reserved or excluded address blocked/);
   assert.ok(html.includes('&lt;img'));
   assert.ok(!html.includes('<img'));
 });
@@ -109,6 +109,6 @@ test('JavaScript navigation is not presented as a completed resolution', () => {
         },
       ],
     }),
-    /navigation éventuelle n’est pas exécutée/,
+    /script navigation is not executed/,
   );
 });

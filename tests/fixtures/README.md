@@ -1,5 +1,4 @@
-# Données publiques de test
+<a id="données-publiques-de-test"></a>
+# Public test data
 
-La clé RSA de ce dossier a été créée uniquement pour les tests automatisés.
-Elle est publique, ne protège aucun compte et ne doit jamais servir en production.
-Les adresses et messages sont synthétiques. Aucun test ne livre à un serveur externe.
+The RSA key to this folder was created for automated testing only. It is public, does not protect any accounts and must never be used in production. Addresses and messages are synthetic. No tests are given to an external server.

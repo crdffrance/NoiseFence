@@ -9,12 +9,12 @@ import {
 } from '../app/presentation.ts';
 
 test('failure diagnostics use fixed descriptions and do not echo untrusted text', () => {
-  assert.match(checkFailure('timeout'), /Délai/);
-  assert.match(checkFailure('authentication'), /Authentification/);
+  assert.match(checkFailure('timeout'), /Deadline/);
+  assert.match(checkFailure('authentication'), /authentication/);
   assert.equal(checkFailure(null), '');
   assert.equal(
     checkFailure('private@example.org <script>'),
-    'Cause non reconnue',
+    "Unknown cause",
   );
 });
 
@@ -47,7 +47,7 @@ test('canonical review and legitimate decisions override the lexical score', () 
       },
       95,
     ).label,
-    'À vérifier',
+    "Needs review",
   );
   assert.equal(
     classification(
@@ -57,7 +57,7 @@ test('canonical review and legitimate decisions override the lexical score', () 
       },
       95,
     ).label,
-    'PUB',
+    "Marketing",
   );
   assert.equal(classification(mail, 95).label, 'Spam');
 });
@@ -75,17 +75,17 @@ test('malware keeps priority over PUB and incomplete analysis', () => {
   );
   assert.equal(
     classification({ ...mail, complete: false }, 95).label,
-    'Analyse incomplète',
+    "Needs review",
   );
 });
 test('message details cannot classify historical mail with an invented threshold', () => {
   assert.equal(
     classification(mail).label,
-    'Classement historique non enregistré',
+    "Historical classification unavailable",
   );
   assert.equal(
     classification(mail, Number.NaN).label,
-    'Classement historique non enregistré',
+    "Historical classification unavailable",
   );
   assert.equal(
     classification({
@@ -99,30 +99,30 @@ test('message details cannot classify historical mail with an invented threshold
       ...mail,
       decision: { source: 'fusion', outcome: 'legitimate', score: 2 },
     }).label,
-    'PUB',
+    "Marketing",
   );
 });
 test('mixed deliveries never look fully delivered while a copy is held or failed', () => {
   assert.equal(
     deliverySummary([{ status: 'delivered' }, { status: 'quarantined' }]).label,
-    'Quarantaine',
+    "Quarantined",
   );
   assert.equal(
     deliverySummary([{ status: 'delivered' }, { status: 'failed' }]).label,
-    'Échec de livraison',
+    "Delivery failed",
   );
   assert.equal(
     deliverySummary([{ status: 'delivered' }, { status: 'pending' }]).label,
-    'En cours',
+    "In progress",
   );
   assert.equal(
     deliverySummary([{ status: 'delivered' }, { status: 'discarded' }]).label,
-    'États multiples',
+    "Mixed delivery states",
   );
-  assert.equal(deliverySummary([]).label, 'Non renseignée');
+  assert.equal(deliverySummary([]).label, "Not recorded");
   assert.equal(
     deliverySummary([{ status: 'delivered' }]).label,
-    'Accepté par le serveur',
+    "Accepted by destination",
   );
 });
 test('account search combines access scope and role without dropping disabled accounts', () => {
@@ -145,12 +145,12 @@ test('recipient classification is visible without rewriting the detector decisio
   };
   assert.equal(
     classification({ ...original, delivery_classification: 'publicity' }).label,
-    'PUB',
+    "Marketing",
   );
   assert.equal(
     classification({ ...original, delivery_classification: 'legitimate' })
       .label,
-    'Légitime',
+    "Legitimate",
   );
   assert.equal(original.decision.outcome, 'unwanted');
   assert.equal(
@@ -159,7 +159,7 @@ test('recipient classification is visible without rewriting the detector decisio
       complete: false,
       delivery_classification: 'publicity',
     }).label,
-    'Analyse incomplète',
+    "Marketing",
   );
   assert.equal(
     classification({
@@ -181,22 +181,22 @@ test('an advisory disagreement is review, not a corrected legitimate decision', 
     decision: { outcome: 'undetermined', score: null },
   };
   const text = arbitrationExplanation(report);
-  assert.equal(text.title, 'Avis contradictoires');
-  assert.match(text.detail, /historique : Spam/);
-  assert.match(text.detail, /Second avis : Légitime/);
-  assert.match(text.detail, /Le moteur ne conclut pas/);
-  assert.match(text.detail, /règles du destinataire/);
+  assert.equal(text.title, "Opinions disagree");
+  assert.match(text.detail, /Recorded baseline: Spam/);
+  assert.match(text.detail, /Second opinion: Legitimate/);
+  assert.match(text.detail, /The engine abstains/);
+  assert.match(text.detail, /recipient rules/);
   assert.equal(
     classification({
       ...mail,
       decision: { source: 'legacy', ...report.decision },
     }).label,
-    'À vérifier',
+    "Needs review",
   );
   assert.equal(arbitrationExplanation(null), null);
 });
 
-test('a suppressed hostile-mail bounce never appears delivered', () => {
-  assert.equal(deliverySummary([{status:'dsn_suppressed'}]).label, 'Avis bloqué (anti-backscatter)');
-  assert.equal(deliverySummary([{status:'dsn_suppressed'},{status:'delivered'}]).label, 'Échec de livraison');
+test("a suppressed hostile-mail bounce never apps delivered", () => {
+  assert.equal(deliverySummary([{status:'dsn_suppressed'}]).label, "Notification suppressed (backscatter protection)");
+  assert.equal(deliverySummary([{status:'dsn_suppressed'},{status:'delivered'}]).label, "Delivery failed");
 });

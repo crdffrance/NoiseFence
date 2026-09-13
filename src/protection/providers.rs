@@ -31,7 +31,7 @@ impl Provider {
         match value {
             "crdf" => Ok(Self::Crdf),
             "virustotal" => Ok(Self::Virustotal),
-            _ => anyhow::bail!("Fournisseur inconnu"),
+            _ => anyhow::bail!("Unknown provider"),
         }
     }
 }
@@ -111,7 +111,7 @@ pub(crate) fn read_key(root: &Path, provider: Provider) -> Result<String> {
 pub fn save_key(root: &Path, provider: Provider, key: &str) -> Result<()> {
     ensure!(
         (16..=256).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_graphic()),
-        "La clé doit contenir 16 à 256 caractères sans espace."
+        "The key must contain 16 to 256 characters without space."
     );
     let folder = root.join("protection");
     std::fs::create_dir_all(&folder)?;

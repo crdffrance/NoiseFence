@@ -1,27 +1,13 @@
-# Contrôles de cohérence SMTP et DNS
+<a id="contrôles-de-cohérence-smtp-et-dns"></a>
+# SMTP and DNS consistency checks
 
-NoiseFence reprend des principes de
-[policyd-weight](https://github.com/policyd-weight/policyd-weight/tree/18d2e97a40b7d836d35e25921def508e6a719e49) :
-croiser l'identité HELO/EHLO, l'IP de connexion, le DNS inverse et le domaine de
-l'expéditeur d'enveloppe, avec des poids et un cache. L'implémentation Rust est
-indépendante ; aucun code Perl, ancienne liste DNSBL ou coefficient historique
-n'est incorporé. Le dépôt de référence indique que le projet est abandonné.
+NoiseFence uses the principles of [policy-weight](https://github.com/policyd-weight/policyd-weight/tree/18d2e97a40b7d836d35e25921def508e6a719e49): Crossing the HELO/EHLO identity, the IP connection, the DNS inverse and the domain of the envelope sender, with weights and a cache. The Rust implementation is independent; no Perl code, old DNSBL list or historical coefficient is incorporated. The reference repository indicates that the project is abandoned.
 
-Les vérifications utilisent l'IP de la socket, le dernier HELO/EHLO et MAIL FROM.
-Les en-têtes `Received`, `Authentication-Results` et `X-NoiseFence-*` reçus ne
-fournissent jamais ces identités. SPF/DKIM/DMARC et Spamhaus DQS restent leurs
-propres signaux existants : ils ne sont pas comptés une deuxième fois ici.
-Le connecteur DQS existant interroge aussi le HELO et le domaine de MAIL FROM,
-en priorité avant les liens du corps ; il conserve au plus 12 domaines uniques
-et une seule contribution de réputation de domaine par message. Son activation
-exige toujours une clé Spamhaus autorisée ; aucune nouvelle liste publique
-n’est activée implicitement. Une absence de résultat DNSBL n’est pas un certificat
-de légitimité.
+The checks use the IP of the socket, the latest HELO/EHLO and MAIL FROM. The `Received`, `Authentication-Results` and `X-NoiseFence-*` headers received never provide these identities. SPF/DKIM/DMARC and Spamhaus DQS remain their own existing signals: they are not counted a second time here. The existing DQS connector also questions the HELO and MAIL FROM domain, first before the body links; it retains up to 12 unique domains and a single domain reputation contribution per message. Its activation still requires an authorized Spamhaus key; no new public list is activated implicitly. A lack of DNSBL result is not a certificate of legitimacy.
 
-## Activer l'observation
+## Enable observation
 
-Ajouter une table de premier niveau dans la configuration, puis vérifier celle-ci
-et redémarrer le service :
+Add a first-level table in the configuration, then check it and restart the service:
 
 ```toml
 [smtp_policy]
@@ -32,80 +18,45 @@ cache_entries = 4096
 cache_ttl_seconds = 300
 ```
 
-La table absente désactive le module. Avec `contribute_to_score = false`, les
-résultats sont calculés et visibles sans changer le score du message. Le champ
-`candidate_weight` permet de mesurer la contribution proposée. Après calibration,
-`contribute_to_score = true` applique cette contribution. Le mode global
-`filter.mode` et la validation Proton continuent à contrôler le marquage.
+The missing table disables the module. With `contribute_to_score = false`, the results are calculated and visible without changing the message score. The `candidate_weight` field allows you to measure the proposed contribution. After calibration, `contribute_to_score = true` applies this contribution. The global mode `filter.mode` and Proton validation continue to control the marking.
 
-## Signaux de la version `smtp-policy-1`
+<a id="signaux-de-la-version-smtp-policy-1"></a>
+## Signs of version `smtp-policy-1`
 
-Les poids sont des contributions au logit, pas des pourcentages ni une mesure de
-probabilité. Ils sont expérimentaux et n'ont pas encore de gain de capture démontré.
+Weights are logit contributions, not percentages or a probability measure. They are experimental and do not yet have a demonstrated capture improvement.
 
-| Vérification | Observation | Poids candidat |
+| Verification | Observation | Candidate weight |
 |---|---|---:|
-| HELO/EHLO | Nom résolvant vers l'IP de connexion | −0,15 |
-| HELO/EHLO | Littéral IPv4/IPv6 correspondant | 0 |
-| HELO/EHLO | Adresse différente / aucune adresse | +0,25 / +0,5 |
-| HELO/EHLO | Littéral différent ou syntaxe inhabituelle | +0,5 |
-| HELO/EHLO | Client annonçant le nom de cette passerelle | +0,75 |
-| PTR | Au moins un nom confirmé par A/AAAA vers l'IP | −0,15 |
-| PTR | Absent / aucun nom confirmé | +0,25 / +0,5 |
-| MAIL FROM | MX présent ou repli A/AAAA sans MX | 0 |
-| MAIL FROM | Enveloppe vide de notification de livraison | 0 |
-| MAIL FROM | Null MX ou aucune route MX/A/AAAA | +0,75 |
+| HELO/EHLO | Name resolves to the connecting IP | −0.15 |
+| HELO/EHLO | Corresponding IPv4/IPv6 | 0 |
+| HELO/EHLO | Different address / no address | +0.25 / +0.5 |
+| HELO/EHLO | Different literal or unusual syntax | +0.5 |
+| HELO/EHLO | Client announcing the name of this gateway | +0.75 |
+| PTR | At least one name confirmed by A/AAAA to IP | −0.15 |
+| PTR | Absent / no confirmed name | +0.25 / +0.5 |
+| MAIL FROM | MX present or implicit A/AAAA fallback without MX | 0 |
+| MAIL FROM | Null envelope sender for a delivery notification | 0 |
+| MAIL FROM | NULL MX or no MX/A/AAAA route | +0.75 |
 
-Une seule observation par famille entre dans la somme. La contribution totale
-est plafonnée entre **−0,25 et +1,5**, car HELO et PTR sont corrélés. Les crédits
-DNS ne court-circuitent jamais l'analyse du contenu, de l'authentification ou
-de la réputation. Le MX indique ici une déclaration DNS : sa présence ne prouve
-ni l'accessibilité SMTP de sa cible ni la légitimité du message.
+The total contribution is capped between **−0.25 and +1.5**, because HELO and PTR are correlated. DNS credits never short-circuit content, authentication or reputation analysis. The MX here indicates a DNS statement: its presence does not prove the SMTP accessibility of its target nor the legitimacy of the message.
 
-Un serveur sortant n'a pas à correspondre au MX entrant du domaine. Les noms
-dynamiques, ressemblances textuelles entre domaines et appartenances à un /24
-ne constituent pas des preuves d'usurpation. Ils ne reçoivent donc pas de poids.
-Le repli A/AAAA est respecté selon
-[RFC 5321 §5.1](https://www.rfc-editor.org/rfc/rfc5321.html#section-5.1).
-Le Null MX unique `0 .` est distingué de l'absence de MX, suivant
-[RFC 7505](https://www.rfc-editor.org/rfc/rfc7505.html).
+An outgoing server does not have to match the incoming MX of the domain. Dynamic names, text similarities between domains and memberships of a /24 do not constitute evidence of usurpation. Therefore, they do not receive any weight. The A/AAAA fallback is respected according to [RFC 5321 §5.1](https://www.rfc-editor.org/rfc/rfc5321.html#section-5.1). The single null MX `0 .` is distinguished from the absence of MX, following [RFC 7505](https://www.rfc-editor.org/rfc/rfc7505.html).
 
-## Délais, erreurs et traçabilité
+<a id="délais-erreurs-et-traçabilité"></a>
+## Timeliness, Errors and Traceability
 
-Le module s'exécute après DATA, en parallèle des contrôles d'authentification et
-dans leur délai global de cinq secondes. Il ne change aucune réponse de refus
-fondée sur le score et ne rejette pas un message à cause du HELO, conformément à
-[RFC 5321 §4.1.4](https://www.rfc-editor.org/rfc/rfc5321.html#section-4.1.4).
-Ce module ne cherche donc pas à économiser le transfert du corps avant DATA.
-Les [contrôles IP RBL précoces](early-rbl.md) assurent cette étape séparément,
-avec observation par défaut et refus SMTP configurables.
+The module runs after DATA alongside authentication checks, within the five-second overall deadline. It does not reject mail based solely on HELO, in line with [RFC 5321 §4.1.4](https://www.rfc-editor.org/rfc/rfc5321.html#section-4.1.4), and does not save body-transfer costs before DATA. [Early IP RBL checks](early-rbl.md) provide that separate stage, with observation by default and configurable SMTP refusal policies.
 
-Son délai propre est de 800 ms par défaut, au plus 2 000 ms. Au maximum huit
-analyses de politique sont actives par défaut ; une saturation rend le contrôle
-indisponible immédiatement. Aucune tâche DNS applicative détachée n'est lancée.
-Les noms sont validés et interrogés comme noms absolus auprès du résolveur système.
-Aucun lien n'est ouvert, aucune adresse de destinataire ni contenu transmis au DNS.
+Its own default time is 800 ms, at most 2,000 ms. Up to eight policy analyses are active by default; saturation makes control unavailable immediately. No detached application DNS task is launched. Names are validated and questioned as absolute names with the system resolver. No link is opened, no recipient address or content transmitted to the DNS.
 
-Les recherches portent sur au plus quatre PTR, 32 réponses par requête et
-14 recherches A/AAAA/PTR/MX par analyse, hors retransmissions internes du résolveur.
-Le cache applicatif est borné en nombre d'entrées et respecte les TTL positifs et
-négatifs, avec un plafond configuré. Un TTL nul n'est pas mis en cache. Une erreur
-du résolveur est mémorisée une seconde comme **indisponible**, jamais comme absence.
-Le résolveur Hickory possède aussi son cache DNS interne.
+The search covers no more than four PTRs, 32 responses per query and 14 A/AAAA/PTR/MX searches by analysis, without internal retransmissions of the solver. The application cache is limited in number of entries and respects positive and negative TTLs, with a configured ceiling. A zero TTL is not cached. An resolver error is stored for a second as **not available**, never as absence. The Hickory resolver also has its internal DNS cache.
 
-SERVFAIL, REFUSED, timeout, erreur sur une famille IP, réponse incohérente ou
-dépassement du budget PTR rendent le résultat incomplet. Les contributions
-partielles sont abandonnées, le score local est conservé et la livraison se fait
-sans préfixe. Une confirmation positive d'un PTR suffit même si un autre PTR
-n'est pas confirmable. Les erreurs d'autres familles de contrôles restent visibles.
+SERVFAIL, REFUSED, timeout, error on an IP family, inconsistent response or overrun of the PTR budget make the result incomplete. Partial contributions are abandoned, local score is retained and delivery is done without prefix. A positive confirmation of a PTR is sufficient even if another PTR is not confirmable. Errors of other control families remain visible.
 
-Le résultat `smtp_policy` contient version, statut, durée, observations,
-`candidate_weight`, `applied_weight` et `scoring_enabled`. Il est conservé avec
-les métadonnées pendant 30 jours et soumis aux droits existants par destinataire.
-Les anciens messages sans ce champ se lisent comme module désactivé. Les poids
-et caractéristiques du classifieur de contenu ne sont pas modifiés.
+The result `smtp_policy` contains version, status, duration, observations, `candidate_weight`, `applied_weight` and `scoring_enabled`. It is stored with metadata for 30 days and subject to existing rights per recipient. Old messages without this field are read as a disabled module. The weights and characteristics of the content classifier are not changed.
 
-## Tester sans envoyer de message
+<a id="tester-sans-envoyer-de-message"></a>
+## Test without sending a message
 
 ```sh
 noisefence --config /etc/noisefence/config.toml smtp-check \
@@ -113,15 +64,6 @@ noisefence --config /etc/noisefence/config.toml smtp-check \
   --mail-from sender@sender.example --iterations 3
 ```
 
-Remplacer les valeurs de documentation par un contexte SMTP réellement observé.
-La commande renvoie une ligne JSON par essai, sans ouvrir la file, charger le
-modèle, appeler le LLM ou envoyer un email. Elle accepte aussi `--mail-from ''`
-et `--helo '[IPv6:2001:db8::10]'`. Les répétitions partagent le cache ; la première
-mesure doit rester séparée des suivantes. `analyze` et le banc `pipeline_probe`
-incluent ces contrôles lorsque la table est configurée. `scan`, qui ne connaît
-pas le contexte SMTP d'origine, reste une analyse hors réseau du contenu.
+Replace the documentation values with a actually observed SMTP context. The command returns a JSON line by trial, without opening the queue, loading the model, calling the LLM or sending an email. It also accepts `--mail-from ''` and `--helo '[IPv6:2001:db8::10]'`. Repetitions share the cache; the first measurement must remain separate from the following. `analyze` and the `pipeline_probe` bench include these controls when the table is configured. `scan`, who does not know the original SMTP context, remains an off-grid content analysis.
 
-Les tests utilisent des réponses DNS déterministes pour les identités IPv4/IPv6,
-plusieurs PTR, Null MX, repli implicite, NXDOMAIN/NODATA, erreurs temporaires,
-cache, plafonds et délais. Les mesures sur les corpus de contenu ne permettent
-pas d'évaluer cette couche sans les IP et enveloppes originales fiables.
+The tests use deterministic DNS responses for IPv4/IPv6, multiple PTR, Null MX, implicit fold, NXDOMAIN/NODATA, temporary errors, cache, caps and time limits. Measurements on content corpus do not allow to evaluate this layer without reliable IPs and original envelopes.

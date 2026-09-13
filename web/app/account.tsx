@@ -24,9 +24,9 @@ export function MyAccount({
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">VOTRE ESPACE</p>
-          <h1>Mon compte</h1>
-          <p className="muted">Vos accès et la sécurité de votre connexion.</p>
+          <p className="eyebrow">YOUR ACCOUNT</p>
+          <h1>My account</h1>
+          <p className="muted">Your access and the security of your connection.</p>
         </div>
       </div>
       <div className="account-layout">
@@ -36,14 +36,14 @@ export function MyAccount({
           </span>
           <h2>{user.username}</h2>
           <span className="status">
-            {user.admin ? 'Administrateur' : 'Utilisateur'}
+            {user.admin ? "Administrator" : "User"}
           </span>
           <h3>
-            <ShieldCheck size={18} /> Périmètre autorisé
+            <ShieldCheck size={18} /> Authorized scope
           </h3>
           {user.admin ? (
             <p>
-              Tous les domaines et tous les destinataires de l’organisation.
+              All domains and recipients in the organization.
             </p>
           ) : user.addresses.length ? (
             <ul className="access-list">
@@ -53,13 +53,11 @@ export function MyAccount({
             </ul>
           ) : (
             <p>
-              Aucune adresse attribuée. Votre administrateur peut vous donner
-              accès à une adresse ou à un domaine.
+              No address assigned. Your administrator can give you access to an address or domain.
             </p>
           )}
           <p className="small muted">
-            Les droits sont vérifiés par le serveur pour chaque message et
-            chaque destinataire.
+            The server checks your permissions for every message and recipient.
           </p>
         </section>
         <div className="account-security">
@@ -75,7 +73,7 @@ export function MyAccount({
               setError('');
               if (password !== confirmation) {
                 setError(
-                  'Les deux nouveaux mots de passe doivent être identiques.',
+                  "The two new passwords must be identical.",
                 );
                 return;
               }
@@ -95,14 +93,13 @@ export function MyAccount({
             }}
           >
             <h2>
-              <KeyRound size={20} /> Changer mon mot de passe
+              <KeyRound size={20} /> Change my password
             </h2>
             <p className="muted small">
-              Ce mot de passe protège la console NoiseFence. Après modification,
-              reconnectez-vous avec le nouveau mot de passe.
+              This password protects the NoiseFence console. After modification, reconnect with the new password.
             </p>
             <label className="field" htmlFor="current-password">
-              Mot de passe actuel
+              Current password
               <Input
                 id="current-password"
                 type="password"
@@ -114,7 +111,7 @@ export function MyAccount({
               />
             </label>
             <label className="field" htmlFor="new-password">
-              Nouveau mot de passe
+              New password
               <Input
                 id="new-password"
                 type="password"
@@ -125,10 +122,10 @@ export function MyAccount({
                 minLength={12}
                 maxLength={128}
               />
-              <small>12 caractères minimum.</small>
+              <small>Minimum 12 characters.</small>
             </label>
             <label className="field" htmlFor="confirm-password">
-              Confirmer le nouveau mot de passe
+              Confirm new password
               <Input
                 id="confirm-password"
                 type="password"
@@ -147,7 +144,7 @@ export function MyAccount({
               </p>
             )}
             <Button type="submit" disabled={busy}>
-              {busy ? 'Enregistrement…' : 'Mettre à jour mon mot de passe'}
+              {busy ? "Saving…" : "Update my password"}
             </Button>
           </form>
         </div>

@@ -6,11 +6,12 @@ import './diagnostics.css';
 import './interface.css';
 import './workspace-refinement.css';
 import './message-search.css';
+import './filter-workspace.css';
 
 export const metadata: Metadata = {
-  title: 'NoiseFence — Console de messagerie',
+  title: "NoiseFence — Mail security",
   description:
-    'Console privée NoiseFence : décisions du filtre et corrections.',
+    "NoiseFence mail security: messages, filtering policies and delivery diagnostics.",
   robots: { index: false, follow: false },
 };
 
@@ -20,7 +21,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

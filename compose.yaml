@@ -1,0 +1,20 @@
+services:
+  noisefence:
+    build: .
+    image: noisefence:local
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777
+    volumes:
+      - noisefence-data:/var/lib/noisefence
+      - ./config/docker.example.toml:/etc/noisefence/config.toml:ro
+    stop_grace_period: 60s
+volumes:
+  noisefence-data:

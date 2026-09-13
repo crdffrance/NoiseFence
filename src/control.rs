@@ -92,7 +92,7 @@ impl Settings {
                             let index = gateways.len();
                             gateways.push(Gateway {
                                 id: format!("gateway-{}", index + 1),
-                                name: format!("Relais {}", index + 1),
+                                name: format!("Gateway {}", index + 1),
                                 hosts,
                                 port,
                             });
@@ -165,7 +165,7 @@ impl Settings {
     pub fn effective(&self, base: &Config) -> Result<Config> {
         ensure!(
             self.domains.len() <= 100 && self.gateways.len() <= 100,
-            "Maximum : 100 domaines et 100 passerelles."
+            "At most 100 domains and 100 gateways."
         );
         let mut ids = HashSet::new();
         for g in &self.gateways {
@@ -176,13 +176,13 @@ impl Settings {
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
                     && ids.insert(&g.id),
-                "Identifiant de passerelle invalide ou dupliqué."
+                "Invalid or duplicated gateway identifier."
             );
             ensure!(
                 !g.name.trim().is_empty()
                     && g.name.len() <= 100
                     && !g.name.chars().any(char::is_control),
-                "Nom de passerelle invalide."
+                "Invalid gateway name."
             );
             ensure!(
                 (1..=8).contains(&g.hosts.len())
@@ -190,7 +190,7 @@ impl Settings {
                     && g.hosts
                         .iter()
                         .all(|h| crate::config::endpoint(h, g.port).is_some()),
-                "Une passerelle nécessite 1 à 8 noms de serveurs et un port valide."
+                "A gateway requires 1 to 8 server names and a valid port."
             );
         }
         let mut cfg = base.clone();
@@ -204,18 +204,18 @@ impl Settings {
                 crate::config::valid_domain(&d.name)
                     && d.name == d.name.to_ascii_lowercase()
                     && names.insert(&d.name),
-                "Nom de domaine invalide ou dupliqué (utiliser le format ASCII/punycode)."
+                "Invalid or duplicated domain name (use ASCII/punycode format)."
             );
             ensure!(
                 d.recipients.len() <= 1000 && d.aliases.len() <= 1000,
-                "Trop d’adresses ou d’alias dans ce domaine."
+                "Too many recipients or aliases in this domain."
             );
             let next_hops = match &d.gateway {
                 Some(id) => self
                     .gateways
                     .iter()
                     .find(|g| &g.id == id)
-                    .context("Passerelle référencée introuvable.")?
+                    .context("Referenced gateway not found.")?
                     .hosts
                     .iter()
                     .map(|h| {
@@ -248,7 +248,7 @@ impl Settings {
                             .all(|(a, b)| crate::config::valid_address(a)
                                 && a.rsplit_once('@').unwrap().1.eq_ignore_ascii_case(&d.name)
                                 && crate::config::valid_address(b)),
-                    "Adresse ou alias invalide."
+                    "Invalid address or alias."
                 );
             }
         }
@@ -258,15 +258,15 @@ impl Settings {
         for (enabled, exists, name) in [
             (f.antivirus, available.antivirus, "antivirus"),
             (f.signatures, available.signatures, "signatures"),
-            (f.semantic, available.semantic, "modèle multilingue"),
+            (f.semantic, available.semantic, "multilingual model"),
             (f.vision, available.vision, "OCR"),
             (f.llm, available.llm, "LLM"),
-            (f.smtp_policy, available.smtp_policy, "politique SMTP"),
-            (f.reputation, available.reputation, "réputation DQS"),
+            (f.smtp_policy, available.smtp_policy, "SMTP policy"),
+            (f.reputation, available.reputation, "DQS reputation"),
         ] {
             ensure!(
                 !enabled || exists,
-                "Le connecteur {name} doit être installé et configuré sur le serveur."
+                "The {name} connector must be installed and configured on the server."
             );
         }
         cfg.actions = self.actions.clone();
@@ -311,13 +311,13 @@ impl Settings {
                 policy.validate()?;
                 settings.policy = policy.clone();
             }
-            (Some(_), None) => anyhow::bail!("La protection doit être installée sur le serveur."),
+            (Some(_), None) => anyhow::bail!("Protection must be installed on the server."),
             (None, _) => cfg.protection = None,
         }
         match (&self.mailing, &mut cfg.mailing) {
             (Some(policy), Some(settings)) => settings.policy = policy.clone(),
             (Some(_), None) => {
-                anyhow::bail!("La catégorisation PUB doit être installée sur le serveur.")
+                anyhow::bail!("The PUB categorization must be installed on the server.")
             }
             (None, _) => cfg.mailing = None,
         }
@@ -393,44 +393,107 @@ impl Controller {
         bundle.validate()?;
         let this = self.clone();
         tokio::spawn(async move {
-            let _permit=this.applying.clone().acquire_owned().await?;
-            let current=this.snapshot();
-            ensure!(bundle.revision>=current.revision,"Older authority revision refused");
-            ensure!(server_time<=crate::now()+300 && server_time>=crate::now()-300,"Clock skew");
-            let changed=this.cluster_digest()!=bundle.digest || *this.cluster_keys.read().unwrap()!=keys_hash;
-            let mut next=None;
+            let _permit = this.applying.clone().acquire_owned().await?;
+            let current = this.snapshot();
+            ensure!(
+                bundle.revision >= current.revision,
+                "Older authority revision refused"
+            );
+            ensure!(
+                server_time <= crate::now() + 300 && server_time >= crate::now() - 300,
+                "Clock skew"
+            );
+            let changed = this.cluster_digest() != bundle.digest
+                || *this.cluster_keys.read().unwrap() != keys_hash;
+            let mut next = None;
             if changed {
-                let base=this.base.clone();let candidate=bundle.clone();
-                let config=Arc::new(tokio::task::spawn_blocking(move||crate::cluster::artifacts::materialize(&base,&candidate,false)).await??);
-                let models_changed=cluster_model_identity(&config)!=cluster_model_identity(&current.config);
+                let base = this.base.clone();
+                let candidate = bundle.clone();
+                let config = Arc::new(
+                    tokio::task::spawn_blocking(move || {
+                        crate::cluster::artifacts::materialize(&base, &candidate, false)
+                    })
+                    .await??,
+                );
+                let models_changed =
+                    cluster_model_identity(&config) != cluster_model_identity(&current.config);
                 if models_changed {
-                    let retired=this.retired.lock().unwrap();
-                    ensure!(retired.as_ref().is_none_or(|engine|engine.strong_count()==0),"Le modèle précédent termine encore des sessions SMTP ; nouvelle activation différée.");
+                    let retired = this.retired.lock().unwrap();
+                    ensure!(
+                        retired
+                            .as_ref()
+                            .is_none_or(|engine| engine.strong_count() == 0),
+                        "The previous model still ends SMTP sessions; new delayed activation."
+                    );
                 }
-                let template=current.engine.clone();let cfg=config.clone();
-                let engine=Arc::new(tokio::task::spawn_blocking(move||if models_changed {template.reload_cluster_models(cfg)}else{template.reconfigure(cfg)}).await??);
-                let rbl=Arc::new(current.rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
-                next=Some((config,engine,rbl,models_changed));
+                let template = current.engine.clone();
+                let cfg = config.clone();
+                let engine = Arc::new(
+                    tokio::task::spawn_blocking(move || {
+                        if models_changed {
+                            template.reload_cluster_models(cfg)
+                        } else {
+                            template.reconfigure(cfg)
+                        }
+                    })
+                    .await??,
+                );
+                let rbl = Arc::new(current.rbl.reconfigure(
+                    config.rbl.as_ref(),
+                    crate::management::dqs_key(&config)?.as_deref(),
+                )?);
+                next = Some((config, engine, rbl, models_changed));
             }
-            let raw=serde_json::to_string(&bundle)?;
-            ensure!(raw.len()<=768*1024,"Configuration de cluster trop volumineuse.");
-            let keys=keys_hash.clone();
-            this.store.run(move|db|{
-                let tx=db.transaction()?;
-                for (key,value) in [("bundle",raw),("last_sync",server_time.to_string()),("keys_hash",keys)] {tx.execute("INSERT OR REPLACE INTO cluster_state VALUES(?1,?2)",params![key,value])?;}
-                tx.commit()?;Ok(())
-            }).await?;
-            if let Some((config,engine,rbl,models_changed))=next {
-                engine.activate_limits();rbl.activate();this.store.admission.activate(config.smtp_admission.as_ref());
-                if models_changed {*this.retired.lock().unwrap()=Some(Arc::downgrade(&current.engine));}
-                *this.template.write().unwrap()=engine.clone();
-                *this.active.write().unwrap()=Arc::new(Snapshot{revision:bundle.revision,settings:bundle.settings,config,engine,rbl});
+            let raw = serde_json::to_string(&bundle)?;
+            ensure!(
+                raw.len() <= 768 * 1024,
+                "Cluster configuration exceeds the size limit."
+            );
+            let keys = keys_hash.clone();
+            this.store
+                .run(move |db| {
+                    let tx = db.transaction()?;
+                    for (key, value) in [
+                        ("bundle", raw),
+                        ("last_sync", server_time.to_string()),
+                        ("keys_hash", keys),
+                    ] {
+                        tx.execute(
+                            "INSERT OR REPLACE INTO cluster_state VALUES(?1,?2)",
+                            params![key, value],
+                        )?;
+                    }
+                    tx.commit()?;
+                    Ok(())
+                })
+                .await?;
+            if let Some((config, engine, rbl, models_changed)) = next {
+                engine.activate_limits();
+                rbl.activate();
+                this.store
+                    .admission
+                    .activate(config.smtp_admission.as_ref());
+                if models_changed {
+                    *this.retired.lock().unwrap() = Some(Arc::downgrade(&current.engine));
+                }
+                *this.template.write().unwrap() = engine.clone();
+                *this.active.write().unwrap() = Arc::new(Snapshot {
+                    revision: bundle.revision,
+                    settings: bundle.settings,
+                    config,
+                    engine,
+                    rbl,
+                });
             }
-            *this.cluster_hash.write().unwrap()=bundle.digest;
-            *this.cluster_keys.write().unwrap()=keys_hash;
-            this.cluster_until.store(server_time+this.base.cluster.as_ref().unwrap().max_stale_seconds,std::sync::atomic::Ordering::Release);
+            *this.cluster_hash.write().unwrap() = bundle.digest;
+            *this.cluster_keys.write().unwrap() = keys_hash;
+            this.cluster_until.store(
+                server_time + this.base.cluster.as_ref().unwrap().max_stale_seconds,
+                std::sync::atomic::Ordering::Release,
+            );
             Ok(())
-        }).await?
+        })
+        .await?
     }
 }
 fn cluster_model_identity(config: &Config) -> String {
@@ -606,11 +669,11 @@ impl Controller {
         let snapshot = self.snapshot();
         ensure!(
             snapshot.revision == revision,
-            "Configuration modifiée. Rechargez les préférences."
+            "Modified configuration. Reload preferences."
         );
         ensure!(
             snapshot.settings.preferences.enabled,
-            "Personnalisation désactivée par l’administrateur."
+            "Customization disabled by the administrator."
         );
         let mut settings = snapshot.settings.clone();
         if let Some(p) = preference {
@@ -630,13 +693,13 @@ impl Controller {
     ) -> Result<i64> {
         ensure!(
             !crate::cluster::is_worker(&self.base),
-            "Modifiez les réglages depuis la console centrale."
+            "Change the settings from the center console."
         );
         settings.hydrate(&self.base);
         let this = self.clone();
         tokio::spawn(async move {
-            let _permit=this.applying.clone().try_acquire_owned().context("Une modification est déjà en cours.")?;
-            ensure!(revision==this.snapshot().revision,"Configuration modifiée dans une autre session. Rechargez avant d’enregistrer.");
+            let _permit=this.applying.clone().try_acquire_owned().context("An amendment is already under way.")?;
+            ensure!(revision==this.snapshot().revision,"Modified configuration in another session. Reload before saving.");
             let config=Arc::new(settings.effective(&this.base)?);
             let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
             let template=this.template.read().unwrap().clone(); let cfg=config.clone();
@@ -646,15 +709,15 @@ impl Controller {
             let id=this.store.run(move|db| {
                 let tx=db.transaction()?;
                 let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
-                ensure!(current==revision,"Configuration modifiée dans une autre session.");
+                ensure!(current==revision,"Configuration modified in another session.");
                 if let Some((scope,hash))=&delegated {
                     let admin:Option<bool>=tx.query_row("SELECT u.admin FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND s.token_hash=?2 AND s.expires>?3 AND u.disabled=0",params![username,hash,crate::now()],|r|r.get(0)).optional()?;
-                    let admin=admin.context("Session expirée ou compte désactivé.")?;
+                    let admin=admin.context("Session expired or account disabled.")?;
                     let grants=tx.prepare("SELECT address FROM grants WHERE username=?1")?.query_map([&username],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
-                    ensure!(if scope=="*" {admin}else{crate::preferences::permitted(scope,admin,&grants)},"Cette adresse n’est pas autorisée.");
+                    ensure!(if scope=="*" {admin}else{crate::preferences::permitted(scope,admin,&grants)},"This address is not allowed.");
                 } else {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
-                ensure!(enabled,"Droits administrateur révoqués.");
+                ensure!(enabled,"Administrator rights revoked.");
                 }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;
                 let id=tx.last_insert_rowid();

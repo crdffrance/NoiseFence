@@ -25,23 +25,23 @@ export type AdmissionDecision = {
   would_defer: boolean;
 };
 const labels: Record<string, string> = {
-  disabled: 'Désactivé',
+  disabled: "Disabled",
   exempt: 'Exception',
-  not_selected: 'Aucun report nécessaire',
-  first_seen: 'Première tentative différée',
-  too_soon: 'Nouvelle tentative trop tôt',
-  retry_passed: 'Nouvelle tentative acceptée',
-  passed: 'Passage mémorisé',
-  rate_limited: 'Débit dépassé',
-  capacity: 'État saturé · passage autorisé',
-  unavailable: 'État indisponible · passage autorisé',
-  clock_skew: 'Horloge incohérente · passage autorisé',
+  not_selected: "No carry-over required",
+  first_seen: "First delayed attempt",
+  too_soon: "New attempt too soon",
+  retry_passed: "New attempt accepted",
+  passed: "Remembered retry",
+  rate_limited: "Rate limit exceeded",
+  capacity: "Saturated state · permitted passage",
+  unavailable: "State not available · permitted passage",
+  clock_skew: "Incoherent clock · permitted passage",
 };
 const reasons: Record<string, string> = {
-  ip_reputation: 'Réputation IP défavorable',
-  invalid_helo: 'HELO sans domaine ni adresse IP valide',
-  sender_rate_exceeded: 'Limite de débit atteinte',
-  delivery_notification_or_postmaster: 'Avis de livraison ou postmaster',
+  ip_reputation: "Unfavorable IP reputation",
+  invalid_helo: "HELO without valid domain or IP address",
+  sender_rate_exceeded: "Flow limit achieved",
+  delivery_notification_or_postmaster: "Delivery notice or postmaster",
 };
 export function AdmissionDetails({
   reports,
@@ -49,8 +49,8 @@ export function AdmissionDetails({
   reports: AdmissionDecision[];
 }) {
   return (
-    <section aria-label="Admission SMTP">
-      <h3>Admission SMTP avant réception</h3>
+    <section aria-label="SMTP admission">
+      <h3>SMTP admission before receipt</h3>
       <ul>
         {reports.map((r, i) => (
           <li key={i}>
@@ -62,7 +62,7 @@ export function AdmissionDetails({
         ))}
       </ul>
       <p className="muted">
-        Ces contrôles de transport n’ajoutent aucun point au score antispam.
+        These transport checks do not add any points to the antispam score.
       </p>
     </section>
   );
@@ -85,7 +85,7 @@ export function AdmissionEditor({
       shared: boolean;
     }>('/admin/admission')
       .then(setReport)
-      .catch(() => setError('Statistiques temporairement indisponibles.'));
+      .catch(() => setError("Statistics temporarily unavailable."));
   }, []);
   const set = <K extends keyof AdmissionSettings>(
     key: K,
@@ -113,11 +113,9 @@ export function AdmissionEditor({
   return (
     <section className="management-settings">
       <div className="management-card">
-        <h2>Greylisting et protection du transport</h2>
+        <h2>Greylisting and transport protection</h2>
         <p>
-          Demande aux expéditeurs suspects de réessayer avant de recevoir le
-          corps. Le délai est partagé entre les MX ; un échec de coordination
-          laisse passer la tentative.
+          Ask suspicious senders to try again before receiving the body. The delay is shared between the MX; a failure of coordination lets pass the attempt.
         </p>
         <label>
           <input
@@ -125,24 +123,23 @@ export function AdmissionEditor({
             checked={value.enabled}
             onChange={(e) => set('enabled', e.target.checked)}
           />{' '}
-          Activer les contrôles d’admission SMTP
+          Enable SMTP admission controls
         </label>
         <label className="field">
-          <span>Mode du transport</span>
+          <span>Transport mode</span>
           <select
             value={value.mode}
             onChange={(e) =>
               set('mode', e.target.value as AdmissionSettings['mode'])
             }
           >
-            <option value="observe">Observer sans retarder</option>
+            <option value="observe">Observe without delay</option>
             <option value="enforce">
-              Appliquer les reports temporaires (451)
+              Apply temporary deferrals (451)
             </option>
           </select>
           <small>
-            Indépendant de l’observation du contenu. L’application peut retarder
-            des messages légitimes ; elle ne les classe pas Spam.
+            Separate from content observation. Enforcement may delay legitimate messages; it does not classify them as spam.
           </small>
         </label>
         <label>
@@ -151,95 +148,93 @@ export function AdmissionEditor({
             checked={value.greylisting}
             onChange={(e) => set('greylisting', e.target.checked)}
           />{' '}
-          Greylisting sélectif
+          Selective greylisting
         </label>
         <div className="form-grid">
           {number(
             'minimum_providers',
-            'Signaux concordants requis',
+            "Corroborating signals required",
             2,
             8,
-            'Au moins une liste IP positive ; les opérateurs distincts et un HELO invalide sont comptés.',
+            "At least one positive IP list; separate operators and an invalid HELO are counted.",
           )}
           {number(
             'retry_delay_seconds',
-            'Délai minimum (secondes)',
+            "Minimum time (seconds)",
             1,
             3600,
-            'Les essais précoces ne repoussent pas ce délai.',
+            "Early retries do not extend this delay.",
           )}
           {number(
             'retry_max_age_seconds',
-            'Expiration sans nouvel essai (secondes)',
+            "Expiry without retry (seconds)",
             2,
             604800,
-            'Doit dépasser le délai minimum.',
+            "Must exceed the minimum time limit.",
           )}
           {number(
             'retention_seconds',
-            'Mémorisation après nouvel essai (secondes)',
+            "Remember successful retries (seconds)",
             1,
             2592000,
-            'Durée fixe, non prolongée par le trafic.',
+            "Fixed duration, not extended by traffic.",
           )}
         </div>
         <p className="muted">
-          Regroupement des serveurs expéditeurs en /24 IPv4 et /64 IPv6, limité
-          à l’exception de greylisting. Les avis à expéditeur nul et postmaster
-          en sont exemptés. Leurs limites de débit restent applicables.
+          Greylisting groups retry addresses by /24 IPv4 and /64 IPv6. Null-sender notifications and postmaster recipients are exempt from greylisting, but remain subject to rate limits.
         </p>
       </div>
       <div className="management-card">
-        <h3>Débit et ralentissement (teergrubing)</h3>
+        <h3>Rate limits and response delays (teergrubing)</h3>
         <div className="form-grid">
           {number(
             'rate_per_minute',
-            'Tentatives par IP et par minute',
+            "Attempts per IP per minute",
             0,
             60000,
-            '0 désactive le quota. Partagé entre les MX ; IPv6 regroupée en /64.',
+            "0 disables the quota. Shared across MX servers; IPv6 addresses are grouped by /64.",
           )}
           {number(
             'rate_burst',
-            'Rafale autorisée',
+            "Allowed burst",
             1,
             10000,
-            'Nombre de tentatives disponibles immédiatement.',
+            "Number of attempts available immediately.",
           )}
           {number(
             'tarpit_delay_ms',
-            'Attente avant réponse 451 (ms)',
+            "Delay before a 451 response (ms)",
             0,
             5000,
-            '0 désactive le ralentissement. Réservé aux tentatives différées.',
+            "0 disables the delay. Only applies before a temporary deferral.",
           )}
           {number(
             'tarpit_session_budget_ms',
-            'Attente maximale par connexion (ms)',
+            "Maximum waiting per connection (ms)",
             0,
             10000,
-            'Conservée après RSET et STARTTLS.',
+            "Preserved across RSET and STARTTLS.",
           )}
           {number(
             'tarpit_max_concurrent',
-            'Connexions ralenties simultanément par MX',
+            "Concurrent delayed connections per MX",
             1,
             64,
-            'Une saturation supprime l’attente supplémentaire.',
+            "Saturation removes the additional wait.",
           )}
           {number(
             'max_entries',
-            'Capacité des états par mode',
+            "State capacity per node",
             1,
             100000,
-            'Les états de retry actifs ne sont jamais évincés.',
+            "Active retry states are never ousted.",
           )}
         </div>
       </div>
       <div className="management-card">
-        <h3>Exceptions de confiance</h3>
+        <h3>Confidence exceptions</h3>
         <label className="field">
-          <span>Réseaux IP/CIDR, un par ligne</span>
+          <span>IP/CIDR networks, one per line</span>
           <textarea
             rows={4}
             key={value.allow_networks.join('\n')}
@@ -256,19 +251,17 @@ export function AdmissionEditor({
             placeholder={'192.0.2.10/32\n2001:db8::/64'}
           />
           <small>
-            Exempte ces IP du greylisting et du quota. Aucun domaine ou
-            expéditeur déclaré ne suffit à obtenir une exception.
+            Free these IPs from the greylisting and quota. No declared domain or sender is enough to get an exception.
           </small>
         </label>
       </div>
       <div className="management-card">
-        <h3>Décisions des 30 derniers jours</h3>
+        <h3>Last 30 days&apos; decisions</h3>
         {error && <output>{error}</output>}
         {report && (
           <>
             <p>
-              {report.shared ? 'État commun des MX' : 'État de ce serveur'} ·
-              compteurs de tentatives, pas de messages uniques.
+              {report.shared ? "Common state of MX" : "Status of this server"} · attempt counters, not unique messages.
             </p>
             {report.counts.length ? (
               <ul>
@@ -281,7 +274,7 @@ export function AdmissionEditor({
                 ))}
               </ul>
             ) : (
-              <p className="muted">Aucune tentative observée pour le moment.</p>
+              <p className="muted">No attempt at this time.</p>
             )}
           </>
         )}

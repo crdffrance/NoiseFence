@@ -19,23 +19,22 @@ export function LoginStory() {
   return (
     <section
       className="login-story"
-      aria-label="NoiseFence, console de messagerie"
+      aria-label="NoiseFence, mail console"
     >
       <div className="login-wordmark">
         <BrandMark /> NoiseFence<span>CONSOLE</span>
       </div>
       <div className="login-story-copy">
         <span className="story-kicker">
-          <span /> VOTRE MESSAGERIE, SOUS CONTRÔLE
+          <span /> YOUR MAIL, UNDER CONTROL
         </span>
         <h2>
-          Moins de bruit.
+          Less noise.
           <br />
-          <em>Plus de clarté.</em>
+          <em>More clarity.</em>
         </h2>
         <p>
-          Gardez une longueur d’avance sur les messages indésirables. Comprenez
-          chaque décision et faites place à l’essentiel.
+          Keep ahead of unwanted messages. Understand each decision and make room for essentials.
         </p>
       </div>
       <div className="mail-flow" aria-hidden="true">
@@ -55,14 +54,14 @@ export function LoginStory() {
         <div className="flow-center">
           <BrandMark />
           <span>NoiseFence</span>
-          <small>ANALYSER · COMPRENDRE · AGIR</small>
+          <small>ANALYZE · UNDERSTAND · ACT</small>
         </div>
         <div className="flow-result">
           <span>
             <ShieldCheck size={20} />
           </span>
           <div>
-            Chaque message compte.<small>Vous gardez le contrôle.</small>
+            Every message counts.<small>You keep control.</small>
           </div>
           <Check size={16} />
         </div>
@@ -71,7 +70,7 @@ export function LoginStory() {
       </div>
       <div className="story-footer">
         <ShieldCheck size={16} />
-        <span>Vos domaines. Vos filtres. Vos décisions.</span>
+        <span>Your domains, your filters, your decisions.</span>
       </div>
     </section>
   );
@@ -80,7 +79,7 @@ export function LoginStory() {
 export function ScoreMeter({
   score,
   tone = '',
-  label = 'Indice de suspicion',
+  label = "Risk index",
 }: {
   score: number | null;
   tone?: string;
@@ -88,7 +87,7 @@ export function ScoreMeter({
 }) {
   if (score === null || !Number.isFinite(score))
     return (
-      <span className="score muted" aria-label="Indice indisponible">
+      <span className="score muted" aria-label="Risk index unavailable">
         —
       </span>
     );

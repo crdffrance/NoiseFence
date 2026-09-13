@@ -23,27 +23,27 @@ import { deliverySummary } from '../app/presentation.ts';
 test('SMTP acceptance is not represented as an inbox delivery guarantee', () => {
   assert.equal(
     deliveryStatus('delivered'),
-    'Accepté par le serveur destinataire',
+    "Accepted by destination",
   );
-  assert.equal(smtpOutcome('delivered'), 'Accepté par le serveur destinataire');
-  assert.equal(smtpOutcome('temporary'), 'Échec temporaire');
-  assert.equal(smtpOutcome('permanent'), 'Refus permanent');
-  assert.equal(deliveryStatus('sending'), 'Transmission en cours');
-  assert.match(deliveryStatus('unexpected'), /État inconnu/);
-  assert.match(smtpOutcome('unexpected'), /Résultat inconnu/);
+  assert.equal(smtpOutcome('delivered'), "Accepted by destination");
+  assert.equal(smtpOutcome('temporary'), "Temporary failure");
+  assert.equal(smtpOutcome('permanent'), "Permanent rejection");
+  assert.equal(deliveryStatus('sending'), "Delivery in progress");
+  assert.match(deliveryStatus('unexpected'), /Unknown state/);
+  assert.match(smtpOutcome('unexpected'), /Unknown outcome/);
 });
 
 test('only pending recipients show a retry date, including an overdue retry', () => {
   const next = 1_800_000_000;
   assert.match(
     nextRetry('pending', next, (next - 1) * 1000),
-    /Prochaine tentative prévue/,
+    /Next retry scheduled/,
   );
-  assert.match(nextRetry('pending', next, next * 1000), /attendue depuis/);
-  assert.match(nextRetry('pending', 0), /date non enregistrée/);
-  assert.match(nextRetry('pending', Number.NaN), /date non enregistrée/);
-  assert.match(nextRetry('pending', Number.MAX_VALUE), /date non enregistrée/);
-  assert.match(nextRetry('sending', next), /Tentative en cours/);
+  assert.match(nextRetry('pending', next, next * 1000), /due since/);
+  assert.match(nextRetry('pending', 0), /date not recorded/);
+  assert.match(nextRetry('pending', Number.NaN), /date not recorded/);
+  assert.match(nextRetry('pending', Number.MAX_VALUE), /date not recorded/);
+  assert.match(nextRetry('sending', next), /Attempt in progress/);
   for (const status of [
     'delivered',
     'failed',
@@ -54,7 +54,7 @@ test('only pending recipients show a retry date, including an overdue retry', ()
   ]) {
     assert.match(
       nextRetry(status, next),
-      /Aucune nouvelle tentative planifiée/,
+      /No retry scheduled/,
     );
   }
 });
@@ -65,43 +65,43 @@ test('SMTP phases distinguish command acceptance from transfer completion', () =
     ['connect', 'TCP'],
     ['ehlo', 'EHLO'],
     ['starttls', 'STARTTLS'],
-    ['tls', 'vérification'],
-    ['tls_verified', 'certificat vérifié'],
-    ['ehlo_tls', 'après TLS'],
+    ['tls', "verification"],
+    ['tls_verified', "certificate verified"],
+    ['ehlo_tls', "after TLS"],
     ['mail_from', 'MAIL FROM'],
     ['rcpt_to', 'RCPT TO'],
-    ['data', 'ouverture'],
-    ['data_result', 'Réponse finale'],
-    ['final', 'Réponse finale'],
+    ['data', 'transfer start'],
+    ['data_result', "Final response"],
+    ['final', "Final response"],
     ['quit', 'QUIT'],
   ])
     assert.ok(smtpPhase(phase).includes(label), phase);
-  assert.equal(smtpPhase('future_phase'), 'Étape future_phase');
-  assert.equal(smtpReply(250, '2.0.0'), '250 · commande acceptée · 2.0.0');
-  assert.match(smtpReply(354, null), /poursuite de l’échange/);
-  assert.match(smtpReply(451, '4.7.1'), /échec temporaire · 4.7.1/);
-  assert.match(smtpReply(550, '5.1.1'), /refus permanent · 5.1.1/);
-  assert.equal(smtpReply(null, null), 'Sans code SMTP enregistré');
+  assert.equal(smtpPhase('future_phase'), "Phase future_phase");
+  assert.equal(smtpReply(250, '2.0.0'), "250 · command accepted · 2.0.0");
+  assert.match(smtpReply(354, null), /continue exchange/);
+  assert.match(smtpReply(451, '4.7.1'), /temporary failure · 4.7.1/);
+  assert.match(smtpReply(550, '5.1.1'), /permanent rejection · 5.1.1/);
+  assert.equal(smtpReply(null, null), "SMTP code not recorded");
 });
 
 test('missing historic transcripts never invent successful SMTP steps', () => {
   assert.match(
     transcriptNotice(0),
-    /Aucune transcription SMTP historique enregistrée/,
+    /No historical SMTP transcript recorded/,
   );
-  assert.match(transcriptNotice(0), /ne permet pas de déduire/);
-  assert.equal(transcriptNotice(1), '1 journal SMTP enregistré.');
-  assert.equal(transcriptNotice(2), '2 journaux SMTP enregistrés.');
+  assert.match(transcriptNotice(0), /do not establish/);
+  assert.equal(transcriptNotice(1), "1 recorded SMTP log.");
+  assert.equal(transcriptNotice(2), "2 recorded SMTP logs.");
   assert.equal(
     transcriptNotice(50, 50, false),
-    '50 journaux SMTP enregistrés.',
+    "50 recorded SMTP logs.",
   );
-  assert.equal(timestamp(0), 'Date non enregistrée');
-  assert.equal(timestamp(Number.MAX_VALUE), 'Date non enregistrée');
-  assert.equal(duration(null), 'Durée non enregistrée');
-  assert.equal(duration(-1), 'Durée non enregistrée');
+  assert.equal(timestamp(0), "Date not recorded");
+  assert.equal(timestamp(Number.MAX_VALUE), "Date not recorded");
+  assert.equal(duration(null), "Duration not recorded");
+  assert.equal(duration(-1), "Duration not recorded");
   assert.equal(duration(0), '0 ms');
-  assert.equal(duration(1250), '1,25 s');
+  assert.equal(duration(1250), '1.25 s');
 });
 
 test('global log budget omissions are distinct from missing historical transcripts', () => {
@@ -113,17 +113,17 @@ test('global log budget omissions are distinct from missing historical transcrip
     [0, 12, false],
   ]) {
     const notice = transcriptNotice(loaded, available, truncated);
-    assert.match(notice, /Historique partiel/);
-    assert.doesNotMatch(notice, /Aucune transcription SMTP historique/);
-    assert.ok(notice.includes(`sur ${available} disponible(s)`));
+    assert.match(notice, /Partial history/);
+    assert.doesNotMatch(notice, /No historical SMTP transcript/);
+    assert.ok(notice.includes(`of ${available} available`));
   }
   assert.match(
     transcriptNotice(0, 0, false),
-    /Aucune transcription SMTP historique enregistrée/,
+    /No historical SMTP transcript recorded/,
   );
   assert.equal(
     transcriptNotice(12, 12, false),
-    '12 journaux SMTP enregistrés.',
+    "12 recorded SMTP logs.",
   );
 });
 
@@ -178,10 +178,10 @@ test('scoped delivery completion updates state and badges while preserving other
   assert.equal(merged[0].released_at, 90);
   assert.equal(merged[1], previous[1]);
   assert.equal(previous[0].status, 'pending');
-  assert.equal(deliverySummary(merged).label, 'Accepté par le serveur');
+  assert.equal(deliverySummary(merged).label, "Accepted by destination");
   assert.match(
     nextRetry(updated.status, updated.next_attempt),
-    /Aucune nouvelle tentative/,
+    /No retry/,
   );
   assert.equal(response.analysis.elapsed_ms, 10);
 });
@@ -255,35 +255,35 @@ test('scoped history rejects a stale message, another recipient, missing access 
   ])
     assert.throws(
       () => recipientHistory(data, messageId, deliveryId),
-      /ne correspond pas au destinataire sélectionné/,
+      /does not match the selected recipient/,
     );
 });
 
 test('positive, negative and zero weights retain their meaning without percent formatting', () => {
-  assert.equal(contribution(1.25), '+1,25');
-  assert.equal(contribution(-1.25), '−1,25');
+  assert.equal(contribution(1.25), '+1.25');
+  assert.equal(contribution(-1.25), '−1.25');
   assert.equal(contribution(-0), '0');
-  assert.equal(contribution(0.00001), '+1,00e-5');
-  assert.equal(contribution(null), 'Non enregistrée');
-  assert.equal(contribution(Number.NaN), 'Non enregistrée');
-  assert.match(weightEffect(0.2), /Augmente/);
-  assert.match(weightEffect(-0.2), /Réduit/);
-  assert.match(weightEffect(0), /consultatif · aucun effet numérique/);
-  assert.match(weightEffect(Number.NaN), /non enregistré/);
+  assert.equal(contribution(0.00001), '+1.00e-5');
+  assert.equal(contribution(null), "Not recorded");
+  assert.equal(contribution(Number.NaN), "Not recorded");
+  assert.match(weightEffect(0.2), /Increases/);
+  assert.match(weightEffect(-0.2), /Reduces/);
+  assert.match(weightEffect(0), /Advisory signal · no numerical effect/);
+  assert.match(weightEffect(Number.NaN), /not recorded/);
   assert.match(
     decisionExplanation('fusion'),
-    /ne déterminent pas le score final/,
+    /do not determine the final fusion estimate/,
   );
   assert.match(
     decisionExplanation('antivirus'),
-    /prime sur les poids historiques et la fusion/,
+    /takes priority over content weights and fusion/,
   );
-  assert.match(decisionExplanation(), /Source de décision non enregistrée/);
+  assert.match(decisionExplanation(), /Decision source not recorded/);
 });
 
 test('historical policy is explicit and never reconstructed from current defaults', () => {
-  assert.match(policySummary(null), /seuil et mode à la réception inconnus/);
-  assert.match(policySummary(null), /réglages actuels ne sont pas utilisés/);
+  assert.match(policySummary(null), /Historical threshold and mode not recorded/);
+  assert.match(policySummary(null), /Current settings are not used/);
   assert.doesNotMatch(policySummary(null), /95/);
   const policy = {
     version: 'policy-1',
@@ -294,23 +294,23 @@ test('historical policy is explicit and never reconstructed from current default
   };
   assert.equal(
     policySummary(policy),
-    'Observation · seuil historique 87,5 / 100 · confirmation requise',
+    "Observation · Recorded content threshold 87.5 / 100 · corroboration required",
   );
-  assert.match(policySummary({ ...policy, mode: 'tag' }), /^Marquage/);
+  assert.match(policySummary({ ...policy, mode: 'tag' }), /^Tagging/);
   assert.match(
     policySummary({ ...policy, mode: 'enforce', require_corroboration: false }),
-    /^Application des actions .*confirmation non requise$/,
+    /^Actions enabled .*corroboration not required$/,
   );
 });
 
 test('authentication honors Rust snake_case outcomes and distinguishes absence from success', () => {
-  assert.equal(authenticationResult('pass'), 'Réussi (pass)');
-  assert.equal(authenticationResult('soft_fail'), 'Échec souple (softfail)');
-  assert.equal(authenticationResult('temp_error'), 'Erreur temporaire');
-  assert.equal(authenticationResult('perm_error'), 'Erreur permanente');
-  assert.equal(authenticationResult(null), 'Résultat non enregistré');
-  assert.equal(authenticationResult('unknown'), 'Résultat non enregistré');
-  assert.match(authenticationResult('none'), /Aucun résultat/);
+  assert.equal(authenticationResult('pass'), "Pass");
+  assert.equal(authenticationResult('soft_fail'), "Soft fail (softfail)");
+  assert.equal(authenticationResult('temp_error'), "Temporary error");
+  assert.equal(authenticationResult('perm_error'), "Permanent error");
+  assert.equal(authenticationResult(null), "Result not recorded");
+  assert.equal(authenticationResult('unknown'), "Result not recorded");
+  assert.match(authenticationResult('none'), /No authentication result/);
   for (const state of [
     'disabled',
     'not_run',
@@ -321,11 +321,11 @@ test('authentication honors Rust snake_case outcomes and distinguishes absence f
   ]) {
     assert.notEqual(evidenceState(state), evidenceState('complete'));
   }
-  assert.equal(evidenceState(undefined), 'État non enregistré');
+  assert.equal(evidenceState(undefined), "State not recorded");
 });
 
 test('suppressed bounces are explicitly distinguished from sent failure notices', () => {
-  assert.equal(deliveryStatus('dsn_suppressed'), 'Avis bloqué · protection anti-backscatter');
-  assert.equal(deliveryStatus('notified'), 'Échec traité');
-  assert.match(nextRetry('dsn_suppressed', 1), /Aucune nouvelle tentative/);
+  assert.equal(deliveryStatus('dsn_suppressed'), "Notification suppressed · backscatter protection");
+  assert.equal(deliveryStatus('notified'), "Failure notification handled");
+  assert.match(nextRetry('dsn_suppressed', 1), /No retry/);
 });

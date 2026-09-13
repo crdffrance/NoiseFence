@@ -57,7 +57,7 @@ impl From<anyhow::Error> for Error {
         tracing::error!(error=%e,"API operation failed");
         Self(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Service temporairement indisponible.".into(),
+            "Service temporarily unavailable.".into(),
         )
     }
 }
@@ -98,7 +98,7 @@ fn origin(app: &App, h: &HeaderMap) -> ApiResult<()> {
     if h.get(header::ORIGIN).and_then(|v| v.to_str().ok()) != Some(&app.config.web.public_origin) {
         return Err(Error(
             StatusCode::FORBIDDEN,
-            "Origine de la demande refusée.".into(),
+            "Origin of the application refused.".into(),
         ));
     }
     Ok(())
@@ -115,10 +115,7 @@ fn csrf(user: &User, h: &HeaderMap) -> ApiResult<()> {
             .fold(0, |a, (x, y)| a | (x ^ y))
             != 0
     {
-        return Err(Error(
-            StatusCode::FORBIDDEN,
-            "Session de formulaire expirée.".into(),
-        ));
+        return Err(Error(StatusCode::FORBIDDEN, "Form session expired.".into()));
     }
     Ok(())
 }
@@ -135,14 +132,14 @@ fn cookie(app: &App, value: &str, age: u32) -> String {
 async fn authenticated(app: &App, h: &HeaderMap) -> ApiResult<User> {
     let hash = token(h)
         .map(|t| message::digest(t.as_bytes()))
-        .ok_or(Error(StatusCode::UNAUTHORIZED, "Connexion requise.".into()))?;
+        .ok_or(Error(StatusCode::UNAUTHORIZED, "Sign in required.".into()))?;
     app.store.run(move|db|{
         let user=db.query_row("SELECT u.username,u.admin,s.csrf FROM sessions s JOIN users u ON u.username=s.username WHERE s.token_hash=?1 AND s.expires>?2 AND u.disabled=0 AND (NOT EXISTS(SELECT 1 FROM mfa_credentials m WHERE m.username=u.username AND m.enabled=1) OR EXISTS(SELECT 1 FROM mfa_sessions v WHERE v.token_hash=s.token_hash))",params![hash,now()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,String>(2)?))).optional()?;
         let Some((username,admin,csrf))=user else{return Ok(None);};
         let mut q=db.prepare("SELECT address FROM grants WHERE username=?1 ORDER BY address")?;
         let addresses=q.query_map([&username],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
         Ok(Some(User{username,admin,csrf,addresses}))
-    }).await?.ok_or(Error(StatusCode::UNAUTHORIZED,"Connexion requise.".into()))
+    }).await?.ok_or(Error(StatusCode::UNAUTHORIZED,"Sign in required.".into()))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -161,7 +158,7 @@ async fn login(
     if body.username.len() > 100 || body.password.len() > 128 || body.code.len() > 80 {
         return Err(Error(
             StatusCode::UNAUTHORIZED,
-            "Identifiant ou mot de passe incorrect.".into(),
+            "Incorrect username or password.".into(),
         ));
     }
     {
@@ -172,7 +169,7 @@ async fn login(
         if global.1 > 100 {
             return Err(Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Trop de tentatives. Réessayez plus tard.".into(),
+                "Too many attempts, try again later.".into(),
             ));
         }
         let attempts = limiter
@@ -182,7 +179,7 @@ async fn login(
         if attempts.1 > 10 {
             return Err(Error(
                 StatusCode::TOO_MANY_REQUESTS,
-                "Trop de tentatives. Réessayez plus tard.".into(),
+                "Too many attempts, try again later.".into(),
             ));
         }
     }
@@ -203,7 +200,7 @@ async fn login(
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans quelques instants.".into(),
+            "Try again in a few moments.".into(),
         )
     })?;
     let valid = tokio::task::spawn_blocking(move || {
@@ -214,13 +211,13 @@ async fn login(
     .map_err(|_| {
         Error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Connexion indisponible.".into(),
+            "Sign-in unavailable.".into(),
         )
     })?;
     if !valid || saved.is_none() {
         return Err(Error(
             StatusCode::UNAUTHORIZED,
-            "Identifiant ou mot de passe incorrect.".into(),
+            "Incorrect username or password.".into(),
         ));
     }
     let session = random_token();
@@ -231,7 +228,7 @@ async fn login(
     let mfa_key = app.mfa_key.clone().ok_or_else(|| {
         Error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Second facteur indisponible.".into(),
+            "Second factor unavailable.".into(),
         )
     })?;
     let code = body.code;
@@ -261,7 +258,7 @@ async fn login(
         })
         .await?;
     if !factor_ok {
-        return Err(Error(StatusCode::UNAUTHORIZED,"Code de sécurité requis, incorrect, déjà utilisé ou trop de tentatives. Réessayez avec un nouveau code ou un code de secours.".into()));
+        return Err(Error(StatusCode::UNAUTHORIZED,"Security code required, incorrect, already used or too many attempts. Try again with a new code or emergency code.".into()));
     }
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -330,13 +327,13 @@ async fn diagnostics(
 ) -> ApiResult<Json<crate::diagnostics::MessageDiagnostics>> {
     let user = authenticated(&app, &h).await?;
     if id.len() > 128 {
-        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
+        return Err(Error(StatusCode::NOT_FOUND, "Message not found.".into()));
     }
     app.store
         .diagnostics_for(user.username, id, query.delivery_id)
         .await?
         .map(Json)
-        .ok_or_else(|| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))
+        .ok_or_else(|| Error(StatusCode::NOT_FOUND, "Message not found.".into()))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -354,7 +351,7 @@ async fn quarantine(
     let user = authenticated(&app, &h).await?;
     csrf(&user, &h)?;
     if uuid::Uuid::parse_str(&id).is_err() || !crate::config::valid_address(&body.recipient) {
-        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
+        return Err(Error(StatusCode::NOT_FOUND, "Message not found.".into()));
     }
     let hash = message::digest(token(&h).unwrap().as_bytes());
     match app.store.quarantine_action(user.username, hash, id, body.recipient, body.action).await? {
@@ -363,8 +360,8 @@ async fn quarantine(
             crate::quarantine::Command::Delete => "discarded",
         }}))),
         crate::quarantine::Change::Queued(command_id) => Ok(Json(json!({"ok":true,"status":"queued","command_id":command_id}))),
-        crate::quarantine::Change::NotFound => Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into())),
-        crate::quarantine::Change::Conflict => Err(Error(StatusCode::CONFLICT, "Ce destinataire n’est plus en quarantaine ou sa conservation a expiré. Rechargez les messages.".into())),
+        crate::quarantine::Change::NotFound => Err(Error(StatusCode::NOT_FOUND, "Message not found.".into())),
+        crate::quarantine::Change::Conflict => Err(Error(StatusCode::CONFLICT, "This recipient is no longer in quarantine or its storage has expired. Reload the messages.".into())),
     }
 }
 #[derive(Deserialize)]
@@ -383,7 +380,7 @@ async fn feedback(
     let user = authenticated(&app, &h).await?;
     csrf(&user, &h)?;
     if uuid::Uuid::parse_str(&id).is_err() {
-        return Err(Error(StatusCode::NOT_FOUND, "Message introuvable.".into()));
+        return Err(Error(StatusCode::NOT_FOUND, "Message not found.".into()));
     }
     if let Some(category) = body.category {
         if body
@@ -392,7 +389,7 @@ async fn feedback(
         {
             return Err(Error(
                 StatusCode::BAD_REQUEST,
-                "Correction contradictoire.".into(),
+                "Conflicting correction.".into(),
             ));
         }
         app.store
@@ -401,9 +398,9 @@ async fn feedback(
     } else if let Some(spam) = body.spam {
         app.store.feedback(user.username, id, spam).await
     } else {
-        return Err(Error(StatusCode::BAD_REQUEST, "Catégorie requise.".into()));
+        return Err(Error(StatusCode::BAD_REQUEST, "Category required.".into()));
     }
-    .map_err(|_| Error(StatusCode::NOT_FOUND, "Message introuvable.".into()))?;
+    .map_err(|_| Error(StatusCode::NOT_FOUND, "Message not found.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
 async fn stats(
@@ -414,12 +411,12 @@ async fn stats(
     let user = authenticated(&app, &h).await?;
     let username = user.username;
     if !q.domain.is_empty() && !crate::config::valid_domain(&q.domain) {
-        return Err(Error(StatusCode::BAD_REQUEST, "Domaine invalide.".into()));
+        return Err(Error(StatusCode::BAD_REQUEST, "Invalid domain.".into()));
     }
     let config = app.effective();
     let threshold = config.filter.threshold;
     let domain = q.domain;
-    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=?3) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<?3) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
+    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,?3)) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,?3)) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
     result["decision_source"] = json!(if config
@@ -450,7 +447,7 @@ async fn password(
     if body.current_password.len() > 128 || !(12..=128).contains(&body.new_password.len()) {
         return Err(Error(
             StatusCode::BAD_REQUEST,
-            "Le nouveau mot de passe doit contenir 12 à 128 octets.".into(),
+            "The new password must contain 12 to 128 bytes.".into(),
         ));
     }
     let name = user.username.clone();
@@ -467,7 +464,7 @@ async fn password(
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
-            "Réessayez dans quelques instants.".into(),
+            "Try again in a few moments.".into(),
         )
     })?;
     let hash = tokio::task::spawn_blocking(move || {
@@ -479,13 +476,13 @@ async fn password(
     .map_err(|_| {
         Error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Service indisponible.".into(),
+            "Service unavailable.".into(),
         )
     })?
     .map_err(|_| {
         Error(
             StatusCode::BAD_REQUEST,
-            "Mot de passe actuel incorrect.".into(),
+            "Incorrect current password.".into(),
         )
     })?;
     app.store
@@ -512,7 +509,7 @@ async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>>
     if !user.admin {
         return Err(Error(
             StatusCode::FORBIDDEN,
-            "Accès administrateur requis.".into(),
+            "Administrator access required.".into(),
         ));
     }
     let mut result=app.store.read(|db|{let (queued,failed,oldest)=db.query_row("SELECT SUM(status IN ('pending','sending')),SUM(status='failed'),MIN(CASE WHEN status IN ('pending','sending') THEN COALESCE(p.released_at,m.created) END) FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id",[],|r|Ok((r.get::<_,Option<i64>>(0)?.unwrap_or(0),r.get::<_,Option<i64>>(1)?.unwrap_or(0),r.get::<_,Option<i64>>(2)?)))?;let (count,incomplete,p95)=db.query_row("SELECT COUNT(*),COALESCE(SUM(json_extract(scan,'$.complete')=0),0),COALESCE(MAX(json_extract(scan,'$.elapsed_ms')),0) FROM messages WHERE created>?1",[now()-3600],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?)))?;Ok(json!({"queued_deliveries":queued,"unnotified_failures":failed,"oldest_pending_age_seconds":oldest.map(|t|now()-t),"received_last_hour":count,"incomplete_last_hour":incomplete,"max_analysis_ms_last_hour":p95}))}).await?;

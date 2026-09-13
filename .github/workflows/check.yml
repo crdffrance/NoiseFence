@@ -10,6 +10,19 @@ concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  container:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate local Compose configuration
+        run: docker compose config --quiet
+      - name: Build the non-root release container
+        run: docker build --tag noisefence:ci .
+      - name: Check bootstrap, English console, SMTP and persistence
+        run: python3 tests/container_smoke.py --image noisefence:ci
   research:
     runs-on: ubuntu-latest
     steps:

@@ -829,7 +829,7 @@ async fn main() -> Result<()> {
     if matches!(cli.command, Command::ConsoleReset) {
         anyhow::ensure!(
             !noisefence::cluster::is_worker(&config),
-            "La configuration du nœud est gérée par la console centrale."
+            "The node configuration is managed by the central console."
         );
         let store = Store::open(&config.data_dir)?;
         let _lock = store.daemon_lock()?;

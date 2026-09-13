@@ -57,9 +57,9 @@ fn arbitrate(scan: &mut Scan) -> Option<Arbitration> {
         scan.reasons.push(Signal {
             id: REVIEW_REASON.into(),
             detail: if resolution == Resolution::Disagreement {
-                "Le classement historique et le second avis se contredisent : message à vérifier. Le score brut est conservé comme diagnostic ; aucun des deux avis ne prouve à lui seul la légitimité ou le caractère indésirable du message."
+                "The historical ranking and the second opinion contradict each other: message to be checked. The raw score is kept as a diagnosis; neither opinion alone proves the legitimacy or undesirableness of the message."
             } else {
-                "Le second avis est ambigu ou insuffisamment assuré : message à vérifier. L’incertitude ne constitue ni une détection de spam ni une preuve de légitimité."
+                "The second opinion is ambiguous or insufficiently assured: message to be checked. Uncertainty does not constitute a spam detection or proof of legitimacy."
             }.into(),
             weight: 0.0,
         });
@@ -104,7 +104,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         }
         scan.reasons.push(Signal {
             id: MALWARE_REASON.into(),
-            detail: "La détection de malware par l’antivirus principal prime sur l’indice de suspicion et la catégorie PUB. Ce classement ne correspond pas à une probabilité.".into(),
+            detail: "The detection of malware by the main antivirus takes precedence over the suspicion index and the PUB category. This ranking does not correspond to a probability.".into(),
             weight: 0.0,
         });
     } else {

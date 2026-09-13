@@ -138,8 +138,8 @@ async fn fixture(
 
 #[test]
 fn addresses_protocols_credentials_and_ports_are_conservative() {
-    assert_eq!(report_site("8.8.8.8"), "[adresse IP]");
-    assert_eq!(report_site("[2606:4700:4700::1111]"), "[adresse IP]");
+    assert_eq!(report_site("8.8.8.8"), "[IP address]");
+    assert_eq!(report_site("[2606:4700:4700::1111]"), "[IP address]");
     assert_eq!(report_site("private-token.example.com."), "example.com");
     for ip in [
         "0.0.0.0",

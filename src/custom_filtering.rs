@@ -22,33 +22,33 @@ pub struct Level {
 pub const LEVELS: [Level; 5] = [
     Level {
         id: "very_lenient",
-        label: "Très tolérant",
+        label: "Very tolerant",
         threshold: 99.5,
-        description: "Réserve le classement Spam aux indices les plus élevés et confirmés.",
+        description: "Reserves the Spam ranking to the highest and confirmed indices.",
     },
     Level {
         id: "lenient",
-        label: "Tolérant",
+        label: "Lenient",
         threshold: 98.0,
-        description: "Limite les classements Spam ; davantage de messages restent sous le seuil.",
+        description: "Limit spam rankings; more messages remain below the threshold.",
     },
     Level {
         id: "balanced",
-        label: "Équilibré",
+        label: "Balanced",
         threshold: 95.0,
-        description: "Point de départ à ajuster avec vos corrections de messages.",
+        description: "Starting point to adjust with your message corrections.",
     },
     Level {
         id: "strict",
         label: "Strict",
         threshold: 90.0,
-        description: "Examine davantage de messages suspects ; surveillez les faux positifs.",
+        description: "Examine more suspicious messages; watch for false positives.",
     },
     Level {
         id: "very_strict",
-        label: "Très strict",
+        label: "Very strict",
         threshold: 85.0,
-        description: "Sensibilité maximale des préréglages ; nécessite un suivi des erreurs.",
+        description: "Maximum sensitivity of presettings; requires error tracking.",
     },
 ];
 
@@ -201,30 +201,30 @@ impl Policy {
     pub fn validate(&self, cfg: &Config) -> Result<()> {
         ensure!(
             self.profiles.len() <= 32 && self.bindings.len() <= 1000 && self.rules.len() <= 100,
-            "Maximum : 32 profils, 1 000 affectations, 100 règles."
+            "Maximum: 32 profiles, 1,000 assignments, 100 rules."
         );
         let mut ids = HashSet::new();
         for p in &self.profiles {
             ensure!(
                 text_valid(&p.id, 64) && text_valid(&p.name, 100) && ids.insert(&p.id),
-                "Profil invalide ou dupliqué."
+                "Profile invalid or duplicated."
             );
             ensure!(
                 (1..=30).contains(&p.quarantine_days),
-                "Quarantaine : 1 à 30 jours."
+                "Quarantine: 1 to 30 days."
             );
             ensure!(
                 p.review != Action::Tag,
-                "Un classement à examiner ne peut pas être marqué SPAM/PUB."
+                "A classification to be examined cannot be marked SPAM/PUB."
             );
             if let Some(t) = p.threshold {
                 ensure!(
                     t.is_finite() && (50.0..=100.0).contains(&t),
-                    "Seuil : 50 à 100."
+                    "Threshold: 50 to 100."
                 );
                 ensure!(
                     !sensitivity_locked(cfg),
-                    "Une fusion validée impose son propre seuil : choisissez Hériter."
+                    "Validated fusion has its own threshold: choose Inherit."
                 );
             }
         }
@@ -232,7 +232,7 @@ impl Policy {
         for b in &self.bindings {
             ensure!(
                 valid_scope(&b.scope, cfg) && scopes.insert(&b.scope) && ids.contains(&b.profile),
-                "Affectation inconnue, invalide ou dupliquée."
+                "Unknown, invalid or duplicated assignment."
             );
         }
         ids.clear();
@@ -242,24 +242,24 @@ impl Policy {
                     && text_valid(&r.name, 100)
                     && ids.insert(&r.id)
                     && valid_scope(&r.scope, cfg),
-                "Règle ou portée invalide/dupliquée."
+                "Invalid/duplicated rule or scope."
             );
             ensure!(
                 (1..=8).contains(&r.conditions.len())
                     && (r.category.is_some() || r.action.is_some()),
-                "Une règle nécessite 1 à 8 conditions et un effet."
+                "A rule requires 1 to 8 conditions and an effect."
             );
             ensure!(r.expires.is_none_or(|e| e > 0), "Expiration invalide.");
             ensure!(
                 !(r.action == Some(Action::Tag)
                     && r.category
                         .is_some_and(|c| !matches!(c, Category::Spam | Category::Publicity))),
-                "Le marquage nécessite SPAM ou PUB."
+                "Marking requires SPAM or PUB."
             );
             for c in &r.conditions {
                 ensure!(
                     c.value.len() <= 256 && !c.value.chars().any(char::is_control),
-                    "Valeur de condition invalide (256 octets maximum)."
+                    "Invalid condition value (maximum 256 bytes)."
                 );
                 if matches!(c.op, Operator::AtLeast | Operator::AtMost) {
                     ensure!(
@@ -267,10 +267,10 @@ impl Policy {
                             && c.value
                                 .parse::<f64>()
                                 .is_ok_and(|n| n.is_finite() && n >= 0.0),
-                        "Comparaison numérique invalide."
+                        "Invalid numerical comparison."
                     );
                 } else if !matches!(c.op, Operator::Present | Operator::Absent) {
-                    ensure!(!c.value.is_empty(), "Valeur de condition vide.");
+                    ensure!(!c.value.is_empty(), "Condition value is empty.");
                 }
             }
         }

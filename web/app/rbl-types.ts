@@ -16,8 +16,8 @@ export type EarlyRbl = {
   }[];
 };
 export function rblStatus(status: string): string {
-  return ({not_listed:'IP non listée', listed:'IP listée', policy:'Liste de politique · sans vote de blocage', unavailable:'Vérification indisponible', skipped:'IP non vérifiée'} as Record<string,string>)[status] ?? 'État inconnu';
+  return ({not_listed:"IP not listed", listed:"IP listed", policy:"Policy list · without blocking vote", unavailable:"Check not available", skipped:"Unverified IP"} as Record<string,string>)[status] ?? "Unknown State";
 }
 export function rblIncident(incident: string | null): string {
-  return ({dns:'Erreur DNS', timeout:'Délai dépassé', busy:'Capacité DNS occupée', invalid_answer:'Code de réponse non reconnu ou erreur du fournisseur', unsupported_ip:'Adresse privée, réservée ou famille IP non prise en charge'} as Record<string,string>)[incident ?? ''] ?? '';
+  return ({dns:"DNS error", timeout:"Time exceeded", busy:"DNS capacity occupied", invalid_answer:"Unrecognized response code or provider error", unsupported_ip:"Private address, reserved address or IP family not supported"} as Record<string,string>)[incident ?? ''] ?? '';
 }

@@ -270,7 +270,7 @@ impl Inspection {
                 scan.complete = false;
                 scan.reasons.push(Signal {
                     id: "vision_incomplete".into(),
-                    detail: "Lecture OCR / codes limitée ou indisponible".into(),
+                    detail: "OCR reading / limited or unavailable codes".into(),
                     weight: 0.0,
                 });
             }
@@ -280,7 +280,7 @@ impl Inspection {
             scan.reasons.push(Signal {
                 id: "vision_read".into(),
                 detail: format!(
-                    "OCR local : {} caractères, {} QR et {} autres codes sur {} pages",
+                    "Local OCR: {} characters, {} QR and {} other codes on {} pages",
                     self.summary.text_chars,
                     self.summary.qr_codes,
                     self.summary.other_codes,
@@ -294,7 +294,7 @@ impl Inspection {
         {
             scan.reasons.push(Signal {
                 id: "vision_credential_lure".into(),
-                detail: "Texte visuel combinant urgence, demande d’identifiants et lien".into(),
+                detail: "Visual text combines urgency, a credential request and a link".into(),
                 weight: if contribute && self.summary.status == Status::Complete {
                     0.75
                 } else {
