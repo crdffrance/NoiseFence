@@ -8,7 +8,7 @@
 - Finish the English console and documentation. Improve filter navigation, settings search, score explanations and the distinction between draft and applied policy. Keep all messaging/filter settings in the Web console; ports, TLS, storage, model artifacts and replication installation remain host operations.
 - Use English explanations in LLM prompt `noisefence-classify-3`. Its fingerprint starts a distinct observation group; previous model validation must not be reused across changed protocols. Existing explanations and user-created labels remain recorded data.
 - Preserve saved adaptive pattern labels across translated-default upgrades when all semantic fields and their order match. Installed models still require an exact protocol match; configuration history and model artifacts are not rewritten.
-- Add a non-root Docker image, isolated local Compose evaluation and Linux production template with host networking, durable storage, private configuration and dependency notices. Test container bootstrap, authorization, SMTP acceptance, open-relay refusal and restart persistence on amd64/arm64 in CI.
+- Add a non-root Docker image, isolated local Compose evaluation and Linux production template with host networking, durable storage, private configuration and dependency notices. Test container bootstrap, authorization, SMTP acceptance, open-relay refusal, restart persistence and TCP 25 binding after privilege reduction on amd64/arm64 in CI.
 - Update native installation, security, configuration, header and two-copy recovery guides. Verify local documentation links and preserve referenced historical anchors.
 
 **Compatibility:** storage capability remains schema 5. Upgrade the coordinator before workers; 0.17.3 remains in the audited policy window. Existing observation, provider budgets, Proton tagging gates and mandatory peer acknowledgements remain unchanged. No new detector, model training or automatic activation is included. Passing tests do not establish perfect filtering or the target capture/false-positive rates.
@@ -282,4 +282,3 @@ Added optional ClamAV/signature and Scaleway connectors with bounded resources, 
 ## 0.1.0 - 2026-09-06
 
 Initial GPL-3.0-only release: Rust SMTP/STARTTLS, SIZE, 8BITMIME, PIPELINING, durable disk/SQLite queue, per-recipient retries, authentication, local scoring and optional DQS. Included local-account console and Linux deployment files. Initial candidate recall was 60.94%; the 95% capture and 0.1% false-positive targets were not demonstrated. Observation was the default and SMTPUTF8 was disabled.
-

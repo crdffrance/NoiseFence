@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && python3 scripts/collect_licenses.py
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 noisefence \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /var/lib/noisefence --shell /usr/sbin/nologin noisefence \
@@ -38,6 +38,7 @@ COPY LICENSE THIRD_PARTY.md Cargo.lock /usr/share/doc/noisefence/
 COPY licenses/ /usr/share/doc/noisefence/licenses/
 COPY --from=engine /build/release/third-party-licenses/ /usr/share/doc/noisefence/third-party-licenses/
 COPY config/docker.example.toml /etc/noisefence/config.toml
+COPY --chmod=0755 deploy/container-entrypoint.sh /usr/local/bin/noisefence-container-entrypoint
 LABEL org.opencontainers.image.title="NoiseFence" \
       org.opencontainers.image.description="Rust SMTP security gateway and management console" \
       org.opencontainers.image.source="https://github.com/crdffrance/NoiseFence" \
@@ -48,5 +49,5 @@ EXPOSE 2525 18080
 ENV NOISEFENCE_HEALTH_URL=http://127.0.0.1:18080/healthz
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD curl --fail --silent "$NOISEFENCE_HEALTH_URL" || exit 1
-ENTRYPOINT ["/usr/local/bin/noisefence", "--config", "/etc/noisefence/config.toml"]
+ENTRYPOINT ["/usr/local/bin/noisefence-container-entrypoint"]
 CMD ["serve"]

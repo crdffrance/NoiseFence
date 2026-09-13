@@ -61,6 +61,52 @@ def administrator(container, password):
             process.kill()
 
 
+def privileged_port(image):
+    """Do not rely on Docker's relaxed default privileged-port sysctl."""
+    name = 'noisefence-port-test-' + uuid.uuid4().hex[:12]
+    volume = name + '-data'
+    sample = Path(__file__).resolve().parents[1] / 'config/docker.example.toml'
+    with tempfile.TemporaryDirectory(prefix='noisefence-port-test-') as temporary:
+        config = Path(temporary) / 'config.toml'
+        config.write_text(sample.read_text().replace('127.0.0.1:2525', '127.0.0.1:25'))
+        config.chmod(0o644)
+        docker('volume', 'create', volume)
+        try:
+            docker('run', '-d', '--name', name, '--network=none',
+                   '--sysctl=net.ipv4.ip_unprivileged_port_start=1024', '--read-only',
+                   '--user=0:0', '--cap-drop=ALL', '--cap-add=NET_BIND_SERVICE',
+                   '--cap-add=SETUID', '--cap-add=SETGID', '--cap-add=SETPCAP',
+                   '--security-opt=no-new-privileges:true', '--pids-limit=256', '--memory=2g',
+                   '--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=128m',
+                   '-v', f'{volume}:/var/lib/noisefence',
+                   '-v', f'{config}:/etc/noisefence/config.toml:ro', image)
+            for _ in range(60):
+                assert docker('inspect', name, '--format', '{{.State.Running}}') == 'true', 'Port-25 runtime stopped'
+                response = subprocess.run(['docker', 'exec', name, 'curl', '--silent', '--fail',
+                                           'http://127.0.0.1:18080/healthz'], capture_output=True, text=True, timeout=5)
+                if response.returncode == 0 and json.loads(response.stdout)['smtp_ready']:
+                    break
+                time.sleep(.25)
+            else:
+                raise AssertionError('Port-25 runtime did not become ready')
+            status = dict(line.split(':', 1) for line in docker('exec', name, 'cat', '/proc/1/status').splitlines() if ':' in line)
+            assert status['Uid'].split() == ['10001'] * 4
+            assert status['Gid'].split() == ['10001'] * 4
+            assert status['NoNewPrivs'].strip() == '1'
+            assert all(int(status[k], 16) == 1 << 10 for k in ['CapEff', 'CapPrm', 'CapBnd', 'CapAmb']), status
+            # EHLO + NOOP + QUIT only, inside a network namespace with no external interface.
+            response = subprocess.run(['docker', 'exec', name, 'curl', '--verbose', '--silent', '--show-error',
+                                       '--fail', '--request', 'NOOP', '--max-time', '5', 'smtp://127.0.0.1:25'],
+                                      capture_output=True, text=True, timeout=10)
+            assert response.returncode == 0 and 'PIPELINING' in response.stderr, response.stderr
+        except Exception:
+            print(docker('logs', '--tail', '30', name), flush=True)
+            raise
+        finally:
+            subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+            subprocess.run(['docker', 'volume', 'rm', volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='noisefence:local')
@@ -146,13 +192,14 @@ def main():
             docker('restart', '--time', '20', name)
             ready()
             assert retained() == before, 'Accepted evidence changed after restart'
-            print(json.dumps({'status': 'passed', 'checks': ['non-root runtime', 'English console and assets', 'admin authentication', 'open-relay refusal', 'two-recipient durable acceptance', 'shared score assessment', 'restart persistence'], 'delivered_externally': False}))
         except Exception:
             print(docker('logs', '--tail', '50', name), flush=True)
             raise
         finally:
             subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
             subprocess.run(['docker', 'volume', 'rm', volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+    privileged_port(args.image)
+    print(json.dumps({'status': 'passed', 'checks': ['non-root runtime', 'English console and assets', 'admin authentication', 'open-relay refusal', 'two-recipient durable acceptance', 'shared score assessment', 'restart persistence', 'privileged SMTP port with reduced capabilities'], 'delivered_externally': False}))
 
 
 if __name__ == '__main__':

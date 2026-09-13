@@ -99,7 +99,7 @@ static_dir = "/opt/noisefence/web"
 secure_cookies = true
 ```
 
-Merge these sections into the file; do not duplicate TOML tables. Supply real TLS paths, domains and routes. The template grants only `NET_BIND_SERVICE` in addition to the normal non-root runtime; verify binding to TCP 25 on your Docker/host configuration. Run an HTTPS reverse proxy on the host. External OCR/antivirus sockets and model mounts require explicit host setup and matching permissions.
+Merge these sections into the file; do not duplicate TOML tables. Supply real TLS paths, domains and routes. The production entrypoint starts briefly as root with `SETUID`, `SETGID`, `SETPCAP` and `NET_BIND_SERVICE`. Before starting any SMTP or MIME code, it uses [setpriv](https://man7.org/linux/man-pages/man1/setpriv.1.html) to become UID/GID 10001, clear supplementary groups and retain only `NET_BIND_SERVICE`. The service keeps `no_new_privs`; CI verifies its identity, capability sets and binding to TCP 25 with the normal privileged-port boundary of 1024. The local evaluation keeps the image’s default non-root user and needs no capabilities. Run an HTTPS reverse proxy on the host. External OCR/antivirus sockets and model mounts require explicit host setup and matching permissions.
 
 ```sh
 export NOISEFENCE_CONFIG_DIR=/srv/noisefence/config
