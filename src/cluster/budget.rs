@@ -107,6 +107,11 @@ pub fn grant(
             && request.known.keys().all(|k| k.len() < 80),
         "Invalid budget request"
     );
+    // A stale disaster snapshot may omit credits already issued before the crash.
+    // Keep policy/history synchronization available without reissuing that money.
+    if config.data_dir.join("ha-recovery-budget-hold").exists() {
+        return Ok(Vec::new());
+    }
     let mut result = Vec::new();
     if let Some(llm) = &config.llm {
         let _init = crate::llm::Budget::open(&config.data_dir.join("llm-budget.sqlite3"))?;

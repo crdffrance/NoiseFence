@@ -711,6 +711,17 @@ pub async fn worker_controlled(
             let Some(job) = store.claim().await? else {
                 break;
             };
+            // Mirror the sending intent before opening a remote SMTP connection.
+            // A disaster recovery keeps this state held for review instead of guessing.
+            if let Err(error) =
+                crate::ha::replica::synchronize_message(&store, job.message_id.clone()).await
+            {
+                tracing::warn!(%error, message_id=%job.message_id, "delivery waiting for durable replica");
+                store
+                    .finish(&job, "pending", "Waiting for durable replica", now() + 30)
+                    .await?;
+                break;
+            }
             jobs.spawn(run_job(config.clone(), store.clone(), job));
         }
         tokio::select! {

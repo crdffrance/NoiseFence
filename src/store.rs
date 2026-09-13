@@ -13,6 +13,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[derive(Clone)]
 pub struct QueueVariant {
     pub id: String,
     pub scan: Scan,
@@ -26,6 +27,7 @@ pub struct Store {
     db: Arc<Mutex<Connection>>,
     delivery_ready: Arc<tokio::sync::Notify>,
     console_reads: Arc<tokio::sync::Semaphore>,
+    pub(crate) replication: Arc<std::sync::OnceLock<Arc<crate::ha::Runtime>>>,
     pub(crate) admission: Arc<crate::smtp_admission::runtime::Runtime>,
 }
 #[derive(Clone, Debug)]
@@ -121,7 +123,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version <= 4, "database is newer than this binary");
+        ensure!(version <= 5, "database is newer than this binary");
         if version == 0 {
             let tx = db.transaction()?;
             tx.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER NOT NULL,sender TEXT NOT NULL,scan TEXT NOT NULL,is_dsn INTEGER NOT NULL DEFAULT 0,raw_present INTEGER NOT NULL DEFAULT 1);
@@ -139,6 +141,7 @@ impl Store {
         let migration = db.transaction()?;
         migration.execute_batch(include_str!("control-schema.sql"))?;
         migration.execute_batch(include_str!("cluster-schema.sql"))?;
+        migration.execute_batch(crate::ha::SCHEMA)?;
         if version <= 2 {
             migration.execute_batch("PRAGMA user_version=2")?;
         }
@@ -156,6 +159,7 @@ impl Store {
             db: Arc::new(Mutex::new(db)),
             delivery_ready: Arc::new(tokio::sync::Notify::new()),
             console_reads: Arc::new(tokio::sync::Semaphore::new(4)),
+            replication: Arc::new(std::sync::OnceLock::new()),
             admission: Arc::new(crate::smtp_admission::runtime::Runtime::new()?),
         })
     }
@@ -313,6 +317,7 @@ impl Store {
                 );
             }
         }
+        crate::ha::replica::prepare(self, &sender, &variants).await?;
         let root = self.root.clone();
         let db = self.db.clone();
         // One owned blocking operation cannot be cancelled between persistence and commit.
@@ -355,7 +360,7 @@ impl Store {
     pub async fn claim(&self) -> Result<Option<Job>> {
         self.run(|db| {
             let tx=db.transaction()?;
-            let job=tx.query_row("SELECT d.id,m.id,COALESCE(p.released_at,m.created),m.sender,d.destination,d.hosts,d.attempts,m.is_dsn FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='pending' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id) AND d.next_attempt<=?1 ORDER BY d.next_attempt,d.id LIMIT 1",[now()],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,u32>(6)?,r.get::<_,bool>(7)?))).optional()?;
+            let job=tx.query_row("SELECT d.id,m.id,COALESCE(p.released_at,m.created),m.sender,d.destination,d.hosts,d.attempts,m.is_dsn FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='pending' AND NOT EXISTS(SELECT 1 FROM ha_local h WHERE h.message_id=m.id AND h.acked=0) AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id) AND d.next_attempt<=?1 ORDER BY d.next_attempt,d.id LIMIT 1",[now()],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,String>(5)?,r.get::<_,u32>(6)?,r.get::<_,bool>(7)?))).optional()?;
             let Some((delivery_id,message_id,created,sender,destination,hosts,attempts,is_dsn))=job else { return Ok(None); };
             let hosts=serde_json::from_str(&hosts)?;
             tx.execute("UPDATE deliveries SET status='sending',attempts=attempts+1 WHERE id=?1",[delivery_id])?;
@@ -500,7 +505,7 @@ impl Store {
             tx.execute("UPDATE deliveries SET status='expired' WHERE status='quarantined' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id) AND id IN (SELECT delivery_id FROM delivery_policy WHERE held_until<=?1)",[now()])?;
             tx.commit()?; Ok(())
         }).await?;
-        let ids=self.run(|db| { let mut q=db.prepare("SELECT id FROM messages m WHERE raw_present=1 AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND d.status IN ('pending','sending','failed','quarantined'))")?;Ok(q.query_map([],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?) }).await?;
+        let ids=self.run(|db| { let mut q=db.prepare("SELECT id FROM messages m WHERE raw_present=1 AND NOT EXISTS(SELECT 1 FROM ha_local h WHERE h.message_id=m.id AND h.acked<h.generation) AND NOT EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND d.status IN ('pending','sending','failed','quarantined'))")?;Ok(q.query_map([],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?) }).await?;
         for id in ids {
             // Commit tombstone first; a crash leaves an orphan file, removed by recovery.
             let key = id.clone();

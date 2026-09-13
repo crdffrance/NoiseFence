@@ -1,6 +1,6 @@
 [package]
 name = "noisefence"
-version = "0.16.2"
+version = "0.17.0"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
@@ -14,6 +14,7 @@ publish = false
 semantic = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers"]
 
 [dependencies]
+http-body-util = "0.1"
 anyhow = "1"
 argon2 = "0.5"
 axum = "0.8"
@@ -29,10 +30,10 @@ mail-auth = { version = "0.12.1", default-features = false, features = ["ring", 
 mail-parser = "0.11"
 rand = "0.8"
 regex = "1"
-reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls-no-provider"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 ring = "0.17"
 rpassword = "7"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pemfile = "2"
 serde = { version = "1", features = ["derive"] }
@@ -59,7 +60,6 @@ sha2 = "0.10"
 rcgen = "0.14"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
-http-body-util = "0.1"
 
 [profile.release]
 lto = "thin"

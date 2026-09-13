@@ -1,6 +1,7 @@
 mod adaptive;
 mod admin;
 mod cluster;
+mod ha;
 mod mfa;
 mod onboarding;
 mod quality;
@@ -502,7 +503,9 @@ async fn password(
     Ok(Json(json!({"ok":true})))
 }
 async fn health(State(app): State<App>) -> Json<Value> {
-    Json(json!({"status":"ok","smtp_ready":app.control.as_ref().is_none_or(|c|c.cluster_ready())}))
+    Json(
+        json!({"status":"ok","smtp_ready":!app.config.console_only && crate::ha::ready(&app.store) && app.control.as_ref().is_none_or(|c|c.cluster_ready())}),
+    )
 }
 async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     let user = authenticated(&app, &h).await?;
@@ -588,7 +591,10 @@ pub fn router_controlled(
         dummy_hash: Arc::new(hash_password(&random_token())?),
     };
     if crate::cluster::is_worker(&config) {
-        return Ok(Router::new().route("/healthz", get(health)).with_state(app));
+        return Ok(Router::new()
+            .route("/healthz", get(health))
+            .nest("/api/v1/replication", ha::routes(app.clone()))
+            .with_state(app));
     }
     let api = Router::new()
         .route("/login", post(login))
@@ -609,6 +615,7 @@ pub fn router_controlled(
         .merge(adaptive::routes())
         .merge(mfa::routes());
     Ok(Router::new()
+        .nest("/api/v1/replication", ha::routes(app.clone()))
         .nest("/api/v1", api)
         .route("/healthz", get(health))
         .fallback_service(

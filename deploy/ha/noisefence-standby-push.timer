@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh NoiseFence recovery console checkpoint
+
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=noisefence-standby-push.service
+
+[Install]
+WantedBy=timers.target

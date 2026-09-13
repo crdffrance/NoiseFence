@@ -1,0 +1,9 @@
+# Append to an existing multi-MX configuration on each Linux host.
+# Reverse peer_id and peer_url on the other host; keep distinct cluster.node_id.
+[replication]
+peer_id = "mx2"
+peer_url = "https://mx2.example.org"
+credential_file = "/etc/noisefence/replication.key"
+timeout_seconds = 30
+max_replica_bytes = 10737418240
+allow_loopback_http = false

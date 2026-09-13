@@ -366,6 +366,14 @@ async fn session(
                     reply(&mut io, error).await?;
                     continue;
                 }
+                if !crate::ha::ready(&state.store) {
+                    reply(
+                        &mut io,
+                        "451 4.3.0 Second durable copy unavailable; retry later\r\n",
+                    )
+                    .await?;
+                    continue;
+                }
                 if available_bytes(&state.store.root)?
                     < cfg.smtp.minimum_free_bytes
                         + cfg.smtp.max_message_bytes as u64

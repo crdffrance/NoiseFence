@@ -135,6 +135,11 @@ async fn poll(
         ),
     };
     let free_bytes = crate::store::available_bytes(&control.base.data_dir)?;
+    let replication = if control.base.replication.is_some() {
+        Some(crate::ha::status(&control.store).await?)
+    } else {
+        None
+    };
     let status = control
         .store
         .read(move |db| {
@@ -151,6 +156,7 @@ async fn poll(
             let pending_metadata =
                 db.query_row("SELECT COUNT(*) FROM cluster_dirty", [], |r| r.get(0))?;
             Ok(protocol::NodeStatus {
+                replication,
                 hostname: snapshot.config.hostname.clone(),
                 poll_seconds: snapshot
                     .config

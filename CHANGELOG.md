@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0 — Deux copies et console de secours
+
+- Réplication Rust par paire HTTPS authentifiée, corps et enveloppes durables avant SMTP 250 ; réponse 451 si le pair, sa capacité ou son stockage manque.
+- Progression par destinataire, intention d’envoi répliquée avant contact du relais, nettoyage après confirmation et reprise conservatrice des envois incertains.
+- Instantanés SQLite cohérents, modèles, MFA et budgets transférés par SSH restreint ; console de secours activable après fencing explicite, sans écraser la file du worker.
+- Bascule de sinistre avec révocation des accès anciens et suspension des nouvelles allocations fournisseurs ; pas de quorum ou de reprise SMTP automatique à une seule copie.
+- État de réplication et de la console de secours dans Infrastructure. Schéma 5 dès activation ; guide de reprise dans `docs/high-availability.md`.
+
 ## 0.16.2 — Admission SMTP intelligente
 
 - Greylisting sélectif avant DATA, avec état durable commun aux MX et repli permissif en cas de panne du coordinateur.

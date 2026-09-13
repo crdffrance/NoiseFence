@@ -13,6 +13,10 @@ import { api, type User } from './client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+type Replication = {
+  required: boolean; peer_id: string | null; unprotected: number; pending_updates: number;
+  remote_messages: number; remote_bytes: number; last_success: number | null; last_error: string | null;
+};
 type Node = {
   id: string;
   name: string;
@@ -22,6 +26,7 @@ type Node = {
   applied_revision: number | null;
   applied_digest: string | null;
   status: {
+    replication?: Replication;
     hostname?: string;
     poll_seconds?: number;
     queued?: number;
@@ -32,6 +37,10 @@ type Node = {
   };
 };
 type Overview = {
+  replication?: Replication;
+  recovery_console?: boolean;
+  standby?: { created?: number; received?: number; console_url?: string; last_error?: string | null } | null;
+
   role: 'coordinator' | 'worker' | null;
   node_id: string | null;
   revision: number | null;
@@ -197,6 +206,28 @@ export function ClusterConsole({
           connecté(s)
         </span>
       </div>
+      {overview.recovery_console && <section className="card cluster-behavior"><h2>Console de reprise active</h2><p>Cette instance gère la console et ne reçoit ni ne relaie de courrier. L’ancien coordinateur doit rester arrêté jusqu’à la procédure de retour. La réception stricte nécessite toujours deux machines disponibles.</p></section>}
+      {overview.replication?.required && (
+        <section className="card cluster-behavior">
+          <h2>Deux copies durables obligatoires</h2>
+          <p>Un message n’est accepté qu’après confirmation de sa copie sur l’autre MX. Une panne de réplication provoque un report SMTP temporaire avant l’analyse lorsque la panne est déjà connue.</p>
+          <dl className="cluster-facts">
+            <div><dt>Confirmations en attente</dt><dd>{overview.replication.unprotected}</dd></div>
+            <div><dt>États à synchroniser</dt><dd>{overview.replication.pending_updates}</dd></div>
+            <div><dt>Copies hébergées ici</dt><dd>{overview.replication.remote_messages}</dd></div>
+          </dl>
+          <p className="small muted">Dernier échange confirmé : {date(overview.replication.last_success)}</p>
+          {overview.replication.last_error && <p className="error">{overview.replication.last_error}</p>}
+        </section>
+      )}
+      {overview.standby && (
+        <section className="card cluster-behavior">
+          <h2>Console de secours</h2>
+          <p>Dernier instantané : {date(overview.standby.created ?? null)}. La promotion nécessite l’arrêt confirmé de l’ancien coordinateur ; elle ne démarre aucun relais SMTP.</p>
+          {overview.standby.console_url && <p>Adresse de reprise : {overview.standby.console_url}</p>}
+          {overview.standby.last_error && <p className="error">{overview.standby.last_error}</p>}
+        </section>
+      )}
       <div className="cluster-toolbar">
         <h2>Passerelles rattachées</h2>
         <Button
@@ -283,6 +314,7 @@ export function ClusterConsole({
               <p className="small muted">
                 Dernier contact : {date(node.last_seen)}
               </p>
+              {node.status.replication?.required && <p className="small">Réplication obligatoire · {node.status.replication.unprotected} confirmation(s) en attente · {node.status.replication.pending_updates} état(s) à synchroniser</p>}
               {node.status.pending_metadata ? (
                 <p className="small">
                   {node.status.pending_metadata} analyse(s) à synchroniser
@@ -453,9 +485,10 @@ export function ClusterConsole({
           au retour de la connexion.
         </p>
         <p>
-          Les corps restent sur le serveur qui les a acceptés. La présence de
-          deux MX ne réplique pas les messages déjà en file. Les commandes
-          distantes expirent après cinq minutes si elles ne sont pas exécutées.
+          {overview.replication?.required
+            ? 'Les messages sont copiés sur un autre serveur avant acceptation. La reprise des copies et de la console est contrôlée pour éviter deux propriétaires actifs. Les envois au résultat incertain restent à vérifier.'
+            : 'La réplication durable doit être configurée sur les deux serveurs pour protéger les messages déjà acceptés.'}
+          {' '}Les commandes distantes expirent après cinq minutes si elles ne sont pas exécutées.
         </p>
       </div>
       {!!overview.commands.length && (

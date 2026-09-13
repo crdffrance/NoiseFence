@@ -229,8 +229,13 @@ async fn overview(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>
     } else {
         None
     };
+    let replication = crate::ha::status(&app.store).await?;
+    let standby = std::fs::read(app.config.data_dir.join("ha-standby-status.json"))
+        .ok()
+        .filter(|v| v.len() <= 16384)
+        .and_then(|v| serde_json::from_slice::<Value>(&v).ok());
     Ok(Json(
-        json!({"role":app.config.cluster.as_ref().map(|c|c.role),"node_id":app.config.cluster.as_ref().map(|c|&c.node_id),"revision":publication.as_ref().map(|p|p.bundle.revision),"digest":publication.as_ref().map(|p|&p.bundle.digest),"nodes":nodes,"commands":commands,"max_stale_seconds":app.config.cluster.as_ref().map(|c|c.max_stale_seconds),"queue_replication":false}),
+        json!({"recovery_console":app.config.console_only,"replication":replication,"standby":standby,"role":app.config.cluster.as_ref().map(|c|c.role),"node_id":app.config.cluster.as_ref().map(|c|&c.node_id),"revision":publication.as_ref().map(|p|p.bundle.revision),"digest":publication.as_ref().map(|p|&p.bundle.digest),"nodes":nodes,"commands":commands,"max_stale_seconds":app.config.cluster.as_ref().map(|c|c.max_stale_seconds),"queue_replication":app.config.replication.is_some()}),
     ))
 }
 #[derive(Deserialize)]

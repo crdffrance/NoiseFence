@@ -9,7 +9,10 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(skip)]
+    pub console_only: bool,
     pub cluster: Option<crate::cluster::Settings>,
+    pub replication: Option<crate::ha::Settings>,
     #[serde(skip)]
     pub preferences: crate::preferences::Settings,
     pub hostname: String,
@@ -248,6 +251,15 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(replication) = &self.replication {
+            replication.validate()?;
+            ensure!(
+                self.cluster
+                    .as_ref()
+                    .is_some_and(|c| c.node_id != replication.peer_id),
+                "Replication needs two different node identities"
+            );
+        }
         if let Some(cluster) = &self.cluster {
             cluster.validate()?;
         }

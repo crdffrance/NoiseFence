@@ -1,0 +1,19 @@
+[Unit]
+Description=NoiseFence verified console checkpoint to standby
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/noisefence-ha/standby.py push
+UMask=0077
+TimeoutStartSec=360
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/noisefence-standby /var/lib/noisefence
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+

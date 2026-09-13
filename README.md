@@ -6,8 +6,8 @@
 
 Passerelle SMTP en Rust, avec moteur antispam local et console française. Elle reçoit les messages des destinataires autorisés, les analyse, les enregistre durablement et les transmet aux MX Proton configurés. Les [actions configurables](docs/actions.md) permettent de transmettre sans préfixe, tagger ou placer en quarantaine les spams, publicités et malwares confirmés. Aucun rejet SMTP n’est fondé sur le score.
 
-**Version 0.4.15 — composites, similarité des campagnes et OSB Bayes natifs Rust, en observation.**
-Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.4.15), puis suivre le [guide de première installation](docs/getting-started.md).
+**Version 0.17.0 — réplication stricte des messages et console de secours.**
+Télécharger les [binaires Linux x86-64 et ARM64](https://github.com/crdffrance/NoiseFence/releases/tag/v0.17.0), puis suivre le [guide de première installation](docs/getting-started.md).
 Le projet reste en 0.x : les formats peuvent évoluer avec une migration documentée.
 La compatibilité réelle avec Proton et les objectifs de capture restent à démontrer. Voir les mesures du [candidat Rust appris](research/model-card-20260906.md), la [comparaison multilingue](research/semantic-card-20260907.md) et les [validations précédentes](docs/validation-results.md).
 
@@ -53,6 +53,8 @@ Les mécanismes natifs Rust de comparaison (composites, similarité des campagne
 OSB Bayes et motifs groupés) sont documentés dans [ce guide](docs/native-filtering.md).
 Le [module adaptatif Rust](docs/adaptive-filtering.md) ajoute des catégories humaines,
 un Bayes à cinq classes et un petit réseau neuronal par domaine, en observation.
+
+La [haute disponibilité à deux copies](docs/high-availability.md) protège les messages avant acceptation SMTP et prépare une reprise contrôlée de la console après arrêt vérifié du coordinateur. Une panne du pair impose une réponse SMTP temporaire ; aucune bascule à une seule copie n’est automatique.
 
 ## Démarrage local
 

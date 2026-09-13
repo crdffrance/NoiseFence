@@ -12,8 +12,11 @@ use std::{
 /// A future release must review its typed policies before extending this window.
 pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
-        || (env!("CARGO_PKG_VERSION") == "0.16.2"
-            && matches!(build, "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3"))
+        || (env!("CARGO_PKG_VERSION") == "0.17.0"
+            && matches!(
+                build,
+                "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3" | "0.16.2"
+            ))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -30,6 +33,8 @@ pub struct Poll {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NodeStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replication: Option<crate::ha::Status>,
     pub hostname: String,
     pub poll_seconds: u64,
     pub queued: u64,

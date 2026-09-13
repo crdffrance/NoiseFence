@@ -44,6 +44,7 @@ def profiles(mode):
   ptrace (readby, tracedby) peer=unconfined,
 '''
     main='''  #include <abstractions/nameservice>
+  /etc/machine-id r,
   capability net_bind_service,
   network inet stream,
   network inet6 stream,

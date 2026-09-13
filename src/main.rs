@@ -128,6 +128,48 @@ enum Command {
         output: PathBuf,
     },
     Serve,
+    /// Serve only the fenced recovery console: never bind SMTP or start a relay.
+    ServeConsole,
+    /// In a staged disaster recovery only, revoke stale access and create a private recovery account.
+    HaDisasterAccess {
+        #[arg(long)]
+        data: PathBuf,
+        #[arg(long)]
+        credentials: PathBuf,
+    },
+    /// Create a coherent SQLite snapshot without stopping the writer.
+    HaSnapshot {
+        database: PathBuf,
+        output: PathBuf,
+    },
+    /// Restore inert peer copies into a stopped, staged console snapshot.
+    HaRestore {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        target: PathBuf,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        fence_receipt: PathBuf,
+    },
+    /// Remap a staged coordinator configuration for the recovery console.
+    HaConsoleConfig {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        data_directory: PathBuf,
+        #[arg(long)]
+        config_directory: PathBuf,
+        #[arg(long)]
+        hostname: String,
+        #[arg(long)]
+        public_origin: String,
+        #[arg(long)]
+        listen: std::net::SocketAddr,
+        #[arg(long)]
+        output: PathBuf,
+    },
     CheckConfig,
     /// Restore the bootstrap policy; requires the daemon to be stopped.
     ConsoleReset,
@@ -350,6 +392,139 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::HaDisasterAccess { data, credentials } => {
+            ensure!(
+                data.join("ha-recovery.json").is_file() && !credentials.exists(),
+                "A staged queue recovery and a new private credentials file are required"
+            );
+            let store = Store::open(data)?;
+            let _lock = store.daemon_lock()?;
+            let password = noisefence::api::random_token();
+            let username = format!(
+                "recovery-{}",
+                &uuid::Uuid::new_v4().simple().to_string()[..12]
+            );
+            let secret = serde_json::json!({"username":username,"password":password});
+            noisefence::cluster::protocol::private_write(
+                credentials,
+                serde_json::to_string(&secret)?.as_bytes(),
+            )?;
+            store.run(|db| {
+                let tx=db.transaction()?;
+                tx.execute("DELETE FROM sessions",[])?;
+                tx.execute("UPDATE users SET disabled=1",[])?;
+                tx.execute("UPDATE console_invitations SET revoked=?1 WHERE revoked IS NULL",[noisefence::now()])?;
+                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'recovery','revoke_stale_snapshot_access','all')",[noisefence::now()])?;
+                tx.commit()?;Ok(())
+            }).await?;
+            noisefence::api::create_user(&store, username.clone(), password, Vec::new(), true)
+                .await?;
+            noisefence::cluster::protocol::private_write(
+                &data.join("ha-recovery-budget-hold"),
+                b"Review provider allocations before issuing new credits.\n",
+            )?;
+            println!(
+                "{}",
+                serde_json::json!({"username":username,"credentials_file":credentials,"previous_accounts_disabled":true})
+            );
+            return Ok(());
+        }
+        Command::HaSnapshot { database, output } => {
+            noisefence::ha::recovery::snapshot_database(database, output)?;
+            println!("{{\"snapshot\":\"verified\"}}");
+            return Ok(());
+        }
+        Command::HaRestore {
+            source,
+            target,
+            owner,
+            fence_receipt,
+        } => {
+            println!(
+                "{}",
+                noisefence::ha::recovery::restore_queue(source, target, owner, fence_receipt)
+                    .await?
+            );
+            return Ok(());
+        }
+        Command::HaConsoleConfig {
+            source,
+            data_directory,
+            config_directory,
+            hostname,
+            public_origin,
+            listen,
+            output,
+        } => {
+            let old = Config::load(source)?;
+            ensure!(
+                listen.ip().is_loopback()
+                    && data_directory.is_absolute()
+                    && config_directory.is_absolute(),
+                "Recovery console paths and private listener required"
+            );
+            let source_data = old.data_dir.to_string_lossy().to_string();
+            let mut value = serde_json::to_value(&old)?;
+            fn remap(value: &mut serde_json::Value, old: &str, new: &str) {
+                match value {
+                    serde_json::Value::String(s)
+                        if s == old || s.starts_with(&(old.to_owned() + "/")) =>
+                    {
+                        *s = format!("{new}{}", &s[old.len()..])
+                    }
+                    serde_json::Value::Object(map) => {
+                        for v in map.values_mut() {
+                            remap(v, old, new);
+                        }
+                    }
+                    serde_json::Value::Array(list) => {
+                        for v in list {
+                            remap(v, old, new);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            remap(&mut value, &source_data, &data_directory.to_string_lossy());
+            remap(
+                &mut value,
+                "/etc/noisefence",
+                &config_directory.to_string_lossy(),
+            );
+            let mut c: Config = serde_json::from_value(value)?;
+            c.hostname = hostname.clone();
+            c.web.public_origin = public_origin.clone();
+            c.web.listen = *listen;
+            c.smtp.listen = "127.0.0.1:0".parse()?;
+            c.replication = None;
+            c.validate()?;
+            ensure!(
+                data_directory.join("ha-recovery.json").is_file(),
+                "Remap only a staged recovery"
+            );
+            let staged = Store::open(data_directory)?;
+            let _lock = staged.daemon_lock()?;
+            let old_data = source_data.clone();
+            let new_data = data_directory.to_string_lossy().to_string();
+            let new_config = config_directory.to_string_lossy().to_string();
+            staged.run(move|db| {
+                let tx=db.transaction()?;
+                let rows=tx.prepare("SELECT id,settings FROM console_revisions")?.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                for (id,raw) in rows {
+                    let mut settings:serde_json::Value=serde_json::from_str(&raw)?;
+                    remap(&mut settings,&old_data,&new_data);remap(&mut settings,"/etc/noisefence",&new_config);
+                    tx.execute("UPDATE console_revisions SET settings=?2 WHERE id=?1",rusqlite::params![id,serde_json::to_string(&settings)?])?;
+                }
+                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'recovery','staged_path_remap','console')",[noisefence::now()])?;
+                tx.commit()?;Ok(())
+            }).await?;
+            noisefence::cluster::protocol::private_write(
+                output,
+                toml::to_string_pretty(&c)?.as_bytes(),
+            )?;
+            println!("{{\"console_config\":\"prepared\",\"smtp_enabled\":false}}");
+            return Ok(());
+        }
         Command::NativeRules { message } => {
             let config = Config::load(&cli.config)?;
             let enabled = config.native_filter.is_some();
@@ -622,7 +797,10 @@ async fn main() -> Result<()> {
         _ => {}
     }
     let bootstrap = Arc::new(Config::load(&cli.config)?);
-    let config = if matches!(cli.command, Command::Serve | Command::ConsoleReset) {
+    let config = if matches!(
+        cli.command,
+        Command::Serve | Command::ServeConsole | Command::ConsoleReset
+    ) {
         bootstrap
     } else {
         noisefence::control::effective_from_disk(bootstrap)?
@@ -1083,8 +1261,47 @@ async fn main() -> Result<()> {
                 )?
             );
         }
+        Command::ServeConsole => {
+            let mut console_config = (*config).clone();
+            console_config.console_only = true;
+            let config = Arc::new(console_config);
+            ensure!(
+                config.web.listen.ip().is_loopback()
+                    && config.replication.is_none()
+                    && !noisefence::cluster::is_worker(&config),
+                "Private coordinator console configuration required"
+            );
+            let activation = std::fs::read(config.data_dir.join("ha-console-activated.json"))?;
+            let activation: serde_json::Value = serde_json::from_slice(&activation)?;
+            ensure!(
+                activation["console_only"] == true
+                    && activation["owner"].as_str()
+                        == config.cluster.as_ref().map(|c| c.node_id.as_str()),
+                "Fenced console activation receipt missing"
+            );
+            let _lock = store.daemon_lock()?;
+            store.recover().await?;
+            noisefence::cluster::prepare(&config, &store).await?;
+            let control =
+                noisefence::control::Controller::load(config.clone(), store.clone()).await?;
+            let listener = tokio::net::TcpListener::bind(config.web.listen).await?;
+            let (stop, rx) = tokio::sync::watch::channel(false);
+            let mut api = tokio::spawn(noisefence::api::serve_controlled(
+                listener,
+                config,
+                store,
+                Some(control),
+                rx,
+            ));
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! { _=tokio::signal::ctrl_c()=>{},_=term.recv()=>{},r=&mut api=>{r??;anyhow::bail!("Recovery console stopped unexpectedly");} }
+            stop.send(true)?;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), api).await;
+        }
         Command::Serve => {
             let _lock = store.daemon_lock()?;
+            noisefence::ha::initialize(&store, &config).await?;
             store.recover().await?;
             noisefence::cluster::prepare(&config, &store).await?;
             let control =
@@ -1113,6 +1330,7 @@ async fn main() -> Result<()> {
                 Some(control.clone()),
                 rx.clone(),
             ));
+            let mut replication = tokio::spawn(noisefence::ha::run(store.clone(), rx.clone()));
             let mut cluster = tokio::spawn(noisefence::cluster::run(control.clone(), rx.clone()));
             let mut api = tokio::spawn(noisefence::api::serve_controlled(
                 web,
@@ -1128,11 +1346,12 @@ async fn main() -> Result<()> {
                 r=&mut smtp=>{r??;anyhow::bail!("SMTP stopped unexpectedly");},
                 r=&mut relay=>{r??;anyhow::bail!("relay stopped unexpectedly");},
                 r=&mut api=>{r??;anyhow::bail!("API stopped unexpectedly");}
+                r=&mut replication=>{r??;anyhow::bail!("replication stopped unexpectedly");}
                 r=&mut cluster=>{r??;anyhow::bail!("cluster synchronization stopped unexpectedly");}
             }
             stop.send(true)?;
             let _ = tokio::time::timeout(std::time::Duration::from_secs(35), async {
-                let _ = tokio::join!(smtp, relay, api, cluster);
+                let _ = tokio::join!(smtp, relay, api, cluster, replication);
             })
             .await;
         }
