@@ -55,6 +55,8 @@ pub struct Filters {
 pub struct Settings {
     #[serde(default)]
     pub rbl: Option<crate::rbl::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smtp_admission: Option<crate::smtp_admission::Settings>,
     #[serde(default)]
     pub detection: Option<crate::management::Detection>,
     #[serde(default)]
@@ -110,6 +112,7 @@ impl Settings {
             .collect();
         Self {
             rbl: Some(config.rbl.clone().unwrap_or_default()),
+            smtp_admission: Some(config.smtp_admission.clone().unwrap_or_default()),
             detection: Some(crate::management::Detection::from_config(config)),
             preferences: config.preferences.clone(),
             custom_filtering: config.custom_filtering.clone(),
@@ -152,6 +155,8 @@ impl Settings {
         f
     }
     pub fn hydrate(&mut self, base: &Config) {
+        self.smtp_admission
+            .get_or_insert_with(|| base.smtp_admission.clone().unwrap_or_default());
         self.rbl
             .get_or_insert_with(|| base.rbl.clone().unwrap_or_default());
         self.detection
@@ -316,6 +321,10 @@ impl Settings {
             }
             (None, _) => cfg.mailing = None,
         }
+        if let Some(settings) = &self.smtp_admission {
+            settings.validate()?;
+            cfg.smtp_admission = Some(settings.clone());
+        }
         if let Some(rbl) = &self.rbl {
             crate::management::validate_rbl(rbl, base)?;
             cfg.rbl = Some(rbl.clone());
@@ -412,7 +421,7 @@ impl Controller {
                 tx.commit()?;Ok(())
             }).await?;
             if let Some((config,engine,rbl,models_changed))=next {
-                engine.activate_limits();rbl.activate();
+                engine.activate_limits();rbl.activate();this.store.admission.activate(config.smtp_admission.as_ref());
                 if models_changed {*this.retired.lock().unwrap()=Some(Arc::downgrade(&current.engine));}
                 *this.template.write().unwrap()=engine.clone();
                 *this.active.write().unwrap()=Arc::new(Snapshot{revision:bundle.revision,settings:bundle.settings,config,engine,rbl});
@@ -538,6 +547,7 @@ impl Controller {
             crate::management::dqs_key(&config)?.as_deref(),
         )?);
         engine.activate_limits();
+        store.admission.activate(config.smtp_admission.as_ref());
         Ok(Arc::new(Self {
             base,
             store,
@@ -652,7 +662,7 @@ impl Controller {
                 tx.execute("DELETE FROM console_revisions WHERE id NOT IN (SELECT id FROM console_revisions ORDER BY id DESC LIMIT 100)",[])?;
                 tx.commit()?;Ok(id)
             }).await?;
-            engine.activate_limits();rbl.activate();
+            engine.activate_limits();rbl.activate();this.store.admission.activate(config.smtp_admission.as_ref());
             *this.active.write().unwrap()=Arc::new(Snapshot{revision:id,settings,config,engine,rbl});
             Ok(id)
         }).await?

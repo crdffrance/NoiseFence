@@ -156,5 +156,6 @@ pub fn waiting_config(base: &crate::config::Config) -> crate::config::Config {
     c.vision = None;
     c.smtp_policy = None;
     c.rbl = None;
+    c.smtp_admission = None;
     c
 }

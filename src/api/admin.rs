@@ -6,6 +6,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
         .route("/admin/rbl/test", post(test_rbl))
+        .route("/admin/admission", get(admission_status))
         .route("/admin/config/validate", post(validate_configuration))
         .route("/admin/keys", get(managed_keys).post(save_managed_key))
         .route("/preferences", get(preferences).post(save_preferences))
@@ -589,4 +590,16 @@ async fn save_managed_key(
             json!({"saved":true,"active":false,"message":"Clé enregistrée. Réappliquez la configuration pour la charger dans le moteur."}),
         )),
     }
+}
+
+async fn admission_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    administrator(&app, &h, false).await?;
+    let counts = app.store.read(|db| {
+        Ok(db.prepare("SELECT mode,status,SUM(count) FROM smtp_admission_counts_v2 WHERE day>=?1 GROUP BY mode,status ORDER BY mode,status")?
+            .query_map([now()/86400-29], |r| Ok(json!({"mode":r.get::<_,String>(0)?,"status":r.get::<_,String>(1)?,"count":r.get::<_,i64>(2)?})))?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }).await?;
+    Ok(Json(
+        json!({"version":crate::smtp_admission::VERSION,"counts":counts,"period_days":30,"shared":app.config.cluster.is_some()}),
+    ))
 }

@@ -24,6 +24,8 @@ pub trait Transport: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Transport for T {}
 pub type Wire = BufReader<Box<dyn Transport>>;
 #[cfg(test)]
+mod admission_tests;
+#[cfg(test)]
 mod rbl_tests;
 #[derive(Clone)]
 pub struct State {
@@ -127,6 +129,12 @@ pub async fn serve_controlled(
     control: Option<Arc<crate::control::Controller>>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
+    if control.is_none() {
+        state
+            .store
+            .admission
+            .activate(state.config.smtp_admission.as_ref());
+    }
     let tls = tls_acceptor(&state.config)?;
     let rbl = Arc::new(crate::rbl::Runtime::with_dqs_key(
         state.config.rbl.as_ref(),
@@ -229,6 +237,10 @@ async fn session(
     let mut from: Option<String> = None;
     let mut recipients: Vec<Recipient> = Vec::new();
     let mut errors = 0;
+    let mut admission_budget = crate::smtp_admission::DelayBudget::default();
+    let mut admission_charged = false;
+    let mut admission_reports = Vec::new();
+    let mut admission_reputation: Option<crate::rbl::Report> = None;
     for _ in 0..1000 {
         let cfg = state.config.clone();
         let bytes = match line(&mut io, 512, cfg.smtp.command_timeout_seconds).await {
@@ -362,6 +374,9 @@ async fn session(
                     reply(&mut io, "452 4.3.1 Insufficient storage\r\n").await?;
                     continue;
                 }
+                admission_reputation = None;
+                admission_charged = false;
+                admission_reports.clear();
                 from = Some(address.into());
                 recipients.clear();
                 reply(&mut io, "250 2.1.0 Sender accepted\r\n").await?;
@@ -392,6 +407,69 @@ async fn session(
                     address
                 };
                 if let Some(recipient) = cfg.recipient(lookup) {
+                    if cfg.smtp_admission.as_ref().is_some_and(|s| s.enabled) {
+                        if admission_reputation.is_none() {
+                            admission_reputation = Some(
+                                rbl.check(
+                                    peer.ip(),
+                                    cfg.filter.mode,
+                                    cfg.filter.spamhaus_key_env.is_some(),
+                                )
+                                .await,
+                            );
+                        }
+                        let reputation = admission_reputation.as_ref().unwrap();
+                        let request = crate::smtp_admission::runtime::Request {
+                            peer: peer.ip(),
+                            sender: from.as_ref().unwrap().clone(),
+                            recipient: recipient.address.clone(),
+                            listed_providers: reputation.listed_providers,
+                            invalid_helo: !crate::config::valid_domain(&helo)
+                                && helo
+                                    .trim_start_matches('[')
+                                    .trim_end_matches(']')
+                                    .trim_start_matches("IPv6:")
+                                    .parse::<IpAddr>()
+                                    .is_err(),
+                            charge_rate: !admission_charged,
+                        };
+                        let decision = state
+                            .store
+                            .admission
+                            .check(&state.store, &cfg, request)
+                            .await;
+                        admission_charged = true;
+                        let delay = state
+                            .store
+                            .admission
+                            .delay(
+                                cfg.smtp_admission.as_ref().unwrap(),
+                                &decision,
+                                &mut admission_budget,
+                            )
+                            .await;
+                        tracing::info!(peer=%peer, report=?decision, delay=?delay, "SMTP intelligent admission");
+                        if let Some(response) = decision.smtp_reply() {
+                            reply(&mut io, response).await?;
+                            // An over-limit MAIL cannot evade its decision by repeating RCPT.
+                            if decision.status == crate::smtp_admission::Status::RateLimited {
+                                from = None;
+                                recipients.clear();
+                                admission_reports.clear();
+                            }
+                            continue;
+                        }
+                        if !admission_reports
+                            .iter()
+                            .any(|r: &crate::smtp_admission::Decision| {
+                                r.status == decision.status
+                                    && r.mode == decision.mode
+                                    && r.reasons == decision.reasons
+                            })
+                        {
+                            admission_reports.push(decision);
+                        }
+                    }
                     if !recipients.iter().any(|r| r.address == recipient.address) {
                         recipients.push(recipient);
                     }
@@ -510,6 +588,7 @@ async fn session(
                     Ok(mut variants) => {
                         for variant in &mut variants {
                             early_rbl.attach(&mut variant.scan);
+                            variant.scan.smtp_admission = admission_reports.clone();
                         }
                         let scan = &variants[0].scan;
                         tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");

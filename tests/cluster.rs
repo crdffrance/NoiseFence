@@ -976,10 +976,22 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         // The original 0.14 reader checks its exact build and the digest before materializing.
         assert_eq!(reply.bundle.build, build);
         assert_eq!(reply.bundle.digest, reply.bundle.hash().unwrap());
-        assert_eq!(reply.bundle.shared, publication.bundle.shared);
+        let mut expected_shared = publication.bundle.shared.clone();
+        let mut expected_settings = serde_json::to_value(&publication.bundle.settings).unwrap();
+        if build != env!("CARGO_PKG_VERSION") {
+            expected_shared
+                .as_object_mut()
+                .unwrap()
+                .remove("smtp_admission");
+            expected_settings
+                .as_object_mut()
+                .unwrap()
+                .remove("smtp_admission");
+        }
+        assert_eq!(reply.bundle.shared, expected_shared);
         assert_eq!(
             serde_json::to_value(&reply.bundle.settings).unwrap(),
-            serde_json::to_value(&publication.bundle.settings).unwrap()
+            expected_settings
         );
         assert_eq!(
             serde_json::to_value(&reply.bundle.files).unwrap(),
@@ -1066,4 +1078,120 @@ async fn suppressed_bounce_status_and_diagnostic_replicate_without_a_second_deli
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn admission_shares_retries_between_live_mx_and_fails_open_without_authority() {
+    use noisefence::smtp_admission::{
+        Mode, Settings, Status,
+        runtime::{Request as AdmissionRequest, Runtime},
+    };
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let mut ca = (*config(a.path(), Role::Coordinator)).clone();
+    ca.smtp_admission = Some(Settings {
+        enabled: true,
+        mode: Mode::Enforce,
+        retry_delay_seconds: 1,
+        rate_per_minute: 0,
+        ..Default::default()
+    });
+    let ca = Arc::new(ca);
+    let central = prepare(&ca).await;
+    let authority = Controller::load(ca.clone(), central.clone()).await.unwrap();
+    let key = node(&central, "mx2").await;
+    let app = api::router_controlled(ca.clone(), central.clone(), Some(authority.clone())).unwrap();
+    let request = AdmissionRequest {
+        peer: "192.0.2.7".parse().unwrap(),
+        sender: "sender@example.org".into(),
+        recipient: "alice@example.test".into(),
+        listed_providers: 2,
+        invalid_helo: false,
+        charge_rate: true,
+    };
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/cluster/v1/admission")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+    let alice = account(&central, "alice", false, &["alice@example.test"]).await;
+    let admin = account(&central, "admin", true, &[]).await;
+    assert_eq!(
+        browser(&app, &alice, "/admin/admission", None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut cb = (*config(b.path(), Role::Worker)).clone();
+    cb.smtp_admission = ca.smtp_admission.clone();
+    cb.cluster.as_mut().unwrap().coordinator_url = Some(format!("http://{address}"));
+    protocol::private_write(
+        cb.cluster
+            .as_ref()
+            .unwrap()
+            .credential_file
+            .as_ref()
+            .unwrap(),
+        key.as_bytes(),
+    )
+    .unwrap();
+    let remote = prepare(&cb).await;
+    let local_runtime = Runtime::new().unwrap();
+    let worker_runtime = Runtime::new().unwrap();
+    assert_eq!(
+        local_runtime
+            .check(&central, &ca, request.clone())
+            .await
+            .status,
+        Status::FirstSeen
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let next = worker_runtime.check(&remote, &cb, request.clone()).await;
+    assert_eq!(next.status, Status::RetryPassed);
+    assert!(next.smtp_reply().is_none());
+    assert_eq!(
+        remote
+            .read(|db| Ok(db.query_row(
+                "SELECT COUNT(*) FROM smtp_admission_entries_v1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?))
+            .await
+            .unwrap(),
+        0
+    );
+    let app = api::router_controlled(ca.clone(), central.clone(), Some(authority.clone())).unwrap();
+    let (status, counts) = browser(&app, &admin, "/admin/admission", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!counts["counts"].as_array().unwrap().is_empty());
+    let own = authority.publication().await.unwrap().bundle.clone();
+    let old = own.for_build("0.15.3").unwrap();
+    assert!(old.settings.smtp_admission.is_none());
+    assert!(old.shared.get("smtp_admission").is_none());
+    assert!(
+        !serde_json::to_value(&old.settings)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("smtp_admission")
+    );
+    let mut invalid = request.clone();
+    invalid.recipient = "outside@external.example".into();
+    let rejected = worker_runtime.check(&remote, &cb, invalid).await;
+    assert_eq!(rejected.status, Status::Unavailable);
+    assert!(rejected.smtp_reply().is_none());
+    server.abort();
+    let _ = server.await;
+    let fallback = worker_runtime.check(&remote, &cb, request).await;
+    assert_eq!(fallback.status, Status::Unavailable);
+    assert!(fallback.smtp_reply().is_none());
 }

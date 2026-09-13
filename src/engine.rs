@@ -105,6 +105,8 @@ pub struct Scan {
     /// Socket-IP checks before DATA; diagnostic only, never counted again in scoring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub early_rbl: Option<crate::rbl::Report>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub smtp_admission: Vec<crate::smtp_admission::Decision>,
     #[serde(default)]
     pub vision: crate::vision::Summary,
     #[serde(default)]

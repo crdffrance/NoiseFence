@@ -5,6 +5,7 @@ import { OnboardingGate } from './onboarding';
 import { AdaptiveDetails } from './adaptive';
 import type { AdaptiveReport, AdaptiveClass } from './adaptive-types';
 import { EarlyRblDetails } from './rbl';
+import { AdmissionDetails, type AdmissionDecision } from './smtp-admission';
 import type { EarlyRbl } from './rbl-types';
 import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
@@ -193,6 +194,7 @@ type Mail = {
     scoring_enabled: boolean;
   };
   early_rbl?: EarlyRbl;
+  smtp_admission?: AdmissionDecision[];
   adaptive?: AdaptiveReport;
   semantic?: {
     status: 'disabled' | 'complete' | 'busy' | 'unavailable';
@@ -1108,6 +1110,9 @@ function Home() {
                               )}
                           </div>
                         )}
+                      {!!selected.smtp_admission?.length && (
+                        <AdmissionDetails reports={selected.smtp_admission} />
+                      )}
                       {selected.early_rbl && (
                         <EarlyRblDetails report={selected.early_rbl} />
                       )}

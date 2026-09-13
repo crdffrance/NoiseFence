@@ -64,7 +64,7 @@ central inclut donc ces réservations, et non uniquement les appels réellement 
 Les quotas CRDF/VirusTotal limités sont alloués de la même façon, par jour et minute.
 Le réglage `0` conserve le sens « illimité ». Sans crédits valides, le fournisseur
 est indisponible pour cette analyse, jamais une preuve de spam. Les caches, listes
-locales, mémoire de correspondants/campagnes, limites par IP et greylisting restent
+locales, mémoire de correspondants/campagnes et limites de connexions par IP restent
 propres à chaque serveur. Il n’existe pas de quota global par IP dans cette version.
 Les mises à jour des bases antivirus et listes de signatures doivent tourner sur
 chaque serveur. Synchroniser et superviser les horloges via NTP.
@@ -165,3 +165,7 @@ historique sans transfert de corps, ACL et copies cachées, commandes idempotent
 révocation, restauration de configuration, expiration, remplacement de modèle et
 attribution concurrente des crédits. Ces tests synthétiques ne prouvent pas la
 livraison Internet ni le classement Proton du futur mx2.
+
+Le greylisting sélectif et les quotas de tentatives disposent depuis 0.16.0 d’une
+autorité commune, avec repli permissif si elle est indisponible :
+[Admission SMTP](smtp-admission.md). Les files de messages restent locales.

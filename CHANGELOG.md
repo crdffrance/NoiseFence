@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0 — Admission SMTP intelligente
+
+- Greylisting sélectif avant DATA, avec état durable commun aux MX et repli permissif en cas de panne du coordinateur.
+- Quotas de tentatives par IP, rafales contrôlées et ralentissement Tokio borné par connexion et par serveur.
+- Réglages Web, exceptions IP/CIDR, compteurs de décisions et diagnostics sans effet sur le score.
+- Déploiement progressif compatible avec les workers 0.15.3 ; politique désactivée par défaut.
+
+
 ## 0.15.3 — 2026-09-13
 
 - Protection anti-backscatter après un refus antispam distant, avec preuves concordantes de contenu hostile et expéditeur non authentifié ; score seul et erreurs de contrôle ne suffisent pas.

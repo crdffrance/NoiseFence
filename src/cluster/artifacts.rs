@@ -38,6 +38,7 @@ const SHARED: &[&str] = &[
     "fusion",
     "smtp_policy",
     "rbl",
+    "smtp_admission",
     "antivirus",
     "signatures",
     "llm",
@@ -203,6 +204,17 @@ impl Bundle {
         );
         let mut bundle = self.clone();
         bundle.build = build.into();
+        if build != env!("CARGO_PKG_VERSION") {
+            // Older workers deny unknown typed fields. Keep admission disabled
+            // for them during coordinator-first rolling deployment.
+            bundle.settings.smtp_admission = None;
+            bundle
+                .shared
+                .as_object_mut()
+                .unwrap()
+                .remove("smtp_admission");
+        }
+
         bundle.digest = bundle.hash()?;
         Ok(bundle)
     }

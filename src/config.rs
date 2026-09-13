@@ -22,6 +22,7 @@ pub struct Config {
     pub fusion: Option<crate::fusion::runtime::Settings>,
     pub smtp_policy: Option<crate::smtp_policy::PolicyConfig>,
     pub rbl: Option<crate::rbl::Settings>,
+    pub smtp_admission: Option<crate::smtp_admission::Settings>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
     pub signatures: Option<crate::antivirus::AntivirusConfig>,
     pub llm: Option<crate::llm::LlmConfig>,
@@ -249,6 +250,9 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if let Some(cluster) = &self.cluster {
             cluster.validate()?;
+        }
+        if let Some(settings) = &self.smtp_admission {
+            settings.validate()?;
         }
         if let Some(rbl) = &self.rbl {
             rbl.validate()?;

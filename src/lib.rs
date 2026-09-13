@@ -28,6 +28,7 @@ pub mod research;
 #[cfg(feature = "semantic")]
 pub mod semantic;
 pub mod smtp;
+pub mod smtp_admission;
 pub mod smtp_policy;
 pub mod store;
 

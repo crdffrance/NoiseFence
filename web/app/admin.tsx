@@ -1,4 +1,5 @@
 'use client';
+import { AdmissionEditor, type AdmissionSettings } from './smtp-admission';
 import {
   RblEditor,
   DetectionSettings,
@@ -87,6 +88,7 @@ type Filters = {
   reputation: boolean;
 };
 type Settings = {
+  smtp_admission: AdmissionSettings;
   rbl: RblSettings;
   detection: Detection;
   preferences: Preferences;
@@ -160,6 +162,12 @@ type Metrics = {
   };
 };
 const filterSections = [
+  {
+    id: 'admission',
+    label: 'Admission SMTP',
+    description: 'Greylisting, débit et ralentissement',
+    icon: <ShieldCheck size={19} />,
+  },
   {
     id: 'rbl',
     label: 'Réputation IP · RBL',
@@ -950,6 +958,22 @@ export function AdminConsole({
             onChange={setFilterSection}
           />
           <div
+            id="filters-panel-admission"
+            role="tabpanel"
+            aria-labelledby="filters-tab-admission"
+            hidden={filterSection !== 'admission'}
+            className="filter-section"
+          >
+            {draft.smtp_admission && (
+              <AdmissionEditor
+                value={draft.smtp_admission}
+                onChange={(smtp_admission) =>
+                  setDraft({ ...draft, smtp_admission })
+                }
+              />
+            )}
+          </div>
+          <div
             id="filters-panel-rbl"
             role="tabpanel"
             aria-labelledby="filters-tab-rbl"
@@ -1726,7 +1750,9 @@ export function AdminConsole({
             <section className="change-review">
               <h2>Vérifier les modifications</h2>
               <ul>
-                {(['rbl', 'detection', 'preferences'] as const)
+                {(
+                  ['smtp_admission', 'rbl', 'detection', 'preferences'] as const
+                )
                   .filter(
                     (k) =>
                       JSON.stringify(draft[k]) !==
@@ -1735,11 +1761,13 @@ export function AdminConsole({
                   .map((k) => (
                     <li key={k}>
                       <strong>
-                        {k === 'rbl'
-                          ? 'Réputation IP et RBL'
-                          : k === 'detection'
-                            ? 'Paramètres des moteurs et budgets'
-                            : 'Préférences et droits personnels'}
+                        {k === 'smtp_admission'
+                          ? 'Admission SMTP : greylisting, débit et ralentissement'
+                          : k === 'rbl'
+                            ? 'Réputation IP et RBL'
+                            : k === 'detection'
+                              ? 'Paramètres des moteurs et budgets'
+                              : 'Préférences et droits personnels'}
                       </strong>
                       <details>
                         <summary>Voir les valeurs proposées</summary>

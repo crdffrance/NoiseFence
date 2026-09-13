@@ -26,6 +26,7 @@ pub struct Store {
     db: Arc<Mutex<Connection>>,
     delivery_ready: Arc<tokio::sync::Notify>,
     console_reads: Arc<tokio::sync::Semaphore>,
+    pub(crate) admission: Arc<crate::smtp_admission::runtime::Runtime>,
 }
 #[derive(Clone, Debug)]
 pub struct Job {
@@ -74,6 +75,8 @@ pub struct VisibleMail {
     pub semantic: VisibleSemantic,
     pub smtp_policy: crate::smtp_policy::PolicyResult,
     pub early_rbl: Option<crate::rbl::Report>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub smtp_admission: Vec<crate::smtp_admission::Decision>,
     pub adaptive: Option<crate::adaptive::Report>,
     pub vision: crate::vision::Summary,
     pub protection: Option<crate::protection::Report>,
@@ -142,11 +145,18 @@ impl Store {
         crate::search::migrate(&migration)?;
         migration.execute_batch(crate::mfa::SCHEMA)?;
         migration.commit()?;
+        crate::smtp_admission::Admission::new(crate::smtp_admission::Settings {
+            enabled: true,
+            ..Default::default()
+        })?
+        .initialize(&mut db)?;
+        db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         Ok(Self {
             root: root.into(),
             db: Arc::new(Mutex::new(db)),
             delivery_ready: Arc::new(tokio::sync::Notify::new()),
             console_reads: Arc::new(tokio::sync::Semaphore::new(4)),
+            admission: Arc::new(crate::smtp_admission::runtime::Runtime::new()?),
         })
     }
     pub(crate) fn notify_delivery(&self) {
@@ -482,6 +492,8 @@ impl Store {
         }).await
     }
     pub async fn cleanup(&self) -> Result<()> {
+        self.run(|db| crate::smtp_admission::runtime::prune(db, now()))
+            .await?;
         self.run(|db| {
             let tx = db.transaction()?;
             tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire',CAST(d.id AS TEXT) FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=d.message_id)",[now()])?;
@@ -604,7 +616,7 @@ impl Store {
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment,(SELECT c.id FROM cluster_commands c WHERE c.message_id=d.message_id AND c.recipient=d.address AND c.finished IS NULL AND c.expires>unixepoch()) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
                 let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{pending_command:r.get(6)?,filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 let origin:Option<(String,i64)>=db.query_row("SELECT node_id,updated FROM cluster_origin WHERE message_id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-                out.push(VisibleMail{node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
+                out.push(VisibleMail{node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,smtp_admission:s.smtp_admission,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
             }Ok(crate::search::Page { has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
         }).await
     }

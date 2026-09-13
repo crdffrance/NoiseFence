@@ -5,6 +5,10 @@ use crate::cluster::{Role, history, protocol};
 pub(super) fn routes(app: App) -> Router<App> {
     let nodes = Router::new()
         .route("/cluster/v1/sync", post(sync))
+        .route(
+            "/cluster/v1/admission",
+            post(admission).layer(DefaultBodyLimit::max(4096)),
+        )
         .route("/cluster/v1/artifacts/{hash}", get(artifact))
         .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(app, node_guard));
@@ -278,4 +282,29 @@ async fn save_node(
         tx.commit()?;Ok(version)
     }).await.map_err(|e|Error(StatusCode::CONFLICT,e.to_string()))?;
     Ok(Json(json!({"id":id,"version":version,"credential":secret})))
+}
+
+async fn admission(
+    State(app): State<App>,
+    Json(request): Json<crate::smtp_admission::runtime::Request>,
+) -> ApiResult<Json<crate::smtp_admission::Decision>> {
+    // node_guard authenticates the separate, revocable node identity first.
+    request.validate()?;
+    let config = coordinator(&app)?.snapshot().config.clone();
+    if config.recipient(&request.recipient).is_none() {
+        return Err(Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Recipient not accepted".into(),
+        ));
+    }
+    Ok(Json(
+        app.store
+            .admission
+            .local(
+                &app.store,
+                config.smtp_admission.clone().unwrap_or_default(),
+                request,
+            )
+            .await,
+    ))
 }
