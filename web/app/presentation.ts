@@ -228,7 +228,9 @@ export function deliverySummary(recipients: { status: string }[]) {
   const statuses = new Set(recipients.map((r) => r.status));
   if (statuses.has('quarantined'))
     return { label: 'Quarantaine', tone: 'quarantine-status' };
-  if (statuses.has('failed') || statuses.has('notified'))
+  if (statuses.size === 1 && statuses.has('dsn_suppressed'))
+    return { label: 'Avis bloqué (anti-backscatter)', tone: 'spam' };
+  if (statuses.has('failed') || statuses.has('notified') || statuses.has('dsn_suppressed'))
     return { label: 'Échec de livraison', tone: 'spam' };
   if (statuses.has('pending') || statuses.has('sending'))
     return { label: 'En cours', tone: 'review' };

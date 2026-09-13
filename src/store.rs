@@ -402,41 +402,76 @@ impl Store {
             let mut jobs=Vec::new();for r in rows {let (delivery_id,message_id,created,sender,destination,hosts,attempts,is_dsn)=r?;jobs.push(Job{delivery_id,message_id,created,sender,destination,hosts:serde_json::from_str(&hosts)?,attempts,is_dsn});}Ok(jobs)
         }).await
     }
+    /// The decision, terminal state and audit commit together. A restart or a
+    /// second notification sweep cannot enqueue a bounce for this delivery.
+    pub async fn suppress_hostile_dsn(&self, job: &Job) -> Result<bool> {
+        let job = job.clone();
+        self.run(move |db| {
+            let tx = db.transaction()?;
+            let row: Option<(String, String, String)> = tx.query_row(
+                "SELECT m.scan,COALESCE(d.error,''),a.trace FROM deliveries d JOIN messages m ON m.id=d.message_id JOIN delivery_attempts a ON a.delivery_id=d.id AND a.attempt=d.attempts WHERE d.id=?1 AND m.id=?2 AND d.attempts=?3 AND d.status='failed' AND d.dsn_id IS NULL AND m.is_dsn=0 AND m.sender<>'' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id) ORDER BY a.id DESC LIMIT 1",
+                params![job.delivery_id,job.message_id,job.attempts],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+            ).optional()?;
+            let Some((raw,error,trace)) = row else { return Ok(false); };
+            let scan: Scan = serde_json::from_str(&raw)?;
+            let attempt: crate::delivery_log::Attempt = serde_json::from_str(&trace)?;
+            if attempt.events.last().and_then(|e| e.response.as_deref()) != Some(error.as_str()) {
+                return Ok(false);
+            }
+            let Some(reason) = crate::backscatter::suppression_reason(&scan,&attempt) else { return Ok(false); };
+            let detail = crate::delivery_log::sanitize_text(&format!(
+                "Avis bloque par la protection anti-backscatter ({}; {}) ; refus distant : {}",
+                crate::backscatter::VERSION,reason,error
+            ));
+            tx.execute("UPDATE deliveries SET status=?2,error=?3,next_attempt=0 WHERE id=?1",params![job.delivery_id,crate::backscatter::STATUS,detail])?;
+            tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'system','dsn_suppressed',?2)",params![now(),job.delivery_id.to_string()])?;
+            tx.commit()?;
+            tracing::info!(id=%job.message_id,delivery_id=job.delivery_id,policy=crate::backscatter::VERSION,reason,"hostile-mail bounce suppressed");
+            Ok(true)
+        }).await
+    }
+
+    pub async fn failure_diagnostic(&self, job: &Job) -> Result<(String, String)> {
+        let id = job.delivery_id;
+        self.read(move |db| {
+            let (error,trace): (String,Option<String>) = db.query_row(
+                "SELECT COALESCE(error,''),(SELECT trace FROM delivery_attempts a WHERE a.delivery_id=d.id AND a.attempt=d.attempts ORDER BY a.id DESC LIMIT 1) FROM deliveries d WHERE id=?1",
+                [id],|r| Ok((r.get(0)?,r.get(1)?)),
+            )?;
+            let attempt = trace.as_deref().map(serde_json::from_str::<crate::delivery_log::Attempt>).transpose()?;
+            Ok(crate::backscatter::failure_diagnostic(&error,attempt.as_ref()))
+        }).await
+    }
+
     /// Link a durable DSN to its failure in the same SQLite transaction. Worker IDs
     /// include their node and original message, so queue counters cannot collide.
     pub async fn enqueue_dsn(&self, job: Job, raw: Vec<u8>, hosts: Vec<String>) -> Result<()> {
-        let delivery_id = job.delivery_id;
-        let original = job.message_id.clone();
-        let id = self.read(move |db| {
-            let node: Option<String> = db.query_row("SELECT value FROM cluster_state WHERE key='node_id' AND EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='worker')", [], |r| r.get(0)).optional()?;
-            Ok(if let Some(node) = node {
-                let hash = crate::message::digest(format!("noisefence-dsn:{node}:{original}:{delivery_id}").as_bytes());
+        let root = self.root.clone();
+        self.run(move |db| {
+            let tx = db.transaction()?;
+            // Recheck ownership under the write lock, before touching a body.
+            // A replay must not resurrect a suppressed notice or overwrite a
+            // previously linked DSN whose delivery may already be in progress.
+            let eligible: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE d.id=?1 AND m.id=?2 AND d.attempts=?3 AND d.status='failed' AND d.dsn_id IS NULL AND m.is_dsn=0 AND m.sender<>'' AND m.sender=?4 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id))",params![job.delivery_id,job.message_id,job.attempts,job.sender],|r|r.get(0))?;
+            if !eligible { return Ok(()); }
+            let node: Option<String> = tx.query_row("SELECT value FROM cluster_state WHERE key='node_id' AND EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='worker')", [], |r| r.get(0)).optional()?;
+            let id = if let Some(node) = node {
+                let hash = crate::message::digest(format!("noisefence-dsn:{node}:{}:{}",job.message_id,job.delivery_id).as_bytes());
                 let mut bytes: [u8;16] = hex::decode(&hash[..32])?.try_into().expect("16 digest bytes");
                 bytes[6] = (bytes[6] & 0x0f) | 0x80;
                 bytes[8] = (bytes[8] & 0x3f) | 0x80;
                 uuid::Uuid::from_bytes(bytes).to_string()
-            } else { format!("dsn-{delivery_id}") })
-        }).await?;
-        let path = self.raw_path(&id);
-        let dir = self.root.join("spool");
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut f = OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .mode(0o600)
-                .open(path)?;
-            f.write_all(&raw)?;
-            f.sync_all()?;
-            File::open(dir)?.sync_all()?;
-            Ok(())
-        })
-        .await??;
-        self.run(move|db| {
-            let tx=db.transaction()?;
+            } else { format!("dsn-{}",job.delivery_id) };
+            let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1)",[&id],|r|r.get(0))?;
+            ensure!(!exists,"DSN identity already belongs to a stored message");
+            let dir = root.join("spool");
+            // Only an uncommitted orphan can exist at this point.
+            let mut file = OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(dir.join(format!("{id}.eml")))?;
+            file.write_all(&raw)?;file.sync_all()?;File::open(dir)?.sync_all()?;
             let scan=Scan{complete:true,subject:"Delivery failure".into(),model:"dsn".into(),..Scan::default()};
-            tx.execute("INSERT OR IGNORE INTO messages(id,created,sender,scan,is_dsn) VALUES(?1,?2,'',?3,1)",params![id,now(),serde_json::to_string(&scan)?])?;
-            tx.execute("INSERT OR IGNORE INTO deliveries(message_id,address,destination,hosts,next_attempt) VALUES(?1,?2,?2,?3,?4)",params![id,job.sender,serde_json::to_string(&hosts)?,now()])?;
+            tx.execute("INSERT INTO messages(id,created,sender,scan,is_dsn) VALUES(?1,?2,'',?3,1)",params![id,now(),serde_json::to_string(&scan)?])?;
+            tx.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt) VALUES(?1,?2,?2,?3,?4)",params![id,job.sender,serde_json::to_string(&hosts)?,now()])?;
             tx.execute("UPDATE deliveries SET status='notified',dsn_id=?2 WHERE id=?1",params![job.delivery_id,id])?;
             tx.commit()?;Ok(())
         }).await

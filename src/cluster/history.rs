@@ -201,6 +201,7 @@ pub fn ingest(
                     "delivered",
                     "failed",
                     "notified",
+                    "dsn_suppressed",
                     "quarantined",
                     "discarded",
                     "expired"

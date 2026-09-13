@@ -595,7 +595,7 @@ async fn run_job(config: Arc<Config>, store: Store, job: Job) -> Result<()> {
     }
     Ok(())
 }
-async fn notifications(config: &Config, store: &Store, engine: &Engine) -> Result<()> {
+pub async fn notifications(config: &Config, store: &Store, engine: &Engine) -> Result<()> {
     for job in store.failed().await? {
         if job.is_dsn || job.sender.is_empty() {
             store
@@ -603,6 +603,10 @@ async fn notifications(config: &Config, store: &Store, engine: &Engine) -> Resul
                 .await?;
             continue;
         }
+        if store.suppress_hostile_dsn(&job).await? {
+            continue;
+        }
+        let (status, diagnostic) = store.failure_diagnostic(&job).await?;
         let (_, domain) = job
             .sender
             .rsplit_once('@')
@@ -653,7 +657,7 @@ async fn notifications(config: &Config, store: &Store, engine: &Engine) -> Resul
         };
         let boundary = format!("dsn_{}", job.delivery_id);
         let raw = format!(
-            "From: Mail Delivery System <{}>\r\nTo: <{}>\r\nDate: {}\r\nMessage-ID: <dsn-{}@{}>\r\nSubject: Delivery failure\r\nAuto-Submitted: auto-replied\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status;\r\n boundary=\"{}\"\r\n\r\n--{}\r\nContent-Type: text/plain; charset=us-ascii\r\n\r\nDelivery to {} failed. Contact postmaster with queue ID {}.\r\n\r\n--{}\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; {}\r\n\r\nFinal-Recipient: rfc822; {}\r\nAction: failed\r\nStatus: 5.0.0\r\n\r\n--{}--\r\n",
+            "From: Mail Delivery System <{}>\r\nTo: <{}>\r\nDate: {}\r\nMessage-ID: <dsn-{}@{}>\r\nSubject: Delivery failure\r\nAuto-Submitted: auto-replied\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status;\r\n boundary=\"{}\"\r\n\r\n--{}\r\nContent-Type: text/plain; charset=us-ascii\r\n\r\nDelivery to {} failed. Contact postmaster with queue ID {}.\r\n\r\n--{}\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; {}\r\n\r\nFinal-Recipient: rfc822; {}\r\nAction: failed\r\nStatus: {}\r\nDiagnostic-Code: smtp; {}\r\n\r\n--{}--\r\n",
             config.relay.postmaster,
             job.sender,
             mail_parser::DateTime::from_timestamp(now()).to_rfc822(),
@@ -666,6 +670,8 @@ async fn notifications(config: &Config, store: &Store, engine: &Engine) -> Resul
             boundary,
             config.hostname,
             job.destination,
+            status,
+            diagnostic,
             boundary
         );
         store.enqueue_dsn(job, raw.into_bytes(), hosts).await?;

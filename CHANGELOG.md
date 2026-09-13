@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.2 — 2026-09-13
+
+- Protection anti-backscatter après un refus antispam distant, avec preuves concordantes de contenu hostile et expéditeur non authentifié ; score seul et erreurs de contrôle ne suffisent pas.
+- État terminal « Avis bloqué (anti-backscatter) », recherche, diagnostics et réplication de cet état ; trace d’audit transactionnelle, reprise sans recréer de notification.
+- Les avis légitimes conservent le code étendu et le diagnostic SMTP distant, bornés et protégés contre les injections.
+- Enregistrement idempotent des DSN sans écraser leur corps lors d’une reprise. Le mode observation et les règles de livraison restent inchangés.
+- Mise à jour du coordinateur avant les workers ; politiques compatibles avec 0.15.1, nouveau statut de livraison pris en charge à partir de 0.15.2.
+
 ## 0.15.1 — 2026-09-13
 
 - Mise à jour séquentielle du cluster depuis 0.14.0 : le coordinateur sert le protocole inchangé aux anciens workers et les nouveaux workers peuvent reprendre leur politique en cache.

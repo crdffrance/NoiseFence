@@ -1,3 +1,5 @@
+#[path = "common/backscatter.rs"]
+mod backscatter_fixture;
 mod common;
 use axum::{
     Router,
@@ -941,6 +943,7 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
     for build in [
         "0.14.0",
         "0.15.0",
+        "0.15.1",
         env!("CARGO_PKG_VERSION"),
         "0.13.0",
         "9.99.0",
@@ -1004,4 +1007,62 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
                 .is_err()
         );
     }
+}
+
+#[tokio::test]
+async fn suppressed_bounce_status_and_diagnostic_replicate_without_a_second_delivery() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let ca = config(a.path(), Role::Coordinator);
+    let cb = config(b.path(), Role::Worker);
+    let central = prepare(&ca).await;
+    let remote = prepare(&cb).await;
+    node(&central, "mx2").await;
+    let id = message(&remote, &cb, false).await;
+    let scan = serde_json::to_string(&backscatter_fixture::scan(cb)).unwrap();
+    let key = id.clone();
+    remote
+        .run(move |db| {
+            db.execute(
+                "UPDATE messages SET scan=?2 WHERE id=?1",
+                params![key, scan],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let job = remote.claim().await.unwrap().unwrap();
+    let trace = backscatter_fixture::rejection();
+    remote
+        .finish_with_attempts(
+            &job,
+            "failed",
+            trace.events.last().unwrap().response.as_deref().unwrap(),
+            0,
+            std::slice::from_ref(&trace),
+        )
+        .await
+        .unwrap();
+    assert!(remote.suppress_hostile_dsn(&job).await.unwrap());
+    let records = history::export(&remote).await.unwrap();
+    central
+        .run(move |db| history::ingest(db, "mx2", records, noisefence::now()))
+        .await
+        .unwrap();
+    assert!(central.claim().await.unwrap().is_none());
+    assert!(central.failed().await.unwrap().is_empty());
+    central
+        .read(move |db| {
+            let (status, error): (String, String) = db.query_row(
+                "SELECT status,error FROM deliveries WHERE message_id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            assert_eq!(status, "dsn_suppressed");
+            assert!(error.contains("backscatter-1"));
+            assert!(error.contains("554 5.7.1"));
+            Ok(())
+        })
+        .await
+        .unwrap();
 }

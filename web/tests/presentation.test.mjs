@@ -195,3 +195,8 @@ test('an advisory disagreement is review, not a corrected legitimate decision', 
   );
   assert.equal(arbitrationExplanation(null), null);
 });
+
+test('a suppressed hostile-mail bounce never appears delivered', () => {
+  assert.equal(deliverySummary([{status:'dsn_suppressed'}]).label, 'Avis bloqué (anti-backscatter)');
+  assert.equal(deliverySummary([{status:'dsn_suppressed'},{status:'delivered'}]).label, 'Échec de livraison');
+});

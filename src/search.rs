@@ -145,6 +145,7 @@ impl Search {
                 "delivered",
                 "failed",
                 "notified",
+                "dsn_suppressed",
                 "quarantined",
                 "discarded"
             ]

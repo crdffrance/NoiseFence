@@ -323,3 +323,9 @@ test('authentication honors Rust snake_case outcomes and distinguishes absence f
   }
   assert.equal(evidenceState(undefined), 'État non enregistré');
 });
+
+test('suppressed bounces are explicitly distinguished from sent failure notices', () => {
+  assert.equal(deliveryStatus('dsn_suppressed'), 'Avis bloqué · protection anti-backscatter');
+  assert.equal(deliveryStatus('notified'), 'Échec traité');
+  assert.match(nextRetry('dsn_suppressed', 1), /Aucune nouvelle tentative/);
+});

@@ -94,7 +94,8 @@ export function MessageSearchControls({
                 <option value="sending">En cours</option>
                 <option value="delivered">Livré</option>
                 <option value="failed">Échec</option>
-                <option value="notified">Échec notifié</option>
+                <option value="notified">Échec traité</option>
+                <option value="dsn_suppressed">Avis bloqué (anti-backscatter)</option>
                 <option value="quarantined">En quarantaine</option>
                 <option value="discarded">Supprimé</option>
               </select>

@@ -1,6 +1,7 @@
 pub mod adaptive;
 pub mod antivirus;
 pub mod api;
+pub mod backscatter;
 pub mod compatibility;
 pub mod config;
 pub mod confirmation;
