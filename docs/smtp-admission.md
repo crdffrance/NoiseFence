@@ -1,4 +1,4 @@
-# Greylisting sélectif et ralentissement SMTP (0.16.0)
+# Greylisting sélectif et ralentissement SMTP (0.16.1)
 
 Dans **Administration → Filtres → Admission SMTP**, l’administrateur configure
 les reports, délais, quotas, exceptions et capacités sans redémarrage. Les
@@ -118,12 +118,15 @@ les diagnostics d’un message accepté.
 
 ## Déploiement et validation
 
-Déployer 0.16.0 sur le coordinateur, puis les workers, avant d’activer la
+Déployer 0.16.1 sur le coordinateur, puis les workers, avant d’activer la
 politique. Les bundles destinés aux anciens workers omettent les nouveaux champs.
 Les tables additionnelles ne changent pas le schéma de la file ; elles sont
 ignorées par la version précédente. Le retour arrière ne restaure jamais une
 ancienne base par-dessus des messages acceptés. Retirer la nouvelle table du
-TOML si l’on revient à un binaire qui ne la connaît pas.
+TOML si l’on revient à un binaire qui ne la connaît pas. Si la console a déjà
+enregistré `smtp_admission`, un retour à 0.15.3 exige aussi une migration
+explicite de ce champ dans la politique persistée ; une simple bascule de binaire
+ne suffit pas. Conserver toutes les autres données et la file courante.
 
 Les tests couvrent le retry durable, IPv4/IPv6, la concurrence, la saturation,
 les changements de mode, les destinataires multiples, les exceptions, le quota,

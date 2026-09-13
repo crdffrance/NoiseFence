@@ -130,7 +130,7 @@ Références : [format DNSBL, RFC 5782](https://www.rfc-editor.org/info/rfc5782/
 [codes et catégories Spamhaus](https://docs.spamhaus.com/datasets/docs/source/10-data-type-documentation/datasets/040-zones.html),
 [conditions d’usage Spamhaus](https://www.spamhaus.org/faqs/dnsbl-usage/).
 
-Depuis 0.16.0, [Admission SMTP](smtp-admission.md) peut exploiter les votes IP
+Depuis 0.16.1, [Admission SMTP](smtp-admission.md) peut exploiter les votes IP
 pour sélectionner un véritable greylisting durable. Sa politique de transport
 est indépendante des actions RBL et du mode de classement du contenu. Les listes
 RBL et la politique d’admission se règlent dans la console Web.

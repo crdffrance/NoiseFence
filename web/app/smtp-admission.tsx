@@ -78,11 +78,6 @@ export function AdmissionEditor({
     counts: { mode: string; status: string; count: number }[];
     shared: boolean;
   } | null>(null);
-  const [networks, setNetworks] = useState(value.allow_networks.join('\n'));
-  useEffect(
-    () => setNetworks(value.allow_networks.join('\n')),
-    [value.allow_networks],
-  );
   const [error, setError] = useState('');
   useEffect(() => {
     api<{
@@ -247,12 +242,12 @@ export function AdmissionEditor({
           <span>Réseaux IP/CIDR, un par ligne</span>
           <textarea
             rows={4}
-            value={networks}
-            onChange={(e) => setNetworks(e.target.value)}
-            onBlur={() =>
+            key={value.allow_networks.join('\n')}
+            defaultValue={value.allow_networks.join('\n')}
+            onBlur={(e) =>
               set(
                 'allow_networks',
-                networks
+                e.target.value
                   .split('\n')
                   .map((v) => v.trim())
                   .filter(Boolean),

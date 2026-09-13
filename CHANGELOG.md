@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.0 — Admission SMTP intelligente
+## 0.16.1 — Admission SMTP intelligente
 
 - Greylisting sélectif avant DATA, avec état durable commun aux MX et repli permissif en cas de panne du coordinateur.
 - Quotas de tentatives par IP, rafales contrôlées et ralentissement Tokio borné par connexion et par serveur.
