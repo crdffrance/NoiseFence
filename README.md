@@ -218,3 +218,7 @@ La [configuration multi-MX](docs/multi-mx.md) réunit des passerelles autonomes 
 d’une console centrale : réglages et modèles communs, historique agrégé et budgets
 partagés. Chaque serveur garde sa file locale ; la réplication des messages acceptés
 et la bascule de la console ne sont pas incluses.
+
+### Sécurité des serveurs et de la console
+
+La double authentification se configure dans **Mon compte**. Après activation, sauvegarder les codes de secours puis se reconnecter avec un nouveau code temporaire. Consulter le [guide Linux et sauvegardes](deploy/hardening/README.md) pour le durcissement des MX, les procédures de restauration et les accès de déploiement limités.

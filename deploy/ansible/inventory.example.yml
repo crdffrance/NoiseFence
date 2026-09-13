@@ -1,0 +1,14 @@
+---
+all:
+  children:
+    mx:
+      hosts:
+        mx1.example.net:
+          ansible_host: 192.0.2.10
+        mx2.example.net:
+          ansible_host: 192.0.2.20
+      vars:
+        ansible_user: debian
+        noisefence_ssh_accounts: [debian]
+        # Install your reviewed end-to-end probe at this root-owned path first.
+        noisefence_validation_argv: [/usr/local/libexec/noisefence-site-validation]

@@ -10,6 +10,7 @@ import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
+import { RecoveryCodes } from './mfa';
 import { BrandMark, LoginStory } from './brand';
 import { MessageScore, MessageScoreDetails } from './message-score';
 import { MessageSearchControls } from './message-search-controls';
@@ -274,6 +275,8 @@ function Home() {
     [busy, setBusy] = useState(false);
   const [username, setUsername] = useState(''),
     [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [search, setSearch] = useState(''),
     [filter, setFilter] = useState('all'),
     [offset, setOffset] = useState(0);
@@ -572,6 +575,13 @@ function Home() {
         </output>
       </main>
     );
+  if (recoveryCodes.length)
+    return (
+      <RecoveryCodes
+        codes={recoveryCodes}
+        onDone={() => setRecoveryCodes([])}
+      />
+    );
   if (!user)
     return (
       <main className="login">
@@ -588,9 +598,14 @@ function Home() {
               setError('');
               try {
                 changeSession(
-                  await api<User>('/login', { username, password }),
+                  await api<User>('/login', {
+                    username,
+                    password,
+                    code: mfaCode,
+                  }),
                 );
                 setPassword('');
+                setMfaCode('');
               } catch (e) {
                 setError((e as Error).message);
               } finally {
@@ -647,6 +662,17 @@ function Home() {
                 {error}
               </p>
             )}
+            <label htmlFor="login-mfa">
+              Code de sécurité <span className="small muted">si activé</span>
+            </label>
+            <Input
+              id="login-mfa"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.trim())}
+              autoComplete="one-time-code"
+              maxLength={32}
+              placeholder="Code temporaire ou code de secours"
+            />
             <Button className="login-submit" disabled={busy} type="submit">
               {busy ? (
                 <>
@@ -931,6 +957,10 @@ function Home() {
             key={user.username}
             user={user}
             onPasswordChanged={() => changeSession(null)}
+            onMfaEnabled={(codes) => {
+              setRecoveryCodes(codes);
+              changeSession(null);
+            }}
           />
         )}
         {section === 'messages' && (

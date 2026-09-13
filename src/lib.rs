@@ -55,3 +55,5 @@ pub mod preferences;
 pub mod reliability;
 
 pub mod cluster;
+
+pub mod mfa;

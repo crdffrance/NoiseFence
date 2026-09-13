@@ -754,3 +754,35 @@ details.management-card summary {
     flex-wrap: wrap;
   }
 }
+
+.mfa-secret {
+  padding: 1rem;
+  background: var(--surface-soft, #f1f5f9);
+  border-radius: 0.75rem;
+  overflow-wrap: anywhere;
+  line-height: 1.9;
+  user-select: all;
+}
+.mfa-recovery {
+  width: min(42rem, 94vw);
+  margin: 2rem auto;
+  text-align: left;
+}
+.mfa-recovery ul {
+  list-style: none;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--surface-soft, #f1f5f9);
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.mfa-recovery li {
+  font-size: 0.9rem;
+}
+
+.account-security {
+  display: grid;
+  gap: 1.5rem;
+  align-content: start;
+  min-width: 0;
+}

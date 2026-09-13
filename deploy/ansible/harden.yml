@@ -1,0 +1,7 @@
+---
+- name: Harden existing NoiseFence hosts one at a time
+  hosts: mx
+  become: true
+  serial: 1
+  roles:
+    - noisefence_hardening

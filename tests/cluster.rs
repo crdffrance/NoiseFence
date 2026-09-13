@@ -897,3 +897,28 @@ async fn remote_failure_notifications_have_globally_scoped_durable_ids() {
     assert!(central.claim().await.unwrap().is_none());
     assert!(central.failed().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn cluster_prepare_never_downgrades_the_mfa_schema_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(dir.path(), Role::Coordinator);
+    let store = prepare(&cfg).await;
+    store
+        .run(|db| {
+            db.execute_batch("PRAGMA user_version=4")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    cluster::prepare(&cfg, &store).await.unwrap();
+    store
+        .run(|db| {
+            assert_eq!(
+                db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
+                4
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

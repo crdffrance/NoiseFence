@@ -1,0 +1,96 @@
+---
+- name: Require explicit independent validation
+  ansible.builtin.assert:
+    that:
+      - noisefence_ssh_accounts | length > 0
+      - noisefence_validation_argv | length > 0
+    fail_msg: Define a validation argv covering this node's SMTP, HTTPS, scanners and cluster role.
+- name: Install Debian hardening tools
+  ansible.builtin.apt:
+    name: [nftables, apparmor-utils, auditd, restic]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+- name: Create root-owned tool directory
+  ansible.builtin.file:
+    path: /usr/local/libexec/noisefence-hardening
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Install public hardening tools
+  ansible.builtin.copy:
+    src: "{{ noisefence_source }}/deploy/hardening/"
+    dest: /usr/local/libexec/noisefence-hardening/
+    owner: root
+    group: root
+    mode: '0755'
+    directory_mode: '0755'
+- name: Install independent network rollback entrypoint
+  ansible.builtin.copy:
+    src: "{{ noisefence_source }}/deploy/hardening/network.py"
+    dest: /usr/local/libexec/noisefence-network
+    owner: root
+    group: root
+    mode: '0755'
+- name: Network transaction with automatic rollback
+  block:
+    - name: Apply SSH and firewall with deadline
+      ansible.builtin.command:
+        argv: "{{ ['/usr/local/libexec/noisefence-network', 'apply', '--timeout', noisefence_hardening_timeout | string] + (noisefence_ssh_accounts | map('regex_replace', '^(.*)$', '--admin=\\1') | list) }}"
+      register: network_apply
+      changed_when: true
+    - name: Close the existing SSH connection
+      ansible.builtin.meta: reset_connection
+    - name: Validate a fresh administrator connection
+      ansible.builtin.wait_for_connection:
+        delay: 1
+        timeout: 60
+    - name: Validate node functionality
+      ansible.builtin.command:
+        argv: "{{ noisefence_validation_argv }}"
+      changed_when: false
+    - name: Commit network after validation
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/noisefence-network, commit, --id, "{{ (network_apply.stdout | from_json).id }}"]
+      changed_when: true
+  rescue:
+    - name: Leave the timed rollback armed if the new connection or validation failed
+      ansible.builtin.fail:
+        msg: Network validation failed. The root-owned rollback timer remains armed; do not disable it.
+- name: Process confinement transaction
+  block:
+    - name: Apply learning profiles and systemd budgets
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/noisefence-hardening/isolation.py, apply, --timeout, "{{ noisefence_hardening_timeout | string }}"]
+      register: isolation_apply
+      changed_when: true
+    - name: Exercise learning profiles
+      ansible.builtin.command:
+        argv: "{{ noisefence_validation_argv }}"
+      changed_when: false
+    - name: Enforce profiles
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/noisefence-hardening/isolation.py, enforce, --id, "{{ (isolation_apply.stdout | from_json).id }}"]
+      changed_when: true
+    - name: Exercise enforced profiles
+      ansible.builtin.command:
+        argv: "{{ noisefence_validation_argv }}"
+      changed_when: false
+    - name: Commit confinement
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/noisefence-hardening/isolation.py, commit, --id, "{{ (isolation_apply.stdout | from_json).id }}"]
+      changed_when: true
+  rescue:
+    - name: Restore prior confinement when the transaction is known
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/noisefence-hardening/isolation.py, rollback, --id, "{{ (isolation_apply.stdout | from_json).id }}"]
+      when: isolation_apply is defined and isolation_apply.rc == 0
+      changed_when: true
+    - name: Stop deployment after a failed confinement validation
+      ansible.builtin.fail:
+        msg: Confinement validation failed. Inspect targeted audit events before retrying.
+- name: Install bounded audit and local reports
+  ansible.builtin.command:
+    argv: [/usr/local/libexec/noisefence-hardening/install-monitor.py]
+  changed_when: true

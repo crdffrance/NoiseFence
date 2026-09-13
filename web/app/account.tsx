@@ -4,13 +4,16 @@ import { KeyRound, ShieldCheck, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
+import { SecondFactor } from './mfa';
 
 export function MyAccount({
   user,
   onPasswordChanged,
+  onMfaEnabled,
 }: {
   user: User;
   onPasswordChanged: () => void;
+  onMfaEnabled: (codes: string[]) => void;
 }) {
   const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
@@ -59,88 +62,95 @@ export function MyAccount({
             chaque destinataire.
           </p>
         </section>
-        <form
-          className="panel password-panel"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setError('');
-            if (password !== confirmation) {
-              setError(
-                'Les deux nouveaux mots de passe doivent être identiques.',
-              );
-              return;
-            }
-            setBusy(true);
-            try {
-              await api(
-                '/password',
-                { current_password: current, new_password: password },
-                user.csrf,
-              );
-              onPasswordChanged();
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <h2>
-            <KeyRound size={20} /> Changer mon mot de passe
-          </h2>
-          <p className="muted small">
-            Ce mot de passe protège la console NoiseFence. Après modification,
-            reconnectez-vous avec le nouveau mot de passe.
-          </p>
-          <label className="field" htmlFor="current-password">
-            Mot de passe actuel
-            <Input
-              id="current-password"
-              type="password"
-              autoComplete="current-password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              required
-              maxLength={128}
-            />
-          </label>
-          <label className="field" htmlFor="new-password">
-            Nouveau mot de passe
-            <Input
-              id="new-password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={12}
-              maxLength={128}
-            />
-            <small>12 caractères minimum.</small>
-          </label>
-          <label className="field" htmlFor="confirm-password">
-            Confirmer le nouveau mot de passe
-            <Input
-              id="confirm-password"
-              type="password"
-              autoComplete="new-password"
-              value={confirmation}
-              onChange={(e) => setConfirmation(e.target.value)}
-              required
-              minLength={12}
-              maxLength={128}
-              aria-invalid={!!error && password !== confirmation}
-            />
-          </label>
-          {error && (
-            <p className="error" role="alert">
-              {error}
+        <div className="account-security">
+          <SecondFactor
+            user={user}
+            onEnabled={onMfaEnabled}
+            onDisabled={onPasswordChanged}
+          />
+          <form
+            className="panel password-panel"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setError('');
+              if (password !== confirmation) {
+                setError(
+                  'Les deux nouveaux mots de passe doivent être identiques.',
+                );
+                return;
+              }
+              setBusy(true);
+              try {
+                await api(
+                  '/password',
+                  { current_password: current, new_password: password },
+                  user.csrf,
+                );
+                onPasswordChanged();
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <h2>
+              <KeyRound size={20} /> Changer mon mot de passe
+            </h2>
+            <p className="muted small">
+              Ce mot de passe protège la console NoiseFence. Après modification,
+              reconnectez-vous avec le nouveau mot de passe.
             </p>
-          )}
-          <Button type="submit" disabled={busy}>
-            {busy ? 'Enregistrement…' : 'Mettre à jour mon mot de passe'}
-          </Button>
-        </form>
+            <label className="field" htmlFor="current-password">
+              Mot de passe actuel
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                required
+                maxLength={128}
+              />
+            </label>
+            <label className="field" htmlFor="new-password">
+              Nouveau mot de passe
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={12}
+                maxLength={128}
+              />
+              <small>12 caractères minimum.</small>
+            </label>
+            <label className="field" htmlFor="confirm-password">
+              Confirmer le nouveau mot de passe
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+                required
+                minLength={12}
+                maxLength={128}
+                aria-invalid={!!error && password !== confirmation}
+              />
+            </label>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Enregistrement…' : 'Mettre à jour mon mot de passe'}
+            </Button>
+          </form>
+        </div>
       </div>
     </>
   );

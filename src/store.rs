@@ -118,7 +118,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version <= 3, "database is newer than this binary");
+        ensure!(version <= 4, "database is newer than this binary");
         if version == 0 {
             let tx = db.transaction()?;
             tx.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER NOT NULL,sender TEXT NOT NULL,scan TEXT NOT NULL,is_dsn INTEGER NOT NULL DEFAULT 0,raw_present INTEGER NOT NULL DEFAULT 1);
@@ -140,6 +140,7 @@ impl Store {
             migration.execute_batch("PRAGMA user_version=2")?;
         }
         crate::search::migrate(&migration)?;
+        migration.execute_batch(crate::mfa::SCHEMA)?;
         migration.commit()?;
         Ok(Self {
             root: root.into(),

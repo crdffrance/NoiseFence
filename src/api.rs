@@ -1,6 +1,7 @@
 mod adaptive;
 mod admin;
 mod cluster;
+mod mfa;
 mod onboarding;
 mod quality;
 use crate::{
@@ -41,6 +42,7 @@ pub struct App {
     hashing: Arc<tokio::sync::Semaphore>,
     cluster_capacity: Arc<tokio::sync::Semaphore>,
     dummy_hash: Arc<String>,
+    mfa_key: Option<Arc<crate::mfa::Key>>,
 }
 #[derive(Debug)]
 pub struct Error(StatusCode, String);
@@ -134,7 +136,7 @@ async fn authenticated(app: &App, h: &HeaderMap) -> ApiResult<User> {
         .map(|t| message::digest(t.as_bytes()))
         .ok_or(Error(StatusCode::UNAUTHORIZED, "Connexion requise.".into()))?;
     app.store.run(move|db|{
-        let user=db.query_row("SELECT u.username,u.admin,s.csrf FROM sessions s JOIN users u ON u.username=s.username WHERE s.token_hash=?1 AND s.expires>?2 AND u.disabled=0",params![hash,now()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,String>(2)?))).optional()?;
+        let user=db.query_row("SELECT u.username,u.admin,s.csrf FROM sessions s JOIN users u ON u.username=s.username WHERE s.token_hash=?1 AND s.expires>?2 AND u.disabled=0 AND (NOT EXISTS(SELECT 1 FROM mfa_credentials m WHERE m.username=u.username AND m.enabled=1) OR EXISTS(SELECT 1 FROM mfa_sessions v WHERE v.token_hash=s.token_hash))",params![hash,now()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,String>(2)?))).optional()?;
         let Some((username,admin,csrf))=user else{return Ok(None);};
         let mut q=db.prepare("SELECT address FROM grants WHERE username=?1 ORDER BY address")?;
         let addresses=q.query_map([&username],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
@@ -146,6 +148,8 @@ async fn authenticated(app: &App, h: &HeaderMap) -> ApiResult<User> {
 struct Login {
     username: String,
     password: String,
+    #[serde(default)]
+    code: String,
 }
 async fn login(
     State(app): State<App>,
@@ -153,7 +157,7 @@ async fn login(
     Json(body): Json<Login>,
 ) -> ApiResult<Response> {
     origin(&app, &h)?;
-    if body.username.len() > 100 || body.password.len() > 128 {
+    if body.username.len() > 100 || body.password.len() > 128 || body.code.len() > 80 {
         return Err(Error(
             StatusCode::UNAUTHORIZED,
             "Identifiant ou mot de passe incorrect.".into(),
@@ -223,9 +227,21 @@ async fn login(
     let csrf_token = random_token();
     let username = body.username;
     let previous = token(&h).map(|t| message::digest(t.as_bytes()));
-    app.store
+    let mfa_key = app.mfa_key.clone().ok_or_else(|| {
+        Error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Second facteur indisponible.".into(),
+        )
+    })?;
+    let code = body.code;
+    let password_hash = saved.unwrap();
+    let factor_ok=app.store
         .run(move |db| {
+            if !crate::mfa::attempt(db,&username,now())? {return Ok(false);}
             let tx = db.transaction()?;
+            let unchanged:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND password=?2 AND disabled=0)",params![username,password_hash],|r|r.get(0))?;
+            if !unchanged{return Ok(false);}
+            let Some(verified)=crate::mfa::consume(&tx,&mfa_key,&username,&code,now())? else {return Ok(false);};
             if let Some(hash) = previous {
                 tx.execute("DELETE FROM sessions WHERE token_hash=?1", [hash])?;
             }
@@ -234,14 +250,18 @@ async fn login(
                 "INSERT INTO sessions(token_hash,username,csrf,expires) VALUES(?1,?2,?3,?4)",
                 params![token_hash, username, csrf_token, now() + 8 * 3600],
             )?;
+            if verified {tx.execute("INSERT INTO mfa_sessions VALUES(?1)",[&token_hash])?;}
             tx.execute(
                 "INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'login','')",
                 params![now(), username],
             )?;
             tx.commit()?;
-            Ok(())
+            Ok(true)
         })
         .await?;
+    if !factor_ok {
+        return Err(Error(StatusCode::UNAUTHORIZED,"Code de sécurité requis, incorrect, déjà utilisé ou trop de tentatives. Réessayez avec un nouveau code ou un code de secours.".into()));
+    }
     let mut headers = HeaderMap::new();
     headers.insert(
         header::COOKIE,
@@ -547,7 +567,18 @@ pub fn router_controlled(
     store: Store,
     control: Option<Arc<crate::control::Controller>>,
 ) -> Result<Router> {
+    let mfa_key = if crate::cluster::is_worker(&config) {
+        None
+    } else {
+        let db = rusqlite::Connection::open_with_flags(
+            store.root.join("state.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        crate::mfa::require_no_missing_key(&store.root, &db)?;
+        Some(Arc::new(crate::mfa::Key::open(&store.root)?))
+    };
     let app = App {
+        mfa_key,
         config: config.clone(),
         store,
         control,
@@ -575,7 +606,8 @@ pub fn router_controlled(
         .merge(admin::routes())
         .merge(onboarding::routes())
         .merge(quality::routes())
-        .merge(adaptive::routes());
+        .merge(adaptive::routes())
+        .merge(mfa::routes());
     Ok(Router::new()
         .nest("/api/v1", api)
         .route("/healthz", get(health))

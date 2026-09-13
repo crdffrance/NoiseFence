@@ -114,7 +114,7 @@ pub async fn prepare(config: &crate::config::Config, store: &crate::store::Store
             tx.execute("UPDATE cluster_sequence SET value=value+1",[])?;
             tx.execute("INSERT OR IGNORE INTO cluster_dirty SELECT id,(SELECT value FROM cluster_sequence) FROM messages WHERE NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=messages.id)",[])?;
         }
-        tx.execute_batch("PRAGMA user_version=3")?;tx.commit()?;Ok(())
+        if tx.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0))?<3 {tx.execute_batch("PRAGMA user_version=3")?;}tx.commit()?;Ok(())
     }).await?;
     if is_worker(config) {
         budget::enable_worker(&config.data_dir)?;

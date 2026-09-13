@@ -1,0 +1,7 @@
+---
+# Set this to the public source checkout on the controller, never a private ops directory.
+noisefence_source: "{{ playbook_dir }}/../.."
+noisefence_ssh_accounts: [debian]
+# Required: argv for deployment-specific AV/OCR/SMTP/HTTPS/cluster checks.
+noisefence_validation_argv: []
+noisefence_hardening_timeout: 1800

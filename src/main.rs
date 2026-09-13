@@ -145,6 +145,10 @@ enum Command {
     UserResetPassword {
         username: String,
     },
+    /// Emergency local recovery: removes MFA and revokes every session.
+    UserResetMfa {
+        username: String,
+    },
     Scan {
         message: PathBuf,
     },
@@ -964,6 +968,21 @@ async fn main() -> Result<()> {
                 })
                 .await?;
             println!("User disabled; sessions revoked.");
+        }
+        Command::UserResetMfa { username } => {
+            store.run(move |db| {
+                let tx=db.transaction()?;
+                ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1)",[&username],|r|r.get::<_,bool>(0))?,"unknown user");
+                tx.execute("DELETE FROM sessions WHERE username=?1",[&username])?;
+                tx.execute("DELETE FROM mfa_credentials WHERE username=?1",[&username])?;
+                tx.execute("DELETE FROM mfa_recovery WHERE username=?1",[&username])?;
+                tx.execute("DELETE FROM mfa_attempts WHERE username=?1",[&username])?;
+                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','mfa_reset',?2)",rusqlite::params![noisefence::now(),username])?;
+                tx.commit()?;Ok(())
+            }).await?;
+            println!(
+                "Second factor reset; all sessions revoked. Enroll the account again after verifying its owner."
+            );
         }
         Command::UserResetPassword { username } => {
             let password = rpassword::prompt_password("New console password: ")?;

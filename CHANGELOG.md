@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0 — 2026-09-13
+
+- Durcissement Debian des MX avec SSH par clé, pare-feu IPv4/IPv6, profils AppArmor et budgets de ressources systemd ; transactions avec retour arrière temporaire et déploiement séquentiel.
+- Audit ciblé, rapports de sécurité sans contenu des messages, collecte centrale et sauvegardes chiffrées restic avec vérification de restauration sans réseau.
+- Modes de sauvegarde distincts : métadonnées/configuration/modèles ou file complète, cette dernière exigeant une conservation explicitement autorisée.
+- Double authentification TOTP dans « Mon compte », secrets chiffrés, codes de secours à usage unique, contrôle côté serveur et révocation des anciennes sessions.
+- Protection contre les retours à un binaire ignorant le MFA : schéma 4 dès la première activation ; procédure locale de récupération auditée.
+- Rôle Ansible, outils de déploiement limités aux releases approuvées par l’administrateur et guide d’exploitation dans `deploy/hardening/README.md`. Les outils Linux s’installent séparément du binaire.
+- Aucun changement automatique du filtrage, du DNS ou de l’enrôlement des comptes existants.
+
 ## 0.14.0 — 2026-09-13
 
 - Passerelles SMTP autonomes avec console centrale, configuration versionnée et modèles vérifiés via HTTPS.
