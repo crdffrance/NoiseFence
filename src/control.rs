@@ -592,7 +592,34 @@ impl Controller {
         let seed = if crate::cluster::is_worker(&base) {
             config.clone()
         } else {
-            base.clone()
+            let mut seed = (*base).clone();
+            let saved_patterns = settings
+                .detection
+                .as_ref()
+                .and_then(|d| d.modules.get("native"))
+                .and_then(|v| v.get("patterns"))
+                .map(|v| {
+                    serde_json::from_value::<Vec<crate::native_filter::rules::Pattern>>(v.clone())
+                })
+                .transpose()?;
+            if revision > 0
+                && let (Some(installed), Some(saved)) = (&mut seed.native_filter, saved_patterns)
+                && installed.adaptive.is_some()
+                && installed.patterns.len() == saved.len()
+                && installed.patterns.iter().zip(&saved).all(|(a, b)| {
+                    let mut semantic = b.clone();
+                    semantic.label.clone_from(&a.label);
+                    *a == semantic
+                })
+            {
+                // Labels are part of the retained adaptive protocol. A translated
+                // default must not invalidate a saved model on restart. Preserve
+                // saved labels only when every semantic field and the order match;
+                // Runtime::new still verifies the installed model's exact protocol.
+                // Keep the template usable even when the Web policy disables the module.
+                installed.patterns = saved;
+            }
+            Arc::new(seed)
         };
         let cfg = config.clone();
         let (template, engine) = tokio::task::spawn_blocking(move || -> Result<_> {

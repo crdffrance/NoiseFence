@@ -18,6 +18,147 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn adaptive_restart_preserves_saved_labels_without_accepting_pattern_drift() {
+    use noisefence::adaptive::{
+        self, Tenant, WIDTH,
+        model::{Model, Neural},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    let mut expected_patterns = noisefence::native_filter::rules::default_patterns();
+    expected_patterns[0].label = "Libellé historique".into();
+    let path = dir.path().join("adaptive.json");
+    let model = Model {
+        schema: adaptive::SCHEMA.into(),
+        protocol_sha256: adaptive::protocol(&expected_patterns),
+        version: "synthetic-upgrade".into(),
+        scope: "example.test".into(),
+        created: noisefence::now(),
+        expires: noisefence::now() + 86400,
+        dataset_sha256: "a".repeat(64),
+        classes: [20; 5],
+        counts: vec![],
+        neural: Neural {
+            input_weights: vec![vec![0.; WIDTH]; WIDTH],
+            hidden_bias: vec![0.; WIDTH],
+            output_weights: vec![vec![0.; WIDTH]; 5],
+            output_bias: vec![0.; 5],
+        },
+        thresholds: [1.; 5],
+    };
+    model.validate().unwrap();
+    std::fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+    cfg.native_filter = Some(noisefence::native_filter::Settings {
+        adaptive: Some(adaptive::Settings {
+            domains: [(
+                "example.test".into(),
+                Tenant {
+                    model: Some(path),
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        }),
+        ..Default::default()
+    });
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let mut settings = noisefence::control::Settings::from_config(&cfg);
+    settings
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .get_mut("native")
+        .unwrap()["patterns"] = json!(expected_patterns);
+    let original = serde_json::to_string(&settings).unwrap();
+    let saved = original.clone();
+    store
+        .run(move |db| {
+            db.execute(
+                "INSERT INTO console_revisions(created,username,settings) VALUES(?1,'admin',?2)",
+                params![noisefence::now(), saved],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    assert_eq!(
+        control
+            .snapshot()
+            .config
+            .native_filter
+            .as_ref()
+            .unwrap()
+            .patterns,
+        expected_patterns
+    );
+    let retained: String = store
+        .read(|db| {
+            Ok(db.query_row(
+                "SELECT settings FROM console_revisions ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        retained, original,
+        "restart must not rewrite retained provenance"
+    );
+    let mut disabled = settings.clone();
+    disabled
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .get_mut("native")
+        .unwrap()["enabled"] = json!(false);
+    store
+        .run(move |db| {
+            db.execute(
+                "UPDATE console_revisions SET settings=?1",
+                [serde_json::to_string(&disabled)?],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        Controller::load(cfg.clone(), store.clone())
+            .await
+            .unwrap()
+            .snapshot()
+            .config
+            .native_filter
+            .is_none()
+    );
+    settings
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .get_mut("native")
+        .unwrap()["patterns"][0]["pattern"] = json!("changed-pattern");
+    store
+        .run(move |db| {
+            db.execute(
+                "UPDATE console_revisions SET settings=?1",
+                [serde_json::to_string(&settings)?],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        Controller::load(cfg, store).await.is_err(),
+        "semantic pattern drift must still require model validation"
+    );
+}
+
+#[tokio::test]
 async fn sensitivity_catalog_and_profiles_are_admin_only_atomic_and_persistent() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = common::config(dir.path());

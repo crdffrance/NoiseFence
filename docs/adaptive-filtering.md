@@ -92,3 +92,7 @@ This feature’s original migration was additive. Current paired installations r
 ## Inspiration and licensing
 
 Independent implementation in Rust of published techniques, without copy of C/Lua code. Rspamd documents a [Multiclass Bayes](https://docs.rspamd.com/configuration/statistic/) separated from binary risk, as well as a [neural module](https://docs.rspamd.com/modules/neural/) learning from local signals. NoiseFence retains its own artifacts, limits and validation steps; no binary model compatibility is claimed. Rspamd is distributed under [Apache 2.0](https://github.com/rspamd/rspamd/blob/b86f72ae34ec515802aa23b60b535e9d25684d65/LICENSE.md); NoiseFence retains its GPL-3.0-only license.
+
+## Translated labels and upgrades
+
+Pattern labels are included in retained adaptive fingerprints. From 0.18.0, startup preserves saved labels when the installed defaults differ only in their display text and every semantic field and the pattern order still match. The installed model must still match that exact retained protocol, including when the module is disabled in the Web policy. Changing an expression, target, weight, family or order continues to require model validation. No historical policy or model file is rewritten by this compatibility step.
