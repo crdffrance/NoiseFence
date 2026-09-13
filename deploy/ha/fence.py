@@ -12,7 +12,7 @@ import subprocess
 import time
 import tomllib
 import uuid
-from standby import private_json, STATE, CONFIG
+from standby import private_json, STATE, CONFIG, BINARY
 
 def fence():
     cfg=tomllib.loads((CONFIG/'config.toml').read_text())
@@ -37,6 +37,9 @@ def fence():
         if state not in ['inactive','failed']:raise ValueError('Service did not stop: '+unit)
     pid=subprocess.check_output(['systemctl','show','noisefence','-p','MainPID','--value'],text=True).strip()
     if pid!='0':raise ValueError('The SMTP process is still running')
+    # Flush newly generated notices and terminal updates before certifying the fence.
+    # Run as the queue owner so SQLite/lock-file ownership stays unchanged.
+    subprocess.run(['runuser','-u','noisefence','--',str(BINARY),'--config',str(CONFIG/'config.toml'),'ha-flush'],check=True,timeout=195,stdout=subprocess.DEVNULL)
     created_ns=time.time_ns()
     receipt={'owner':cfg['cluster']['node_id'],'hostname':cfg['hostname'],'operation':operation,'fenced':True,'created':created_ns//1_000_000_000,'created_ns':created_ns,'method':'systemd-persistent-condition','automatic_restart_blocked':True}
     private_json(STATE/'fenced.json',receipt)

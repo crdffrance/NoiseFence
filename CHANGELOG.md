@@ -1,13 +1,15 @@
 # Changelog
 
-## 0.17.2 — Deux copies et console de secours
+## 0.17.3 — Deux copies et console de secours
 
-Les candidates 0.17.0 et 0.17.1 sont remplacées avant déploiement après les contrôles de rétention et de reprise.
+Les candidates 0.17.0 à 0.17.2 sont remplacées avant déploiement après les contrôles de rétention, de reprise et de flux HTTP.
 
 - Réplication Rust par paire HTTPS authentifiée, corps et enveloppes durables avant SMTP 250 ; réponse 451 si le pair, sa capacité ou son stockage manque.
+- Le récepteur consomme et vérifie tout le flux avant confirmation, y compris pour une copie existante ; celle-ci n’est pas réécrite.
 - Progression par destinataire, intention d’envoi répliquée avant contact du relais, nettoyage après confirmation et reprise conservatrice des envois incertains.
 - Instantanés SQLite cohérents, modèles, MFA et budgets transférés par SSH restreint ; console de secours activable après fencing explicite, sans écraser la file du worker.
 - Bascule de sinistre avec révocation des accès anciens et suspension des nouvelles allocations fournisseurs ; pas de quorum ou de reprise SMTP automatique à une seule copie.
+- Synchronisation finale après arrêt avec `ha-flush` ; l’original reste en attente si une notification référencée manque lors de la reprise.
 - Réintégration contrôlée avec `ha-resync`, contrôle du déchiffrement MFA restauré, instantané final strictement postérieur au fencing et effacement des incidents résolus.
 - État de réplication et de la console de secours dans Infrastructure. Schéma 5 dès activation ; guide de reprise dans `docs/high-availability.md`.
 

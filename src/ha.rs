@@ -198,6 +198,28 @@ pub async fn status(store: &crate::store::Store) -> Result<Status> {
     }).await
 }
 
+/// Finish pending replication with the daemon stopped. No SMTP or relay is started.
+pub async fn flush(store: &crate::store::Store, config: &crate::config::Config) -> Result<Status> {
+    ensure!(
+        config.replication.is_some(),
+        "Strict replication is not configured"
+    );
+    let _lock = store.daemon_lock()?;
+    crate::cluster::prepare(config, store).await?;
+    initialize(store, config).await?;
+    tokio::time::timeout(Duration::from_secs(180), async {
+        loop {
+            replica::synchronize(store).await?;
+            let result = status(store).await?;
+            if result.pending_updates == 0 && result.unprotected == 0 {
+                return Ok(result);
+            }
+        }
+    })
+    .await
+    .context("Replica flush deadline exceeded")?
+}
+
 pub async fn run(
     store: crate::store::Store,
     mut stop: tokio::sync::watch::Receiver<bool>,

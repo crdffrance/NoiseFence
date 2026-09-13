@@ -168,6 +168,8 @@ async fn store_body(
         })
         .await?;
     let path = replica::body_path(&app.store, &owner, &id);
+    let known_body = previous.is_some();
+    let mut verified = false;
     if let Some((old_hash, old_bytes, present)) = previous {
         ensure!(
             present && old_hash == hash && old_bytes == bytes,
@@ -175,33 +177,39 @@ async fn store_body(
         );
         let existing = path.clone();
         let expected = hash.clone();
-        if tokio::task::spawn_blocking(move || {
+        verified = tokio::task::spawn_blocking(move || {
             crate::cluster::artifacts::file_digest(&existing)
                 .is_ok_and(|(n, h)| n == bytes && h == expected)
         })
-        .await?
-        {
-            return Ok(replica::receipt(&runtime, id, 0));
-        }
+        .await?;
     }
-    ensure!(
-        used.saturating_add(bytes) <= runtime.settings.max_replica_bytes
-            && crate::store::available_bytes(&app.store.root)?
-                > runtime
-                    .minimum_free_bytes
-                    .saturating_add(bytes.saturating_mul(2)),
-        "Replica disk reserve unavailable"
-    );
+    if !verified {
+        ensure!(
+            used.saturating_add(if known_body { 0 } else { bytes })
+                <= runtime.settings.max_replica_bytes
+                && crate::store::available_bytes(&app.store.root)?
+                    > runtime
+                        .minimum_free_bytes
+                        .saturating_add(bytes.saturating_mul(2)),
+            "Replica disk reserve unavailable"
+        );
+    }
     let dir = path.parent().unwrap();
     tokio::fs::create_dir_all(dir).await?;
     let temporary = dir.join(format!(".partial-{}", uuid::Uuid::new_v4()));
     let _partial = Partial(temporary.clone());
-    let mut file = tokio::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)
-        .await?;
+    let mut file = if verified {
+        None
+    } else {
+        Some(
+            tokio::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&temporary)
+                .await?,
+        )
+    };
     let mut count = 0_u64;
     let mut digest = Sha256::new();
     while let Some(frame) = request.body_mut().frame().await {
@@ -210,18 +218,24 @@ async fn store_body(
             count = count.saturating_add(data.len() as u64);
             ensure!(count <= bytes, "Replica body exceeds manifest");
             digest.update(&data);
-            file.write_all(&data).await?;
+            if let Some(file) = &mut file {
+                file.write_all(&data).await?;
+            }
         }
     }
     ensure!(
         count == bytes && hex::encode(digest.finalize()) == hash,
         "Replica checksum mismatch"
     );
-    file.sync_all().await?;
-    drop(file);
-    tokio::fs::rename(&temporary, &path).await?;
-    let directory = dir.to_path_buf();
-    tokio::task::spawn_blocking(move || std::fs::File::open(directory)?.sync_all()).await??;
+    // Even an existing copy must consume the complete request before responding.
+    // An early HTTP/1 response races a streaming sender and can close its body pipe.
+    if let Some(file) = file {
+        file.sync_all().await?;
+        drop(file);
+        tokio::fs::rename(&temporary, &path).await?;
+        let directory = dir.to_path_buf();
+        tokio::task::spawn_blocking(move || std::fs::File::open(directory)?.sync_all()).await??;
+    }
     let key = id.clone();
     app.store.run(move|db| {db.execute("INSERT INTO ha_blobs(owner,id,hash,bytes,updated) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(owner,id) DO UPDATE SET updated=excluded.updated",params![owner,key,hash,bytes,now()])?;Ok(())}).await?;
     Ok(replica::receipt(&runtime, id, 0))

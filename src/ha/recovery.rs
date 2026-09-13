@@ -146,6 +146,7 @@ pub async fn restore_queue(
         .iter()
         .map(|m| m.id.clone())
         .collect::<std::collections::BTreeSet<_>>();
+    let journal_ids = known.clone();
     store.read(move|db| {
         let identity:Option<String>=db.query_row("SELECT value FROM cluster_state WHERE key='node_id'",[],|r|r.get(0)).optional()?;
         ensure!(identity.as_ref().is_none_or(|v|v==&query_owner),"Never restore one node over another node's active queue");
@@ -253,11 +254,22 @@ pub async fn restore_queue(
         }
         let uncertain = !m.confirmed && !m.resolved();
         for d in &mut m.deliveries {
-            if uncertain || d.status == "sending" {
+            // "notified" records local DSN enqueue, not necessarily its delivery.
+            // A crash before the DSN's first replication must not retire the original.
+            let missing_notice = m.body_hash.is_some()
+                && d.status == "notified"
+                && d.dsn_id
+                    .as_ref()
+                    .is_some_and(|id| !journal_ids.contains(id));
+            if uncertain || d.status == "sending" || missing_notice {
                 d.status = "quarantined".into();
                 d.action = "quarantine".into();
                 d.held_until = None;
-                d.error=Some("Reprise : acceptation ou résultat SMTP incertain ; vérification requise avant toute relance.".into());
+                d.error=Some(if missing_notice {
+                    "Reprise : notification d’échec absente de la copie ; vérifier ou recréer l’avis avant résolution."
+                } else {
+                    "Reprise : acceptation ou résultat SMTP incertain ; vérification requise avant toute relance."
+                }.into());
                 held += 1;
             } else if d.status == "pending" {
                 pending += 1;

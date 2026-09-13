@@ -134,6 +134,8 @@ enum Command {
     HaResync {
         data: PathBuf,
     },
+    /// Finish queued replica updates with the daemon stopped; no SMTP or relay.
+    HaFlush,
     /// In a staged disaster recovery only, revoke stale access and create a private recovery account.
     HaDisasterAccess {
         #[arg(long)]
@@ -396,6 +398,16 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::HaFlush => {
+            let config = Config::load(&cli.config)?;
+            let store = Store::open(&config.data_dir)?;
+            let status = noisefence::ha::flush(&store, &config).await?;
+            println!(
+                "{}",
+                serde_json::json!({"replication":status,"smtp_started":false,"relay_started":false})
+            );
+            return Ok(());
+        }
         Command::HaResync { data } => {
             println!("{}", noisefence::ha::recovery::resync(data).await?);
             return Ok(());

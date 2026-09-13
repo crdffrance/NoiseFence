@@ -349,6 +349,37 @@ async fn candidate_without_acceptance_confirmation_is_recovered_for_review_only(
 }
 
 #[tokio::test]
+async fn an_original_is_retained_when_its_queued_failure_notice_was_not_replicated() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enqueue(&p, &id).await.unwrap();
+    // A local DSN enqueue may be recorded before that new DSN's first peer copy.
+    p.a.run(|db| {
+        db.execute(
+            "UPDATE deliveries SET status='notified',dsn_id='dsn-999'",
+            [],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let report = ha::recovery::restore_queue(&p.b.root, target.path(), "mx1", &fence(p._a.path()))
+        .await
+        .unwrap();
+    assert_eq!(report["held_recipients"], 2);
+    let restored = Store::open(target.path()).unwrap();
+    restored.recover().await.unwrap();
+    restored.cleanup().await.unwrap();
+    assert!(restored.claim().await.unwrap().is_none());
+    assert_eq!(
+        std::fs::read(restored.raw_path(&id)).unwrap(),
+        common::MESSAGE
+    );
+}
+
+#[tokio::test]
 async fn restoration_rejects_missing_fence_wrong_owner_and_damaged_body() {
     let p = pair().await;
     let id = uuid::Uuid::new_v4().to_string();
@@ -595,6 +626,72 @@ async fn successful_idle_heartbeat_clears_the_previous_replication_incident() {
     .unwrap();
     ha::replica::synchronize(&p.a).await.unwrap();
     assert!(ha::status(&p.a).await.unwrap().last_error.is_none());
+}
+
+#[tokio::test]
+async fn a_planned_fence_can_flush_all_pending_replicas_without_starting_a_relay() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enqueue(&p, &id).await.unwrap();
+    let lock = p.a.daemon_lock().unwrap();
+    assert!(ha::flush(&p.a, &p.config).await.is_err());
+    drop(lock);
+    let mut wrong_owner = (*p.config).clone();
+    wrong_owner.cluster.as_mut().unwrap().node_id = "wrong-owner".into();
+    assert!(ha::flush(&p.a, &wrong_owner).await.is_err());
+    let report = ha::flush(&p.a, &p.config).await.unwrap();
+    assert_eq!(report.pending_updates, 0);
+    assert_eq!(report.unprotected, 0);
+    assert!(remote(&p, &id).await.confirmed);
+    assert!(
+        remote(&p, &id)
+            .await
+            .deliveries
+            .iter()
+            .all(|d| d.status == "pending")
+    );
+    assert!(p.b.claim().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn an_existing_replica_consumes_the_stream_before_acknowledging_without_rewriting_it() {
+    use std::os::unix::fs::MetadataExt;
+    use tokio::io::AsyncWriteExt;
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enqueue(&p, &id).await.unwrap();
+    let path = ha::replica::body_path(&p.b, "mx1", &id);
+    let inode = std::fs::metadata(&path).unwrap().ino();
+    let settings = p.config.replication.as_ref().unwrap();
+    let (mut writer, reader) = tokio::io::duplex(64);
+    let request = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/replication/v1/body/{id}",
+            settings.peer_url
+        ))
+        .bearer_auth(std::fs::read_to_string(&settings.credential_file).unwrap())
+        .header("x-noisefence-node", "mx1")
+        .header(
+            "x-noisefence-sha256",
+            noisefence::message::digest(common::MESSAGE),
+        )
+        .header("x-noisefence-bytes", common::MESSAGE.len())
+        .body(reqwest::Body::wrap_stream(
+            tokio_util::io::ReaderStream::new(reader),
+        ));
+    let task = tokio::spawn(async move { request.send().await });
+    writer.write_all(&common::MESSAGE[..16]).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(
+        !task.is_finished(),
+        "Replica acknowledged before consuming the body"
+    );
+    writer.write_all(&common::MESSAGE[16..]).await.unwrap();
+    writer.shutdown().await.unwrap();
+    let response = task.await.unwrap().unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+    assert_eq!(std::fs::read(path).unwrap(), common::MESSAGE);
 }
 
 #[tokio::test]

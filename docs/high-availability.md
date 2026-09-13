@@ -1,4 +1,4 @@
-# Deux copies et console de secours (0.17.2)
+# Deux copies et console de secours (0.17.3)
 
 ## Garanties et limites
 
@@ -8,13 +8,13 @@ Si une copie est impossible (réseau, certificat, disque ou capacité), NoiseFen
 
 L'intention d'envoi est répliquée avant de contacter le relais. La suppression locale du corps attend la confirmation des états terminaux par le pair ; un tombstone durable autorise ensuite la suppression distante. Les anciens messages en file sont protégés avant toute nouvelle tentative. Les copies reçues avant confirmation de la transaction locale restent inertes et sont conservées pour résolution manuelle. Elles ne sont pas assimilées à des messages acceptés.
 
-SMTP ne garantit pas l'envoi exactement une fois : une réponse perdue peut laisser l'expéditeur ou le relais dans l'incertitude. À la restauration, un destinataire déjà livré n'est pas relancé ; une acceptation non confirmée ou un état `sending` est mis en quarantaine sans expiration automatique. Vérifier la trace distante avant toute libération. Voir [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.1).
+SMTP ne garantit pas l'envoi exactement une fois : une réponse perdue peut laisser l'expéditeur ou le relais dans l'incertitude. À la restauration, un destinataire déjà livré n'est pas relancé ; une acceptation non confirmée, un état `sending` ou un avis d’échec référencé mais absent du journal est mis en quarantaine sans expiration automatique. Vérifier la trace distante avant toute libération. Voir [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.1).
 
 La console dispose d'instantanés cohérents, **pas d'une base partagée**. L'intervalle recommandé est 60 secondes plus le temps de copie. Les instantanés utilisent l'[API SQLite Online Backup](https://www.sqlite.org/backup.html) et contiennent comptes, MFA, réglages, modèles et budgets ; les corps de la file passent par la réplication dédiée. Ils sont privés sur disque et chiffrés en transit par SSH. Ce dispositif ne remplace pas une sauvegarde indépendante et chiffrée contre la compromission des deux machines.
 
 ## Installation
 
-1. Installer la même release 0.17.2 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
+1. Installer la même release 0.17.3 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
 2. Créer une clé de paire aléatoire de 32 octets, encodée en 64 caractères hexadécimaux, dans `/etc/noisefence/replication.key`, propriétaire `noisefence`, mode `0600`, identique sur les deux machines. Ne jamais réutiliser un secret Web ou publier cette clé.
 3. Installer une route Nginx `/api/v1/replication/` vers `127.0.0.1:18080`, sans réécriture du chemin, `proxy_request_buffering off`, délai borné et taille maximale SMTP + 256 Kio. Conserver la vérification TLS. Autoriser la lecture AppArmor de `/etc/machine-id`. Aucun port API public supplémentaire.
 4. Ajouter la section de `config/replication.example.toml` avec des identités inversées sur le second MX. Redémarrer les deux : jusqu'à la première confirmation, l'admission SMTP reste différée. Vérifier « Infrastructure » : heartbeat, copies et confirmations en attente. Une fois activée, retirer la section fait refuser le démarrage ; ne pas contourner le marqueur `ha_required`.
@@ -46,7 +46,7 @@ Ce mode accepte un instantané âgé d'au plus 24 heures. Il désactive tous les
 
 La console de secours n'exécute **aucun relais SMTP**. Tant que le pair requis manque, les nouvelles réceptions et tentatives restent différées, conformément au choix de deux copies obligatoires. Ne pas supprimer `[replication]` pour rendre le service artificiellement disponible.
 
-Avant de reprendre le courrier du coordinateur sur un serveur remplacé : arrêter sa console de secours et tous ses auteurs de modifications, prendre un nouvel instantané cohérent de `active/data`, conserver les copies d'origine et leurs journaux, transférer cet état courant (pas l'ancien instantané) vers le remplaçant arrêté avec l'identité du coordinateur, adapter les chemins et rétablir la paire HTTPS. Sur chaque file arrêtée, exécuter `sudo /opt/noisefence/noisefence ha-resync /var/lib/noisefence` : cette commande conserve les corps et les états, augmente les générations et remet les confirmations à zéro. Elle refuse de travailler si le verrou du service est détenu. Les anciennes confirmations du worker survivant ne prouvent pas la présence des copies sur un pair reconstruit. Vérifier ensuite les empreintes, les destinataires terminaux et la confirmation de toutes les générations avant de déclarer la réintégration terminée. Remettre l'autorité du worker vers le nouveau coordinateur, puis redémarrer après les contrôles. L'ancien hôte reste éteint/fenced jusqu'à réconciliation complète. La commande `ha-restore` refuse d'écraser une file appartenant à un autre nœud.
+Avant de reprendre le courrier du coordinateur sur un serveur remplacé : arrêter sa console de secours et tous ses auteurs de modifications, prendre un nouvel instantané cohérent de `active/data`, conserver les copies d'origine et leurs journaux, transférer cet état courant (pas l'ancien instantané) vers le remplaçant arrêté avec l'identité du coordinateur, adapter les chemins et rétablir la paire HTTPS. Sur chaque file arrêtée, exécuter `sudo -u noisefence /opt/noisefence/noisefence ha-resync /var/lib/noisefence` : cette commande conserve les corps et les états, augmente les générations et remet les confirmations à zéro. Elle refuse de travailler si le verrou du service est détenu. Les anciennes confirmations du worker survivant ne prouvent pas la présence des copies sur un pair reconstruit. Vérifier ensuite les empreintes, les destinataires terminaux et la confirmation de toutes les générations avant de déclarer la réintégration terminée. Remettre l'autorité du worker vers le nouveau coordinateur, puis redémarrer après les contrôles. L'ancien hôte reste éteint/fenced jusqu'à réconciliation complète. La commande `ha-restore` refuse d'écraser une file appartenant à un autre nœud.
 
 Cette réintégration est une procédure contrôlée, pas un failback automatique. Ne jamais lancer deux coordinateurs avec la même identité, ni réinstaller une sauvegarde ancienne sur une file en cours. Vérifier les envois incertains manuellement. Garder une copie privée des reçus d'opération.
 
@@ -56,4 +56,4 @@ Cette réintégration est une procédure contrôlée, pas un failback automatiqu
 - `journalctl -u noisefence -u noisefence-standby-push` : erreurs bornées sans secrets ; surveiller place libre, quota des copies et stagnation des générations.
 - `healthz.smtp_ready` devient faux quand le pair requis manque. La console de reprise signale toujours `smtp_ready: false`.
 - Exercer périodiquement une restauration dans un répertoire séparé avec réseau isolé, sans SMTP ni comptes de production utilisés pour des essais.
-- Schéma 5 après activation : un binaire antérieur à 0.17.2 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.
+- Schéma 5 après activation : un binaire antérieur à 0.17.3 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.
