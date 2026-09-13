@@ -166,6 +166,6 @@ révocation, restauration de configuration, expiration, remplacement de modèle 
 attribution concurrente des crédits. Ces tests synthétiques ne prouvent pas la
 livraison Internet ni le classement Proton du futur mx2.
 
-Le greylisting sélectif et les quotas de tentatives disposent depuis 0.16.1 d’une
+Le greylisting sélectif et les quotas de tentatives disposent depuis 0.16.2 d’une
 autorité commune, avec repli permissif si elle est indisponible :
 [Admission SMTP](smtp-admission.md). Les files de messages restent locales.

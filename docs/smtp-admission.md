@@ -1,4 +1,4 @@
-# Greylisting sélectif et ralentissement SMTP (0.16.1)
+# Greylisting sélectif et ralentissement SMTP (0.16.2)
 
 Dans **Administration → Filtres → Admission SMTP**, l’administrateur configure
 les reports, délais, quotas, exceptions et capacités sans redémarrage. Les
@@ -118,7 +118,7 @@ les diagnostics d’un message accepté.
 
 ## Déploiement et validation
 
-Déployer 0.16.1 sur le coordinateur, puis les workers, avant d’activer la
+Déployer 0.16.2 sur le coordinateur, puis les workers, avant d’activer la
 politique. Les bundles destinés aux anciens workers omettent les nouveaux champs.
 Les tables additionnelles ne changent pas le schéma de la file ; elles sont
 ignorées par la version précédente. Le retour arrière ne restaure jamais une

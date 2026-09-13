@@ -230,12 +230,19 @@ mod tests {
             assert_eq!(received, expected);
             stream.write_all(b"stream: OK\0").await.unwrap();
             let (_stalled, _) = listener.accept().await.unwrap();
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            std::future::pending::<()>().await;
         });
-        let cfg = config(path);
+        // Successful streaming is not a 100ms scheduler benchmark. Keep the
+        // short deadline for the deliberately unresponsive daemon only.
+        let mut cfg = config(path);
+        cfg.timeout_ms = 5000;
         assert_eq!(scan(&cfg, &bytes).await.status, AntivirusStatus::Clean);
+        cfg.timeout_ms = 100;
         assert_eq!(
-            scan(&cfg, b"test").await.status,
+            tokio::time::timeout(Duration::from_secs(5), scan(&cfg, b"test"))
+                .await
+                .unwrap()
+                .status,
             AntivirusStatus::Unavailable
         );
         daemon.abort();
