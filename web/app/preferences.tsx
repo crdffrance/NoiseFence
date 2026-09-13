@@ -16,10 +16,10 @@ type View = {
 };
 const fields: Record<Rule['conditions'][number]['field'], string> = {
   envelope_from: "Envelope sender",
-  from_domain: "Sending field",
+  from_domain: "Sender domain",
   header_from: "From address",
   subject: "Subject",
-  body: "Text of message",
+  body: "Message text",
   recipient: "Recipient",
   recipient_domain: "Recipient domain",
   size: "Size (bytes)",
@@ -41,7 +41,7 @@ const ops: Record<Rule['conditions'][number]['op'], string> = {
 const actions = {
   deliver: "Deliver",
   tag: "Tag [SPAM] / [PUB]",
-  quarantine: "Quarantined",
+  quarantine: "Quarantine",
 };
 export function MyFilters({
   user,
@@ -87,7 +87,7 @@ export function MyFilters({
   function choose(s: string) {
     if (
       dirty &&
-      !window.confirm("Drop unrecorded changes?")
+      !window.confirm("Discard unsaved changes?")
     )
       return;
     setScope(s);
@@ -140,7 +140,7 @@ export function MyFilters({
             onClick={async () => {
               if (
                 dirty &&
-                !window.confirm("Reloading and abandoning the draft?")
+                !window.confirm("Reload and discard this draft?")
               )
                 return;
               try {
@@ -161,7 +161,7 @@ export function MyFilters({
       )}
       {notice && <output className="notice">{notice}</output>}
       {!view ? (
-        <p>Loading Preferences...</p>
+        <p>Loading preferences...</p>
       ) : (
         <>
           <section className="management-card">
@@ -172,7 +172,7 @@ export function MyFilters({
                 onChange={(e) => choose(e.target.value)}
               >
                 <option value="" disabled>
-                  Select a Scope
+                  Select a scope
                 </option>
                 {view.scopes.map((s) => (
                   <option key={s}>{s}</option>
@@ -243,7 +243,7 @@ export function MyFilters({
                     })
                   }
                 />
-                Customize Level and Actions
+                Customize sensitivity and actions
               </label>
               {draft.profile && (
                 <div className="management-grid">
@@ -296,7 +296,7 @@ export function MyFilters({
                     </select>
                   </label>
                   <label>
-                    Specific threshold ({view.settings.minimum_threshold}–
+                    Custom threshold ({view.settings.minimum_threshold}–
                     {view.settings.maximum_threshold})
                     <input
                       type="number"
@@ -325,8 +325,8 @@ export function MyFilters({
                       {k === 'spam'
                         ? "Spam detected"
                         : k === 'publicity'
-                          ? "Advertising / mailing"
-                          : "Message to be checked"}
+                          ? "Marketing and newsletters"
+                          : "Needs review"}
                       <select
                         value={draft.profile![k]}
                         onChange={(e) =>
@@ -347,7 +347,7 @@ export function MyFilters({
                     </label>
                   ))}
                   <label>
-                    Quarantine storage (days)
+                    Quarantine retention (days)
                     <input
                       type="number"
                       min={1}
@@ -384,7 +384,7 @@ export function MyFilters({
                       ...draft.rules,
                       {
                         id: crypto.randomUUID(),
-                        name: "New Rule",
+                        name: "New rule",
                         enabled: true,
                         priority: draft.rules.length,
                         scope,
@@ -402,7 +402,7 @@ export function MyFilters({
                 }
               >
                 <Plus size={16} />
-                Add Rule
+                Add rule
               </Button>
             </section>
             {draft.rules.map((r, i) => (
@@ -588,7 +588,7 @@ export function MyFilters({
                     >
                       <option value="">Keep classification</option>
                       <option value="spam">Spam</option>
-                      <option value="publicity">Advertising</option>
+                      <option value="publicity">Marketing</option>
                       <option value="legitimate">Legitimate</option>
                       <option value="undetermined">Needs review</option>
                     </select>
@@ -618,7 +618,7 @@ export function MyFilters({
               <span>
                 {dirty
                   ? "Unsaved changes"
-                  : "Saved Preferences"}
+                  : "Preferences saved"}
               </span>
               <Button
                 variant="outline"
@@ -637,7 +637,7 @@ export function MyFilters({
               </Button>
               <Button disabled={!dirty} onClick={() => void save()}>
                 <Save size={16} />
-                {busy ? "Saving…" : "Save My Filters"}
+                {busy ? "Saving…" : "Save my filters"}
               </Button>
             </div>
           </fieldset>

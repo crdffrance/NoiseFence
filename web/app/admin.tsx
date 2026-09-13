@@ -1176,7 +1176,7 @@ export function AdminConsole({
                 Observation records these signals. Enabling their contribution changes future scores and requires a quality evaluation.
               </p>
               <Toggle
-                label="SMTP and DNS indices in score"
+                label="Include SMTP and DNS signals in the score"
                 checked={draft.filters.smtp_policy_scoring}
                 disabled={!draft.filters.smtp_policy}
                 onChange={(v) => filterAt('smtp_policy_scoring', v)}
