@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.17.0 — Deux copies et console de secours
+## 0.17.1 — Deux copies et console de secours
+
+La candidate 0.17.0 est remplacée avant déploiement pour préserver les tombstones lors de l’expiration des métadonnées.
 
 - Réplication Rust par paire HTTPS authentifiée, corps et enveloppes durables avant SMTP 250 ; réponse 451 si le pair, sa capacité ou son stockage manque.
 - Progression par destinataire, intention d’envoi répliquée avant contact du relais, nettoyage après confirmation et reprise conservatrice des envois incertains.

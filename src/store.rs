@@ -527,7 +527,7 @@ impl Store {
                 [now() - 30 * 86400],
             )?;
             db.execute(
-                "DELETE FROM messages WHERE created<?1 AND raw_present=0 AND NOT EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=messages.id AND o.raw_present=1)",
+                "DELETE FROM messages WHERE created<?1 AND raw_present=0 AND NOT EXISTS(SELECT 1 FROM ha_local h WHERE h.message_id=messages.id AND h.acked<h.generation) AND NOT EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=messages.id AND o.raw_present=1)",
                 [now() - 30 * 86400],
             )?;
             db.execute("DELETE FROM audit WHERE created<?1", [now() - 30 * 86400])?;

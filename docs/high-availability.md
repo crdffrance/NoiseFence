@@ -1,4 +1,4 @@
-# Deux copies et console de secours (0.17.0)
+# Deux copies et console de secours (0.17.1)
 
 ## Garanties et limites
 
@@ -14,7 +14,7 @@ La console dispose d'instantanés cohérents, **pas d'une base partagée**. L'in
 
 ## Installation
 
-1. Installer la même release 0.17.0 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
+1. Installer la même release 0.17.1 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
 2. Créer une clé de paire aléatoire de 32 octets, encodée en 64 caractères hexadécimaux, dans `/etc/noisefence/replication.key`, propriétaire `noisefence`, mode `0600`, identique sur les deux machines. Ne jamais réutiliser un secret Web ou publier cette clé.
 3. Installer une route Nginx `/api/v1/replication/` vers `127.0.0.1:18080`, sans réécriture du chemin, `proxy_request_buffering off`, délai borné et taille maximale SMTP + 256 Kio. Conserver la vérification TLS. Autoriser la lecture AppArmor de `/etc/machine-id`. Aucun port API public supplémentaire.
 4. Ajouter la section de `config/replication.example.toml` avec des identités inversées sur le second MX. Redémarrer les deux : jusqu'à la première confirmation, l'admission SMTP reste différée. Vérifier « Infrastructure » : heartbeat, copies et confirmations en attente. Une fois activée, retirer la section fait refuser le démarrage ; ne pas contourner le marqueur `ha_required`.
@@ -56,4 +56,4 @@ Cette réintégration est une procédure contrôlée, pas un failback automatiqu
 - `journalctl -u noisefence -u noisefence-standby-push` : erreurs bornées sans secrets ; surveiller place libre, quota des copies et stagnation des générations.
 - `healthz.smtp_ready` devient faux quand le pair requis manque. La console de reprise signale toujours `smtp_ready: false`.
 - Exercer périodiquement une restauration dans un répertoire séparé avec réseau isolé, sans SMTP ni comptes de production utilisés pour des essais.
-- Schéma 5 après activation : un binaire antérieur à 0.17.0 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.
+- Schéma 5 après activation : un binaire antérieur à 0.17.1 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.

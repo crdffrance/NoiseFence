@@ -509,6 +509,50 @@ async fn two_simultaneous_acceptances_do_not_contend_with_the_peer_receiver() {
 }
 
 #[tokio::test]
+async fn metadata_retention_waits_for_the_peer_tombstone_acknowledgement() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enqueue(&p, &id).await.unwrap();
+    p.a.run(|db| {
+        db.execute(
+            "UPDATE messages SET created=?1",
+            [noisefence::now() - 31 * 86400],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    for _ in 0..2 {
+        let job = p.a.claim().await.unwrap().unwrap();
+        p.a.finish(&job, "delivered", "", 0).await.unwrap();
+    }
+    ha::replica::synchronize(&p.a).await.unwrap();
+    p.a.cleanup().await.unwrap();
+    assert!(!p.a.raw_path(&id).exists());
+    assert_eq!(
+        p.a.read(|db| Ok(
+            db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?
+        ))
+        .await
+        .unwrap(),
+        1
+    );
+    assert!(ha::replica::body_path(&p.b, "mx1", &id).exists());
+    ha::replica::synchronize(&p.a).await.unwrap();
+    p.a.cleanup().await.unwrap();
+    assert!(!ha::replica::body_path(&p.b, "mx1", &id).exists());
+    assert_eq!(
+        p.a.read(|db| Ok(
+            db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?
+        ))
+        .await
+        .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
 async fn smtp_accepts_only_after_two_copies_and_defers_when_the_peer_dies_during_data() {
     use noisefence::{engine::Engine, relay, smtp};
     use tokio::io::{AsyncWriteExt, BufReader};

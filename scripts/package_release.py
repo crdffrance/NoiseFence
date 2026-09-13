@@ -30,7 +30,7 @@ def main():
     shutil.copy2(args.binary,output/'noisefence')
     shutil.copytree(ROOT/'web/dist/client',output/'web')
     (output/'config').mkdir()
-    for filename in ['development.toml','production.example.toml','cluster-coordinator.example.toml','cluster-worker.example.toml']:
+    for filename in ['development.toml','production.example.toml','cluster-coordinator.example.toml','cluster-worker.example.toml','replication.example.toml']:
         shutil.copy2(ROOT/'config'/filename,output/'config'/filename)
     for directory in ['deploy','docs']:
         shutil.copytree(ROOT/directory,output/directory,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
