@@ -54,6 +54,38 @@ pub fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Rebuild acknowledgements after replacing a peer. Requires the queue to be stopped.
+pub async fn resync(root: &Path) -> Result<serde_json::Value> {
+    let store = crate::store::Store::open(root)?;
+    let _lock = store.daemon_lock()?;
+    store.run(|db| {
+        let tx=db.transaction()?;
+        ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='ha_required' AND value='1')",[],|r|r.get::<_,bool>(0))?,"Queue does not require replication");
+        tx.execute("INSERT OR IGNORE INTO ha_local(message_id,generation,acked) SELECT id,1,0 FROM messages m WHERE raw_present=1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id)",[])?;
+        let tracked=tx.execute("UPDATE ha_local SET generation=generation+1,acked=0",[])?;
+        tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','ha_rejoin_resync','pair')",[crate::now()])?;
+        tx.commit()?;
+        Ok(json!({"tracked":tracked,"smtp_started":false,"network_used":false,"bodies_deleted":false}))
+    }).await
+}
+
+/// Check the copied MFA key against every encrypted record without exposing secrets.
+pub fn verify_mfa(root: &Path) -> Result<()> {
+    let db =
+        Connection::open_with_flags(root.join("state.sqlite3"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    crate::mfa::require_no_missing_key(root, &db)?;
+    let key = crate::mfa::Key::open(root)?;
+    let mut q = db.prepare("SELECT username,secret FROM mfa_credentials")?;
+    for row in q.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
+    })? {
+        let (user, secret) = row?;
+        key.open_secret(&user, &secret)
+            .context("MFA recovery key does not match the checkpoint")?;
+    }
+    Ok(())
+}
+
 /// Overlay the freshest peer journal onto a *staged*, stopped console snapshot.
 /// The caller must fence the original owner. We require a private, matching receipt
 /// and never infer fencing from a failed ping or a stale heartbeat.

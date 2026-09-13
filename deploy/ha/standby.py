@@ -64,7 +64,7 @@ def data_paths(value):
         if p.exists() and p.resolve().is_relative_to(DATA): yield p
 
 def export():
-    started=int(time.time())
+    started_ns=time.time_ns();started=started_ns//1_000_000_000
     cfg_bytes=(CONFIG/'config.toml').read_bytes();cfg=tomllib.loads(cfg_bytes.decode())
     if cfg['cluster']['role']!='coordinator': raise ValueError('Only a coordinator exports console state')
     with sqlite3.connect('file:'+str(DATA/'state.sqlite3')+'?mode=ro',uri=True) as db:
@@ -102,12 +102,12 @@ def export():
         with sqlite3.connect('file:'+str(DATA/'state.sqlite3')+'?mode=ro',uri=True) as db:
             after=db.execute('SELECT id,settings FROM console_revisions ORDER BY id DESC LIMIT 1').fetchone()
         if before!=snapshot or before!=after: raise ValueError('Console revision changed during checkpoint')
-        manifest={'protocol':'noisefence-console-1','owner':cfg['cluster']['node_id'],'created':int(time.time()),'started':started,'revision':before[0],
+        manifest={'protocol':'noisefence-console-1','owner':cfg['cluster']['node_id'],'created':int(time.time()),'started':started,'started_ns':started_ns,'revision':before[0],
                   'build':subprocess.check_output([str(BINARY),'--version'],text=True).strip(),'snapshot':str(uuid.uuid4()),
                   'files':{name:{'bytes':(root/name).stat().st_size,'sha256':digest(root/name)} for name in files}}
         if (STATE/'fenced.json').exists():
             fence=json.loads((STATE/'fenced.json').read_text())
-            if fence.get('fenced') and started>=fence['created']:manifest['fence_operation']=fence['operation']
+            if fence.get('fenced') and started_ns>fence.get('created_ns',2**63-1):manifest['fence_operation']=fence['operation']
         private_json(root/'manifest.json',manifest)
         with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as archive:
             for name in sorted([*files,'manifest.json']):archive.add(root/name,arcname=name,recursive=False)

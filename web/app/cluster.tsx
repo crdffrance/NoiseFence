@@ -479,10 +479,10 @@ export function ClusterConsole({
       <div className="card cluster-behavior">
         <h2>Comportement en cas de panne</h2>
         <p>
-          Les nœuds continuent à recevoir avec leur dernière politique valide,
-          dans leur durée d’autonomie configurée. Leurs crédits LLM et quotas
-          restent bornés. Les analyses et états de livraison sont synchronisés
-          au retour de la connexion.
+          {overview.replication?.required
+            ? 'La réception nécessite une politique valide et la confirmation du second MX. Une politique en cache ne permet pas de recevoir à une seule copie ; un pair indisponible entraîne un report SMTP temporaire.'
+            : 'Les nœuds continuent à recevoir avec leur dernière politique valide, dans leur durée d’autonomie configurée.'}
+          {' '}Les crédits LLM et quotas restent bornés. Les analyses et états de livraison sont synchronisés au retour de la connexion.
         </p>
         <p>
           {overview.replication?.required

@@ -204,7 +204,7 @@ impl Bundle {
         );
         let mut bundle = self.clone();
         bundle.build = build.into();
-        if build != env!("CARGO_PKG_VERSION") {
+        if matches!(build, "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3") {
             // Older workers deny unknown typed fields. Keep admission disabled
             // for them during coordinator-first rolling deployment.
             bundle.settings.smtp_admission = None;

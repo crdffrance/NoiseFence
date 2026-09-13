@@ -130,6 +130,10 @@ enum Command {
     Serve,
     /// Serve only the fenced recovery console: never bind SMTP or start a relay.
     ServeConsole,
+    /// Require fresh acknowledgements after replacing a replica; daemon must be stopped.
+    HaResync {
+        data: PathBuf,
+    },
     /// In a staged disaster recovery only, revoke stale access and create a private recovery account.
     HaDisasterAccess {
         #[arg(long)]
@@ -392,6 +396,10 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::HaResync { data } => {
+            println!("{}", noisefence::ha::recovery::resync(data).await?);
+            return Ok(());
+        }
         Command::HaDisasterAccess { data, credentials } => {
             ensure!(
                 data.join("ha-recovery.json").is_file() && !credentials.exists(),
@@ -504,6 +512,7 @@ async fn main() -> Result<()> {
             );
             let staged = Store::open(data_directory)?;
             let _lock = staged.daemon_lock()?;
+            noisefence::ha::recovery::verify_mfa(data_directory)?;
             let old_data = source_data.clone();
             let new_data = data_directory.to_string_lossy().to_string();
             let new_config = config_directory.to_string_lossy().to_string();

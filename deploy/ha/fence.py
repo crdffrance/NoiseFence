@@ -37,7 +37,8 @@ def fence():
         if state not in ['inactive','failed']:raise ValueError('Service did not stop: '+unit)
     pid=subprocess.check_output(['systemctl','show','noisefence','-p','MainPID','--value'],text=True).strip()
     if pid!='0':raise ValueError('The SMTP process is still running')
-    receipt={'owner':cfg['cluster']['node_id'],'hostname':cfg['hostname'],'operation':operation,'fenced':True,'created':int(time.time()),'method':'systemd-persistent-condition','automatic_restart_blocked':True}
+    created_ns=time.time_ns()
+    receipt={'owner':cfg['cluster']['node_id'],'hostname':cfg['hostname'],'operation':operation,'fenced':True,'created':created_ns//1_000_000_000,'created_ns':created_ns,'method':'systemd-persistent-condition','automatic_restart_blocked':True}
     private_json(STATE/'fenced.json',receipt)
     return receipt
 

@@ -406,6 +406,7 @@ pub async fn synchronize(store: &Store) -> Result<()> {
                     "INSERT OR REPLACE INTO cluster_state VALUES('ha_last_success',?1)",
                     [now().to_string()],
                 )?;
+                db.execute("DELETE FROM cluster_state WHERE key='ha_last_error'", [])?;
                 Ok(())
             })
             .await?;

@@ -26,7 +26,7 @@ def validate_fence(fence,settings,manifest,disaster,now):
         if fence.get('method')!='provider-poweroff' or not isinstance(fence.get('reference'),str) or not 1<=len(fence['reference'])<=500:
             raise ValueError('Record the verified provider power-off operation; an unreachable host is not fenced')
         if not 0<=now-manifest['created']<=86400:raise ValueError('Disaster checkpoint older than 24h: separate recovery review required')
-    elif fence.get('method')!='systemd-persistent-condition' or manifest.get('fence_operation')!=fence['operation'] or manifest.get('started',0)<fence['created']:
+    elif fence.get('method')!='systemd-persistent-condition' or manifest.get('fence_operation')!=fence['operation'] or manifest.get('started_ns',0)<=fence.get('created_ns',2**63-1):
         raise ValueError('Take a final checkpoint AFTER fencing; the periodic checkpoint is not enough for a planned switch')
 
 def promote(fence_path,disaster=False):

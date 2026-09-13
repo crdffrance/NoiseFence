@@ -1,4 +1,4 @@
-# Deux copies et console de secours (0.17.1)
+# Deux copies et console de secours (0.17.2)
 
 ## Garanties et limites
 
@@ -14,7 +14,7 @@ La console dispose d'instantanés cohérents, **pas d'une base partagée**. L'in
 
 ## Installation
 
-1. Installer la même release 0.17.1 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
+1. Installer la même release 0.17.2 ou suivante sur les deux MX, coordinateur d'abord. Conserver les files, paramètres d'observation, identités et budgets.
 2. Créer une clé de paire aléatoire de 32 octets, encodée en 64 caractères hexadécimaux, dans `/etc/noisefence/replication.key`, propriétaire `noisefence`, mode `0600`, identique sur les deux machines. Ne jamais réutiliser un secret Web ou publier cette clé.
 3. Installer une route Nginx `/api/v1/replication/` vers `127.0.0.1:18080`, sans réécriture du chemin, `proxy_request_buffering off`, délai borné et taille maximale SMTP + 256 Kio. Conserver la vérification TLS. Autoriser la lecture AppArmor de `/etc/machine-id`. Aucun port API public supplémentaire.
 4. Ajouter la section de `config/replication.example.toml` avec des identités inversées sur le second MX. Redémarrer les deux : jusqu'à la première confirmation, l'admission SMTP reste différée. Vérifier « Infrastructure » : heartbeat, copies et confirmations en attente. Une fois activée, retirer la section fait refuser le démarrage ; ne pas contourner le marqueur `ha_required`.
@@ -32,7 +32,7 @@ Opération administrateur, jamais déclenchée par un ping manquant :
 1. Sur le coordinateur, exécuter `sudo python3 /usr/local/libexec/noisefence-ha/fence.py`. Le reçu `/var/lib/noisefence-standby/fenced.json` atteste l'arrêt des processus et empêche leur redémarrage par une condition systemd persistante. Ne pas le supprimer pendant la reprise.
 2. Toujours sur cette machine désormais arrêtée, lancer `sudo python3 /usr/local/libexec/noisefence-ha/standby.py push`. L'instantané final doit avoir commencé après le fencing et porter son identifiant d'opération.
 3. Copier le reçu par le canal d'administration authentifié sur le pair, mode `0600`. Lancer `sudo python3 /usr/local/libexec/noisefence-ha/promote.py --fence-receipt /chemin/prive/fence.json` dans l'heure qui suit.
-4. La restauration utilise un répertoire séparé `active`, vérifie chaque corps, préserve les identifiants et ouvre **uniquement la console** sur `127.0.0.1:18081`. Le proxy HTTPS et l'URL de coordination du worker sont mis à jour. La file propre au worker n'est jamais remplacée. Se reconnecter ; les anciennes sessions sont révoquées.
+4. La restauration utilise un répertoire séparé `active`, vérifie chaque corps, préserve les identifiants et ouvre **uniquement la console** sur `127.0.0.1:18081`. La clé MFA copiée doit déchiffrer chaque secret enregistré avant activation. Le proxy HTTPS et l'URL de coordination du worker sont mis à jour. La file propre au worker n'est jamais remplacée. Se reconnecter ; les anciennes sessions sont révoquées.
 
 Si la promotion échoue, le coordinateur reste fenced. Inspecter `active`, `promoted.json`, le journal systemd et le proxy avant toute reprise ; l'outil refuse d'écraser un état déjà restauré. Ne pas retirer ces protections pour relancer aveuglément la commande.
 
@@ -46,7 +46,7 @@ Ce mode accepte un instantané âgé d'au plus 24 heures. Il désactive tous les
 
 La console de secours n'exécute **aucun relais SMTP**. Tant que le pair requis manque, les nouvelles réceptions et tentatives restent différées, conformément au choix de deux copies obligatoires. Ne pas supprimer `[replication]` pour rendre le service artificiellement disponible.
 
-Avant de reprendre le courrier du coordinateur sur un serveur remplacé : arrêter sa console de secours et tous ses auteurs de modifications, prendre un nouvel instantané cohérent de `active/data`, conserver les copies d'origine et leurs journaux, transférer cet état courant (pas l'ancien instantané) vers le remplaçant arrêté avec l'identité du coordinateur, adapter les chemins et rétablir la paire HTTPS. Vérifier les empreintes, les destinataires terminaux et les générations de réplication ; les générations restaurées sont supérieures au journal d'origine. Remettre l'autorité du worker vers le nouveau coordinateur, puis redémarrer après les contrôles. L'ancien hôte reste éteint/fenced jusqu'à réconciliation complète. La commande `ha-restore` refuse d'écraser une file appartenant à un autre nœud.
+Avant de reprendre le courrier du coordinateur sur un serveur remplacé : arrêter sa console de secours et tous ses auteurs de modifications, prendre un nouvel instantané cohérent de `active/data`, conserver les copies d'origine et leurs journaux, transférer cet état courant (pas l'ancien instantané) vers le remplaçant arrêté avec l'identité du coordinateur, adapter les chemins et rétablir la paire HTTPS. Sur chaque file arrêtée, exécuter `sudo /opt/noisefence/noisefence ha-resync /var/lib/noisefence` : cette commande conserve les corps et les états, augmente les générations et remet les confirmations à zéro. Elle refuse de travailler si le verrou du service est détenu. Les anciennes confirmations du worker survivant ne prouvent pas la présence des copies sur un pair reconstruit. Vérifier ensuite les empreintes, les destinataires terminaux et la confirmation de toutes les générations avant de déclarer la réintégration terminée. Remettre l'autorité du worker vers le nouveau coordinateur, puis redémarrer après les contrôles. L'ancien hôte reste éteint/fenced jusqu'à réconciliation complète. La commande `ha-restore` refuse d'écraser une file appartenant à un autre nœud.
 
 Cette réintégration est une procédure contrôlée, pas un failback automatique. Ne jamais lancer deux coordinateurs avec la même identité, ni réinstaller une sauvegarde ancienne sur une file en cours. Vérifier les envois incertains manuellement. Garder une copie privée des reçus d'opération.
 
@@ -56,4 +56,4 @@ Cette réintégration est une procédure contrôlée, pas un failback automatiqu
 - `journalctl -u noisefence -u noisefence-standby-push` : erreurs bornées sans secrets ; surveiller place libre, quota des copies et stagnation des générations.
 - `healthz.smtp_ready` devient faux quand le pair requis manque. La console de reprise signale toujours `smtp_ready: false`.
 - Exercer périodiquement une restauration dans un répertoire séparé avec réseau isolé, sans SMTP ni comptes de production utilisés pour des essais.
-- Schéma 5 après activation : un binaire antérieur à 0.17.1 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.
+- Schéma 5 après activation : un binaire antérieur à 0.17.2 ne doit pas être utilisé sur cette file. Les scripts de rollback vérifient le schéma.

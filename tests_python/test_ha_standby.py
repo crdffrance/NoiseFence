@@ -25,10 +25,10 @@ class StandbyTests(unittest.TestCase):
         self.assertEqual(standby.safe_name('data/models/active.json'),'data/models/active.json')
 
     def test_planned_promotion_requires_final_checkpoint_after_fence(self):
-        now=int(time.time());f={'owner':'mx1','fenced':True,'created':now,'operation':'test','method':'systemd-persistent-condition'}
-        settings={'owner':'mx1'};m={'created':now,'started':now-1,'fence_operation':'test'}
+        now=int(time.time());f={'owner':'mx1','fenced':True,'created':now,'operation':'test','created_ns':now*1_000_000_000+500,'method':'systemd-persistent-condition'}
+        settings={'owner':'mx1'};m={'created':now,'started':now,'started_ns':now*1_000_000_000+100,'fence_operation':'test'}
         with self.assertRaises(ValueError):promote.validate_fence(f,settings,m,False,now)
-        m['started']=now;promote.validate_fence(f,settings,m,False,now)
+        m['started_ns']=now*1_000_000_000+501;promote.validate_fence(f,settings,m,False,now)
         with self.assertRaises(ValueError):promote.validate_fence(f,settings,m,False,now+3601)
         m['fence_operation']='different'
         with self.assertRaises(ValueError):promote.validate_fence(f,settings,m,False,now)

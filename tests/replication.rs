@@ -553,6 +553,65 @@ async fn metadata_retention_waits_for_the_peer_tombstone_acknowledgement() {
 }
 
 #[tokio::test]
+async fn resync_requires_a_stopped_queue_and_rebuilds_a_replaced_peer_without_replaying_states() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enqueue(&p, &id).await.unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let job = p.a.claim().await.unwrap().unwrap();
+    p.a.finish(&job, "delivered", "", 0).await.unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let lock = p.a.daemon_lock().unwrap();
+    assert!(ha::recovery::resync(&p.a.root).await.is_err());
+    drop(lock);
+    p.b.run(|db| {
+        db.execute("DELETE FROM ha_remote", [])?;
+        db.execute("DELETE FROM ha_blobs", [])?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let report = ha::recovery::resync(&p.a.root).await.unwrap();
+    assert_eq!(report["tracked"], 1);
+    assert!(p.a.claim().await.unwrap().is_none());
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let states = remote(&p, &id).await.deliveries;
+    assert_eq!(states.iter().filter(|d| d.status == "delivered").count(), 1);
+    assert_eq!(states.iter().filter(|d| d.status == "pending").count(), 1);
+    assert_eq!(ha::status(&p.a).await.unwrap().unprotected, 0);
+}
+
+#[tokio::test]
+async fn successful_idle_heartbeat_clears_the_previous_replication_incident() {
+    let p = pair().await;
+    p.a.run(|db| {
+        db.execute(
+            "INSERT INTO cluster_state VALUES('ha_last_error','fixture outage')",
+            [],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    assert!(ha::status(&p.a).await.unwrap().last_error.is_none());
+}
+
+#[tokio::test]
+async fn console_material_verification_rejects_a_key_that_cannot_decrypt_its_mfa_records() {
+    let p = pair().await;
+    let key = noisefence::mfa::Key::open(&p.a.root).unwrap();
+    let secret = key.seal("fixture", &[42; 20]).unwrap();
+    p.a.run(move|db| {
+        db.execute("INSERT INTO users(username,password) VALUES('fixture','unusable-fixture-password')",[])?;
+        db.execute("INSERT INTO mfa_credentials(username,secret,enabled,pending_until) VALUES('fixture',?1,1,0)",[secret])?;Ok(())
+    }).await.unwrap();
+    ha::recovery::verify_mfa(&p.a.root).unwrap();
+    std::fs::write(p.a.root.join("mfa.key"), [0; 32]).unwrap();
+    assert!(ha::recovery::verify_mfa(&p.a.root).is_err());
+}
+
+#[tokio::test]
 async fn smtp_accepts_only_after_two_copies_and_defers_when_the_peer_dies_during_data() {
     use noisefence::{engine::Engine, relay, smtp};
     use tokio::io::{AsyncWriteExt, BufReader};
