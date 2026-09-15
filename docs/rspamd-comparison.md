@@ -34,7 +34,7 @@ apt-cache policy rspamd
 apt-get install --no-install-recommends rspamd
 
 # From the verified NoiseFence release directory:
-sudo deploy/install-rspamd.sh 127.0.0.53
+sudo sh deploy/install-rspamd.sh 127.0.0.53
 ```
 
 The DNS argument must point to an installed **local caching resolver** (supported addresses: 127.0.0.1, 127.0.0.53 or 127.0.0.54). Verify it can resolve public SPF, DKIM, DMARC, PTR and address records. The service permits loopback network traffic only, so using an external resolver directly will fail.

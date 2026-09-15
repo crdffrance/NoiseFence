@@ -11,7 +11,7 @@ if systemctl is-active --quiet rspamd.service; then
 fi
 id _rspamd >/dev/null
 command -v python3 >/dev/null
-"$root/rspamd-profile.sh" /etc/noisefence-rspamd "$resolver"
+sh "$root/rspamd-profile.sh" /etc/noisefence-rspamd "$resolver"
 install -d -m 0700 -o _rspamd -g _rspamd /var/lib/noisefence-rspamd /run/noisefence-rspamd
 rspamadm --var=LOCAL_CONFDIR=/etc/noisefence-rspamd --var=DBDIR=/var/lib/noisefence-rspamd configtest -c /etc/noisefence-rspamd/rspamd.conf
 install -m 0644 "$root/noisefence-rspamd.service" /etc/systemd/system/noisefence-rspamd.service
