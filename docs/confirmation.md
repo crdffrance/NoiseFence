@@ -17,7 +17,7 @@ The fusion learned, when activated with its own validation report, retains its c
 
 The old files and revisions keep the default `false` value. The production configuration model offers `true`. The administrator can explicitly activate with a new revision. Historical decisions and already delivered messages are not rewritten. The **Needs review** filter selects new complete analyses whose decision is not known; **Incomplete analysis** retains its operational meaning.
 
-The prompt LLM `noisefence-classify-3` also specifies that brevity, free provider, transfer and service notification are not spam proofs. Nor does the transfer prefix guarantee the security of the content. This change in instructions alone does not result in a measured quality gain.
+The LLM prompt `noisefence-classify-4` specifies that brevity, free providers, forwarding and service notifications are not spam proofs. It also distinguishes reported threats from attacks and ordinary shipment timing from coercive requests. A forwarding prefix does not guarantee content safety. See [context-aware review](context-review.md). These instructions alone do not establish a measured quality gain.
 
 <a id="vérification"></a>
 ## Verification

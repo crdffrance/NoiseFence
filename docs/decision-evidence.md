@@ -1,7 +1,7 @@
 <a id="résultats-conservés-pour-une-décision-commune"></a>
 # Results retained for a joint decision
 
-See [context-aware review and resilient content analysis](context-review.md) for policy 3, encrypted-body coverage and semantic deadline controls introduced in 0.20.1.
+See [context-aware review and resilient content analysis](context-review.md) for policy 3, encrypted-body coverage and semantic deadline controls introduced in 0.20.2.
 
 <a id="score-visible-et-décision"></a>
 ## Visible score and decision

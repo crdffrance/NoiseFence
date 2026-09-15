@@ -49,4 +49,4 @@ The 2.5 seconds LLM delay is one of five seconds shared with the DNS checks. Mea
 
 References: [Generative APIs](https://www.scaleway.com/en/docs/generative-apis/api-cli/using-generative-apis/), [structured outputs](https://www.scaleway.com/en/docs/generative-apis/how-to/use-structured-outputs), [IAM policies](https://www.scaleway.com/en/docs/iam/reference-content/policy/).
 
-New explanations use English with prompt version `noisefence-classify-3`. Existing stored explanations are not rewritten. The prompt digest changes the observation group used for evaluation; do not mix groups or reuse an earlier validation automatically.
+New explanations use English with prompt version `noisefence-classify-4`. The prompt distinguishes reported threats from attacks and adds bounded, locally derived link-domain relationships. See [context-aware review](context-review.md). Existing stored explanations are not rewritten. The prompt digest changes the observation group used for evaluation; do not mix groups or reuse an earlier validation automatically.

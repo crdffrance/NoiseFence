@@ -1,7 +1,7 @@
 <a id="publicités-et-newsletters-pub"></a>
 # Advertising and newsletters (PUB)
 
-NoiseFence distinguishes legitimate advertisements from spam. The visible category follows the security decision: **priority spam**, then PUB if the analysis is complete, then legitimate. Undetermined analysis does not receive a PUB category. The local `mailing-1` detector never decreases the spam score and does not add any network calls.
+NoiseFence distinguishes legitimate advertisements from spam. The visible category follows the security decision: **priority spam**, then PUB if the analysis is complete, then legitimate. Undetermined analysis does not receive a PUB category. The local `mailing-2` detector never decreases the spam score and does not add any network calls. It distinguishes scheduled service updates from newsletters and requires body offer evidence when recognizing a newsletter from list and unsubscribe headers. See [context-aware review](context-review.md).
 
 <a id="détection-et-limites"></a>
 ## Detection and limitations
