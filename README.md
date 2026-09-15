@@ -85,3 +85,5 @@ For development without Docker, copy `config/development.toml` to a private conf
 Bodies and attachments are removed after all recipient outcomes and required replica acknowledgements are resolved. Pending or held messages follow their queue/quarantine policy. Metadata and retained features normally expire after 30 days. Exports and backups have independent retention; hashed features are not an anonymity guarantee.
 
 Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities through [SECURITY.md](SECURITY.md). See [THIRD_PARTY.md](THIRD_PARTY.md) for dependencies and upstream acknowledgements.
+
+Optional: [independent Rspamd comparison](docs/rspamd-comparison.md) provides asynchronous engine comparisons in the console without changing NoiseFence delivery decisions.

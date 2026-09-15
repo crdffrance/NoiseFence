@@ -25,6 +25,14 @@ const LLM: &[&str] = &[
     "review_unconfirmed_high",
     "max_parallel",
 ];
+const RSPAMD: &[&str] = &[
+    "enabled",
+    "sample_percent",
+    "max_bytes",
+    "max_parallel",
+    "queue_capacity",
+    "timeout_ms",
+];
 const VISION: &[&str] = &[
     "timeout_ms",
     "max_parallel",
@@ -86,6 +94,9 @@ impl Detection {
             "analysis".into(),
             json!({"max_bytes":c.filter.max_analysis_bytes}),
         )]);
+        if let Some(s) = &c.rspamd {
+            modules.insert("rspamd".into(), select(s, RSPAMD));
+        }
         if let Some(s) = &c.protection {
             modules.insert("protection".into(), select(s, PROTECTION));
         }
@@ -112,6 +123,12 @@ impl Detection {
                 "Engine not installed: {name}"
             );
             match name.as_str() {
+                "rspamd" => {
+                    if let Some(s) = &mut c.rspamd {
+                        patch(s, value, RSPAMD)?;
+                        s.validate()?;
+                    }
+                }
                 "analysis" => {
                     ensure!(
                         value

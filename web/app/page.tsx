@@ -1,4 +1,6 @@
 'use client';
+import { RspamdComparison, RspamdOverview } from './rspamd-comparison';
+import type { RspamdReport, ComparisonSummary } from './rspamd-format';
 import type { Assessment } from './assessment';
 import { MyFilters } from './preferences';
 import { ClusterConsole } from './cluster';
@@ -91,6 +93,7 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  rspamd?: RspamdReport | null;
   assessment?: Assessment;
   node_id?: string | null;
   node_updated_at?: number | null;
@@ -287,6 +290,7 @@ function Home() {
   const [searchFilters, setSearchFilters] = useState(emptySearch);
   const [searchTotal, setSearchTotal] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [comparisonSummary, setComparisonSummary] = useState<ComparisonSummary | null>(null);
   const [compact, setCompact] = useState(false);
   const [mails, setMails] = useState<Mail[]>([]),
     [selected, setSelected] = useState<Mail | null>(null),
@@ -319,6 +323,7 @@ function Home() {
     setSearch('');
     setSearchFilters(emptySearch);
     setSearchTotal(null);
+    setComparisonSummary(null);
     setHasMore(false);
     setFilter('all');
     setOffset(0);
@@ -340,6 +345,7 @@ function Home() {
         previous?.id === data.message_id
           ? {
               ...previous,
+              rspamd: data.analysis.rspamd,
               recipients: data.recipients.map((recipient) => ({
                 ...previous.recipients.find(
                   (existing) => existing.address === recipient.address,
@@ -388,7 +394,7 @@ function Home() {
     setLoading(true);
     try {
       const [messages, totals, scope] = await Promise.all([
-        api<{ messages: Mail[]; total: number; has_more: boolean }>(
+        api<{ messages: Mail[]; total: number; has_more: boolean; comparison: ComparisonSummary | null }>(
           `/search/messages?${searchParameters(search, filter, domain, offset, searchFilters)}`,
         ),
         api<Stats>(`/stats?domain=${encodeURIComponent(domain)}`),
@@ -398,6 +404,7 @@ function Home() {
         return;
       setMails(messages.messages);
       setSearchTotal(messages.total);
+      setComparisonSummary(messages.comparison);
       setHasMore(messages.has_more);
       setStats(totals);
       setDomains(scope);
@@ -736,9 +743,9 @@ function Home() {
           <div className="rail-label">MAIL</div>
           <nav className="navigation" aria-label="Mail settings">
             <button
-              className={`nav-item ${section === 'messages' && filter !== 'quarantined' ? 'nav-active' : ''}`}
+              className={`nav-item ${section === 'messages' && filter !== 'quarantined' && !filter.startsWith('rspamd_') ? 'nav-active' : ''}`}
               aria-current={
-                section === 'messages' && filter !== 'quarantined'
+                section === 'messages' && filter !== 'quarantined' && !filter.startsWith('rspamd_')
                   ? 'page'
                   : undefined
               }
@@ -747,6 +754,11 @@ function Home() {
               <Inbox size={18} />
               {user.admin ? "All messages" : "My messages"}
             </button>
+            <button
+              className={`nav-item ${section === 'messages' && filter.startsWith('rspamd_') ? 'nav-active' : ''}`}
+              aria-current={section === 'messages' && filter.startsWith('rspamd_') ? 'page' : undefined}
+              onClick={() => navigate('messages', 'rspamd_all')}
+            ><SlidersHorizontal size={18} /> Engine comparison</button>
             <button
               className={`nav-item ${section === 'messages' && filter === 'quarantined' ? 'nav-active' : ''}`}
               aria-current={
@@ -1030,6 +1042,7 @@ function Home() {
                     {new Date(selected.created * 1000).toLocaleString("en-GB")}
                   </p>
                 </div>
+                <RspamdComparison report={selected.rspamd} mail={selected} onRefresh={() => setDiagnosticsRevision(value => value + 1)} />
                 <div className="detail-grid">
                   <section className="panel analysis-panel">
                     <h2>Why this classification?</h2>
@@ -1406,7 +1419,7 @@ function Home() {
                         : "YOUR MAIL"}
                     </p>
                     <h1>
-                      {filter === 'quarantined'
+                      {filter.startsWith('rspamd_') ? 'Engine comparison' : filter === 'quarantined'
                         ? "Quarantined"
                         : user.admin
                           ? "All messages"
@@ -1553,6 +1566,7 @@ function Home() {
                       <Rows3 size={16} /> Compact view
                     </Button>
                   </div>
+                  {filter.startsWith('rspamd_') && comparisonSummary && <RspamdOverview summary={comparisonSummary} />}
                   <div className="toolbar">
                     <fieldset
                       className="tabs"
@@ -1581,7 +1595,7 @@ function Home() {
                         </Button>
                       ))}
                       <label
-                        className={`more-filters ${['pending', 'review', 'publicity_signal', 'incomplete'].includes(filter) ? 'has-filter' : ''}`}
+                        className={`more-filters ${['pending', 'review', 'publicity_signal', 'incomplete', 'rspamd_all', 'rspamd_disagreement', 'rspamd_inconclusive', 'rspamd_unavailable'].includes(filter) ? 'has-filter' : ''}`}
                       >
                         <SlidersHorizontal size={14} />
                         <select
@@ -1591,7 +1605,7 @@ function Home() {
                               'pending',
                               'review',
                               'publicity_signal',
-                              'incomplete',
+                              'incomplete', 'rspamd_all', 'rspamd_disagreement', 'rspamd_inconclusive', 'rspamd_unavailable',
                             ].includes(filter)
                               ? filter
                               : ''
@@ -1612,6 +1626,12 @@ function Home() {
                             Marketing signals, all classifications
                           </option>
                           <option value="incomplete">Partial analysis</option>
+                          <optgroup label="Engine comparison">
+                            <option value="rspamd_all">All Rspamd comparisons</option>
+                            <option value="rspamd_disagreement">Engines disagree</option>
+                            <option value="rspamd_inconclusive">No comparable verdict</option>
+                            <option value="rspamd_unavailable">Comparison not completed</option>
+                          </optgroup>
                         </select>
                       </label>
                     </fieldset>
@@ -1684,6 +1704,10 @@ function Home() {
                             review: "Needs review",
                             publicity_signal: "Marketing signals",
                             incomplete: "Partial analysis",
+                            rspamd_all: "All Rspamd comparisons",
+                            rspamd_disagreement: "Engines disagree",
+                            rspamd_inconclusive: "No comparable verdict",
+                            rspamd_unavailable: "Comparison not completed",
                           }[filter] ?? filter}
                         </span>
                       )}

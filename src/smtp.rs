@@ -27,6 +27,8 @@ pub type Wire = BufReader<Box<dyn Transport>>;
 mod admission_tests;
 #[cfg(test)]
 mod rbl_tests;
+#[cfg(test)]
+mod rspamd_tests;
 #[derive(Clone)]
 pub struct State {
     pub config: Arc<Config>,
@@ -581,6 +583,17 @@ async fn session(
                 let sender = from.take().unwrap();
                 let recipients = std::mem::take(&mut recipients);
                 let recipient_count = recipients.len();
+                let comparison = state.engine.rspamd.begin(
+                    &raw,
+                    crate::rspamd::Envelope {
+                        ip: peer.ip(),
+                        helo: &helo,
+                        sender: &sender,
+                        recipients: &recipients,
+                        id: &id,
+                    },
+                    state.store.clone(),
+                );
                 let result = state
                     .engine
                     .process_smtp(
@@ -597,12 +610,25 @@ async fn session(
                         for variant in &mut variants {
                             early_rbl.attach(&mut variant.scan);
                             variant.scan.smtp_admission = admission_reports.clone();
+                            if let Some(ticket) = &comparison {
+                                let mut report = ticket.report.clone();
+                                report.bind(&variant.scan);
+                                variant.scan.rspamd = Some(report);
+                            }
                         }
                         let scan = &variants[0].scan;
                         tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
-                        state.store.enqueue_variants(sender, variants).await
+                        let ids = variants.iter().map(|v| v.id.clone()).collect();
+                        let accepted = state.store.enqueue_variants(sender, variants).await;
+                        if let Some(ticket) = comparison.filter(|_| accepted.is_ok()) {
+                            ticket.commit(ids);
+                        }
+                        accepted
                     }
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        drop(comparison);
+                        Err(e)
+                    }
                 };
                 drop(permit);
                 match result {

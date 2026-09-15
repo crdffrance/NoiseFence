@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0 — Independent Rspamd comparison
+
+- Compare original incoming SMTP messages with a local Rspamd service, asynchronously and with bounded memory, concurrency and deadlines. NoiseFence decisions and delivery are unchanged.
+- Inspect separate score scales, proposed actions, symbols and versioned profiles in the English console; filter disagreements with recipient-scoped coverage counts.
+- Configure comparison sampling and limits through the Web. Replicate comparison metadata across MX nodes and distinguish incomplete or lost comparison jobs from message failures.
+- Ship an isolated Rspamd 4.1.5 profile, systemd service, installation guide and synthetic protocol tests. No automatic training or new external content analysis.
+
+
 ## 0.18.0 — Consistent assessments and English release
 
 - Share a versioned Rust assessment across the message API, search, console and new SMTP diagnostics. Distinguish the 0–100 risk index, engine decision, recipient classification, analysis coverage, requested/effective delivery action and actual subject tag. Invalid values never become fabricated zeroes.

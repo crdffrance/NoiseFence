@@ -786,3 +786,20 @@ details.management-card summary {
   align-content: start;
   min-width: 0;
 }
+
+/* Independent Rspamd comparison: separate units and explicit coverage. */
+.rspamd-comparison { margin-block: 1rem; min-width: 0; }
+.rspamd-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.rspamd-heading h2 { margin-block: .25rem; }
+.rspamd-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 1rem; margin-block: 1.25rem; }
+.rspamd-metrics > div { display: flex; flex-direction: column; gap: .35rem; }
+.rspamd-metrics strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.rspamd-metrics small { font-size: .8rem; font-weight: 400; }
+.rspamd-symbols { overflow: auto; max-height: 24rem; }
+.rspamd-symbols table { width: 100%; border-collapse: collapse; }
+.rspamd-symbols th, .rspamd-symbols td { padding: .55rem; text-align: left; overflow-wrap: anywhere; }
+.rspamd-symbols th:last-child, .rspamd-symbols td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.rspamd-provenance { margin-top: 1rem; }
+.rspamd-provenance dd { margin: .25rem 0 .75rem; overflow-wrap: anywhere; }
+.rspamd-comparison summary { cursor: pointer; padding-block: .5rem; }
+@media (max-width: 680px) { .rspamd-metrics { grid-template-columns: 1fr; } }

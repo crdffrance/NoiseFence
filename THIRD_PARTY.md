@@ -1,4 +1,4 @@
-# Composants tiers
+# Third-party components
 
 The NoiseFence code is distributed under GPL-3.0-only. Dependencies keep their respective licenses. `Cargo.lock` and `web/package-lock.json` identify the exact versions and allow their sources to be found in official records.
 
@@ -14,4 +14,6 @@ The optional OCR worker uses the Tesseract system packages and its English/Frenc
 
 The link protection uses scraper (ISC) and html5ever (MIT/Apache-2.0), as well as psl (MIT/Apache-2.0) and its public Suffix List embedded. IDNA retains its MIT/Apache-2.0 license. The records in the crates are collected with those of other dependencies. CRDF and VirusTotal APIs and phishing streams are optional, subject to vendor licenses; no data set, secret or redistribution rights are included in NoiseFence.
 
-`src/native_filter/content_rules.rs`'s structured Rust rules are an independent implementation, inspired by the HTML, MIME and D-header controls of Rspamd (Apache-2.0). The sources consulted are pinned to the `e2de26d28ce857d5c48ac82703cf26b681bd1d89` revision; their correspondence and differences are documented in `docs/rspamd-rules.md`. The upstream notice is kept in `licenses/rspamd-Apache-2.0.md`. No Lua/C code, remote list, prompt GPT nor weight of a Rspamd model is embedded or executed.
+`src/native_filter/content_rules.rs`'s structured Rust rules are an independent implementation, inspired by the HTML, MIME and header controls of Rspamd (Apache-2.0). The sources consulted are pinned to the `e2de26d28ce857d5c48ac82703cf26b681bd1d89` revision; their correspondence and differences are documented in `docs/rspamd-rules.md`. The upstream notice is kept in `licenses/rspamd-Apache-2.0.md`. These native rules do not embed or execute upstream Lua/C, remote lists, GPT prompts or Rspamd model weights.
+
+The optional independent comparison service runs an unmodified Rspamd 4.1.5 executable and its rules in a separate local process. Rspamd is installed separately from its official packages or container image and retains its Apache-2.0 license and package notices. NoiseFence release archives do not redistribute that executable, its dependencies, trained models or provider feeds. The comparison profile and operational limits are documented in `docs/rspamd-comparison.md`.

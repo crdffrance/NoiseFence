@@ -161,6 +161,17 @@ impl Settings {
             .get_or_insert_with(|| base.rbl.clone().unwrap_or_default());
         self.detection
             .get_or_insert_with(|| crate::management::Detection::from_config(base));
+        if let Some(value) = crate::management::Detection::from_config(base)
+            .modules
+            .remove("rspamd")
+        {
+            self.detection
+                .as_mut()
+                .unwrap()
+                .modules
+                .entry("rspamd".into())
+                .or_insert(value);
+        }
     }
     pub fn effective(&self, base: &Config) -> Result<Config> {
         ensure!(

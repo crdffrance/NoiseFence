@@ -1,4 +1,112 @@
 mod common;
+
+#[tokio::test]
+async fn rspamd_filters_and_coverage_are_scoped_to_live_recipient_grants() {
+    let (_dir, store, cfg) = fixture().await;
+    store.run(|db| {
+        let report=serde_json::json!({"status":"complete","job_id":"job","started_at":0,"expires_at":0,"raw_sha256":"a".repeat(64),"profile":"test","settings_sha256":"b".repeat(64),"server":null,"elapsed_ms":10,"score":7,"required_score":6,"action":"add header","symbols":[],"noisefence_outcome":"legitimate","comparison":"disagreement"});
+        db.execute("UPDATE messages SET scan=json_set(scan,'$.rspamd',json(?1),'$.rspamd.job_id',id)",[report.to_string()])?;
+        db.execute("UPDATE messages SET scan=json_set(scan,'$.rspamd.comparison','agreement') WHERE id='hidden'",[])?;
+        Ok(())
+    }).await.unwrap();
+    let page = store
+        .search_messages(
+            "alice".into(),
+            Search {
+                filter: "rspamd_disagreement".into(),
+                ..Default::default()
+            },
+            80.,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.total, 1);
+    let summary = page.comparison.unwrap();
+    assert_eq!(summary.total, 1);
+    assert_eq!(summary.completed, 1);
+    assert_eq!(summary.disagreements, 1);
+    assert_eq!(summary.agreements, 0);
+    assert_eq!(page.messages[0].recipients.len(), 1);
+    let page = store
+        .search_messages(
+            "bob".into(),
+            Search {
+                filter: "rspamd_disagreement".into(),
+                ..Default::default()
+            },
+            80.,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.comparison.unwrap().total, 2);
+    // Five more delivery variants of the same original must not turn one
+    // agreement and one disagreement into a misleading 1/7 agreement rate.
+    let original: noisefence::engine::Scan = store
+        .read(|db| {
+            let scan: String = db.query_row(
+                "SELECT scan FROM messages WHERE id='shared-identifier'",
+                [],
+                |r| r.get(0),
+            )?;
+            Ok(serde_json::from_str(&scan)?)
+        })
+        .await
+        .unwrap();
+    for n in 0..5 {
+        store
+            .enqueue(
+                format!("variant-{n}"),
+                "billing@example.org".into(),
+                vec![
+                    cfg.recipient("alice@example.test").unwrap(),
+                    cfg.recipient("bob@example.test").unwrap(),
+                ],
+                original.clone(),
+                common::MESSAGE.to_vec(),
+            )
+            .await
+            .unwrap();
+    }
+    let page = store
+        .search_messages(
+            "bob".into(),
+            Search {
+                filter: "rspamd_all".into(),
+                ..Default::default()
+            },
+            80.,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.total, 7);
+    let summary = page.comparison.unwrap();
+    assert_eq!(summary.rows, 7);
+    assert_eq!(summary.total, 2);
+    assert_eq!(summary.agreements, 1);
+    assert_eq!(summary.disagreements, 1);
+    assert_eq!(summary.completed, 2);
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let page = store
+        .search_messages(
+            "alice".into(),
+            Search {
+                filter: "rspamd_all".into(),
+                ..Default::default()
+            },
+            80.,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.total, 0);
+    assert_eq!(page.comparison.unwrap().total, 0);
+}
 use axum::{
     body::Body,
     http::{Request, StatusCode, header},

@@ -1,0 +1,49 @@
+[Unit]
+Description=NoiseFence independent Rspamd comparison
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=_rspamd
+Group=_rspamd
+ExecStartPre=/usr/bin/sha256sum --check --status /etc/noisefence-rspamd/inputs.sha256
+ExecStart=/usr/bin/rspamd -f -c /etc/noisefence-rspamd/rspamd.conf --var=LOCAL_CONFDIR=/etc/noisefence-rspamd --var=DBDIR=/var/lib/noisefence-rspamd --var=RUNDIR=/run/noisefence-rspamd
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+StateDirectory=noisefence-rspamd
+StateDirectoryMode=0700
+RuntimeDirectory=noisefence-rspamd
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+SystemCallArchitectures=native
+LimitCORE=0
+LimitNOFILE=2048
+TasksMax=32
+MemoryMax=384M
+CPUQuota=50%
+Nice=10
+# Only local HTTP and the local caching DNS resolver are reachable. This also
+# prevents a future module from exporting content to a remote service.
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAccounting=true
+
+[Install]
+WantedBy=multi-user.target

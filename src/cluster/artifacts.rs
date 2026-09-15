@@ -38,6 +38,7 @@ const SHARED: &[&str] = &[
     "fusion",
     "smtp_policy",
     "rbl",
+    "rspamd",
     "smtp_admission",
     "antivirus",
     "signatures",
@@ -204,6 +205,14 @@ impl Bundle {
         );
         let mut bundle = self.clone();
         bundle.build = build.into();
+        if build != env!("CARGO_PKG_VERSION") {
+            // Comparison is not available on older workers. Keep their policy
+            // parseable during rolling upgrades; activate only after all nodes upgrade.
+            bundle.shared.as_object_mut().unwrap().remove("rspamd");
+            if let Some(detection) = &mut bundle.settings.detection {
+                detection.modules.remove("rspamd");
+            }
+        }
         if matches!(build, "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3") {
             // Older workers deny unknown typed fields. Keep admission disabled
             // for them during coordinator-first rolling deployment.
@@ -327,8 +336,19 @@ pub fn materialize(
             *value = local.pointer(pointer).cloned().unwrap_or(Value::Null);
         }
     }
+    if !full["rspamd"].is_null() {
+        let installed = base
+            .rspamd
+            .as_ref()
+            .context("Local Rspamd installation missing")?;
+        let shared = full["rspamd"]
+            .as_object_mut()
+            .context("Invalid Rspamd settings")?;
+        shared.insert("endpoint".into(), json!(installed.endpoint));
+        shared.insert("profile".into(), json!(installed.profile));
+    }
     // Optional decoders must be installed locally, never nominated by the coordinator.
-    for module in ["vision", "antivirus", "signatures"] {
+    for module in ["vision", "antivirus", "signatures", "rspamd"] {
         ensure!(
             full[module].is_null() || !local[module].is_null(),
             "Service local manquant : {module}"

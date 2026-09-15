@@ -53,6 +53,7 @@ pub struct VisibleRecipient {
 }
 #[derive(Serialize)]
 pub struct VisibleMail {
+    pub rspamd: Option<crate::rspamd::Report>,
     pub assessment: crate::assessment::Assessment,
     pub node_id: Option<String>,
     pub node_updated_at: Option<i64>,
@@ -610,6 +611,11 @@ impl Store {
         self.read(move|db| {
             let predicate=format!(include_str!("search-filter.sql"), publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL,search=search_sql);
             let total=db.query_row(&format!("SELECT COUNT(*) FROM messages m WHERE {predicate} AND ?3>=0"),rusqlite::params_from_iter(&values),|r|r.get::<_,u64>(0))?;
+            let comparison = if options.filter.starts_with("rspamd_") {
+                let scope = predicate.replace("?2='all'", "(?2='all' OR ?2 LIKE 'rspamd_%')");
+                Some(db.query_row(&format!(include_str!("rspamd-summary.sql"),scope=scope), rusqlite::params_from_iter(&values), |r| Ok(crate::rspamd::Summary {total:r.get(0)?,completed:r.get(1)?,agreements:r.get(2)?,disagreements:r.get(3)?,inconclusive:r.get(4)?,pending:r.get(5)?,rows:r.get(6)?}))?)
+            } else { None };
+
             let sql=format!("SELECT m.id,m.created,m.sender,m.scan,(SELECT spam FROM feedback f WHERE f.message_id=m.id AND f.username=?1),(SELECT category FROM feedback_categories c WHERE c.message_id=m.id AND c.username=?1) FROM messages m WHERE {predicate} ORDER BY m.created DESC,m.id DESC LIMIT 50 OFFSET ?3");
             let mut q=db.prepare(&sql)?;
             let rows=q.query_map(rusqlite::params_from_iter(&values),|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<bool>>(4)?,r.get::<_,Option<String>>(5)?)))?;
@@ -623,8 +629,8 @@ impl Store {
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment,(SELECT c.id FROM cluster_commands c WHERE c.message_id=d.message_id AND c.recipient=d.address AND c.finished IS NULL AND c.expires>unixepoch()) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
                 let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{pending_command:r.get(6)?,filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 let origin:Option<(String,i64)>=db.query_row("SELECT node_id,updated FROM cluster_origin WHERE message_id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-                out.push(VisibleMail{assessment,node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,smtp_admission:s.smtp_admission,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
-            }Ok(crate::search::Page { has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
+                out.push(VisibleMail{rspamd:s.rspamd.map(crate::rspamd::Report::visible),assessment,node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,smtp_admission:s.smtp_admission,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
+            }Ok(crate::search::Page { comparison, has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
         }).await
     }
     pub async fn feedback(&self, user: String, id: String, spam: bool) -> Result<()> {

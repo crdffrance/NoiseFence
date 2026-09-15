@@ -1,0 +1,11 @@
+# Optional independent comparison. The service and profile are installed first.
+# See docs/rspamd-comparison.md. This fragment is not a standalone config.
+[rspamd]
+enabled = false
+endpoint = "127.0.0.1:11333"
+profile = "unverified"
+sample_percent = 100
+max_bytes = 4194304
+max_parallel = 2
+queue_capacity = 4
+timeout_ms = 5000

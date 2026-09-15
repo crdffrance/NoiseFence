@@ -23,6 +23,8 @@ jobs:
         run: docker build --tag noisefence:ci .
       - name: Check bootstrap, English console, SMTP and persistence
         run: python3 tests/container_smoke.py --image noisefence:ci
+      - name: Exercise the real Rspamd comparison profile without external network access
+        run: python3 tests/rspamd_smoke.py
   research:
     runs-on: ubuntu-latest
     steps:

@@ -59,6 +59,9 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    /// Independent, post-acceptance metadata; never a feature or a decision input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rspamd: Option<crate::rspamd::Report>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_classification: Option<crate::mailing::Category>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -493,6 +496,7 @@ fn reputation_domains(raw: &[u8], from: &str, helo: &str, sender: &str) -> Vec<S
         .collect()
 }
 pub struct Engine {
+    pub(crate) rspamd: Arc<crate::rspamd::Runtime>,
     cluster_models: std::collections::BTreeMap<std::path::PathBuf, String>,
     config: Arc<Config>,
     pub authenticator: MessageAuthenticator,
@@ -528,6 +532,7 @@ impl Engine {
     }
 
     pub(crate) fn activate_limits(&self) {
+        self.rspamd.activate();
         if let Some(c) = &self.protection {
             c.activate();
         }
@@ -556,6 +561,10 @@ impl Engine {
         Self::build(config, Some(self), true)
     }
     fn build(config: Arc<Config>, template: Option<&Self>, reload_models: bool) -> Result<Self> {
+        let rspamd = Arc::new(crate::rspamd::Runtime::new(
+            config.rspamd.clone(),
+            template.map(|t| &*t.rspamd),
+        )?);
         let cluster_models = if config
             .cluster
             .as_ref()
@@ -739,6 +748,7 @@ impl Engine {
             );
         }
         Ok(Self {
+            rspamd,
             cluster_models,
             native_filter,
             quality,

@@ -26,6 +26,7 @@ pub mod quality;
 pub mod rbl;
 pub mod relay;
 pub mod research;
+pub mod rspamd;
 #[cfg(feature = "semantic")]
 pub mod semantic;
 pub mod smtp;

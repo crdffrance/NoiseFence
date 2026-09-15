@@ -45,6 +45,7 @@ impl Default for Search {
 }
 #[derive(Serialize)]
 pub struct Page {
+    pub comparison: Option<crate::rspamd::Summary>,
     pub messages: Vec<crate::store::VisibleMail>,
     pub total: u64,
     pub offset: u32,
@@ -132,7 +133,11 @@ impl Search {
                 "incomplete",
                 "pending",
                 "quarantined",
-                "legitimate"
+                "legitimate",
+                "rspamd_all",
+                "rspamd_disagreement",
+                "rspamd_inconclusive",
+                "rspamd_unavailable"
             ]
             .contains(&self.filter.as_str()),
             "Classement invalide."

@@ -20,6 +20,54 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use tower::ServiceExt;
 
+#[test]
+fn rspamd_policy_preserves_worker_installation_and_rolling_compatibility() {
+    let root = tempfile::tempdir().unwrap();
+    let mut coordinator = (*config(root.path(), Role::Coordinator)).clone();
+    coordinator.rspamd = Some(noisefence::rspamd::Settings {
+        enabled: true,
+        profile: "coordinator-profile".into(),
+        ..Default::default()
+    });
+    let mut worker = coordinator.clone();
+    worker.rspamd = Some(noisefence::rspamd::Settings {
+        endpoint: "127.0.0.1:21333".parse().unwrap(),
+        profile: "worker-profile".into(),
+        ..Default::default()
+    });
+    let settings = noisefence::control::Settings::from_config(&coordinator);
+    let publication = artifacts::capture(&coordinator, settings, 1).unwrap();
+    let previous = publication.bundle.for_build("0.18.0").unwrap();
+    assert!(previous.shared.get("rspamd").is_none());
+    assert!(
+        !previous
+            .settings
+            .detection
+            .unwrap()
+            .modules
+            .contains_key("rspamd")
+    );
+    let current = artifacts::materialize(&worker, &publication.bundle, false).unwrap();
+    let rspamd = current.rspamd.unwrap();
+    assert!(rspamd.enabled);
+    assert_eq!(rspamd.profile, "worker-profile");
+    assert_eq!(rspamd.endpoint.port(), 21333);
+    let mut omitted = publication.bundle.clone();
+    let settings = omitted.shared["rspamd"].as_object_mut().unwrap();
+    settings.remove("endpoint");
+    settings.remove("profile");
+    omitted.digest = omitted.hash().unwrap();
+    omitted.validate().unwrap();
+    let installed = artifacts::materialize(&worker, &omitted, false)
+        .unwrap()
+        .rspamd
+        .unwrap();
+    assert_eq!(installed.endpoint.port(), 21333);
+    assert_eq!(installed.profile, "worker-profile");
+    worker.rspamd = None;
+    assert!(artifacts::materialize(&worker, &publication.bundle, false).is_err());
+}
+
 fn config(root: &std::path::Path, role: Role) -> Arc<Config> {
     let mut c = (*common::config(root)).clone();
     c.hostname = if role == Role::Coordinator {

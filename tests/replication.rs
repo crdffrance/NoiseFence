@@ -143,6 +143,153 @@ async fn accepted_message_has_two_durable_bodies_and_only_one_queue_owner() {
     assert!(reopened.claim().await.unwrap().is_none());
 }
 #[tokio::test]
+async fn rspamd_report_propagates_over_ha_without_changing_ownership_or_delivery() {
+    use noisefence::{
+        fusion::runtime::{Decision, Outcome},
+        rspamd::{Comparison, Report, Status, Symbol},
+    };
+    use serde_json::{json, to_value};
+
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    let pending = Report {
+        status: Status::Pending,
+        job_id: uuid::Uuid::new_v4().to_string(),
+        started_at: noisefence::now(),
+        expires_at: noisefence::now() + 610,
+        raw_sha256: noisefence::message::digest(common::MESSAGE),
+        profile: "rspamd-ha-fixture".into(),
+        settings_sha256: noisefence::message::digest(b"local comparison settings"),
+        server: None,
+        elapsed_ms: 0,
+        score: None,
+        required_score: None,
+        action: None,
+        symbols: vec![],
+        noisefence_outcome: Some(Outcome::Legitimate),
+        comparison: Comparison::Inconclusive,
+    };
+    let mut scan = engine::extract(common::MESSAGE, 1024 * 1024);
+    scan.score = 12.5;
+    scan.complete = true;
+    scan.decision = Some(Decision::legacy(&scan, p.config.filter.threshold));
+    scan.rspamd = Some(pending.clone());
+    p.a.enqueue(
+        id.clone(),
+        "sender@example.org".into(),
+        vec![
+            p.config.recipient("alice@example.test").unwrap(),
+            p.config.recipient("bob@example.test").unwrap(),
+        ],
+        scan.clone(),
+        common::MESSAGE.to_vec(),
+    )
+    .await
+    .unwrap();
+    let candidate = remote(&p, &id).await;
+    assert_eq!(candidate.scan, to_value(&scan).unwrap());
+    assert_eq!(candidate.owner, "mx1");
+    assert!(!candidate.confirmed);
+    assert!(p.a.claim().await.unwrap().is_none());
+    assert!(p.b.claim().await.unwrap().is_none());
+
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let delivered = p.a.claim().await.unwrap().unwrap();
+    assert_eq!(delivered.destination, "alice@example.test");
+    p.a.finish(&delivered, "delivered", "", 0).await.unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let before = ha::replica::export(&p.a, id.clone()).await.unwrap();
+    let before_json = to_value(&before).unwrap();
+    assert!(before.confirmed);
+    assert_eq!(before.scan, to_value(&scan).unwrap());
+    assert_eq!(before.deliveries[0].status, "delivered");
+    assert_eq!(before.deliveries[1].status, "pending");
+    assert_eq!(to_value(remote(&p, &id).await).unwrap(), before_json);
+
+    // Inject the comparator's metadata-only completion; exercise the real HA
+    // export, HTTP receiver and durable replica, independently of scanner tests.
+    let complete = Report {
+        status: Status::Complete,
+        server: Some("rspamd/test".into()),
+        elapsed_ms: 125,
+        score: Some(7.25),
+        required_score: Some(6.0),
+        action: Some("reject".into()),
+        symbols: vec![
+            Symbol {
+                name: "TEST_SPAM".into(),
+                score: 8.0,
+            },
+            Symbol {
+                name: "TEST_HAM".into(),
+                score: -0.75,
+            },
+        ],
+        comparison: Comparison::Disagreement,
+        ..pending
+    };
+    let report_json = to_value(&complete).unwrap();
+    let key = id.clone();
+    let report = serde_json::to_string(&complete).unwrap();
+    p.a.run(move |db| {
+        assert_eq!(
+            db.execute(
+                "UPDATE messages SET scan=json_set(scan,'$.rspamd',json(?2)) WHERE id=?1",
+                rusqlite::params![key, report],
+            )?,
+            1
+        );
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let mut expected = before_json.clone();
+    expected["generation"] = json!(before.generation + 1);
+    expected["scan"]["rspamd"] = report_json.clone();
+    assert_eq!(
+        to_value(ha::replica::export(&p.a, id.clone()).await.unwrap()).unwrap(),
+        expected
+    );
+    assert_eq!(to_value(remote(&p, &id).await).unwrap(), before_json);
+
+    ha::replica::synchronize_message(&p.a, id.clone())
+        .await
+        .unwrap();
+    let replicated = remote(&p, &id).await;
+    // The complete manifest must differ only in comparison metadata and generation:
+    // ownership, native decision, recipient states, attempts and body stay intact.
+    assert_eq!(to_value(&replicated).unwrap(), expected);
+    let restored: engine::Scan = serde_json::from_value(replicated.scan).unwrap();
+    assert_eq!(to_value(restored.rspamd.unwrap()).unwrap(), report_json);
+    assert_eq!(restored.decision, scan.decision);
+    assert_eq!(std::fs::read(p.a.raw_path(&id)).unwrap(), common::MESSAGE);
+    assert_eq!(
+        std::fs::read(ha::replica::body_path(&p.b, "mx1", &id)).unwrap(),
+        common::MESSAGE
+    );
+    let reopened = Store::open(&p.b.root).unwrap();
+    let key = id.clone();
+    let persisted: serde_json::Value = reopened
+        .read(move |db| {
+            let manifest: String = db.query_row(
+                "SELECT manifest FROM ha_remote WHERE owner='mx1' AND id=?1",
+                [key],
+                |r| r.get(0),
+            )?;
+            Ok(serde_json::from_str(&manifest)?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(persisted, expected);
+    assert!(reopened.claim().await.unwrap().is_none());
+    assert!(p.b.claim().await.unwrap().is_none());
+    let remaining = p.a.claim().await.unwrap().unwrap();
+    assert_eq!(remaining.message_id, id);
+    assert_eq!(remaining.destination, "bob@example.test");
+    assert!(p.a.claim().await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn peer_failure_refuses_acceptance_without_leaking_a_local_deliverable_message() {
     let p = pair().await;
     p.tasks[1].abort();

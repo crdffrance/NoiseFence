@@ -37,6 +37,9 @@ export type Preferences = {
   mailboxes: Record<string, Preference>;
 };
 const labels: Record<string, string> = {
+  rspamd: 'Rspamd · independent comparison',
+  sample_percent: 'Messages sampled (%)',
+  queue_capacity: 'Waiting comparison jobs',
   authentication: "Authentication",
   bayes: "Bayes Statistics",
   campaign: "Campaigns",
@@ -96,6 +99,8 @@ const labels: Record<string, string> = {
   allowed_actions: "Allowed actions",
 };
 const limits: Record<string, [number, number]> = {
+  sample_percent: [0, 100],
+  queue_capacity: [0, 32],
   min: [-5, 0],
   max: [0, 5],
   minimum_providers: [1, 8],
@@ -401,6 +406,7 @@ export function DetectionSettings({
         return (
           <section key={module} className="management-card">
             <h3>{labels[module] ?? module}</h3>
+            {module === 'rspamd' && <p>Local, asynchronous comparison of original messages. These settings apply to the organization. Results never affect filtering, delivery or training. At most 8 concurrent scans, a 5-second deadline and 64 MiB of message buffers. The service endpoint and profile are installed on each MX.</p>}
             {module === 'native' && (
               <p>
                 This engine remains in observation. The motifs associated with an adaptive model are protected by its validation.
