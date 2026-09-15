@@ -29,6 +29,7 @@ export const missingCheckLabels: Record<string, string> = {
   checks_unavailable: 'checks or overall deadline',
   llm_unavailable: 'LLM analysis',
   semantic_unavailable: 'semantic analysis',
+  encrypted_content: 'encrypted or opaque content',
   smtp_policy_unavailable: 'SMTP / DNS consistency',
   vision_incomplete: 'OCR / visual codes',
   complementary_signature_unavailable: 'complementary signatures',

@@ -42,8 +42,18 @@ pub enum SemanticStatus {
     Busy,
     Unavailable,
 }
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticFailure {
+    Capacity,
+    Deadline,
+    Inference,
+    Worker,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SemanticResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<SemanticFailure>,
     pub status: SemanticStatus,
     pub model: String,
     pub encoder: String,
@@ -59,6 +69,8 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_context: Option<crate::message_context::Context>,
     /// Independent, post-acceptance metadata; never a feature or a decision input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rspamd: Option<crate::rspamd::Report>,
@@ -657,7 +669,7 @@ impl Engine {
                         "The multilingual model threshold is bound to its calibration."
                     );
                     if let Some(model) = &template.semantic {
-                        return Ok(model.clone());
+                        return model.reconfigure(settings).map(Arc::new);
                     }
                 }
                 crate::semantic::Hybrid::load_bound(
@@ -866,14 +878,19 @@ impl Engine {
             scan.complete = false;
             scan.reasons.push(Signal {
                 id: "semantic_unavailable".into(),
-                detail: "Multilingual analysis incomplete; retain lexical result without prefix"
-                    .into(),
+                detail: match scan.semantic.failure {
+                    Some(SemanticFailure::Deadline) => "Semantic inference exceeded its deadline; lexical score retained, readable text remains eligible for LLM analysis.",
+                    Some(SemanticFailure::Capacity) => "Semantic CPU capacity was unavailable within the deadline; lexical score retained.",
+                    Some(SemanticFailure::Inference) => "Semantic inference failed; lexical score retained.",
+                    Some(SemanticFailure::Worker) => "Semantic worker interrupted; lexical score retained.",
+                    None => "Multilingual analysis incomplete; retain lexical result without prefix",
+                }.into(),
                 weight: 0.0,
             });
         }
     }
     fn extract(&self, raw: &[u8]) -> Scan {
-        if self
+        let mut scan = if self
             .model
             .as_ref()
             .is_some_and(|m| m.feature_version == crate::features::VERSION)
@@ -881,7 +898,10 @@ impl Engine {
             crate::features::extract(raw, self.config.filter.max_analysis_bytes)
         } else {
             extract(raw, self.config.filter.max_analysis_bytes)
-        }
+        };
+        scan.features_complete.get_or_insert(scan.complete);
+        crate::message_context::attach(&mut scan, raw, self.config.filter.max_analysis_bytes);
+        scan
     }
     fn score(&self, scan: &mut Scan) {
         crate::rules::apply(scan, &self.config.filter.rule_weights);

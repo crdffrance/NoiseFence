@@ -406,6 +406,7 @@ export function DetectionSettings({
         return (
           <section key={module} className="management-card">
             <h3>{labels[module] ?? module}</h3>
+            {module === 'semantic' && <p>Inference deadline, including the wait for a CPU slot: 50–5,000 ms. Tune against the slowest MX. Changes reuse the loaded model and preserve the concurrency limit. A timeout remains an incomplete check; it does not prevent analysis of readable text by the LLM.</p>}
             {module === 'rspamd' && <p>Local, asynchronous comparison of original messages. These settings apply to the organization. Results never affect filtering, delivery or training. At most 8 concurrent scans, a 5-second deadline and 64 MiB of message buffers. The service endpoint and profile are installed on each MX.</p>}
             {module === 'native' && (
               <p>

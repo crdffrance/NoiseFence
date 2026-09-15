@@ -995,6 +995,7 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         "0.15.2",
         "0.18.0",
         "0.19.2",
+        "0.20.0",
         env!("CARGO_PKG_VERSION"),
         "0.13.0",
         "9.99.0",
@@ -1028,7 +1029,7 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         assert_eq!(reply.bundle.digest, reply.bundle.hash().unwrap());
         let mut expected_shared = publication.bundle.shared.clone();
         let mut expected_settings = serde_json::to_value(&publication.bundle.settings).unwrap();
-        if build != env!("CARGO_PKG_VERSION") {
+        if build != env!("CARGO_PKG_VERSION") && build != "0.20.0" {
             expected_shared
                 .as_object_mut()
                 .unwrap()
@@ -1277,6 +1278,36 @@ fn research_archive_preserves_node_local_storage_and_older_rspamd_policy() {
         ..Default::default()
     });
     let p = artifacts::capture(&c, noisefence::control::Settings::from_config(&c), 3).unwrap();
+    let mut with_deadline = p.bundle.clone();
+    with_deadline
+        .settings
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .insert("semantic".into(), json!({"timeout_ms":1500}));
+    with_deadline.digest = with_deadline.hash().unwrap();
+    let previous = with_deadline.for_build("0.20.0").unwrap();
+    assert_eq!(previous.settings.research_archive, c.research_archive);
+    assert!(previous.shared.get("research_archive").is_some());
+    assert!(
+        !previous
+            .settings
+            .detection
+            .unwrap()
+            .modules
+            .contains_key("semantic")
+    );
+    assert_eq!(
+        with_deadline
+            .for_build(env!("CARGO_PKG_VERSION"))
+            .unwrap()
+            .settings
+            .detection
+            .unwrap()
+            .modules["semantic"]["timeout_ms"],
+        1500
+    );
     let old = p.bundle.for_build("0.19.2").unwrap();
     assert!(old.shared.get("research_archive").is_none());
     assert!(

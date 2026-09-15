@@ -104,13 +104,28 @@ impl Combination {
 }
 
 pub struct Hybrid {
-    encoder: Encoder,
+    encoder: std::sync::Arc<Encoder>,
     combination: Combination,
     combination_sha256: String,
     slots: std::sync::Arc<tokio::sync::Semaphore>,
     timeout: std::time::Duration,
 }
 impl Hybrid {
+    /// Deadline-only edits reuse immutable weights and the existing capacity
+    /// limiter, including permits still held by timed-out inference tasks.
+    pub fn reconfigure(&self, settings: &crate::config::SemanticFilter) -> Result<Self> {
+        ensure!(
+            (50..=5000).contains(&settings.timeout_ms),
+            "invalid semantic deadline"
+        );
+        Ok(Self {
+            encoder: self.encoder.clone(),
+            combination: self.combination.clone(),
+            combination_sha256: self.combination_sha256.clone(),
+            slots: self.slots.clone(),
+            timeout: std::time::Duration::from_millis(settings.timeout_ms),
+        })
+    }
     pub(crate) fn share_limits(&mut self, old: &Self) {
         self.slots = old.slots.clone();
     }
@@ -159,7 +174,7 @@ impl Hybrid {
             &"Bonjour reunion demain. ".repeat(128),
         )?;
         Ok(Self {
-            encoder,
+            encoder: std::sync::Arc::new(encoder),
             combination,
             combination_sha256: crate::message::digest(&bytes),
             slots: std::sync::Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
@@ -204,7 +219,10 @@ impl Hybrid {
         };
         let mut result = self
             .infer(raw)
-            .unwrap_or_else(|_| self.outcome(crate::engine::SemanticStatus::Unavailable));
+            .unwrap_or_else(|_| crate::engine::SemanticResult {
+                failure: Some(crate::engine::SemanticFailure::Inference),
+                ..self.outcome(crate::engine::SemanticStatus::Unavailable)
+            });
         result.elapsed_ms = started.elapsed().as_millis() as u64;
         result
     }
@@ -217,7 +235,10 @@ impl Hybrid {
         let result = bounded(self.slots.clone(), self.timeout, move || model.infer(&raw)).await;
         let mut result = match result {
             Ok(result) => result,
-            Err(status) => self.outcome(status),
+            Err((status, failure)) => crate::engine::SemanticResult {
+                failure: Some(failure),
+                ..self.outcome(status)
+            },
         };
         result.elapsed_ms = started.elapsed().as_millis() as u64;
         result
@@ -228,15 +249,21 @@ async fn bounded<T: Send + 'static>(
     slots: std::sync::Arc<tokio::sync::Semaphore>,
     timeout: std::time::Duration,
     work: impl FnOnce() -> Result<T> + Send + 'static,
-) -> std::result::Result<T, crate::engine::SemanticStatus> {
-    use crate::engine::SemanticStatus;
+) -> std::result::Result<
+    T,
+    (
+        crate::engine::SemanticStatus,
+        crate::engine::SemanticFailure,
+    ),
+> {
+    use crate::engine::{SemanticFailure, SemanticStatus};
     // Brief bursts wait fairly for a CPU slot within the existing total budget.
     // Waiting and inference share one deadline; saturation cannot extend it.
     let deadline = tokio::time::Instant::now() + timeout;
     let permit = tokio::time::timeout_at(deadline, slots.acquire_owned())
         .await
-        .map_err(|_| SemanticStatus::Busy)?
-        .map_err(|_| SemanticStatus::Busy)?;
+        .map_err(|_| (SemanticStatus::Busy, SemanticFailure::Capacity))?
+        .map_err(|_| (SemanticStatus::Busy, SemanticFailure::Capacity))?;
     let task = tokio::task::spawn_blocking(move || {
         // Cancellation of the async waiter must not release the CPU slot early.
         let _permit = permit;
@@ -244,7 +271,9 @@ async fn bounded<T: Send + 'static>(
     });
     match tokio::time::timeout_at(deadline, task).await {
         Ok(Ok(Ok(result))) => Ok(result),
-        _ => Err(SemanticStatus::Unavailable),
+        Err(_) => Err((SemanticStatus::Unavailable, SemanticFailure::Deadline)),
+        Ok(Err(_)) => Err((SemanticStatus::Unavailable, SemanticFailure::Worker)),
+        Ok(Ok(Err(_))) => Err((SemanticStatus::Unavailable, SemanticFailure::Inference)),
     }
 }
 
@@ -304,7 +333,7 @@ impl Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::SemanticStatus;
+    use crate::engine::{SemanticFailure, SemanticStatus};
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
@@ -338,11 +367,14 @@ mod tests {
             .await
         });
         started_rx.await.unwrap();
-        assert_eq!(task.await.unwrap(), Err(SemanticStatus::Unavailable));
+        assert_eq!(
+            task.await.unwrap(),
+            Err((SemanticStatus::Unavailable, SemanticFailure::Deadline))
+        );
         assert_eq!(slots.available_permits(), 0);
         assert_eq!(
             bounded(slots.clone(), Duration::from_millis(30), || Ok(0)).await,
-            Err(SemanticStatus::Busy)
+            Err((SemanticStatus::Busy, SemanticFailure::Capacity))
         );
         release_tx.send(()).unwrap();
         let permit = tokio::time::timeout(Duration::from_secs(1), slots.clone().acquire_owned())
@@ -363,7 +395,10 @@ mod tests {
             anyhow::bail!("failed backend")
         })
         .await;
-        assert_eq!(result, Err(SemanticStatus::Unavailable));
+        assert_eq!(
+            result,
+            Err((SemanticStatus::Unavailable, SemanticFailure::Inference))
+        );
         assert_eq!(slots.available_permits(), 1);
     }
 

@@ -5,9 +5,10 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-2";
+pub const VERSION: &str = "decision-policy-3";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
+pub const CONTEXT_REASON: &str = "context_requires_review";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arbitration {
@@ -78,6 +79,7 @@ fn arbitrate(scan: &mut Scan) -> Option<Arbitration> {
 /// An unrelated failure never erases that observation, but `complete = false`
 /// still prevents every subject prefix. No artificial probability is assigned.
 pub fn apply(scan: &mut Scan, require_corroboration: bool) {
+    let context_reviewed = scan.reasons.iter().any(|r| r.id == CONTEXT_REASON);
     // Re-evaluate from the saved input when applying recipient policies. Never
     // treat our own abstention as new evidence or accumulate explanation rows.
     if let Some(previous) = scan.arbitration.take()
@@ -88,7 +90,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         scan.decision = Some(previous.baseline);
     }
     scan.reasons
-        .retain(|r| r.id != MALWARE_REASON && r.id != REVIEW_REASON);
+        .retain(|r| r.id != MALWARE_REASON && r.id != REVIEW_REASON && r.id != CONTEXT_REASON);
     if scan.antivirus.status == AntivirusStatus::Malware {
         scan.reasons
             .retain(|r| r.id != crate::confirmation::REVIEW_REASON);
@@ -110,6 +112,25 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     } else {
         let mut arbitration = arbitrate(scan);
         crate::confirmation::apply(scan, require_corroboration);
+        if scan.complete
+            && scan.decision.as_ref().is_some_and(|d| {
+                d.source == DecisionSource::Legacy
+                    && (d.outcome == Outcome::Unwanted
+                        || (context_reviewed && d.outcome == Outcome::Undetermined))
+            })
+            && crate::message_context::needs_review(scan)
+        {
+            let decision = scan.decision.as_mut().unwrap();
+            decision.outcome = Outcome::Undetermined;
+            decision.score = None;
+            scan.tagged = false;
+            scan.pub_tagged = false;
+            scan.reasons.push(Signal {
+                id: CONTEXT_REASON.into(),
+                detail: "Authenticated threat-report or transaction context conflicts with an uncorroborated content score. Review required; context is not proof of legitimacy.".into(),
+                weight: 0.0,
+            });
+        }
         if let Some(report) = &mut arbitration {
             report.decision = scan.decision.as_ref().unwrap().clone();
         }

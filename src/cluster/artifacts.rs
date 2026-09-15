@@ -206,7 +206,7 @@ impl Bundle {
         );
         let mut bundle = self.clone();
         bundle.build = build.into();
-        if build != env!("CARGO_PKG_VERSION") {
+        if build != env!("CARGO_PKG_VERSION") && build != "0.20.0" {
             bundle.settings.research_archive = None;
             bundle
                 .shared
@@ -214,13 +214,20 @@ impl Bundle {
                 .unwrap()
                 .remove("research_archive");
         }
-        if !matches!(build, "0.19.0" | "0.19.1" | "0.19.2" | "0.20.0") {
+        if build != env!("CARGO_PKG_VERSION")
+            && !matches!(build, "0.19.0" | "0.19.1" | "0.19.2" | "0.20.0")
+        {
             // Comparison is not available on older workers. Keep their policy
             // parseable during rolling upgrades; activate only after all nodes upgrade.
             bundle.shared.as_object_mut().unwrap().remove("rspamd");
             if let Some(detection) = &mut bundle.settings.detection {
                 detection.modules.remove("rspamd");
             }
+        }
+        if build != env!("CARGO_PKG_VERSION")
+            && let Some(detection) = &mut bundle.settings.detection
+        {
+            detection.modules.remove("semantic");
         }
         if matches!(build, "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2" | "0.15.3") {
             // Older workers deny unknown typed fields. Keep admission disabled

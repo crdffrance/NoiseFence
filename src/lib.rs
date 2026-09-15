@@ -55,6 +55,7 @@ pub mod custom_filtering;
 
 mod capacity;
 pub mod management;
+pub mod message_context;
 pub mod preferences;
 
 pub mod reliability;

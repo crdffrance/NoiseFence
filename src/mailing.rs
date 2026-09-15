@@ -10,7 +10,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock, time::Instant};
 
-pub const VERSION: &str = "mailing-1";
+pub const VERSION: &str = "mailing-2";
 pub(crate) const SIGNAL_SQL: &str = "COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)";
 pub(crate) const PUBLICITY_SQL: &str = "COALESCE(json_extract(m.scan,'$.delivery_classification')='publicity',(json_extract(m.scan,'$.complete')=1 AND COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)))";
 
@@ -319,6 +319,11 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
             &content,
         ),
     );
+    let body_offer = feature(
+        report,
+        "commercial_body",
+        OFFER.get().is_some_and(|pattern| pattern.is_match(&body)),
+    );
     static ACTION: OnceLock<Regex> = OnceLock::new();
     let action = feature(
         report,
@@ -419,6 +424,21 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
             .to_ascii_lowercase()
             .contains("multipart/report"),
     );
+    static MAINTENANCE_SUBJECT: OnceLock<Regex> = OnceLock::new();
+    static MAINTENANCE_BODY: OnceLock<Regex> = OnceLock::new();
+    let scheduled_service = feature(
+        report,
+        "scheduled_service",
+        matches(
+            r"\b(?:mise a jour|maintenance|service update|cloud update)\b",
+            &MAINTENANCE_SUBJECT,
+            subject,
+        ) && matches(
+            r"\b(?:prevue? (?:pour|le)|maintenance programmee|scheduled maintenance|scheduled (?:for|on)|planned maintenance)\b",
+            &MAINTENANCE_BODY,
+            &lead,
+        ),
+    );
     static REPLY: OnceLock<Regex> = OnceLock::new();
     let reply = feature(
         report,
@@ -432,7 +452,12 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         "discussion_list",
         !header("list-post").is_empty() && !header("list-post").eq_ignore_ascii_case("NO"),
     );
-    if transaction_subject || transaction_body || automatic_response || report_or_calendar {
+    if transaction_subject
+        || transaction_body
+        || automatic_response
+        || report_or_calendar
+        || scheduled_service
+    {
         report.verdict = Verdict::Transactional;
         reason(
             report,
@@ -457,7 +482,10 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
                 "promotion",
                 "Bulk mailing with several corroborating commercial signals.",
             );
-        } else if policy.include_newsletters && distribution && newsletter {
+        } else if policy.include_newsletters
+            && distribution
+            && (newsletter || (list_id && unsubscribe && body_offer))
+        {
             report.verdict = Verdict::Newsletter;
             reason(
                 report,

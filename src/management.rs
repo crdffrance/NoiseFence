@@ -33,6 +33,7 @@ const RSPAMD: &[&str] = &[
     "queue_capacity",
     "timeout_ms",
 ];
+const SEMANTIC: &[&str] = &["timeout_ms"];
 const VISION: &[&str] = &[
     "timeout_ms",
     "max_parallel",
@@ -97,6 +98,9 @@ impl Detection {
         if let Some(s) = &c.rspamd {
             modules.insert("rspamd".into(), select(s, RSPAMD));
         }
+        if let Some(s) = &c.filter.semantic {
+            modules.insert("semantic".into(), select(s, SEMANTIC));
+        }
         if let Some(s) = &c.protection {
             modules.insert("protection".into(), select(s, PROTECTION));
         }
@@ -123,6 +127,15 @@ impl Detection {
                 "Engine not installed: {name}"
             );
             match name.as_str() {
+                "semantic" => {
+                    if let Some(s) = &mut c.filter.semantic {
+                        patch(s, value, SEMANTIC)?;
+                        ensure!(
+                            (50..=5000).contains(&s.timeout_ms),
+                            "Semantic deadline: 50 to 5000 ms."
+                        );
+                    }
+                }
                 "rspamd" => {
                     if let Some(s) = &mut c.rspamd {
                         patch(s, value, RSPAMD)?;
