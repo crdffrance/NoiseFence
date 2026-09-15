@@ -12,7 +12,7 @@ use std::{
 /// A future release must review its typed policies before extending this window.
 pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
-        || (env!("CARGO_PKG_VERSION") == "0.19.0"
+        || (env!("CARGO_PKG_VERSION") == "0.19.1"
             && matches!(
                 build,
                 "0.14.0"
@@ -23,6 +23,7 @@ pub fn compatible_build(build: &str) -> bool {
                     | "0.16.2"
                     | "0.17.3"
                     | "0.18.0"
+                    | "0.19.0"
             ))
 }
 

@@ -30,7 +30,7 @@ def main():
         os.chmod(directory, 0o755)
         mounts = ["-v", f"{directory}:/nf-test"]
         variables = ["--var=LOCAL_CONFDIR=/nf-test/profile", "--var=DBDIR=/var/lib/rspamd", "--var=RUNDIR=/run/noisefence-rspamd"]
-        run("docker", "run", "--rm", "--network", "none", "--user", "0", *mounts,
+        run("docker", "run", "--rm", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}", *mounts,
             "-v", f"{ROOT / 'deploy'}:/nf-deploy:ro", "--entrypoint", "/bin/sh", args.image,
             "/nf-deploy/rspamd-profile.sh", "/nf-test/profile", "127.0.0.1")
         config = json.loads(run("docker", "run", "--rm", "--network", "none", *mounts,
