@@ -36,7 +36,9 @@ SystemCallArchitectures=native
 LimitCORE=0
 LimitNOFILE=2048
 TasksMax=32
-MemoryMax=384M
+MemoryMax=768M
+MemorySwapMax=0
+OOMScoreAdjust=500
 CPUQuota=50%
 Nice=10
 # Only local HTTP and the local caching DNS resolver are reachable. This also

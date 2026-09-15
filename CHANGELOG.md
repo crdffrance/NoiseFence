@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.19.1 — Independent Rspamd comparison
+## 0.19.2 — Independent Rspamd comparison
 
 - Compare original incoming SMTP messages with a local Rspamd service, asynchronously and with bounded memory, concurrency and deadlines. NoiseFence decisions and delivery are unchanged.
 - Inspect separate score scales, proposed actions, symbols and versioned profiles in the English console; filter disagreements with recipient-scoped coverage counts.

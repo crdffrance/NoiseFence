@@ -37,7 +37,7 @@ def main():
             "--entrypoint", "/usr/bin/rspamadm", args.image, *variables, "configdump", "-c", "/nf-test/profile/rspamd.conf", "-j"))
         assert not config.get("classifier"), "No untrained classifier may run"
         workers = config["worker"] if isinstance(config["worker"], list) else [config["worker"]]
-        assert workers == [{"normal": {"enabled": True, "bind_socket": "127.0.0.1:11333", "count": 1, "max_tasks": 8, "allow_file_and_shm_inputs": False, "timeout": 6.0, "task_timeout": 5.0}}]
+        assert workers == [{"normal": {"enabled": True, "bind_socket": "127.0.0.1:11333", "count": 1, "max_tasks": 8, "allow_file_and_shm_inputs": False, "timeout": 6.0, "task_timeout": 5.0}} ]
         for module in ["rbl", "fuzzy_check", "gpt", "neural", "neural_autolearn", "url_redirector", "external_services", "metadata_exporter", "history_redis", "rspamd_update", "dkim_signing", "antivirus", "aws_s3"]:
             assert module not in config or config[module].get("enabled") is False, module
         assert config["options"]["max_message"] == 8388608
@@ -47,7 +47,7 @@ def main():
         for value in config["mid"]["source"]["url"] + config["mime_types"]["file"]:
             assert value.startswith("/"), value
         try:
-            run("docker", "run", "--detach", "--name", name, "--network", "none", "--memory", "384m",
+            run("docker", "run", "--detach", "--name", name, "--network", "none", "--memory", "768m", "--memory-swap", "768m",
                 "--cpus", "0.5", "--pids-limit", "32", "--read-only", "--cap-drop", "ALL", "--user", "11333:11333",
                 "--tmpfs", "/run/noisefence-rspamd:uid=11333,gid=11333,mode=0700",
                 "--tmpfs", "/var/lib/rspamd:uid=11333,gid=11333,mode=0700,size=96m",
@@ -80,6 +80,13 @@ def main():
                 else:
                     assert result["is_skipped"] is False
                 results.append({"sample": kind, "score": result["score"], "action": result["action"], "symbols": len(result["symbols"]), "skipped": result["is_skipped"]})
+            # Readiness can precede background compiler OOM. Keep the scanner
+            # under its memory/CPU caps long enough to detect startup failures.
+            deadline = time.monotonic() + 45
+            while time.monotonic() < deadline:
+                state = json.loads(run("docker", "inspect", name))[0]["State"]
+                assert state["Running"] and not state["OOMKilled"], state
+                time.sleep(1)
             print(json.dumps({"image": args.image, "profile": (Path(directory)/"profile/profile-id").read_text().strip(), "samples": results}))
         except BaseException:
             logs = subprocess.run(["docker", "logs", "--tail", "30", name], capture_output=True)
