@@ -7,6 +7,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/config", get(configuration).post(apply))
         .route("/admin/rbl/test", post(test_rbl))
         .route("/admin/admission", get(admission_status))
+        .route("/admin/research-archive", get(research_archive_status))
         .route("/admin/config/validate", post(validate_configuration))
         .route("/admin/keys", get(managed_keys).post(save_managed_key))
         .route("/preferences", get(preferences).post(save_preferences))
@@ -604,5 +605,40 @@ async fn admission_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Jso
     }).await?;
     Ok(Json(
         json!({"version":crate::smtp_admission::VERSION,"counts":counts,"period_days":30,"shared":app.config.cluster.is_some()}),
+    ))
+}
+
+async fn research_archive_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    administrator(&app, &h, false).await?;
+    let runtime = app.store.archive.clone();
+    let local = tokio::task::spawn_blocking(move || runtime.status())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))??;
+    let nodes = app
+        .store
+        .read(|db| {
+            let rows = db
+                .prepare(
+                    "SELECT id,last_seen,status FROM cluster_nodes WHERE enabled=1 ORDER BY id",
+                )?
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, last_seen, status)| {
+                    let s: Value = serde_json::from_str(&status).unwrap_or(Value::Null);
+                    json!({"node_id":id,"last_seen":last_seen,"status":s.get("research_archive")})
+                })
+                .collect::<Vec<_>>())
+        })
+        .await?;
+    Ok(Json(
+        json!({"local":{"node_id":app.config.cluster.as_ref().map(|c|c.node_id.as_str()).unwrap_or("local"),"last_seen":now(),"status":local},"workers":nodes}),
     ))
 }

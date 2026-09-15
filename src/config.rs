@@ -27,6 +27,8 @@ pub struct Config {
     pub rbl: Option<crate::rbl::Settings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rspamd: Option<crate::rspamd::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub research_archive: Option<crate::research_archive::Settings>,
     pub smtp_admission: Option<crate::smtp_admission::Settings>,
     pub antivirus: Option<crate::antivirus::AntivirusConfig>,
     pub signatures: Option<crate::antivirus::AntivirusConfig>,
@@ -270,6 +272,9 @@ impl Config {
         }
         if let Some(rbl) = &self.rbl {
             rbl.validate()?;
+        }
+        if let Some(archive) = &self.research_archive {
+            archive.validate()?;
         }
         if let Some(rspamd) = &self.rspamd {
             rspamd.validate()?;

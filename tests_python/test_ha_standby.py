@@ -20,7 +20,7 @@ promote=importlib.util.module_from_spec(spec);spec.loader.exec_module(promote)
 
 class StandbyTests(unittest.TestCase):
     def test_paths_never_escape_or_include_mail_bodies(self):
-        for path in ['/etc/shadow','../secret','data/../config/key','data/spool/id.eml','data/incoming/tmp','data/replicas/id.eml','config\\key']:
+        for path in ['/etc/shadow','../secret','data/../config/key','data/spool/id.eml','data/incoming/tmp','data/replicas/id.eml','data/research-archive/archive.key','data/research-archive/objects/id/message.enc','config\\key']:
             with self.subTest(path=path),self.assertRaises(ValueError):standby.safe_name(path)
         self.assertEqual(standby.safe_name('data/models/active.json'),'data/models/active.json')
 

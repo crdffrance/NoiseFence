@@ -1,4 +1,5 @@
 'use client';
+import { ResearchArchiveSettings, type ArchiveSettings } from './research-archive';
 import { AdmissionEditor, type AdmissionSettings } from './smtp-admission';
 import {
   RblEditor,
@@ -88,6 +89,7 @@ type Filters = {
   reputation: boolean;
 };
 type Settings = {
+  research_archive?: ArchiveSettings | null;
   smtp_admission: AdmissionSettings;
   rbl: RblSettings;
   detection: Detection;
@@ -174,6 +176,7 @@ const filterSections = [
     description: "DNS lists and SMTP responses",
     icon: <Globe2 size={19} />,
   },
+  { id: 'research', label: 'R&D archive', description: 'Temporary encrypted originals and retention', icon: <Server size={19} /> },
   {
     id: 'parameters',
     label: "Advanced settings",
@@ -989,6 +992,9 @@ export function AdminConsole({
               csrf={user.csrf}
             />
           </div>
+          <div id="filters-panel-research" role="tabpanel" aria-labelledby="filters-tab-research" hidden={filterSection !== 'research'} className="filter-section">
+            <ResearchArchiveSettings value={draft.research_archive ?? null} onChange={research_archive => setDraft({...draft,research_archive})} domains={draft.domains.filter(d => d.enabled).map(d => d.name)} />
+          </div>
           <div
             id="filters-panel-parameters"
             role="tabpanel"
@@ -1742,7 +1748,7 @@ export function AdminConsole({
               <h2>Check for changes</h2>
               <ul>
                 {(
-                  ['smtp_admission', 'rbl', 'detection', 'preferences'] as const
+                  ['research_archive', 'smtp_admission', 'rbl', 'detection', 'preferences'] as const
                 )
                   .filter(
                     (k) =>
@@ -1752,7 +1758,9 @@ export function AdminConsole({
                   .map((k) => (
                     <li key={k}>
                       <strong>
-                        {k === 'smtp_admission'
+                        {k === 'research_archive'
+                          ? 'Temporary R&D archive: collection, expiry and storage'
+                          : k === 'smtp_admission'
                           ? "SMTP admission: greylisting, throughput and slow down"
                           : k === 'rbl'
                             ? "IP and RBL reputation"

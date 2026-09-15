@@ -12,6 +12,8 @@ Internet → NoiseFence MX → upstream mail service → recipient
 
 NoiseFence is open source under **GPL-3.0-only**. Release archives contain Linux binaries for amd64 and arm64, the console, configuration examples, deployment tools and documentation. No default account, password, paid API key or trained model is included.
 
+> Optional temporary R&D originals: encrypted collection with an automatic stop date, expiry and per-MX quotas. Configure **Filters → R&D archive**; see [research archive](docs/research-archive.md).
+
 ## Start here
 
 | Task | Guide |

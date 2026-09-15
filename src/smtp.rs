@@ -134,6 +134,10 @@ pub async fn serve_controlled(
     if control.is_none() {
         state
             .store
+            .archive
+            .configure(state.config.research_archive.clone().unwrap_or_default());
+        state
+            .store
             .admission
             .activate(state.config.smtp_admission.as_ref());
     }
@@ -618,10 +622,49 @@ async fn session(
                         }
                         let scan = &variants[0].scan;
                         tracing::info!(id=%id,score=scan.score,complete=scan.complete,tagged=scan.tagged,analysis_ms=scan.elapsed_ms,model=%scan.model,decision=?scan.decision,policy=?scan.analysis_policy,signals=?scan.reasons.iter().map(|r|(&r.id,r.weight)).collect::<Vec<_>>(),"message analyzed");
-                        let ids = variants.iter().map(|v| v.id.clone()).collect();
+                        let ids: Vec<String> = variants.iter().map(|v| v.id.clone()).collect();
+                        let archive_context = state.store.archive.collecting().then(|| {
+                            crate::research_archive::ContextRecord {
+                                format: 1,
+                                id: id.clone(),
+                                created: crate::now(),
+                                expires: 0,
+                                hostname: cfg.hostname.clone(),
+                                build: env!("CARGO_PKG_VERSION").into(),
+                                peer_ip: peer.ip().to_string(),
+                                helo: helo.clone(),
+                                sender: sender.clone(),
+                                recipients: recipients.iter().map(|r| r.address.clone()).collect(),
+                                encrypted_transport: encrypted,
+                                raw_sha256: String::new(),
+                                configuration_sha256: message::digest(
+                                    &serde_json::to_vec(&*cfg).expect("typed SMTP configuration"),
+                                ),
+                                message_ids: ids.clone(),
+                                observations: variants
+                                    .iter()
+                                    .map(|v| serde_json::to_value(&v.scan).expect("typed scan"))
+                                    .collect(),
+                                observations_updated_at: crate::now(),
+                                observations_final: variants.iter().all(|v| {
+                                    v.scan
+                                        .rspamd
+                                        .as_ref()
+                                        .is_none_or(|r| r.status != crate::rspamd::Status::Pending)
+                                }),
+                            }
+                        });
                         let accepted = state.store.enqueue_variants(sender, variants).await;
                         if let Some(ticket) = comparison.filter(|_| accepted.is_ok()) {
                             ticket.commit(ids);
+                        }
+                        if accepted.is_ok()
+                            && let Some(context) = archive_context
+                        {
+                            state
+                                .store
+                                .archive
+                                .capture(raw, context, cfg.smtp.minimum_free_bytes);
                         }
                         accepted
                     }

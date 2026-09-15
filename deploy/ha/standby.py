@@ -73,7 +73,7 @@ def export():
     for name in ['state.sqlite3','llm-budget.sqlite3','mfa.key','credentials','protection']:
         if (DATA/name).exists(): selected.add(DATA/name)
     # References can name directories. Never collect mail, research or caches of raw input.
-    selected={p for p in selected if p.relative_to(DATA).parts[0] not in ['spool','incoming','replicas']}
+    selected={p for p in selected if p.relative_to(DATA).parts[0] not in ['spool','incoming','replicas','research-archive']}
     files={}
     for p in selected:
         for f in p.rglob('*') if p.is_dir() else [p]:
@@ -116,7 +116,7 @@ def safe_name(name):
     p=PurePosixPath(name)
     if p.is_absolute() or '..' in p.parts or '\\' in name or not p.parts or p.parts[0] not in ['config','data','manifest.json']:
         raise ValueError('Invalid checkpoint path')
-    if len(name)>1024 or p.parts[0]=='data' and len(p.parts)>1 and p.parts[1] in ['spool','incoming','replicas']:
+    if len(name)>1024 or p.parts[0]=='data' and len(p.parts)>1 and p.parts[1] in ['spool','incoming','replicas','research-archive']:
         raise ValueError('Mail bodies do not belong in console checkpoints')
     return str(p)
 

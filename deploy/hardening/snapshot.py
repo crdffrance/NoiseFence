@@ -56,7 +56,7 @@ def export(mode):
             elif isinstance(value,str) and value.startswith(str(DATA)+'/'):yield Path(value)
         for p in paths(cfg):
             if p.exists() and p not in allowed and p.resolve().is_relative_to(DATA) and p!=DATA:allowed.append(p)
-        allowed=[p for p in allowed if not any(parent in allowed for parent in p.parents)]
+        allowed=[p for p in allowed if p.relative_to(DATA).parts[0]!='research-archive' and not any(parent in allowed for parent in p.parents)]
         if mode=='metadata':allowed=[p for p in allowed if p.name not in ['spool','incoming']]
         size=sum(tree_bytes(p) if p.is_dir() and not p.is_symlink() else p.lstat().st_size for p in allowed)+tree_bytes(Path('/etc/noisefence'))
         if shutil.disk_usage(ROOT).free<size*2+2*1024**3:raise RuntimeError('Insufficient snapshot reserve')

@@ -30,6 +30,16 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Export one unexpired local research original and context into a NEW private directory.
+    ResearchArchiveExport {
+        id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Print local archive counters only; never message content.
+    ResearchArchiveStatus,
+    /// List local unexpired archive IDs and expiry dates, without content.
+    ResearchArchiveList,
     /// Show configured local HTML/MIME rules, optionally inspecting a file; no network or delivery.
     NativeRules {
         message: Option<PathBuf>,
@@ -969,6 +979,25 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if let Command::ResearchArchiveExport { id, output } = &cli.command {
+        let archive = noisefence::research_archive::Runtime::new(&config.data_dir);
+        archive.export(id, output)?;
+        println!(
+            "Private research export created. It contains sensitive original mail and has its own retention responsibility."
+        );
+        return Ok(());
+    }
+    if let Command::ResearchArchiveList = cli.command {
+        let archive = noisefence::research_archive::Runtime::new(&config.data_dir);
+        println!("{}", serde_json::to_string(&archive.list()?)?);
+        return Ok(());
+    }
+    if let Command::ResearchArchiveStatus = cli.command {
+        let archive = noisefence::research_archive::Runtime::new(&config.data_dir);
+        archive.configure(config.research_archive.clone().unwrap_or_default());
+        println!("{}", serde_json::to_string(&archive.status()?)?);
+        return Ok(());
+    }
     if let Command::CheckConfig = cli.command {
         println!(
             "Configuration valid ({:?}); no network connection or DNS change performed.",
@@ -1351,6 +1380,8 @@ async fn main() -> Result<()> {
                 Some(control.clone()),
                 rx.clone(),
             ));
+            let archive =
+                tokio::spawn(noisefence::research_archive::run(store.clone(), rx.clone()));
             let mut replication = tokio::spawn(noisefence::ha::run(store.clone(), rx.clone()));
             let mut cluster = tokio::spawn(noisefence::cluster::run(control.clone(), rx.clone()));
             let mut api = tokio::spawn(noisefence::api::serve_controlled(
@@ -1372,7 +1403,7 @@ async fn main() -> Result<()> {
             }
             stop.send(true)?;
             let _ = tokio::time::timeout(std::time::Duration::from_secs(35), async {
-                let _ = tokio::join!(smtp, relay, api, cluster, replication);
+                let _ = tokio::join!(smtp, relay, api, cluster, replication, archive);
             })
             .await;
         }

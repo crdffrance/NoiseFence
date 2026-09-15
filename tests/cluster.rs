@@ -993,6 +993,8 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         "0.15.0",
         "0.15.1",
         "0.15.2",
+        "0.18.0",
+        "0.19.2",
         env!("CARGO_PKG_VERSION"),
         "0.13.0",
         "9.99.0",
@@ -1027,6 +1029,16 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         let mut expected_shared = publication.bundle.shared.clone();
         let mut expected_settings = serde_json::to_value(&publication.bundle.settings).unwrap();
         if build != env!("CARGO_PKG_VERSION") {
+            expected_shared
+                .as_object_mut()
+                .unwrap()
+                .remove("research_archive");
+            expected_settings
+                .as_object_mut()
+                .unwrap()
+                .remove("research_archive");
+        }
+        if matches!(build, "0.14.0" | "0.15.0" | "0.15.1" | "0.15.2") {
             expected_shared
                 .as_object_mut()
                 .unwrap()
@@ -1248,4 +1260,48 @@ async fn admission_shares_retries_between_live_mx_and_fails_open_without_authori
     let fallback = worker_runtime.check(&remote, &cb, request).await;
     assert_eq!(fallback.status, Status::Unavailable);
     assert!(fallback.smtp_reply().is_none());
+}
+
+#[test]
+fn research_archive_preserves_node_local_storage_and_older_rspamd_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let mut c = (*config(root.path(), Role::Coordinator)).clone();
+    c.research_archive = Some(noisefence::research_archive::Settings {
+        enabled: true,
+        collect_until: noisefence::now() + 86400,
+        ..Default::default()
+    });
+    c.rspamd = Some(noisefence::rspamd::Settings {
+        enabled: true,
+        profile: "installed".into(),
+        ..Default::default()
+    });
+    let p = artifacts::capture(&c, noisefence::control::Settings::from_config(&c), 3).unwrap();
+    let old = p.bundle.for_build("0.19.2").unwrap();
+    assert!(old.shared.get("research_archive").is_none());
+    assert!(
+        serde_json::to_value(&old.settings)
+            .unwrap()
+            .get("research_archive")
+            .is_none()
+    );
+    assert_eq!(old.shared["rspamd"]["enabled"], true);
+    assert!(
+        old.settings
+            .detection
+            .unwrap()
+            .modules
+            .contains_key("rspamd")
+    );
+    let mut worker = c.clone();
+    worker.data_dir = root.path().join("other-node");
+    let materialized = artifacts::materialize(&worker, &p.bundle, false).unwrap();
+    assert_eq!(materialized.data_dir, worker.data_dir);
+    assert_eq!(materialized.research_archive, c.research_archive);
+    assert!(
+        p.bundle
+            .files
+            .keys()
+            .all(|p| !p.contains("research-archive"))
+    );
 }

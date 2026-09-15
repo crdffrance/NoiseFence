@@ -2158,3 +2158,71 @@ async fn recorded_thresholds_keep_stats_search_and_assessment_consistent() {
         }
     }
 }
+
+#[tokio::test]
+async fn research_archive_is_admin_only_versioned_and_deadline_survives_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let user = account(&store, "reader", false, vec!["alice@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    assert_eq!(
+        request(&app, "invalid", "/admin/research-archive", None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, &user, "/admin/research-archive", None)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let (_, before) = request(&app, &admin, "/admin/config", None).await;
+    let mut settings = before["settings"].clone();
+    let deadline = noisefence::now() + 3600;
+    settings["research_archive"]["enabled"] = json!(true);
+    settings["research_archive"]["collect_until"] = json!(deadline);
+    let (code, result) = request(
+        &app,
+        &admin,
+        "/admin/config",
+        Some(json!({"revision":before["revision"],"settings":settings})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{result}");
+    assert_eq!(
+        serde_json::to_value(&control.snapshot().settings.filters).unwrap(),
+        before["settings"]["filters"]
+    );
+    let (_, status) = request(&app, &admin, "/admin/research-archive", None).await;
+    assert_eq!(status["local"]["status"]["collecting"], true);
+    assert!(status.get("messages").is_none());
+    let resumed = Controller::load(cfg, store.clone()).await.unwrap();
+    assert_eq!(
+        resumed
+            .snapshot()
+            .config
+            .research_archive
+            .as_ref()
+            .unwrap()
+            .collect_until,
+        deadline
+    );
+    let (_, current) = request(&app, &admin, "/admin/config", None).await;
+    let mut invalid = current["settings"].clone();
+    invalid["research_archive"]["collect_until"] = json!(0);
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/config",
+            Some(json!({"revision":current["revision"],"settings":invalid}))
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}

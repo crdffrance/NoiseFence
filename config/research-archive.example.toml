@@ -1,0 +1,11 @@
+# Optional temporary corpus. Prefer Filters → R&D archive for the live versioned policy.
+# Bodies and keys remain private to the receiving MX and are excluded from built-in backups.
+[research_archive]
+enabled = false
+# Required absolute Unix timestamp when enabled; at most 90 days into the future.
+collect_until = 0
+retention_days = 30
+quota_mib = 5120
+max_message_bytes = 26214400
+# Empty means every configured domain. All original recipients must match a selected scope.
+domains = []

@@ -1,5 +1,7 @@
 use super::*;
 
+// Intentionally pause archive disk work while asserting SMTP acceptance remains independent.
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn smtp_accepts_durably_while_rspamd_is_still_waiting() {
     let root = tempfile::tempdir().unwrap();
@@ -39,6 +41,11 @@ async fn smtp_accepts_durably_while_rspamd_is_still_waiting() {
     });
     let cfg = Arc::new(cfg);
     let store = Store::open(root.path()).unwrap();
+    store.archive.configure(crate::research_archive::Settings {
+        enabled: true,
+        collect_until: crate::now() + 3600,
+        ..Default::default()
+    });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let state = State {
@@ -63,6 +70,7 @@ async fn smtp_accepts_durably_while_rspamd_is_still_waiting() {
         reply(&mut wire, command).await.unwrap();
         assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, code);
     }
+    let archive_gate = store.archive.pause_for_test();
     reply(&mut wire,"From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Original\r\n\r\nOriginal body.\r\n.\r\n").await.unwrap();
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(2), crate::relay::response(&mut wire))
@@ -72,6 +80,23 @@ async fn smtp_accepts_durably_while_rspamd_is_still_waiting() {
             .code,
         250
     );
+    // Disk/crypto work is deliberately blocked, yet SMTP has already replied 250.
+    drop(archive_gate);
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if store.archive.status().unwrap().messages == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let archives = store.archive.list().unwrap();
+    let archive_id = archives[0]["id"].as_str().unwrap();
+    let output = root.path().join("research-export");
+    store.archive.export(archive_id, &output).unwrap();
+    assert_eq!(std::fs::read(output.join("message.eml")).unwrap(),b"From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Original\r\n\r\nOriginal body.\r\n");
     tokio::time::timeout(Duration::from_secs(1), arrived.notified())
         .await
         .unwrap();

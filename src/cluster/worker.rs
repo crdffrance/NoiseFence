@@ -140,6 +140,11 @@ async fn poll(
     } else {
         None
     };
+    let archive_runtime = control.store.archive.clone();
+    let research_archive = tokio::task::spawn_blocking(move || archive_runtime.status())
+        .await
+        .ok()
+        .and_then(Result::ok);
     let status = control
         .store
         .read(move |db| {
@@ -156,6 +161,7 @@ async fn poll(
             let pending_metadata =
                 db.query_row("SELECT COUNT(*) FROM cluster_dirty", [], |r| r.get(0))?;
             Ok(protocol::NodeStatus {
+                research_archive,
                 replication,
                 hostname: snapshot.config.hostname.clone(),
                 poll_seconds: snapshot

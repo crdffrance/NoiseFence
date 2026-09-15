@@ -91,7 +91,7 @@ export function ActionSettings({
       </p>
       {mode === 'observe' && (
         <p className="notice">
-          Active observation: actions are recorded as intentions. All messages are transmitted without prefix and none is retained.
+          Active observation: actions are recorded as intentions. Messages are delivered without a prefix; these actions do not quarantine them.
         </p>
       )}
     </section>

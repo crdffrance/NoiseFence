@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0 — Temporary encrypted research originals
+
+- Add opt-in collection of original MIME, SMTP context and engine observations after successful enqueue, with an absolute stop date, expiry and per-MX quotas.
+- Keep collection separate from mail delivery, scoring and training. Bound background work and report skipped originals; preserve strict replicated SMTP acceptance.
+- Add English **Filters → R&D archive** controls and per-node coverage counters, plus authenticated local operator exports with integrity and expiry checks.
+- Exclude the temporary corpus and keys from built-in backups and console checkpoints. Research copies remain local to each receiving MX.
+- Preserve the installed Rspamd comparison during rolling upgrades from 0.19.2 and validate admin access, exact original bytes, encrypted storage, expiry and SMTP independence.
+
 ## 0.19.2 — Independent Rspamd comparison
 
 - Compare original incoming SMTP messages with a local Rspamd service, asynchronously and with bounded memory, concurrency and deadlines. NoiseFence decisions and delivery are unchanged.

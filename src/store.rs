@@ -23,6 +23,7 @@ pub struct QueueVariant {
 
 #[derive(Clone)]
 pub struct Store {
+    pub archive: Arc<crate::research_archive::Runtime>,
     pub root: PathBuf,
     db: Arc<Mutex<Connection>>,
     delivery_ready: Arc<tokio::sync::Notify>,
@@ -157,6 +158,7 @@ impl Store {
         .initialize(&mut db)?;
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         Ok(Self {
+            archive: Arc::new(crate::research_archive::Runtime::new(root)),
             root: root.into(),
             db: Arc::new(Mutex::new(db)),
             delivery_ready: Arc::new(tokio::sync::Notify::new()),

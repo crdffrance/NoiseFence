@@ -803,3 +803,19 @@ details.management-card summary {
 .rspamd-provenance dd { margin: .25rem 0 .75rem; overflow-wrap: anywhere; }
 .rspamd-comparison summary { cursor: pointer; padding-block: .5rem; }
 @media (max-width: 680px) { .rspamd-metrics { grid-template-columns: 1fr; } }
+
+/* Temporary R&D originals: lifecycle and per-node collection coverage. */
+.research-archive h2 { display:flex; align-items:center; gap:.6rem; }
+.research-archive-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1.2rem; margin:1.5rem 0; }
+.research-archive-fields label { display:flex; flex-direction:column; gap:.5rem; min-width:0; }
+.research-archive-fields input:not([type=checkbox]) { width:100%; min-width:0; padding:.65rem; border:1px solid var(--border); border-radius:.55rem; background:var(--background); }
+.research-archive-fields small { color:var(--muted-foreground); }
+.research-archive fieldset { padding:1rem; border:1px solid var(--border); border-radius:.7rem; }
+.research-archive-nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1rem; margin:1.5rem 0; }
+.research-archive-nodes article { padding:1.1rem; min-width:0; }
+.research-archive-nodes dl { display:grid; gap:.3rem; margin:1rem 0; }
+.research-archive-nodes dt { color:var(--muted-foreground); font-size:.85rem; }
+.research-archive-nodes dd { margin:0 0 .65rem; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+@media(max-width:550px) { .research-archive-fields,.research-archive-nodes { grid-template-columns:minmax(0,1fr); } }
+
+.research-archive-fields input[type=checkbox] { align-self:flex-start; width:1.1rem; height:1.1rem; accent-color:var(--primary); }

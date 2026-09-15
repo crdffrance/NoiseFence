@@ -39,6 +39,7 @@ const SHARED: &[&str] = &[
     "smtp_policy",
     "rbl",
     "rspamd",
+    "research_archive",
     "smtp_admission",
     "antivirus",
     "signatures",
@@ -206,6 +207,14 @@ impl Bundle {
         let mut bundle = self.clone();
         bundle.build = build.into();
         if build != env!("CARGO_PKG_VERSION") {
+            bundle.settings.research_archive = None;
+            bundle
+                .shared
+                .as_object_mut()
+                .unwrap()
+                .remove("research_archive");
+        }
+        if !matches!(build, "0.19.0" | "0.19.1" | "0.19.2" | "0.20.0") {
             // Comparison is not available on older workers. Keep their policy
             // parseable during rolling upgrades; activate only after all nodes upgrade.
             bundle.shared.as_object_mut().unwrap().remove("rspamd");
