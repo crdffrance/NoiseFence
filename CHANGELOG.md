@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.20.2 — Context-aware review and resilient content analysis
+## 0.20.3 — Context-aware review and resilient content analysis
 
 - Keep readable text eligible for LLM analysis when independent SMTP/DNS, semantic or scanner checks fail; retain incomplete coverage, resource bounds and configured budgets.
 - Hold authenticated security reports and shipment receipts for review when an uncorroborated legacy score contradicts their context. Never infer legitimacy, change a raw score, override malware or rewrite historical decisions.
@@ -10,9 +10,9 @@
 - Expose the semantic inference deadline through the Web; update it without reloading model weights or releasing CPU permits held by cancelled work. Record capacity, deadline, inference and worker failures separately.
 - Preserve archived originals, Rspamd observation, strict replicated SMTP acceptance and existing policy during a coordinator-first upgrade from 0.20.0. No retraining or enforcement is automatically enabled; accuracy still requires independent labelled evaluation.
 
-## 0.20.1 — Unpublished candidate
+## 0.20.1–0.20.2 — Unpublished candidates
 
-Superseded by 0.20.2 before deployment. The candidate exposed a stale mailing detector version in the SMTP load test; the expected protocol and current documentation now match the implementation.
+Superseded by 0.20.3 before deployment. Validation caught a stale mailing detector version in the SMTP load test and a coordinator compatibility guard that needed the final release version. Both checks now match the implementation; no production policy was changed by these candidates.
 
 ## 0.20.0 — Temporary encrypted research originals
 

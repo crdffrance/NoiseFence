@@ -1,6 +1,6 @@
 # Context, coverage and calibration
 
-NoiseFence 0.20.2 uses decision policy `decision-policy-3` and LLM prompt `noisefence-classify-4`. The prompt fingerprint and recorded policy distinguish new observations from earlier results.
+NoiseFence 0.20.3 uses decision policy `decision-policy-3` and LLM prompt `noisefence-classify-4`. The prompt fingerprint and recorded policy distinguish new observations from earlier results.
 
 ## Readable content survives independent failures
 
