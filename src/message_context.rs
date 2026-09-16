@@ -10,6 +10,9 @@ pub struct Context {
     pub encrypted: bool,
     pub threat_report: bool,
     pub transaction_notice: bool,
+    /// An explicit demand conflicts with the apparent reporting/receipt context.
+    #[serde(default)]
+    pub action_demand: bool,
 }
 
 pub fn inspect(raw: &[u8]) -> Context {
@@ -30,19 +33,46 @@ pub fn inspect(raw: &[u8]) -> Context {
     let Some((subject, body)) = crate::features::text(raw) else {
         return result;
     };
-    let subject = subject.to_lowercase();
-    let body = body.to_lowercase();
-    static REPORT: OnceLock<Regex> = OnceLock::new();
-    let report_subject = REPORT.get_or_init(|| Regex::new(r"(?i)\b(?:phishing (?:url|report)|malicious url report|url feed|signalement (?:de |d'une? )?(?:phishing|hameconnage))\b").unwrap()).is_match(&subject);
-    let report_body = body.contains("url report for blocklist")
-        || body.contains("phishing/malicious url database")
-        || body.contains("phishing / malicious url database")
-        || body.matches("hxxp").take(3).count() >= 3;
-    result.threat_report = report_subject && report_body;
-    static TRANSACTION: OnceLock<Regex> = OnceLock::new();
-    result.transaction_notice = TRANSACTION.get_or_init(|| Regex::new(r"(?i)\b(?:colis|commande|order|package|shipment)\b.*\b(?:re[cç]u|retir[eé]|exp[eé]di[eé]|en route|received|delivered|shipped)\b").unwrap()).is_match(&subject)
-        && (body.contains("commande") || body.contains("order") || body.contains("colis") || body.contains("package"));
+    result.merge_text(&subject, &body);
     result
+}
+
+impl Context {
+    /// Also used on the already bounded LLM excerpt. These hints are never
+    /// trusted sender identity or permission to bypass security checks.
+    pub(crate) fn merge_text(&mut self, subject: &str, body: &str) {
+        let subject = subject.to_lowercase();
+        let body = body.to_lowercase();
+        static REPORT: OnceLock<Regex> = OnceLock::new();
+        let report_subject = REPORT.get_or_init(|| Regex::new(r"(?i)\b(?:phishing (?:url|report|/ trademark)|malicious url report|url feed|threat intelligence|abuse report|pre-weaponized|signalement (?:de |d'une? )?(?:phishing|hameconnage))\b").unwrap()).is_match(&subject);
+        let report_body = body.contains("url report for blocklist")
+            || body.contains("phishing/malicious url database")
+            || body.contains("phishing / malicious url database")
+            || (body.contains("reporter:")
+                && (body.contains("keep the url in your feed")
+                    || body.contains("retain the url in your feed")))
+            || body.matches("hxxp").take(3).count() >= 3;
+        self.threat_report = report_subject && report_body;
+        static TRANSACTION: OnceLock<Regex> = OnceLock::new();
+        let shipment = TRANSACTION.get_or_init(|| Regex::new(r"(?i)\b(?:colis|commande|order|package|shipment)\b.*\b(?:re[cç]u|retir[eé]|exp[eé]di[eé]|en route|received|delivered|shipped)\b").unwrap()).is_match(&subject)
+        && (body.contains("commande") || body.contains("order") || body.contains("colis") || body.contains("package"));
+        static RECEIPT: OnceLock<Regex> = OnceLock::new();
+        let payment_subject = RECEIPT.get_or_init(|| Regex::new(r"(?i)\b(?:re[cç]u (?:pour|de)|payment (?:receipt|confirmation|notification)|notification de paiement|paiement (?:effectu[eé]|re[cç]u)|automatic payment)\b").unwrap()).is_match(&subject);
+        let payment_body = [
+            "vous avez payé",
+            "you paid",
+            "payment was successful",
+            "payment has been processed",
+            "traitée avec succès",
+            "paiement effectué",
+            "payment received",
+        ]
+        .iter()
+        .any(|s| body.contains(s));
+        self.transaction_notice = shipment || (payment_subject && payment_body);
+        static DEMAND: OnceLock<Regex> = OnceLock::new();
+        self.action_demand = DEMAND.get_or_init(|| Regex::new(r"(?i)\b(?:enter (?:your |the )?(?:password|credentials|card)|verify your (?:account|identity|payment)|send (?:money|bitcoin)|transfer .{0,35}(?:wallet|bitcoin)|pay .{0,20}(?:bitcoin|btc)|install .{0,25}(?:software|application)|saisissez (?:votre |vos )?(?:mot de passe|identifiants)|v[eé]rifiez votre (?:compte|identit[eé])|g[eé]rer mon abonnement|annuler votre commande)\b").unwrap()).is_match(&body);
+    }
 }
 
 pub fn attach(scan: &mut Scan, raw: &[u8], max_bytes: usize) {
@@ -70,6 +100,7 @@ pub fn needs_review(scan: &Scan) -> bool {
         return false;
     };
     if !(context.threat_report || context.transaction_notice)
+        || context.action_demand
         || crate::confirmation::corroborated(scan)
     {
         return false;

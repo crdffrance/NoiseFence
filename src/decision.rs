@@ -5,10 +5,67 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-3";
+pub const VERSION: &str = "decision-policy-4";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
+pub const OBSERVED_THREAT_REASON: &str = "observed_threat_partial";
+
+/// A missing SMTP consistency check cannot erase three successfully observed
+/// signals. This narrow policy does not classify from the raw score, an LLM,
+/// failed authentication, or an advisory signature in isolation.
+fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
+    use crate::evidence::{AuthResult, Source, State};
+    if scan.complete
+        || scan.features_complete != Some(true)
+        || scan.antivirus.status != AntivirusStatus::Clean
+        || !scan
+            .reasons
+            .iter()
+            .any(|r| r.id == "smtp_policy_unavailable")
+        || scan.reasons.iter().any(|r| {
+            crate::assessment::INCOMPLETE_REASONS.contains(&r.id.as_str())
+                && r.id != "smtp_policy_unavailable"
+        })
+        || scan
+            .message_context
+            .as_ref()
+            .is_none_or(|c| c.encrypted || c.threat_report || c.transaction_notice)
+        || scan.signatures.status != AntivirusStatus::Suspicious
+        || !scan
+            .signatures
+            .signature
+            .as_deref()
+            .is_some_and(|s| s.starts_with("Sanesecurity.Phishing."))
+        || scan.llm.opinion() != Some(Outcome::Unwanted)
+        || !scan.llm.verdict.as_ref().is_some_and(|v| {
+            matches!(v.category, crate::llm::Category::Phishing)
+                && v.confidence >= 0.9
+                && v.spam_probability >= 0.9
+        })
+    {
+        return false;
+    }
+    let Some(e) = &scan.evidence else {
+        return false;
+    };
+    let a = &e.authentication;
+    e.source == Source::SmtpSession
+        && a.state == State::Complete
+        && a.spf_state == State::Complete
+        && matches!(a.spf, Some(AuthResult::Fail | AuthResult::SoftFail))
+        && a.dkim_state == State::Complete
+        && a.dkim.as_ref().is_some_and(|results| {
+            results
+                .iter()
+                .all(|r| matches!(r, AuthResult::None | AuthResult::Fail))
+        })
+        && a.dmarc_state == State::Complete
+        && matches!(a.dmarc_spf, Some(AuthResult::None | AuthResult::Fail))
+        && matches!(a.dmarc_dkim, Some(AuthResult::None | AuthResult::Fail))
+        && a.arc_state == State::Complete
+        && matches!(a.arc, Some(AuthResult::None | AuthResult::Fail))
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arbitration {
@@ -89,8 +146,12 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     {
         scan.decision = Some(previous.baseline);
     }
-    scan.reasons
-        .retain(|r| r.id != MALWARE_REASON && r.id != REVIEW_REASON && r.id != CONTEXT_REASON);
+    scan.reasons.retain(|r| {
+        r.id != MALWARE_REASON
+            && r.id != REVIEW_REASON
+            && r.id != CONTEXT_REASON
+            && r.id != OBSERVED_THREAT_REASON
+    });
     if scan.antivirus.status == AntivirusStatus::Malware {
         scan.reasons
             .retain(|r| r.id != crate::confirmation::REVIEW_REASON);
@@ -107,6 +168,25 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         scan.reasons.push(Signal {
             id: MALWARE_REASON.into(),
             detail: "The detection of malware by the main antivirus takes precedence over the suspicion index and the PUB category. This ranking does not correspond to a probability.".into(),
+            weight: 0.0,
+        });
+    } else if scan
+        .decision
+        .as_ref()
+        .is_some_and(|d| d.source == DecisionSource::Legacy)
+        && observed_threat_with_partial_coverage(scan)
+    {
+        scan.decision = Some(Decision {
+            source: DecisionSource::Legacy,
+            outcome: Outcome::Unwanted,
+            score: None,
+            model: VERSION.into(),
+        });
+        scan.tagged = false;
+        scan.pub_tagged = false;
+        scan.reasons.push(Signal {
+            id: OBSERVED_THREAT_REASON.into(),
+            detail: "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted, coverage remains incomplete, and automatic enforcement stays disabled.".into(),
             weight: 0.0,
         });
     } else {

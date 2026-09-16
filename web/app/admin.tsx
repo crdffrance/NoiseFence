@@ -69,6 +69,7 @@ type Domain = {
   gateway: string | null;
   enabled: boolean;
   accept_all_recipients: boolean;
+  unknown_recipient_fallback?: string | null;
   recipients: string[];
   aliases: Record<string, string>;
 };
@@ -313,6 +314,7 @@ function normalize(s: Settings): Settings {
     domains: s.domains.map((d) => ({
       ...d,
       name: d.name.trim().toLowerCase(),
+      unknown_recipient_fallback: d.unknown_recipient_fallback?.trim() || undefined,
       recipients: d.recipients.map((a) => a.trim()).filter(Boolean),
     })),
   };
@@ -735,6 +737,14 @@ export function AdminConsole({
                       domainAt(i, { accept_all_recipients })
                     }
                   />
+                  <label className="field" htmlFor={`domain-fallback-${i}`}>
+                    Unknown-recipient fallback
+                    <Input id={`domain-fallback-${i}`} value={d.unknown_recipient_fallback ?? ''}
+                      placeholder={`postmaster@${d.name || 'example.test'}`}
+                      onChange={(e) => domainAt(i, { unknown_recipient_fallback: e.target.value || null })}
+                      spellCheck={false} />
+                    <small>Optional mailbox in this domain. Used only after an upstream 550 5.1.1 recipient refusal. Existing recipients, spam refusals and temporary failures keep their normal handling. Both MX nodes must support this setting.</small>
+                  </label>
                   {!d.accept_all_recipients && (
                     <label className="field">
                       Authorized addresses

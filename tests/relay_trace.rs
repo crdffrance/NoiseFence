@@ -546,3 +546,75 @@ async fn tls_certificate_failure_keeps_actual_error_and_prior_replies() {
     task.await.unwrap();
     assert_safe(&report);
 }
+
+#[tokio::test]
+async fn unknown_recipient_fallback_retries_only_rcpt_and_preserves_original_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    let mut commands = steps("250 2.0.0 accepted\r\n");
+    commands[2] = (
+        "RCPT TO:<private-destination@example.test>",
+        "550 5.1.1 mailbox does not exist\r\n".into(),
+    );
+    commands.insert(
+        3,
+        (
+            "RCPT TO:<alice@example.test>",
+            "250 2.1.5 accepted\r\n".into(),
+        ),
+    );
+    let (route, task) = scripted("220 sink.test ESMTP\r\n".into(), commands).await;
+    cfg.domains[0].next_hops = vec![route.clone()];
+    cfg.domains[0].unknown_recipient_fallback = Some("alice@example.test".into());
+    let report = relay::deliver_traced(&cfg, &job(vec![route]), common::MESSAGE).await;
+    assert!(matches!(report.outcome, Outcome::Delivered), "{report:?}");
+    assert_eq!(task.await.unwrap(), common::MESSAGE);
+    assert!(
+        report.attempts[0]
+            .events
+            .iter()
+            .any(|e| e.phase == "rcpt_fallback" && e.code == Some(250))
+    );
+    assert_safe(&report);
+}
+
+#[tokio::test]
+async fn fallback_never_bypasses_spam_rejections_or_retries_itself_or_dsns() {
+    let root = tempfile::tempdir().unwrap();
+    for (reply, is_dsn, target, change_route) in [
+        ("550 5.7.1 spam", false, "alice@example.test", false),
+        ("450 4.1.1 retry", false, "alice@example.test", false),
+        ("550 unknown", false, "alice@example.test", false),
+        ("550 5.1.1 unknown", true, "alice@example.test", false),
+        (
+            "550 5.1.1 unknown",
+            false,
+            "private-destination@example.test",
+            false,
+        ),
+        ("550 5.1.1 unknown", false, "alice@example.test", true),
+    ] {
+        let mut commands = steps("250 2.0.0 accepted\r\n");
+        commands.truncate(3);
+        commands[2].1 = format!("{reply}\r\n");
+        let (route, task) = scripted("220 sink.test ESMTP\r\n".into(), commands).await;
+        let mut cfg = (*common::config(root.path())).clone();
+        cfg.domains[0].next_hops = vec![if change_route {
+            "different.example.test".into()
+        } else {
+            route.clone()
+        }];
+        cfg.domains[0].unknown_recipient_fallback = Some(target.into());
+        let mut item = job(vec![route]);
+        item.is_dsn = is_dsn;
+        let report = relay::deliver_traced(&cfg, &item, common::MESSAGE).await;
+        assert!(!matches!(report.outcome, Outcome::Delivered));
+        assert!(task.await.unwrap().is_empty());
+        assert!(
+            !report.attempts[0]
+                .events
+                .iter()
+                .any(|e| e.phase == "rcpt_fallback")
+        );
+    }
+}

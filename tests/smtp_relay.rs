@@ -237,6 +237,7 @@ async fn cross_domain_aliases_preserve_wire_content_and_bcc_authorization() {
     let root = tempfile::tempdir().unwrap();
     let mut config = (*common::config(root.path())).clone();
     config.domains.push(Domain {
+        unknown_recipient_fallback: None,
         name: "pilot.example.test".into(),
         next_hops: vec!["unused-route.example.org".into()],
         recipients: vec![],

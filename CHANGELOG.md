@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.0 — 2026-09-16
+
+- Ground LLM second opinions in observed SMTP authentication and the current UTC date, with explicit category/probability consistency diagnostics in the console and headers. Preserve existing provider limits and accounting.
+- Extend authenticated context review to abuse reports and completed payment notices without vendor allowlists; explicit credential/payment/software demands receive no contextual safeguard.
+- Preserve a corroborated phishing verdict across an isolated SMTP/DNS consistency failure while keeping coverage partial and automatic enforcement disabled.
+- Add Web-configurable same-domain recipient fallback, limited to a downstream RCPT 550 5.1.1 refusal. Preserve originals, recipient-scoped logs, strict two-copy acceptance and observation.
+- Retain independent Rspamd comparison and document that raw scores remain uncalibrated pending an independent, human-labeled evaluation.
+
 ## 0.20.3 — Context-aware review and resilient content analysis
 
 - Keep readable text eligible for LLM analysis when independent SMTP/DNS, semantic or scanner checks fail; retain incomplete coverage, resource bounds and configured budgets.

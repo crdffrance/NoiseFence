@@ -75,7 +75,7 @@ export function scorePresentation(mail: ScoreInput) {
       model,
       kind: 'partial',
       label: 'Partial risk index',
-      detail: `Risk index based on available results${limited ? ', with limited content extraction' : ''}. ${missing.length ? `Incomplete checks: ${missing.join(', ')}. ` : ''}Missing results could change this index. Analysis remains partial.${mail.decision?.source === 'antivirus' ? ' The antivirus detection takes priority.' : ''}`,
+      detail: `Risk index based on available results${limited ? ', with limited content extraction' : ''}. ${missing.length ? `Incomplete checks: ${missing.join(', ')}. ` : ''}Missing results could change this index. Analysis remains partial.${mail.decision?.source === 'antivirus' ? ' The antivirus detection takes priority.' : mail.reasons?.some(r => r.id === 'observed_threat_partial') ? ' Corroborated phishing evidence still supports the unwanted verdict; automatic enforcement remains disabled.' : ''}`,
     };
   }
   if (report ? report.score.kind === 'internal' : mail.model === 'dsn')
@@ -98,7 +98,11 @@ export function scorePresentation(mail: ScoreInput) {
     };
   if (mail.decision?.outcome === 'undetermined') {
     const reason =
-      mail.arbitration?.resolution === 'disagreement'
+      mail.reasons?.some(r => r.id === 'context_requires_review')
+        ? 'Authenticated reporting or receipt context conflicts with the content model.'
+        : mail.reasons?.some(r => r.id === 'llm_inconsistent')
+          ? 'The LLM category and risk estimate are inconsistent.'
+        : mail.arbitration?.resolution === 'disagreement'
         ? 'Detector opinions disagree.'
         : mail.arbitration?.resolution === 'ambiguous'
           ? 'The second opinion is uncertain.'

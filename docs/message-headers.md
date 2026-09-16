@@ -43,7 +43,7 @@ The risk index is not generally a spam probability. A missing decision score doe
 | `X-NoiseFence-Incomplete-Reasons` | Known missing-check codes, `none` when complete, or `unspecified` |
 | `X-NoiseFence-Arbitration` | Baseline, second opinion and agreement/disagreement resolution |
 | `X-NoiseFence-Rules` | Rule identifiers and log-odds contributions, with total/shown/omitted counts |
-| `X-NoiseFence-LLM` | Status, advisory category, bounded failure code and duration |
+| `X-NoiseFence-LLM` | Status, advisory category, category/probability coherence, usable opinion, bounded failure code and duration |
 | `X-NoiseFence-Antivirus` | Primary antivirus and complementary signature outcomes and duration |
 | `X-NoiseFence-Vision` | OCR status, inspected parts/pages, QR/other code counts, errors and duration |
 | `X-NoiseFence-Vision-Errors` | Known bounded failure codes; at most 16 |
@@ -83,3 +83,5 @@ Generated fields use bounded ASCII tokens. Folding targets 78 columns between at
 These diagnostics exclude bodies, subjects, full URLs, recipient/Bcc addresses, recipient profile names and provider secrets. Untrusted free text is not copied into headers. Incoming `X-NoiseFence-*` fields are stripped before local results are added.
 
 All generated diagnostic fields are included in the ARC signing inventory when sealing succeeds. The unsealed fallback still adds diagnostics without claiming they are authenticated. A signature does not establish that the upstream trusts this intermediary. See [RFC 5322](https://www.rfc-editor.org/rfc/rfc5322.html#section-2.2.3), [RFC 8617](https://www.rfc-editor.org/rfc/rfc8617.html) and the [Proton validation guide](proton-validation.md).
+
+As of 0.21.0, `X-NoiseFence-LLM` includes `coherent=yes|no|not_recorded` and `opinion=legitimate|unwanted|undetermined|none`. A completed response can still be inconsistent and supply no definite opinion. No explanation text or authentication identity is exported in this field. A corroborated threat can have `Decision: unwanted` and `Status: incomplete` together; the partial index and missing-check reasons remain separate from delivery policy.

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 fn pilot(config: &mut Config) {
     config.domains.push(Domain {
+        unknown_recipient_fallback: None,
         name: "pilot.example.test".into(),
         next_hops: vec![],
         recipients: vec![],
@@ -263,4 +264,39 @@ fn domain_wide_acceptance_keeps_alias_precedence_and_rejects_chains() {
     );
     assert!(config.validate().is_err());
     assert!(config.recipient("billing@example.test").is_none());
+}
+
+#[test]
+fn unknown_recipient_fallback_is_same_domain_canonical_and_web_roundtrips() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    for invalid in [
+        "victim@external.test",
+        "billing@example.test",
+        "missing@example.test",
+        "alice@example.test\r\nDATA",
+    ] {
+        cfg.domains[0].unknown_recipient_fallback = Some(invalid.into());
+        assert!(cfg.validate().is_err(), "{invalid:?}");
+    }
+    cfg.domains[0].unknown_recipient_fallback = Some("alice@example.test".into());
+    cfg.validate().unwrap();
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    assert_eq!(
+        settings.domains[0].unknown_recipient_fallback.as_deref(),
+        Some("alice@example.test")
+    );
+    let value = serde_json::to_value(settings).unwrap();
+    assert_eq!(
+        value["domains"][0]["unknown_recipient_fallback"],
+        "alice@example.test"
+    );
+    cfg.domains[0].unknown_recipient_fallback = None;
+    let legacy = serde_json::to_value(noisefence::control::Settings::from_config(&cfg)).unwrap();
+    assert!(
+        legacy["domains"][0]
+            .get("unknown_recipient_fallback")
+            .is_none()
+    );
+    let _: noisefence::control::Settings = serde_json::from_value(legacy).unwrap();
 }

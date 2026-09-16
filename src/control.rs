@@ -24,6 +24,8 @@ pub struct Gateway {
 #[serde(deny_unknown_fields)]
 pub struct ManagedDomain {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_recipient_fallback: Option<String>,
     pub gateway: Option<String>,
     pub enabled: bool,
     pub accept_all_recipients: bool,
@@ -104,6 +106,7 @@ impl Settings {
                 };
                 ManagedDomain {
                     name: d.name.clone(),
+                    unknown_recipient_fallback: d.unknown_recipient_fallback.clone(),
                     gateway,
                     enabled: true,
                     accept_all_recipients: d.accept_all_recipients,
@@ -254,6 +257,7 @@ impl Settings {
             // Disabled domains retain syntactically valid addresses; enabling also validates routing.
             let domain = Domain {
                 name: d.name.clone(),
+                unknown_recipient_fallback: d.unknown_recipient_fallback.clone(),
                 next_hops,
                 accept_all_recipients: d.accept_all_recipients,
                 recipients: d.recipients.clone(),
@@ -262,6 +266,14 @@ impl Settings {
             if d.enabled {
                 active.push(domain);
             } else {
+                ensure!(
+                    d.unknown_recipient_fallback.as_ref().is_none_or(|a| {
+                        crate::config::valid_address(a)
+                            && a.rsplit_once('@')
+                                .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(&d.name))
+                    }),
+                    "Invalid unknown-recipient fallback address"
+                );
                 ensure!(
                     d.recipients.iter().all(|r| crate::config::valid_address(r)
                         && r.rsplit_once('@').unwrap().1.eq_ignore_ascii_case(&d.name))

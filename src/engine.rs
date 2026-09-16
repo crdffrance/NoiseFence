@@ -857,6 +857,14 @@ impl Engine {
         ));
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
+        scan.reasons.retain(|r| r.id != "llm_inconsistent");
+        if scan.llm.inconsistent() {
+            scan.reasons.push(Signal {
+                id: "llm_inconsistent".into(),
+                detail: "The LLM category contradicts its risk estimate. Its response has no scoring weight and supplies no definite verdict; review the observed evidence.".into(),
+                weight: 0.0,
+            });
+        }
         if matches!(
             scan.llm.status,
             crate::llm::LlmStatus::Unavailable | crate::llm::LlmStatus::Busy
@@ -1522,6 +1530,7 @@ impl Engine {
             }
             // Protection is advisory and does not change the LLM selection
             // score. Overlap these independent calls under the existing deadline.
+            let llm_facts = crate::llm::gateway_facts(Some(&scan));
             let (_, llm_result) = tokio::join!(
                 async {
                     if let (Some(runtime), Some(settings)) =
@@ -1538,7 +1547,7 @@ impl Engine {
                             self.llm
                                 .as_ref()
                                 .unwrap()
-                                .classify_selected(raw, selection.unwrap())
+                                .classify_selected(raw, selection.unwrap(), Some(llm_facts))
                                 .await,
                         )
                     } else {
@@ -1552,7 +1561,7 @@ impl Engine {
                     let weight = scan.llm.advisory_weight();
                     scan.reasons.push(Signal {
                         id: "llm_advisory".into(),
-                        detail: format!("Analyse LLM consultative : {}", verdict.explanation),
+                        detail: format!("Advisory LLM analysis: {}", verdict.explanation),
                         weight,
                     });
                     self.score(&mut scan);

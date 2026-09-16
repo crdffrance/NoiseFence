@@ -138,3 +138,50 @@ fn newsletters_and_scheduled_service_updates_keep_distinct_purposes() {
         Verdict::Transactional
     );
 }
+
+#[test]
+fn abuse_submissions_and_completed_payments_are_not_attacks_by_context_alone() {
+    let examples = [
+        "Subject: Pre-weaponized EXAMPLE squat / decoy shell\r\n\r\nURL: https://bad.example\r\nPlease keep the URL in your feed. Reporter: Example security team",
+        "Subject: Phishing / Trademark - Example\r\n\r\nPlease retain the URL in your feed. Reporter: Example security team",
+        "Subject: Reçu pour votre paiement au marchand\r\n\r\nVous avez payé 10 EUR. Date de la transaction. Afficher les détails du paiement.",
+        "Subject: Notification de paiement automatique\r\n\r\nVotre paiement a été traitée avec succès. Pour plus d'informations contactez le support.",
+        "Subject: Payment receipt\r\n\r\nYou paid 10 EUR. No action is needed.",
+    ];
+    for mail in examples {
+        let raw = format!("From: notices@example.org\r\n{mail}\r\n");
+        let mut scan = candidate(raw.as_bytes());
+        aligned(&mut scan);
+        let context = scan.message_context.as_ref().unwrap();
+        assert!(
+            context.threat_report || context.transaction_notice,
+            "{mail}"
+        );
+        assert!(!context.action_demand);
+        decision::apply(&mut scan, false);
+        assert_eq!(
+            scan.decision.as_ref().unwrap().outcome,
+            Outcome::Undetermined
+        );
+        assert_eq!(scan.score, 99.);
+    }
+}
+
+#[test]
+fn a_forged_receipt_or_report_with_an_action_demand_gets_no_context_safeguard() {
+    for body in [
+        "You paid 10 EUR. Verify your account and enter your password now.",
+        "You paid 10 EUR. Send bitcoin to cancel this charge.",
+        "Please keep the URL in your feed. Reporter: Security. Install this software to read the report.",
+    ] {
+        let raw = format!(
+            "From: notices@example.org\r\nSubject: Payment receipt - Phishing report\r\n\r\n{body}\r\n"
+        );
+        let mut scan = candidate(raw.as_bytes());
+        aligned(&mut scan);
+        assert!(scan.message_context.as_ref().unwrap().action_demand);
+        assert!(!noisefence::message_context::needs_review(&scan));
+        decision::apply(&mut scan, false);
+        assert_eq!(scan.decision.unwrap().outcome, Outcome::Unwanted);
+    }
+}

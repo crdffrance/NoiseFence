@@ -170,7 +170,7 @@ export function transcriptNotice(logCount: number, logsAvailable = logCount, log
 export function smtpPhase(phase: string) {
   return ({ dns: 'DNS lookup', connect: 'TCP connection', greeting: 'SMTP greeting', ehlo: 'EHLO · server capabilities',
     starttls: 'STARTTLS · encryption request', tls: 'TLS · handshake and certificate verification', tls_verified: 'TLS · certificate verified',
-    ehlo_tls: 'EHLO after TLS', mail: 'MAIL FROM · sender', mail_from: 'MAIL FROM · sender', rcpt: 'RCPT TO · recipient', rcpt_to: 'RCPT TO · recipient',
+    ehlo_tls: 'EHLO after TLS', mail: 'MAIL FROM · sender', mail_from: 'MAIL FROM · sender', rcpt: 'RCPT TO · recipient', rcpt_to: 'RCPT TO · recipient', rcpt_fallback: 'RCPT TO · unknown-recipient fallback',
     data: 'DATA · transfer start', data_result: 'Final response after transfer', data_end: 'Final response after transfer', final: 'Final response after transfer',
     final250: 'Final response after transfer', final_250: 'Final response after transfer', quit: 'QUIT · session close', error: 'Delivery error',
   } as Record<string, string>)[phase.toLowerCase()] ?? `Phase ${phase}`;

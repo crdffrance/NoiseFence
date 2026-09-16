@@ -254,3 +254,16 @@ test('the review component no longer renders an empty score for an ambiguous opi
   assert.match(rendered, /Advisory risk index/);
   assert.doesNotMatch(rendered, /Risk index unavailable|>—</);
 });
+
+test('review reasons distinguish context conflicts from inconsistent LLM advice', () => {
+  const mail = {...base, decision: decision('legacy','undetermined',null)};
+  assert.match(scorePresentation({...mail,reasons:[{id:'llm_inconsistent'}]}).detail,/category and risk estimate are inconsistent/);
+  assert.match(scorePresentation({...mail,reasons:[{id:'context_requires_review'}]}).detail,/reporting or receipt context/);
+});
+
+test('partial coverage preserves a supported threat verdict without implying enforcement', () => {
+  const shown=scorePresentation({...base,complete:false,decision:decision('legacy','unwanted',null),reasons:[{id:'smtp_policy_unavailable'},{id:'observed_threat_partial'}]});
+  assert.equal(shown.kind,'partial');
+  assert.match(shown.detail,/Corroborated phishing evidence/);
+  assert.match(shown.detail,/automatic enforcement remains disabled/);
+});

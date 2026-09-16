@@ -996,6 +996,7 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         "0.18.0",
         "0.19.2",
         "0.20.0",
+        "0.20.3",
         env!("CARGO_PKG_VERSION"),
         "0.13.0",
         "9.99.0",
@@ -1029,7 +1030,7 @@ async fn rolling_upgrade_serves_old_peers_and_reopens_their_cache_without_changi
         assert_eq!(reply.bundle.digest, reply.bundle.hash().unwrap());
         let mut expected_shared = publication.bundle.shared.clone();
         let mut expected_settings = serde_json::to_value(&publication.bundle.settings).unwrap();
-        if build != env!("CARGO_PKG_VERSION") && build != "0.20.0" {
+        if build != env!("CARGO_PKG_VERSION") && !matches!(build, "0.20.0" | "0.20.3") {
             expected_shared
                 .as_object_mut()
                 .unwrap()
@@ -1335,4 +1336,32 @@ fn research_archive_preserves_node_local_storage_and_older_rspamd_policy() {
             .keys()
             .all(|p| !p.contains("research-archive"))
     );
+}
+
+#[test]
+fn fallback_policy_requires_upgraded_workers_and_preserves_0203_modules() {
+    let root = tempfile::tempdir().unwrap();
+    let coordinator = config(root.path(), Role::Coordinator);
+    let settings = noisefence::control::Settings::from_config(&coordinator);
+    let mut bundle = artifacts::capture(&coordinator, settings, 1)
+        .unwrap()
+        .bundle;
+    bundle
+        .settings
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .insert("semantic".into(), json!({"timeout_ms":1500}));
+    bundle.digest = bundle.hash().unwrap();
+    let previous = bundle.for_build("0.20.3").unwrap();
+    assert_eq!(
+        previous.settings.detection.unwrap().modules["semantic"]["timeout_ms"],
+        1500
+    );
+    assert!(previous.settings.research_archive.is_some());
+    bundle.settings.domains[0].unknown_recipient_fallback = Some("alice@example.test".into());
+    bundle.digest = bundle.hash().unwrap();
+    assert!(bundle.for_build("0.20.3").is_err());
+    assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
 }

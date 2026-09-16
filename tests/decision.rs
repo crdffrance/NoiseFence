@@ -378,3 +378,113 @@ fn corroboration_resolves_ambiguity_but_never_erases_a_definite_contradiction() 
         assert!(scan.arbitration.is_none());
     }
 }
+
+fn partial_phishing() -> Scan {
+    use noisefence::{
+        engine::Signal,
+        evidence::{Artifacts, AuthResult, Evidence, Source, State},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let mut e = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+    e.source = Source::SmtpSession;
+    let a = &mut e.authentication;
+    a.state = State::Complete;
+    a.spf_state = State::Complete;
+    a.spf = Some(AuthResult::SoftFail);
+    a.dkim_state = State::Complete;
+    a.dkim = Some(vec![]);
+    a.dmarc_state = State::Complete;
+    a.dmarc_spf = Some(AuthResult::None);
+    a.dmarc_dkim = Some(AuthResult::None);
+    a.arc_state = State::Complete;
+    a.arc = Some(AuthResult::None);
+    let mut scan = advice_scan(99.9, LlmCategory::Phishing);
+    scan.complete = false;
+    scan.features_complete = Some(true);
+    scan.evidence = Some(e);
+    scan.message_context = Some(Default::default());
+    scan.antivirus.status = Av::Clean;
+    scan.signatures = AntivirusResult {
+        status: Av::Suspicious,
+        signature: Some("Sanesecurity.Phishing.Test.UNOFFICIAL".into()),
+        ..Default::default()
+    };
+    scan.reasons.push(Signal {
+        id: "smtp_policy_unavailable".into(),
+        detail: "Synthetic timeout".into(),
+        weight: 0.,
+    });
+    scan.decision = Some(Decision::legacy(&scan, 95.));
+    scan
+}
+
+#[test]
+fn independent_positive_evidence_survives_an_unrelated_dns_failure_without_enforcement() {
+    let mut scan = partial_phishing();
+    decision::apply(&mut scan, true);
+    assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    assert!(scan.decision.as_ref().unwrap().score.is_none());
+    assert!(!scan.complete);
+    assert_eq!(scan.score, 99.9);
+    let once = serde_json::to_value(&scan).unwrap();
+    decision::apply(&mut scan, true);
+    assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.mode = Mode::Tag;
+    for action in [
+        noisefence::actions::Action::Tag,
+        noisefence::actions::Action::Quarantine,
+    ] {
+        cfg.actions = Some(noisefence::actions::Policy {
+            spam: action,
+            publicity: action,
+            malware: action,
+            quarantine_days: 14,
+        });
+        assert_eq!(
+            noisefence::actions::evaluate(&scan, &cfg).effective,
+            noisefence::actions::Action::Deliver
+        );
+        assert!(decision::subject_tag(&scan, &cfg).is_none());
+    }
+}
+
+#[test]
+fn partial_risk_needs_every_independent_signal_and_cannot_override_other_models() {
+    use noisefence::{
+        engine::Signal,
+        evidence::{AuthResult, Source, State},
+    };
+    for missing in 0..15 {
+        let mut scan = partial_phishing();
+        match missing {
+            0 => scan.signatures.status = Av::Clean,
+            1 => scan.llm.status = LlmStatus::Unavailable,
+            2 => scan.llm.verdict.as_mut().unwrap().spam_probability = 0.1,
+            3 => scan.llm.verdict.as_mut().unwrap().category = LlmCategory::Legitimate,
+            4 => scan.evidence.as_mut().unwrap().authentication.dkim = Some(vec![AuthResult::Pass]),
+            5 => scan.evidence.as_mut().unwrap().authentication.dmarc_state = State::Unavailable,
+            6 => scan.evidence.as_mut().unwrap().source = Source::ContentOnly,
+            7 => scan.evidence.as_mut().unwrap().authentication.arc = Some(AuthResult::Pass),
+            8 => scan.features_complete = Some(false),
+            9 => scan.reasons.push(Signal {
+                id: "vision_incomplete".into(),
+                detail: "fixture".into(),
+                weight: 0.,
+            }),
+            10 => scan.message_context.as_mut().unwrap().threat_report = true,
+            11 => scan.message_context.as_mut().unwrap().transaction_notice = true,
+            12 => scan.antivirus.status = Av::Unavailable,
+            13 => scan.decision.as_mut().unwrap().source = DecisionSource::Fusion,
+            _ => scan.reasons.clear(),
+        }
+        decision::apply(&mut scan, true);
+        assert_eq!(
+            scan.decision.unwrap().outcome,
+            Outcome::Undetermined,
+            "case {missing}"
+        );
+    }
+}

@@ -248,6 +248,30 @@ fn failure(r: &Response) -> Outcome {
         Outcome::Temporary(reason)
     }
 }
+
+fn unknown_recipient(r: &Response) -> bool {
+    r.code == 550
+        && !r.lines.is_empty()
+        && r.lines
+            .iter()
+            .all(|line| enhanced_code(line).as_deref() == Some("5.1.1"))
+}
+
+fn recipient_fallback<'a>(cfg: &'a Config, job: &Job) -> Option<&'a str> {
+    if job.is_dsn {
+        return None;
+    }
+    let (_, domain) = job.destination.rsplit_once('@')?;
+    let owner = cfg
+        .domains
+        .iter()
+        .find(|d| d.name.eq_ignore_ascii_case(domain))?;
+    let target = owner.unknown_recipient_fallback.as_deref()?;
+    // No chains, aliases, cross-domain routing or fallback after a route change.
+    // The original queued destination and raw message remain intact for audit.
+    (owner.next_hops == job.hosts && !crate::config::same_mailbox(target, &job.destination))
+        .then_some(target)
+}
 fn safe_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
@@ -434,13 +458,29 @@ async fn deliver_host(
     if r.code != 250 {
         return Ok(failure(&r));
     }
-    let r = command(
+    let mut r = command(
         &mut io,
         &format!("RCPT TO:<{}>\r\n", job.destination),
         "rcpt_to",
         trace,
     )
     .await?;
+    if unknown_recipient(&r)
+        && let Some(target) = recipient_fallback(cfg, job)
+    {
+        // Only a rejected RCPT can take this path: DATA has not been sent.
+        // The same verified TLS session, envelope sender and message are reused.
+        trace.detail(
+            "Unknown recipient (5.1.1); trying the configured same-domain fallback mailbox",
+        );
+        r = command(
+            &mut io,
+            &format!("RCPT TO:<{target}>\r\n"),
+            "rcpt_fallback",
+            trace,
+        )
+        .await?;
+    }
     if r.code != 250 && r.code != 251 {
         return Ok(failure(&r));
     }

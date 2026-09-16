@@ -178,6 +178,7 @@ type Mail = {
     elapsed_ms: number;
   };
   llm?: {
+    coherent?: boolean | null;
     failure?: string | null;
     status:
       | 'disabled'
@@ -1190,10 +1191,10 @@ function Home() {
                         )}
                       {selected.llm && selected.llm.status !== 'disabled' && (
                         <p className="muted">
-                          Further Scaleway analysis:{' '}
+                          Scaleway second opinion:{' '}
                           {
                             {
-                              not_needed: "unsolicited for this message",
+                              not_needed: "not selected for this message",
                               busy: "occupied capacity, incomplete analysis",
                               budget_limited:
                                 "ceiling reached, local analysis preserved",
@@ -1203,6 +1204,8 @@ function Home() {
                               complete: "completed",
                             }[selected.llm.status]
                           }
+                          {selected.llm.coherent === false &&
+                            ' · Inconsistent category and risk estimate; no scoring weight'}
                           {selected.llm.status === 'complete' &&
                             ` · ${selected.llm.model} · ${selected.llm.elapsed_ms} ms`}
                           {selected.llm.failure &&

@@ -112,6 +112,7 @@ pub struct Audit {
 }
 #[derive(Default, Serialize)]
 pub struct SecondOpinion {
+    pub inconsistent: usize,
     pub evaluated: usize,
     pub unavailable_or_not_selected: usize,
     pub counts: crate::confirmation::Counts,
@@ -124,6 +125,7 @@ pub struct SecondOpinion {
 impl Audit {
     pub fn add(&mut self, scan: &Scan, spam: bool) {
         let advice = &mut self.second_opinion;
+        advice.inconsistent += usize::from(scan.llm.inconsistent());
         // Enum serialization yields a fixed identifier, never provider text.
         let status = serde_json::to_value(&scan.llm.status).unwrap();
         *advice

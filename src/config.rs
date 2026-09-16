@@ -178,6 +178,9 @@ fn max_age() -> i64 {
 #[serde(deny_unknown_fields)]
 pub struct Domain {
     pub name: String,
+    /// Retry only a verified upstream RCPT 5.1.1 at this same-domain mailbox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown_recipient_fallback: Option<String>,
     /// Routes belong to canonical destinations; alias-only domains may omit them.
     #[serde(default)]
     pub next_hops: Vec<String>,
@@ -449,6 +452,16 @@ impl Config {
         }
         let mut aliases = std::collections::HashSet::new();
         for d in &self.domains {
+            if let Some(target) = &d.unknown_recipient_fallback {
+                ensure!(
+                    valid_address(target)
+                        && target
+                            .rsplit_once('@')
+                            .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(&d.name))
+                        && self.canonical_destination(target).is_some(),
+                    "Unknown-recipient fallback must be a canonical mailbox in the same domain"
+                );
+            }
             for (alias, dest) in &d.aliases {
                 ensure!(
                     valid_address(alias)
@@ -586,7 +599,7 @@ impl Config {
         })
     }
 }
-fn same_mailbox(left: &str, right: &str) -> bool {
+pub(crate) fn same_mailbox(left: &str, right: &str) -> bool {
     match (left.rsplit_once('@'), right.rsplit_once('@')) {
         (Some((ll, ld)), Some((rl, rd))) => ll == rl && ld.eq_ignore_ascii_case(rd),
         _ => false,
