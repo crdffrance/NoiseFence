@@ -222,6 +222,7 @@ enum Reservation {
     Cached(Verdict),
     Fetch,
     Quota,
+    Backoff,
 }
 
 #[derive(Clone)]
@@ -313,7 +314,7 @@ impl Client {
                 |r| r.get(0),
             )?;
             if cooling {
-                return Ok(Reservation::Quota);
+                return Ok(Reservation::Backoff);
             }
             let previous: Option<(i64, i64, i64, i64)> = tx
                 .query_row(
@@ -533,6 +534,15 @@ impl Client {
             {
                 Ok(Reservation::Cached(verdict)) => return cached(verdict),
                 Ok(Reservation::Quota) => return failed(Status::Quota, None),
+                Ok(Reservation::Backoff) => {
+                    *metrics
+                        .failures
+                        .lock()
+                        .unwrap()
+                        .entry("provider_backoff".into())
+                        .or_default() += 1;
+                    return failed(Status::Unavailable, None);
+                }
                 Err(_) => return failed(Status::Unavailable, Some(Failure::Storage)),
                 Ok(Reservation::Fetch) => {}
             }
@@ -617,6 +627,16 @@ impl Client {
                 .await
             {
                 Ok(Reservation::Fetch) => {}
+                Ok(Reservation::Backoff) => {
+                    *metrics
+                        .failures
+                        .lock()
+                        .unwrap()
+                        .entry("provider_backoff".into())
+                        .or_default() += 1;
+                    failure = failed(Status::Unavailable, None);
+                    break;
+                }
                 Ok(Reservation::Quota) => {
                     failure = failed(Status::Quota, None);
                     break;
@@ -1239,7 +1259,7 @@ mod tests {
                 )
                 .await
                 .unwrap(),
-            Reservation::Quota
+            Reservation::Backoff
         ));
     }
     #[tokio::test]
@@ -1300,7 +1320,7 @@ mod tests {
                 .reserve(Provider::Crdf, "extra".into(), "key".into(), unlimited)
                 .await
                 .unwrap(),
-            Reservation::Quota
+            Reservation::Backoff
         ));
         assert!(matches!(
             client
@@ -1320,7 +1340,7 @@ mod tests {
                 .reserve(Provider::Crdf, "extra".into(), "key".into(), unlimited)
                 .await
                 .unwrap(),
-            Reservation::Quota
+            Reservation::Backoff
         ));
         assert!(matches!(
             resumed

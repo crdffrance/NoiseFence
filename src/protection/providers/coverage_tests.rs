@@ -77,7 +77,8 @@ async fn cached_detection_survives_quota_cooldown_and_busy_transport() {
     let (report, hits) = client
         .inspect(Provider::Crdf, true, &targets, &Policy::default())
         .await;
-    assert_eq!(report.status, Status::Quota);
+    assert_eq!(report.status, Status::Unavailable);
+    assert_eq!(report.failure_counts.get("provider_backoff"), Some(&1));
     assert_eq!(report.checked, 1);
     assert_eq!(report.cache_hits, 1);
     assert_eq!(report.omitted, 1);
@@ -204,7 +205,8 @@ async fn a_provider_retry_after_survives_restart_without_automatic_resubmission(
     let (report, _) = client
         .inspect(Provider::Crdf, true, &targets, &Policy::default())
         .await;
-    assert_eq!(report.status, Status::Quota);
+    assert_eq!(report.status, Status::Unavailable);
+    assert_eq!(report.failure_counts.get("provider_backoff"), Some(&1));
     assert_eq!(report.request_count, 0);
     server.abort();
 }

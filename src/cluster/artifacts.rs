@@ -206,7 +206,7 @@ impl Bundle {
         );
         // Fallback delivery must not silently differ across an older MX.
         ensure!(
-            build == env!("CARGO_PKG_VERSION")
+            (build == env!("CARGO_PKG_VERSION") || build == "0.21.0")
                 || self
                     .settings
                     .domains
@@ -216,7 +216,7 @@ impl Bundle {
         );
         let mut bundle = self.clone();
         bundle.build = build.into();
-        if build != env!("CARGO_PKG_VERSION") && !matches!(build, "0.20.0" | "0.20.3") {
+        if build != env!("CARGO_PKG_VERSION") && !matches!(build, "0.20.0" | "0.20.3" | "0.21.0") {
             bundle.settings.research_archive = None;
             bundle
                 .shared
@@ -225,7 +225,10 @@ impl Bundle {
                 .remove("research_archive");
         }
         if build != env!("CARGO_PKG_VERSION")
-            && !matches!(build, "0.19.0" | "0.19.1" | "0.19.2" | "0.20.0" | "0.20.3")
+            && !matches!(
+                build,
+                "0.19.0" | "0.19.1" | "0.19.2" | "0.20.0" | "0.20.3" | "0.21.0"
+            )
         {
             // Comparison is not available on older workers. Keep their policy
             // parseable during rolling upgrades; activate only after all nodes upgrade.
@@ -235,7 +238,7 @@ impl Bundle {
             }
         }
         if build != env!("CARGO_PKG_VERSION")
-            && build != "0.20.3"
+            && !matches!(build, "0.20.3" | "0.21.0")
             && let Some(detection) = &mut bundle.settings.detection
         {
             detection.modules.remove("semantic");

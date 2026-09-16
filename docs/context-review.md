@@ -1,12 +1,12 @@
 # Context, coverage and calibration
 
-NoiseFence 0.21.0 uses decision policy `decision-policy-4` and LLM prompt `noisefence-classify-5`. The prompt fingerprint and recorded policy distinguish new observations from earlier results.
+NoiseFence 0.22.0 uses decision policy `decision-policy-5` and LLM prompt `noisefence-classify-6`. The prompt fingerprint and recorded policy distinguish new observations from earlier results.
 
 ## Readable content survives independent failures
 
 LLM selection uses the stored local extraction status rather than the final completeness of every detector. A DNS, semantic or optional scanner failure no longer prevents analysing readable text. The original incomplete status remains: a successful LLM response does not repair a failed check. Configured selection intervals, the per-request text cap, concurrency and the budget still apply. Historical records without extraction status retain conservative behavior.
 
-Encrypted PGP/MIME and opaque S/MIME bodies are explicitly recorded as limited content coverage. NoiseFence cannot inspect their plaintext and does not ask the LLM to invent a content verdict. Readable signed MIME is not classified as encrypted. Raw scores remain available as partial diagnostic indices, not calibrated probabilities.
+Encrypted PGP/MIME and opaque S/MIME bodies are explicitly recorded as limited content coverage. NoiseFence cannot inspect their plaintext and does not ask the LLM to invent a content verdict. Readable signed MIME is not classified as encrypted. Raw scores remain available as partial diagnostic indices, not calibrated probabilities. Lexical and semantic content contributions are skipped for opaque bodies, with `content_model_skipped` and `rules-partial-1` recorded. Content features are ineligible for training, while bounded transport/authentication checks continue. A low partial index is not evidence that unreadable content is safe.
 
 ## Contextual false-positive safeguard
 
@@ -14,7 +14,7 @@ The content parser recognizes bounded security-report, shipment-receipt and comp
 
 This safeguard can only move an unwanted decision to **undetermined**. It never declares a message legitimate, reduces the numeric score, supplies missing authentication, or overrides the main antivirus or a separately validated fusion decision. Message-provided Authentication-Results headers cannot satisfy it. A malicious sender copying reporting language does not receive an allowlist bypass. Review remains necessary, and primary malware findings retain priority.
 
-The LLM receives lexical domain relationships derived from URLs already present in its bounded text payload. A host under the sender's registrable domain is distinguished from a lookalike under another domain. These facts do not establish ownership, authentication or legitimacy. No link is opened by this analysis.
+The LLM receives actual MIME plain-text and cleaned HTML excerpts. Stylesheets, scripts, head/template blocks and duplicate HTML-to-text parts are excluded. `link_context` pairs a bounded anchor label with its destination scheme/host, omitting paths, query strings and user information. This context consumes part of the same text-byte cap, rather than increasing it. Anchor labels remain untrusted email content. The LLM receives lexical domain relationships derived from this bounded payload. A host under the sender's registrable domain is distinguished from a lookalike under another domain. These facts do not establish ownership, authentication or legitimacy. No link is opened by this analysis.
 
 Mailing categorization also separates planned service maintenance from commercial newsletters. List and unsubscribe headers combined with an offer can establish newsletter purpose even without the word “newsletter”. This purpose classification adds no spam weight and cannot override a security decision.
 
@@ -42,8 +42,14 @@ Context safeguards now cover abuse/brand reports asking to retain a URL in a fee
 
 A narrow policy preserves an unwanted risk verdict when the sole recorded incomplete control is SMTP/DNS consistency, content extraction and the primary antivirus completed, a local advisory phishing signature is present, and a coherent high-confidence phishing second opinion agrees with observed unauthenticated sender evidence (SPF fail/softfail, no successful DKIM, DMARC alignment or ARC). Reporting, receipt and encrypted contexts are excluded. The signature, failed authentication and LLM are not sufficient individually. This policy does not use the raw index as a probability.
 
+A second narrow path recognizes explicit first-person compromise, a disclosure threat, a cryptocurrency demand and a wallet together. It still requires observed failed authentication and either an advisory phishing signature or a strong coherent phishing opinion. Only DNS/LLM incompleteness may be tolerated; a legitimate second opinion, quoted incident, report or receipt prevents this path. No phrase or wallet address alone classifies mail.
+
 The message remains incomplete, with a partial numeric diagnostic and the reason `observed_threat_partial`. Subject rewriting and automatic quarantine remain disabled on that incomplete result. Observation mode continues to deliver. Rspamd never participates in this decision.
 
 ## What this release does not claim
 
 No new model was trained or activated from the development examples. Context guards reduce erroneous unwanted decisions to review; they do not recalibrate the high raw indices or establish capture/false-positive rates. Confirmed legitimate receipts and wanted feeds are regression examples, not an independent evaluation set. Use recent human labels, campaign/time separation and an untouched holdout before activating a recalibrated model.
+
+## Provider availability
+
+Local minute/day quota exhaustion is distinct from a provider cooldown. The latter is recorded as `unavailable` with `failure_counts.provider_backoff`, even when the configured subscription has no local quota. A cooldown can follow a provider refusal or invalid response; it is neither a clean result nor a malicious hit. Cached target-bound results remain usable. Increasing a quota does not remove the cooldown or authorize extra paid requests.

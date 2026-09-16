@@ -5,44 +5,44 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-4";
+pub const VERSION: &str = "decision-policy-5";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
 pub const OBSERVED_THREAT_REASON: &str = "observed_threat_partial";
 
-/// A missing SMTP consistency check cannot erase three successfully observed
-/// signals. This narrow policy does not classify from the raw score, an LLM,
-/// failed authentication, or an advisory signature in isolation.
+/// Successfully observed threats survive unrelated optional-check failures.
+/// Direct extortion still needs observed failed authentication and a second
+/// content signal; no raw score or unavailable check supplies confirmation.
 fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
     use crate::evidence::{AuthResult, Source, State};
-    if scan.complete
-        || scan.features_complete != Some(true)
-        || scan.antivirus.status != AntivirusStatus::Clean
-        || !scan
-            .reasons
-            .iter()
-            .any(|r| r.id == "smtp_policy_unavailable")
-        || scan.reasons.iter().any(|r| {
-            crate::assessment::INCOMPLETE_REASONS.contains(&r.id.as_str())
-                && r.id != "smtp_policy_unavailable"
-        })
-        || scan
-            .message_context
-            .as_ref()
-            .is_none_or(|c| c.encrypted || c.threat_report || c.transaction_notice)
-        || scan.signatures.status != AntivirusStatus::Suspicious
-        || !scan
+    let Some(context) = &scan.message_context else {
+        return false;
+    };
+    let signature = scan.signatures.status == AntivirusStatus::Suspicious
+        && scan
             .signatures
             .signature
             .as_deref()
-            .is_some_and(|s| s.starts_with("Sanesecurity.Phishing."))
-        || scan.llm.opinion() != Some(Outcome::Unwanted)
-        || !scan.llm.verdict.as_ref().is_some_and(|v| {
+            .is_some_and(|s| s.starts_with("Sanesecurity.Phishing."));
+    let llm = scan.llm.opinion() == Some(Outcome::Unwanted)
+        && scan.llm.verdict.as_ref().is_some_and(|v| {
             matches!(v.category, crate::llm::Category::Phishing)
                 && v.confidence >= 0.9
                 && v.spam_probability >= 0.9
-        })
+        });
+    let allowed_missing = |id: &str| {
+        id == "smtp_policy_unavailable"
+            || (context.direct_extortion && signature && id == "llm_unavailable")
+    };
+    if scan.complete || scan.features_complete != Some(true)
+        || scan.antivirus.status != AntivirusStatus::Clean
+        || context.encrypted || context.threat_report || context.transaction_notice
+        || !scan.reasons.iter().any(|r| allowed_missing(&r.id))
+        || scan.reasons.iter().any(|r| crate::assessment::INCOMPLETE_REASONS.contains(&r.id.as_str()) && !allowed_missing(&r.id))
+        || !((signature && llm) || (context.direct_extortion && (signature || llm)))
+        // A contradictory available opinion still requires human review.
+        || scan.llm.opinion() == Some(Outcome::Legitimate)
     {
         return false;
     }
@@ -186,7 +186,11 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         scan.pub_tagged = false;
         scan.reasons.push(Signal {
             id: OBSERVED_THREAT_REASON.into(),
-            detail: "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted, coverage remains incomplete, and automatic enforcement stays disabled.".into(),
+            detail: if scan.message_context.as_ref().is_some_and(|c| c.direct_extortion) {
+                "Explicit compromise, disclosure threat and cryptocurrency payment demand are corroborated by observed failed authentication and a phishing signature or strong phishing analysis. Coverage remains incomplete and automatic enforcement stays disabled."
+            } else {
+                "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted, coverage remains incomplete, and automatic enforcement stays disabled."
+            }.into(),
             weight: 0.0,
         });
     } else {

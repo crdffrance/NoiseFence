@@ -165,7 +165,7 @@ function AnalysisDetails({
       {analysis.score_breakdown && <details className="diagnostic-disclosure">
         <summary>Contributions by control family</summary>
         <dl className="diagnostic-facts">{Object.entries(analysis.score_breakdown.families).map(([family,value])=><div key={family}>
-          <dt>{({lexical:"Text and structure",semantic:"Semantic analysis",content_unseparated:"Content, historical detail absent",heuristics:"Content rules",authentication:"Authentication",reputation:"Reputation",smtp:"SMTP controls",llm:"Second opinion",other_rules:"Other rules"} as Record<string,string>)[family] ?? "Other contributions"}</dt><dd>{contribution(value)}</dd>
+          <dt>{({lexical:"Text and structure",semantic:"Semantic analysis",content_unseparated:"Content, historical detail absent",heuristics:"Content rules",authentication:"Authentication",reputation:"Reputation",smtp:"SMTP controls",llm:"Second opinion",other_rules:"Other rules",rules_baseline:"Fixed partial-index baseline (not learned)"} as Record<string,string>)[family] ?? "Other contributions"}</dt><dd>{contribution(value)}</dd>
         </div>)}</dl>
         <p className="diagnostic-muted">{analysis.score_breakdown.matches_recorded_score ? "The sum reproduces the recorded historical score." : "The observations retained are not sufficient to accurately reproduce the historical score."}
           {analysis.score_breakdown.saturated && " The index is close to one end; it is not proof of certainty."}</p>

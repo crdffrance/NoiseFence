@@ -25,7 +25,7 @@ fn hash(namespace: &str, token: &str) -> usize {
     (hash % DIMENSION as u64) as usize
 }
 
-fn visible(html: &str) -> String {
+pub(crate) fn visible(html: &str) -> String {
     // Explicitly remove non-visible blocks before the MIME library conversion.
     // Do not let stylesheets become training features or dominate LLM excerpts.
     let hidden = ACTIVE.get_or_init(|| {

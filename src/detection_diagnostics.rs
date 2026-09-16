@@ -41,7 +41,14 @@ pub fn breakdown(scan: &Scan) -> Breakdown {
         .filter(|v| v.is_finite());
     let lexical = finite(scan.evidence.as_ref().and_then(|e| e.lexical_logit))
         .or_else(|| Some(content? - semantic?));
-    if let (Some(lexical), Some(semantic)) = (lexical, semantic) {
+    if scan.model == "rules-partial-1"
+        && contributions.is_empty()
+        && lexical.is_none()
+        && scan.message_context.as_ref().is_some_and(|c| c.encrypted)
+        && scan.reasons.iter().any(|r| r.id == "content_model_skipped")
+    {
+        families.insert("rules_baseline", Some(crate::engine::RULES_BASELINE_LOGIT));
+    } else if let (Some(lexical), Some(semantic)) = (lexical, semantic) {
         families.insert("lexical", Some(lexical));
         families.insert("semantic", Some(semantic));
     } else {

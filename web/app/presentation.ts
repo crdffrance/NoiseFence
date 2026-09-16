@@ -173,6 +173,7 @@ export function checkFailure(reason?: string | null) {
         network: 'Connection or TLS verification failed',
         authentication: 'Provider authentication rejected',
         rate_limit: 'Provider rate limit',
+        provider_backoff: 'Provider cooldown after an error or refusal',
         http: 'Provider HTTP error',
         response_limit: 'Response exceeds the allowed limit',
         invalid_response: 'Invalid or incompatible response',

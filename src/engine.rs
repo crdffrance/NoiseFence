@@ -1,3 +1,5 @@
+/// Fixed diagnostic baseline when no content model is applied; not a learned prior.
+pub const RULES_BASELINE_LOGIT: f64 = -5.0;
 use crate::{config::Config, message};
 use anyhow::{Context, Result, ensure};
 use mail_auth::{
@@ -913,16 +915,36 @@ impl Engine {
     }
     fn score(&self, scan: &mut Scan) {
         crate::rules::apply(scan, &self.config.filter.rule_weights);
-        scan.reasons.retain(|r| r.id != "model_contribution");
+        scan.reasons.retain(|r| {
+            !matches!(
+                r.id.as_str(),
+                "model_contribution" | "content_model_skipped"
+            )
+        });
+        let opaque = scan.message_context.as_ref().is_some_and(|c| c.encrypted);
+        if opaque {
+            scan.model = "rules-partial-1".into();
+            scan.reasons.push(Signal {
+                id: "content_model_skipped".into(),
+                detail: "Content models were skipped because the body is encrypted or opaque. The numeric index uses accessible rules only; it is not a probability or proof of safety.".into(),
+                weight: 0.0,
+            });
+            if let Some(evidence) = &mut scan.evidence {
+                evidence.lexical_logit = None;
+                evidence.lexical_state = crate::evidence::State::Limited;
+            }
+        }
         let mut content = self
             .model
             .as_ref()
+            .filter(|_| !opaque)
             .map(|m| {
                 scan.model = m.version.clone();
                 m.logit(&scan.features)
             })
-            .unwrap_or(-5.0);
-        if self.model.is_some()
+            .unwrap_or(RULES_BASELINE_LOGIT);
+        if !opaque
+            && self.model.is_some()
             && let Some(evidence) = &mut scan.evidence
         {
             evidence.lexical_logit = Some(content);
@@ -932,7 +954,7 @@ impl Engine {
                 crate::evidence::State::Limited
             };
         }
-        if scan.semantic.status == SemanticStatus::Complete {
+        if !opaque && scan.semantic.status == SemanticStatus::Complete {
             content += scan.semantic.contribution.unwrap_or(0.0);
             scan.model = scan.semantic.model.clone();
         }
@@ -945,7 +967,7 @@ impl Engine {
         } else {
             (score * 10.0).round() / 10.0
         };
-        if self.model.is_some() {
+        if !opaque && self.model.is_some() {
             scan.reasons.push(Signal {
                 id: "model_contribution".into(),
                 detail: "Local model contribution: text and structure".into(),
@@ -1341,7 +1363,11 @@ impl Engine {
         // A limited OCR or scanner result must not skip safe authentication and
         // reputation checks. Keep completeness false and the delivery fallback.
         // Extraction and signature limits still bound parsing/authentication work.
-        if !scan.features_complete.unwrap_or(scan.complete) || excessive_signatures {
+        // Encrypted content is not eligible for content learning, but successful
+        // bounded MIME extraction still permits transport/authentication checks.
+        // Context is attached only after extraction succeeds.
+        let opaque = scan.message_context.as_ref().is_some_and(|c| c.encrypted);
+        if (!scan.features_complete.unwrap_or(scan.complete) && !opaque) || excessive_signatures {
             return self.finish_unchecked(
                 raw,
                 scan,

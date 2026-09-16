@@ -185,3 +185,109 @@ fn a_forged_receipt_or_report_with_an_action_demand_gets_no_context_safeguard() 
         assert_eq!(scan.decision.unwrap().outcome, Outcome::Unwanted);
     }
 }
+
+#[test]
+fn opaque_mail_cannot_inherit_an_extreme_content_model_score() {
+    use noisefence::{
+        engine::{Algorithm, Model},
+        features,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(root.path())).clone();
+    let model = Model {
+        version: "synthetic-high-bias".into(),
+        algorithm: Algorithm::Logistic,
+        feature_version: features::VERSION,
+        bias: 30.,
+        weights: vec![0.; features::DIMENSION],
+        idf: vec![1.; features::DIMENSION],
+        trained_at: 0,
+        examples: 1,
+    };
+    let path = root.path().join("model.json");
+    std::fs::write(&path, serde_json::to_vec(&model).unwrap()).unwrap();
+    config.filter.model = Some(path);
+    let engine = Engine::new(std::sync::Arc::new(config)).unwrap();
+    assert!(engine.offline(common::MESSAGE).score > 99.);
+    for kind in [
+        "application/pkcs7-mime",
+        "application/x-pkcs7-mime",
+        "multipart/encrypted; boundary=x",
+    ] {
+        let raw = format!(
+            "From: notices@example.org\r\nSubject: Account notice\r\nContent-Type: {kind}\r\n\r\nOpaque data\r\n"
+        );
+        let scan = engine.offline(raw.as_bytes());
+        assert!(!scan.complete && !scan.features_complete.unwrap());
+        assert!(scan.score.is_finite() && scan.score < 95.);
+        assert_eq!(scan.model, "rules-partial-1");
+        assert!(noisefence::detection_diagnostics::breakdown(&scan).matches_recorded_score);
+        let e = scan.evidence.unwrap();
+        assert_eq!(e.lexical_state, State::Limited);
+        assert!(e.lexical_logit.is_none());
+        assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+        assert!(!scan.reasons.iter().any(|r| r.id == "model_contribution"));
+        assert!(scan.reasons.iter().any(|r| r.id == "content_model_skipped"));
+    }
+}
+
+const EXTORTION: &str = "I gained access to your email account and camera. I can share this material with your friends and relatives. I am demanding USD 1250 in cryptocurrency. Payment address (btc wallet): bc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq. You have 48 hours.";
+#[test]
+fn direct_extortion_requires_all_components_and_excludes_quoted_incidents() {
+    use noisefence::message_context::inspect;
+    assert!(
+        inspect(format!("Subject: Security alert\r\n\r\n{EXTORTION}").as_bytes()).direct_extortion
+    );
+    for body in [
+        EXTORTION.replace("I gained access", "A service has access"),
+        EXTORTION.replace(
+            "I can share this material with your friends and relatives.",
+            "I respect your privacy.",
+        ),
+        EXTORTION.replace(
+            "I am demanding USD 1250 in cryptocurrency.",
+            "No payment is required.",
+        ),
+        EXTORTION.replace("bc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", "[redacted]"),
+        format!("I received this suspicious message: {EXTORTION}"),
+        format!("> {EXTORTION}"),
+        "You paid 10 EUR in bitcoin. Your payment receipt is available. We never share your files."
+            .into(),
+    ] {
+        assert!(!inspect(format!("Subject: Example\r\n\r\n{body}").as_bytes()).direct_extortion);
+    }
+    for subject in [
+        "Fwd: Security alert",
+        "Re: extortion incident",
+        "Sextortion report",
+    ] {
+        assert!(
+            !inspect(format!("Subject: {subject}\r\n\r\n{EXTORTION}").as_bytes()).direct_extortion
+        );
+    }
+    assert!(!inspect(format!("Subject: Incident\r\nContent-Type: text/html\r\n\r\n<p>For investigation:</p><blockquote>{EXTORTION}</blockquote>").as_bytes()).direct_extortion);
+}
+
+#[tokio::test]
+async fn opaque_content_keeps_bounded_transport_checks_without_reenabling_content_learning() {
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(common::config(root.path())).unwrap();
+    let raw = b"From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Encrypted notice\r\nContent-Type: multipart/encrypted; boundary=x\r\n\r\n--x\r\nContent-Type: application/pgp-encrypted\r\n\r\nVersion: 1\r\n--x\r\nContent-Type: application/octet-stream\r\n\r\nopaque\r\n--x--\r\n";
+    let (scan, wire) = engine
+        .process(
+            raw,
+            "127.0.0.1".parse().unwrap(),
+            "sender.example.org",
+            "sender@example.org",
+            "encrypted-fixture",
+        )
+        .await
+        .unwrap();
+    assert!(!scan.complete && !scan.features_complete.unwrap());
+    assert_eq!(
+        scan.evidence.unwrap().authentication.arc_state,
+        State::Complete
+    );
+    assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    assert!(!scan.tagged && !String::from_utf8_lossy(&wire).contains("[SPAM]"));
+}

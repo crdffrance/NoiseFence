@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.0 — Bounded content context and partial-evidence corrections
+
+- Prepare cleaner LLM excerpts from actual MIME text parts, remove stylesheet/script blocks, avoid HTML-to-text duplication, and include bounded anchor labels with destination hosts. Link context shares the existing text byte cap; URL paths and query strings are omitted from this context. Prompt version 6 distinguishes routine notices and receipts from deceptive account-management requests.
+- Skip lexical and semantic content models for encrypted or opaque bodies. Keep a finite rules-only diagnostic, explicit incomplete coverage, and transport/authentication checks. Opaque content is ineligible for content learning; a low partial index is not proof of safety.
+- Recognize a narrow direct-extortion context (compromise, disclosure threat, cryptocurrency demand and wallet). Observed failed SMTP authentication plus a phishing signature or strong coherent LLM opinion can preserve an unwanted verdict when only DNS/LLM checks are missing. Quoted reports and receipts abstain; incomplete scans never enable automatic enforcement.
+- Report provider cooldowns as unavailable with `provider_backoff` diagnostics, separately from configured quota exhaustion. Cached detections remain usable and unlimited subscriptions still respect provider backoff.
+- Preserve 0.21.0 recipient fallback, archive and semantic settings during coordinator-first rolling upgrades. No storage migration or model recalibration is included.
+
+Validation uses synthetic regression cases and private, offline development replay. Historical mail and shadow-engine verdicts are not relabelled, retrained on, or presented as independent accuracy evidence. No capture-rate or false-positive target is claimed by this release.
+
 ## 0.21.0 — 2026-09-16
 
 - Ground LLM second opinions in observed SMTP authentication and the current UTC date, with explicit category/probability consistency diagnostics in the console and headers. Preserve existing provider limits and accounting.

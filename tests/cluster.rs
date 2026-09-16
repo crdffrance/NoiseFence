@@ -1363,5 +1363,17 @@ fn fallback_policy_requires_upgraded_workers_and_preserves_0203_modules() {
     bundle.settings.domains[0].unknown_recipient_fallback = Some("alice@example.test".into());
     bundle.digest = bundle.hash().unwrap();
     assert!(bundle.for_build("0.20.3").is_err());
+    let compatible = bundle.for_build("0.21.0").unwrap();
+    assert_eq!(
+        compatible.settings.domains[0]
+            .unknown_recipient_fallback
+            .as_deref(),
+        Some("alice@example.test")
+    );
+    assert_eq!(
+        compatible.settings.detection.unwrap().modules["semantic"]["timeout_ms"],
+        1500
+    );
+    assert!(compatible.settings.research_archive.is_some());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
 }

@@ -488,3 +488,59 @@ fn partial_risk_needs_every_independent_signal_and_cannot_override_other_models(
         );
     }
 }
+
+#[test]
+fn corroborated_direct_extortion_survives_one_missing_content_check_but_never_enforces() {
+    for absent in ["llm", "signature"] {
+        let mut scan = partial_phishing();
+        scan.message_context.as_mut().unwrap().direct_extortion = true;
+        if absent == "llm" {
+            scan.llm.status = LlmStatus::Unavailable;
+            scan.reasons.push(noisefence::engine::Signal {
+                id: "llm_unavailable".into(),
+                detail: "fixture".into(),
+                weight: 0.,
+            });
+        } else {
+            scan.signatures.status = Av::Clean;
+        }
+        decision::apply(&mut scan, true);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+        assert!(!scan.tagged && !scan.pub_tagged && !scan.complete);
+        let once = serde_json::to_value(&scan).unwrap();
+        decision::apply(&mut scan, true);
+        assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+        scan.llm.status = LlmStatus::Unavailable;
+        scan.signatures.status = Av::Clean;
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        decision::apply(&mut scan, true);
+        assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    }
+}
+
+#[test]
+fn extortion_hint_cannot_override_authenticated_mail_or_a_legitimate_opinion() {
+    for case in 0..5 {
+        let mut scan = partial_phishing();
+        scan.message_context.as_mut().unwrap().direct_extortion = true;
+        match case {
+            0 => {
+                scan.evidence.as_mut().unwrap().source =
+                    noisefence::evidence::Source::SuppliedEnvelope
+            }
+            1 => {
+                scan.evidence.as_mut().unwrap().authentication.spf =
+                    Some(noisefence::evidence::AuthResult::Pass)
+            }
+            2 => scan.message_context.as_mut().unwrap().threat_report = true,
+            3 => scan.message_context.as_mut().unwrap().encrypted = true,
+            _ => {
+                let v = scan.llm.verdict.as_mut().unwrap();
+                v.category = LlmCategory::Legitimate;
+                v.spam_probability = 0.1;
+            }
+        }
+        decision::apply(&mut scan, true);
+        assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    }
+}
