@@ -146,6 +146,7 @@ pub async fn serve_controlled(
         state.config.rbl.as_ref(),
         crate::management::dqs_key(&state.config)?.as_deref(),
     )?);
+    let verification = Arc::new(crate::recipient_verification::Runtime::default());
     let slots = Arc::new(Semaphore::new(state.config.smtp.max_connections));
     let peers = Arc::new(Mutex::new(HashMap::<IpAddr, usize>::new()));
     let State {
@@ -173,8 +174,8 @@ pub async fn serve_controlled(
                 if !allowed {let _=tokio::time::timeout(Duration::from_secs(1),socket.write_all(b"421 4.3.2 Server busy\r\n")).await;continue;}
                 let snapshot=control.as_ref().map(|c|c.snapshot());
                 let state=State{config:snapshot.as_ref().map_or_else(||config.clone(),|s|s.config.clone()),store:store.clone(),engine:snapshot.as_ref().map_or_else(||standalone.as_ref().unwrap().clone(),|s|s.engine.clone()),processing:processing.clone()};
-                let tls=tls.clone();let control=control.clone();let rbl=rbl.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
-                tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls,control,rbl).await{tracing::debug!(error=%error,"SMTP session ended");}});
+                let tls=tls.clone();let control=control.clone();let rbl=rbl.clone();let verification=verification.clone();let guard=PeerGuard{ip:peer.ip(),peers:peers.clone()};
+                tasks.spawn(async move{let _permit=permit.unwrap();let _guard=guard;if let Err(error)=session(socket,peer,state,tls,control,rbl,verification).await{tracing::debug!(error=%error,"SMTP session ended");}});
             }
         }
     }
@@ -233,6 +234,7 @@ async fn session(
     tls: Option<TlsAcceptor>,
     control: Option<Arc<crate::control::Controller>>,
     mut rbl: Arc<crate::rbl::Runtime>,
+    verification: Arc<crate::recipient_verification::Runtime>,
 ) -> Result<()> {
     let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
@@ -483,6 +485,14 @@ async fn session(
                         {
                             admission_reports.push(decision);
                         }
+                    }
+                    if let Some(response) = verification
+                        .check(&cfg, &recipient, from.as_ref().unwrap())
+                        .await
+                        .smtp_reply()
+                    {
+                        reply(&mut io, response).await?;
+                        continue;
                     }
                     if !recipients.iter().any(|r| r.address == recipient.address) {
                         recipients.push(recipient);

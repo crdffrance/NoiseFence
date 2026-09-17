@@ -249,7 +249,7 @@ fn failure(r: &Response) -> Outcome {
     }
 }
 
-fn unknown_recipient(r: &Response) -> bool {
+pub(crate) fn unknown_recipient(r: &Response) -> bool {
     r.code == 550
         && !r.lines.is_empty()
         && r.lines
@@ -272,7 +272,7 @@ fn recipient_fallback<'a>(cfg: &'a Config, job: &Job) -> Option<&'a str> {
     (owner.next_hops == job.hosts && !crate::config::same_mailbox(target, &job.destination))
         .then_some(target)
 }
-fn safe_ip(ip: IpAddr) -> bool {
+pub(crate) fn safe_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             !ip.is_private()

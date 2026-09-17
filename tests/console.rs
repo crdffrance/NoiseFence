@@ -435,6 +435,7 @@ async fn domain_acl_covers_aliases_bcc_search_feedback_stats_and_disabled_accoun
     cfg.domains[0].accept_all_recipients = true;
     cfg.domains.push(Domain {
         unknown_recipient_fallback: None,
+        recipient_verification: None,
         name: "other.test".into(),
         next_hops: vec!["127.0.0.1".into()],
         accept_all_recipients: true,
@@ -542,6 +543,7 @@ async fn durable_configuration_validation_conflicts_recovery_and_routes() {
     desired.gateways[0].port = 2527;
     desired.domains.push(ManagedDomain {
         unknown_recipient_fallback: None,
+        recipient_verification: None,
         name: "new.test".into(),
         gateway: Some(desired.gateways[0].id.clone()),
         enabled: true,
@@ -914,6 +916,7 @@ async fn configuration_reuses_loaded_lexical_artifact_until_explicit_restart() {
     let mut settings = control.snapshot().settings.clone();
     settings.domains.push(ManagedDomain {
         unknown_recipient_fallback: None,
+        recipient_verification: None,
         name: "disabled.test".into(),
         gateway: Some(settings.gateways[0].id.clone()),
         enabled: false,

@@ -70,6 +70,7 @@ type Domain = {
   enabled: boolean;
   accept_all_recipients: boolean;
   unknown_recipient_fallback?: string | null;
+  recipient_verification?: { timeout_ms: number; positive_cache_seconds: number; negative_cache_seconds: number } | null;
   recipients: string[];
   aliases: Record<string, string>;
 };
@@ -737,13 +738,34 @@ export function AdminConsole({
                       domainAt(i, { accept_all_recipients })
                     }
                   />
+                  <Toggle
+                    label="Verify recipients at destination"
+                    description="Check the canonical mailbox over verified TLS before accepting mail. Unknown addresses receive 550; unavailable checks receive 451 for retry. Upgrade every MX before enabling. Explicit aliases use their destination domain's policy."
+                    checked={!!d.recipient_verification}
+                    onChange={(enabled) => domainAt(i, {
+                      recipient_verification: enabled ? { timeout_ms: 8000, positive_cache_seconds: 60, negative_cache_seconds: 30 } : undefined,
+                      ...(enabled ? { unknown_recipient_fallback: undefined } : {}),
+                    })}
+                  />
+                  {d.recipient_verification && <div className="form-grid">
+                    {([
+                      ['timeout_ms', 'Verification deadline (ms)', 100, 15000],
+                      ['positive_cache_seconds', 'Accepted recipient cache (seconds)', 0, 300],
+                      ['negative_cache_seconds', 'Unknown recipient cache (seconds)', 0, 60],
+                    ] as const).map(([key, label, min, max]) => <label className="field" key={key}>
+                      {label}
+                      <Input type="number" min={min} max={max} value={d.recipient_verification![key]}
+                        onChange={(e) => domainAt(i, { recipient_verification: { ...d.recipient_verification!, [key]: Number(e.target.value) } })} />
+                    </label>)}
+                  </div>}
                   <label className="field" htmlFor={`domain-fallback-${i}`}>
                     Unknown-recipient fallback
                     <Input id={`domain-fallback-${i}`} value={d.unknown_recipient_fallback ?? ''}
                       placeholder={`postmaster@${d.name || 'example.test'}`}
+                      disabled={!!d.recipient_verification}
                       onChange={(e) => domainAt(i, { unknown_recipient_fallback: e.target.value || null })}
                       spellCheck={false} />
-                    <small>Optional mailbox in this domain. Used only after an upstream 550 5.1.1 recipient refusal. Existing recipients, spam refusals and temporary failures keep their normal handling. Both MX nodes must support this setting.</small>
+                    <small>Optional mailbox in this domain. Used only after an upstream 550 5.1.1 recipient refusal. Existing recipients, spam refusals and temporary failures keep their normal handling. All MX nodes must support this setting. Incompatible with destination recipient verification.</small>
                   </label>
                   {!d.accept_all_recipients && (
                     <label className="field">

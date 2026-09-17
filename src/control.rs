@@ -26,6 +26,8 @@ pub struct ManagedDomain {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unknown_recipient_fallback: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_verification: Option<crate::recipient_verification::Settings>,
     pub gateway: Option<String>,
     pub enabled: bool,
     pub accept_all_recipients: bool,
@@ -107,6 +109,7 @@ impl Settings {
                 ManagedDomain {
                     name: d.name.clone(),
                     unknown_recipient_fallback: d.unknown_recipient_fallback.clone(),
+                    recipient_verification: d.recipient_verification.clone(),
                     gateway,
                     enabled: true,
                     accept_all_recipients: d.accept_all_recipients,
@@ -254,10 +257,18 @@ impl Settings {
                     .collect(),
                 None => Vec::new(),
             };
+            if let Some(v) = &d.recipient_verification {
+                v.validate()?;
+                ensure!(
+                    d.unknown_recipient_fallback.is_none(),
+                    "Recipient verification cannot be combined with unknown-recipient fallback"
+                );
+            }
             // Disabled domains retain syntactically valid addresses; enabling also validates routing.
             let domain = Domain {
                 name: d.name.clone(),
                 unknown_recipient_fallback: d.unknown_recipient_fallback.clone(),
+                recipient_verification: d.recipient_verification.clone(),
                 next_hops,
                 accept_all_recipients: d.accept_all_recipients,
                 recipients: d.recipients.clone(),

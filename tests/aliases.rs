@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 fn pilot(config: &mut Config) {
     config.domains.push(Domain {
         unknown_recipient_fallback: None,
+        recipient_verification: None,
         name: "pilot.example.test".into(),
         next_hops: vec![],
         recipients: vec![],

@@ -39,6 +39,7 @@ async fn rbl_denies_before_data_storage_and_scanning_and_observe_preserves_deliv
                 None,
                 None,
                 Arc::new(rbl),
+                Arc::new(crate::recipient_verification::Runtime::default()),
             )
             .await
         });
@@ -170,6 +171,7 @@ async fn a_web_revision_changes_rbl_only_at_the_next_mail_transaction() {
             None,
             Some(c.clone()),
             c.snapshot().rbl.clone(),
+            Arc::new(crate::recipient_verification::Runtime::default()),
         )
         .await
     });

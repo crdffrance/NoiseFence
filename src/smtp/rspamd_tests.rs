@@ -57,7 +57,17 @@ async fn smtp_accepts_durably_while_rspamd_is_still_waiting() {
     let rbl = Arc::new(crate::rbl::Runtime::new(None, None).unwrap());
     let server = tokio::spawn(async move {
         let (socket, peer) = listener.accept().await.unwrap();
-        session(socket, peer, state, None, None, rbl).await.unwrap();
+        session(
+            socket,
+            peer,
+            state,
+            None,
+            None,
+            rbl,
+            Arc::new(crate::recipient_verification::Runtime::default()),
+        )
+        .await
+        .unwrap();
     });
     let mut wire: Wire = BufReader::new(Box::new(TcpStream::connect(address).await.unwrap()));
     assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 220);

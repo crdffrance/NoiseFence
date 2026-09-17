@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.0 — Downstream recipient verification
+
+- Add opt-in, per-domain recipient verification in the Web console. Existing downstream mailboxes can keep wildcard reception while nonexistent destinations receive SMTP 550 5.1.1 before DATA, instead of redirecting to a fallback mailbox.
+- Verify explicit downstream routes with authenticated TLS and envelope-only RCPT probes. Require every route to confirm an unknown recipient; temporary, sender, policy, DNS and TLS failures return a retryable 451.
+- Bound probe concurrency, deadlines and sender/route-specific caches. Preserve explicit aliases, open-relay protection, content analysis, two-copy queue acceptance and observation.
+- Make verification mutually exclusive with unknown-recipient fallback and require all MX nodes to support the policy before activation. No message or storage migration is included.
+
 ## 0.22.0 — Bounded content context and partial-evidence corrections
 
 - Prepare cleaner LLM excerpts from actual MIME text parts, remove stylesheet/script blocks, avoid HTML-to-text duplication, and include bounded anchor labels with destination hosts. Link context shares the existing text byte cap; URL paths and query strings are omitted from this context. Prompt version 6 distinguishes routine notices and receipts from deceptive account-management requests.

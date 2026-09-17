@@ -26,7 +26,7 @@ Quarantine actions apply to one authorized delivery at a time and require a conc
 ## Add a domain
 
 1. Create its explicit upstream route in **Gateways**. Use receiving hosts independent of the public MX records; configure the correct SMTP port and require certificate-verified TLS for public routes.
-2. Add the domain in **Domains** and assign the route. Enter recipients and aliases, or explicitly enable catch-all when the upstream can accept those addresses.
+2. Add the domain in **Domains** and assign the route. Enter recipients and aliases, or enable **Accept all domain addresses** to use downstream mailbox names without individual declarations. Enable [**Verify recipients at destination**](recipient-fallback.md#refuse-nonexistent-recipients-before-acceptance) to refuse nonexistent mailboxes during SMTP reception; keep **Unknown-recipient fallback** empty.
 3. Review and apply. Grant user access to individual recipients or `*@example.org` under **Accounts & access**.
 4. Validate delivery and actual mailbox placement with authorized test recipients before changing public DNS. A console domain does not create an upstream mailbox or publish MX records.
 

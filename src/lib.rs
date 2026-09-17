@@ -24,6 +24,7 @@ pub mod population;
 pub mod protection;
 pub mod quality;
 pub mod rbl;
+pub mod recipient_verification;
 pub mod relay;
 pub mod research;
 pub mod research_archive;

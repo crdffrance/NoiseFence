@@ -1377,3 +1377,26 @@ fn fallback_policy_requires_upgraded_workers_and_preserves_0203_modules() {
     assert!(compatible.settings.research_archive.is_some());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
 }
+
+#[test]
+fn recipient_verification_requires_every_mx_to_understand_the_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let coordinator = config(root.path(), Role::Coordinator);
+    let settings = noisefence::control::Settings::from_config(&coordinator);
+    let mut bundle = artifacts::capture(&coordinator, settings, 1)
+        .unwrap()
+        .bundle;
+    let previous = bundle.for_build("0.22.0").unwrap();
+    assert!(previous.settings.research_archive.is_some());
+    assert!(
+        previous
+            .settings
+            .domains
+            .iter()
+            .all(|d| d.recipient_verification.is_none())
+    );
+    bundle.settings.domains[0].recipient_verification = Some(Default::default());
+    bundle.digest = bundle.hash().unwrap();
+    assert!(bundle.for_build("0.22.0").is_err());
+    assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+}

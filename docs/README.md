@@ -27,6 +27,7 @@
 
 - [Early IP reputation / RBL](early-rbl.md)
 - [SMTP admission, greylisting and rate limits](smtp-admission.md)
+- [Destination recipient verification and optional fallback](recipient-fallback.md)
 - [SMTP/DNS consistency](smtp-policy.md)
 - [Protection and reputation providers](protection.md)
 - [URL redirect resolution](url-resolution.md)

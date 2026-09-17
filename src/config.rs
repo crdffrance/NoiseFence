@@ -181,6 +181,8 @@ pub struct Domain {
     /// Retry only a verified upstream RCPT 5.1.1 at this same-domain mailbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unknown_recipient_fallback: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_verification: Option<crate::recipient_verification::Settings>,
     /// Routes belong to canonical destinations; alias-only domains may omit them.
     #[serde(default)]
     pub next_hops: Vec<String>,
@@ -452,6 +454,17 @@ impl Config {
         }
         let mut aliases = std::collections::HashSet::new();
         for d in &self.domains {
+            if let Some(v) = &d.recipient_verification {
+                v.validate()?;
+                ensure!(
+                    !d.next_hops.is_empty(),
+                    "Recipient verification requires a destination route"
+                );
+                ensure!(
+                    d.unknown_recipient_fallback.is_none(),
+                    "Recipient verification cannot be combined with unknown-recipient fallback"
+                );
+            }
             if let Some(target) = &d.unknown_recipient_fallback {
                 ensure!(
                     valid_address(target)

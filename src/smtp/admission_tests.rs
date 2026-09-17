@@ -45,6 +45,7 @@ async fn greylisting_precedes_data_capacity_and_rate_limit_cannot_be_bypassed_by
                 None,
                 None,
                 Arc::new(rbl),
+                Arc::new(crate::recipient_verification::Runtime::default()),
             )
             .await
         });
@@ -111,6 +112,7 @@ async fn observation_does_not_sleep_or_change_score_and_records_transport_diagno
             None,
             None,
             Arc::new(rbl),
+            Arc::new(crate::recipient_verification::Runtime::default()),
         )
         .await
     });
