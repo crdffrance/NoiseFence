@@ -11,6 +11,11 @@ pub struct Rule {
 }
 pub const CATALOG: &[Rule] = &[
     Rule {
+        id: "injected_reward_lure",
+        label: "Off-site cryptocurrency reward injected into a subscription profile",
+        weight: 1.5,
+    },
+    Rule {
         id: "urgency",
         label: "Urgency language",
         weight: 0.5,

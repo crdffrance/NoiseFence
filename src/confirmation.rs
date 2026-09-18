@@ -26,6 +26,20 @@ pub fn corroborated(scan: &Scan) -> bool {
     if e.source == evidence::Source::ContentOnly {
         return false;
     }
+    // A tightly scoped content pattern can corroborate a high content score;
+    // a contradictory LLM opinion still causes decision::arbitrate to abstain.
+    // A zero Web rule weight explicitly disables this corroboration too.
+    if scan
+        .message_context
+        .as_ref()
+        .is_some_and(|c| c.injected_reward_lure)
+        && scan
+            .reasons
+            .iter()
+            .any(|r| r.id == "injected_reward_lure" && r.weight > 0.0)
+    {
+        return true;
+    }
     let auth = &e.authentication;
     if auth.dmarc_state == State::Complete
         && auth.dmarc_spf == Some(AuthResult::Fail)

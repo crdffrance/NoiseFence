@@ -1612,7 +1612,14 @@ async fn console_persists_actions_and_rule_weights_without_reclassifying_accepte
     let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
     let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
     let (_, view) = request(&app, &token, "/admin/config", None).await;
-    assert_eq!(view["rules"].as_array().unwrap().len(), 8);
+    assert_eq!(view["rules"].as_array().unwrap().len(), 9);
+    assert!(
+        view["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "injected_reward_lure")
+    );
     assert_eq!(view["tag_ready"], false);
     let mut settings = view["settings"].clone();
     settings["filters"]["mode"] = json!("enforce");

@@ -26,3 +26,14 @@ test('classification and coverage are visible independently, including recorded 
   assert.equal(scorePresentation(mail).kind,'partial');
   assert.equal(coveragePresentation(mail).label,'Partial analysis');
 });
+
+
+test('optional gaps remain visible without claiming a partial core scan or changing its score',()=>{
+  const mail={complete:true,assessment:{complete:true,incomplete_reasons:[],supplementary_gaps:['virustotal','url_resolution']}};
+  const shown=coveragePresentation(mail);
+  assert.equal(shown.complete,true);
+  assert.equal(shown.hasGaps,true);
+  assert.match(shown.label,/limited checks/);
+  assert.match(shown.detail,/VirusTotal reputation, URL destinations/);
+  assert.doesNotMatch(shown.detail,/Configured checks completed/);
+});

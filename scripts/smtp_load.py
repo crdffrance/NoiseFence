@@ -298,7 +298,7 @@ async def run(args):
             report['mailing']={'verdicts':dict(Counter(r.get('verdict','absent') for r in reports)),
                               'status':dict(Counter(r.get('status','absent') for r in reports)),
                               'analysis_ms':quantiles([r.get('elapsed_us',0)/1000 for r in reports])}
-            assert all(r.get('version')=='mailing-2' for r in reports), 'Unexpected mailing detector version'
+            assert all(r.get('version')=='mailing-3' for r in reports), 'Unexpected mailing detector version'
             if args.message_bytes <= 16000:
                 assert all(r.get('verdict')=='newsletter' and r.get('status')=='complete' for r in reports)
             assert not any(scan.get('pub_tagged') or scan['tagged'] for _,scan in scans)

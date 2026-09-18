@@ -16,6 +16,7 @@ export type Assessment = {
   decision_recorded: boolean;
   complete: boolean;
   incomplete_reasons: string[];
+  supplementary_gaps?: string[];
   content_threshold: number | null;
   mode: 'observe' | 'tag' | 'enforce' | null;
   policy_version: string | null;
@@ -42,9 +43,13 @@ export function coveragePresentation(mail: {complete: boolean; assessment?: Asse
   const complete = mail.assessment?.complete ?? mail.complete;
   const names = [...new Set((mail.assessment?.incomplete_reasons ?? [])
     .map(id => Object.hasOwn(missingCheckLabels, id) ? missingCheckLabels[id] : 'unspecified check'))];
+  const optionalNames: Record<string, string> = {crdf: 'CRDF reputation', virustotal: 'VirusTotal reputation', link_inventory: 'link inventory', url_resolution: 'URL destinations', rbl: 'DNS blocklists', mailing: 'PUB classification'};
+  const gaps = [...new Set((mail.assessment?.supplementary_gaps ?? []).map(id => Object.hasOwn(optionalNames, id) ? optionalNames[id] : 'supplementary check'))];
+  const additional = gaps.length ? ` Supplementary checks unavailable or limited: ${gaps.join(', ')}. Missing results do not establish safety or spam.` : '';
   return {
     complete,
-    label: complete ? 'Complete' : 'Partial analysis',
-    detail: complete ? 'Configured checks completed.' : `Missing or limited checks${names.length ? `: ${names.join(', ')}` : ''}. The risk index uses the available results.`,
+    hasGaps: gaps.length > 0,
+    label: complete ? (gaps.length ? 'Core complete · limited checks' : 'Core analysis complete') : 'Partial analysis',
+    detail: (complete ? 'Core analysis completed.' : `Missing or limited checks${names.length ? `: ${names.join(', ')}` : ''}. The risk index uses the available results.`) + additional,
   };
 }

@@ -1,6 +1,8 @@
 <a id="résultats-conservés-pour-une-décision-commune"></a>
 # Results retained for a joint decision
 
+See [filter regression fixes](filter-regressions.md) for policy 6, optional-check coverage, injected profile-field lures and the evaluation limits introduced in 0.24.0.
+
 See [context-aware review and resilient content analysis](context-review.md) for policy 3, encrypted-body coverage and semantic deadline controls introduced in 0.20.3.
 
 <a id="score-visible-et-décision"></a>

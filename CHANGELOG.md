@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.0 — Filter regression fixes
+
+- Inspect bounded plain-text `www.` links in reputation targets and LLM domain context. Exclude email addresses, unsupported schemes, defanged links and hosts without a recognized public suffix; preserve SSRF and fetch limits.
+- Detect a narrowly defined cryptocurrency reward lure echoed in a subscription profile field. Expose its weight in Web filter settings; zero disables its contribution and corroboration. Preserve review on contradictory LLM advice and incomplete analysis, and keep malware/fusion priority.
+- Recognize additional English and French promotional wording while retaining distribution evidence, multiple commercial signals and transaction/conversation exclusions. Marketing kind remains distinct from unwanted risk.
+- Bridge worker quota-window rollover with a 30-second authenticated unlimited lease. Never carry finite credits into another window; revoke rollover leases on empty or bounded grants and require a bounded grant when a policy becomes finite.
+- Display optional reputation, URL-resolution, RBL and PUB coverage gaps separately from core analysis completeness. Add the signed `X-NoiseFence-Supplementary-Gaps` diagnostic without changing historical decisions or the meaning of the existing status header.
+- Update the versioned LLM prompt for attacker-controlled service-template fields and factual authentication explanations. This does not validate the provider's predictions or automatically retrain a model.
+- Preserve destination verification, research archives, independent Rspamd comparison, observation and required peer copies during an upgrade from 0.23.0. No accuracy parity, capture target or calibrated probability is claimed.
+
 ## 0.23.0 — Downstream recipient verification
 
 - Add opt-in, per-domain recipient verification in the Web console. Existing downstream mailboxes can keep wildcard reception while nonexistent destinations receive SMTP 550 5.1.1 before DATA, instead of redirecting to a fallback mailbox.

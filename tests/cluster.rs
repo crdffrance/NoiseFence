@@ -1400,3 +1400,23 @@ fn recipient_verification_requires_every_mx_to_understand_the_policy() {
     assert!(bundle.for_build("0.22.0").is_err());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
 }
+
+#[test]
+fn current_coordinator_preserves_verification_and_observers_for_v23_workers() {
+    let root = tempfile::tempdir().unwrap();
+    let mut c = (*config(root.path(), Role::Coordinator)).clone();
+    c.domains[0].recipient_verification = Some(Default::default());
+    c.rspamd = Some(noisefence::rspamd::Settings::default());
+    let settings = noisefence::control::Settings::from_config(&c);
+    let mut b = artifacts::capture(&c, settings, 1).unwrap().bundle;
+    let old = b.for_build("0.23.0").unwrap();
+    assert!(old.settings.domains[0].recipient_verification.is_some());
+    assert!(old.shared.get("rspamd").is_some());
+    b.settings
+        .filters
+        .rule_weights
+        .insert("injected_reward_lure".into(), 0.0);
+    b.digest = b.hash().unwrap();
+    assert!(b.for_build("0.23.0").is_err());
+    assert!(b.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+}

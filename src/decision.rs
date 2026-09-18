@@ -5,7 +5,7 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-5";
+pub const VERSION: &str = "decision-policy-6";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";

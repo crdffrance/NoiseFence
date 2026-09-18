@@ -270,3 +270,47 @@ async fn mailing_does_not_change_security_and_incomplete_never_becomes_pub() {
             .subject()
     );
 }
+
+#[test]
+fn modern_promotions_need_distribution_and_distinct_commercial_signals() {
+    for (subject, body) in [
+        (
+            "Final days to save up to 40%",
+            "Use code SPRING40 to save 40% on training. Unsubscribe.",
+        ),
+        (
+            "Try our new assistant",
+            "Télécharger l'app mobile gratuite. Essayer gratuitement le nouveau modèle.",
+        ),
+        (
+            "Votre épargne",
+            "Accompagnement patrimonial disponible. Simuler mon projet. Se désabonner.",
+        ),
+    ] {
+        assert_eq!(inspect(subject, LIST, body).verdict, Verdict::Promotion);
+        assert!(
+            !inspect(
+                subject,
+                "",
+                &body
+                    .replace("Unsubscribe.", "")
+                    .replace("Se désabonner.", "")
+            )
+            .is_publicity()
+        );
+    }
+    for (subject, body) in [
+        (
+            "Storage report",
+            "Your files now use 40% less space. Unsubscribe.",
+        ),
+        ("Final days to save up to 40%", "Hello, here is a report."),
+        (
+            "Your verification code",
+            "Use code ABCD1234 to verify your account. Save up to 40%.",
+        ),
+        ("Votre facture", "Save up to 40%. Use code SPRING40."),
+    ] {
+        assert!(!inspect(subject, LIST, body).is_publicity(), "{subject}");
+    }
+}

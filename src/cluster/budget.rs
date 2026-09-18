@@ -7,6 +7,7 @@ use std::{collections::BTreeMap, path::Path};
 
 pub const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS cluster_wallet_mode(id INTEGER PRIMARY KEY CHECK(id=1));
  CREATE TABLE IF NOT EXISTS cluster_wallet(resource TEXT,window TEXT,amount INTEGER NOT NULL,unlimited INTEGER NOT NULL,PRIMARY KEY(resource,window));
+ CREATE TABLE IF NOT EXISTS cluster_unlimited_lease(resource TEXT PRIMARY KEY,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS cluster_allocations(node TEXT,resource TEXT,window TEXT,amount INTEGER NOT NULL,PRIMARY KEY(node,resource,window));";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -41,6 +42,15 @@ pub fn enable_worker(root: &Path) -> Result<()> {
     Ok(())
 }
 pub fn ceiling(db: &Connection, resource: &str, window: &str, maximum: u64) -> Result<u64> {
+    ceiling_at(db, resource, window, maximum, crate::now())
+}
+fn ceiling_at(
+    db: &Connection,
+    resource: &str,
+    window: &str,
+    maximum: u64,
+    now: i64,
+) -> Result<u64> {
     let worker: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM cluster_wallet_mode)",
         [],
@@ -57,8 +67,17 @@ pub fn ceiling(db: &Connection, resource: &str, window: &str, maximum: u64) -> R
         )
         .optional()?;
     Ok(match amount {
-        Some((_, true)) => maximum,
+        Some((_, true)) if maximum == u64::MAX => maximum,
+        // A newly finite policy needs a finite allocation from the authority.
+        Some((_, true)) => 0,
         Some((n, false)) => n.min(maximum),
+        None if maximum == u64::MAX && resource != "llm" => {
+            let leased: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM cluster_unlimited_lease WHERE resource=?1 AND expires>?2)",
+                params![resource, now], |r| r.get(0),
+            )?;
+            if leased { maximum } else { 0 }
+        }
         None => 0,
     })
 }
@@ -215,6 +234,7 @@ pub fn grant(
 }
 pub fn install(root: &Path, credits: &[Credit], now: i64) -> Result<()> {
     ensure!(credits.len() <= 5, "Too many credits");
+    let mut unlimited = Vec::new();
     for credit in credits {
         let path = if credit.resource == "llm" {
             root.join("llm-budget.sqlite3")
@@ -248,10 +268,29 @@ pub fn install(root: &Path, credits: &[Credit], now: i64) -> Result<()> {
             continue;
         }
         db.execute("INSERT INTO cluster_wallet VALUES(?1,?2,?3,?4) ON CONFLICT(resource,window) DO UPDATE SET amount=MAX(amount,excluded.amount),unlimited=excluded.unlimited",params![credit.resource,credit.window,credit.amount,credit.unlimited])?;
+        if credit.unlimited {
+            // No finite credit is carried across a window. This only bridges the
+            // normal 10-second poll interval for an explicitly unlimited policy.
+            unlimited.push(&credit.resource);
+        }
     }
+    // Replace leases atomically: concurrent scans must not see an empty wallet
+    // between clearing the old grants and installing the new ones. Empty replies
+    // (including a recovery budget hold) revoke rollover permission immediately.
+    let mut db = open(&root.join("protection/reputation.sqlite3"))?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute("DELETE FROM cluster_unlimited_lease", [])?;
+    for resource in unlimited {
+        tx.execute(
+            "INSERT INTO cluster_unlimited_lease VALUES(?1,?2)",
+            params![resource, now.saturating_add(30)],
+        )?;
+    }
+    tx.commit()?;
     prune(root, now)?;
     Ok(())
 }
+
 pub fn request(root: &Path, now: i64) -> Result<Request> {
     let mut out = Request::default();
     let db = open(&root.join("llm-budget.sqlite3"))?;
@@ -352,4 +391,60 @@ fn prune(root: &Path, now: i64) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn unlimited_rollover_is_short_lived_and_never_lifts_a_finite_budget() {
+        let root = tempfile::tempdir().unwrap();
+        enable_worker(root.path()).unwrap();
+        let now = 6_059;
+        let credit = Credit {
+            resource: "crdf-minute".into(),
+            window: "100".into(),
+            amount: 0,
+            unlimited: true,
+        };
+        install(root.path(), &[credit], now).unwrap();
+        let db = open(&root.path().join("protection/reputation.sqlite3")).unwrap();
+        assert_eq!(
+            ceiling_at(&db, "crdf-minute", "101", u64::MAX, now + 1).unwrap(),
+            u64::MAX
+        );
+        assert_eq!(
+            ceiling_at(&db, "crdf-minute", "101", u64::MAX, now + 30).unwrap(),
+            0
+        );
+        assert_eq!(
+            ceiling_at(&db, "crdf-minute", "101", 4, now + 1).unwrap(),
+            0
+        );
+        assert_eq!(ceiling_at(&db, "crdf-minute", "100", 4, now).unwrap(), 0);
+        assert_eq!(
+            ceiling_at(&db, "virustotal-minute", "101", 4, now + 1).unwrap(),
+            0
+        );
+        install(root.path(), &[], now + 2).unwrap();
+        assert_eq!(
+            ceiling_at(&db, "crdf-minute", "101", u64::MAX, now + 3).unwrap(),
+            0
+        );
+        let finite = Credit {
+            resource: "crdf-minute".into(),
+            window: "101".into(),
+            amount: 2,
+            unlimited: false,
+        };
+        install(root.path(), &[finite], now + 3).unwrap();
+        assert_eq!(
+            ceiling_at(&db, "crdf-minute", "101", 4, now + 4).unwrap(),
+            2
+        );
+        assert_eq!(
+            ceiling_at(&db, "crdf-minute", "102", 4, now + 61).unwrap(),
+            0
+        );
+    }
 }

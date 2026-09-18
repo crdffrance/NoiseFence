@@ -49,3 +49,22 @@ fn absent_or_nonfinite_values_never_become_zero() {
         assert_eq!(a["incomplete_reasons"], json!(["unspecified"]));
     }
 }
+
+#[test]
+fn optional_provider_gaps_never_rewrite_the_core_verdict() {
+    let mut scan = Scan {
+        complete: true,
+        score: 25.,
+        ..Default::default()
+    };
+    let before = assessment::assess(&scan, 95.);
+    let mut p = noisefence::protection::Report::default();
+    p.crdf.status = noisefence::protection::Status::Unavailable;
+    p.virustotal.status = noisefence::protection::Status::Quota;
+    scan.protection = Some(p);
+    let after = assessment::assess(&scan, 95.);
+    assert!(after.complete);
+    assert_eq!(after.supplementary_gaps, ["crdf", "virustotal"]);
+    assert_eq!(before.decision, after.decision);
+    assert_eq!(before.score.value, after.score.value);
+}

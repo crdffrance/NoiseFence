@@ -10,7 +10,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock, time::Instant};
 
-pub const VERSION: &str = "mailing-2";
+pub const VERSION: &str = "mailing-3";
 pub(crate) const SIGNAL_SQL: &str = "COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)";
 pub(crate) const PUBLICITY_SQL: &str = "COALESCE(json_extract(m.scan,'$.delivery_classification')='publicity',(json_extract(m.scan,'$.complete')=1 AND COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)))";
 
@@ -314,7 +314,7 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         report,
         "commercial_offer",
         matches(
-            r"\b(?:promotions?|promos?|soldes|reductions?|remises?|discounts?|offres? (?:exclusives?|speciales?|du jour)|vente privee|black friday|flash sale|special offer|limited.time offer|rabatt|ofertas?|descuentos?|sconti)\b",
+            r"\b(?:promotions?|promos?|soldes|reductions?|remises?|discounts?|offres? (?:exclusives?|speciales?|du jour)|vente privee|black friday|flash sale|special offer|limited.time offer|(?:app(?:lication)?(?: mobile)?|essai|trial) gratuit(?:e)?|accompagnement patrimonial|rabatt|ofertas?|descuentos?|sconti)\b|\b(?:save|savings|economisez) (?:up to |jusqu'a )?[1-9][0-9]?\s*%",
             &OFFER,
             &content,
         ),
@@ -329,7 +329,7 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         report,
         "commercial_action",
         matches(
-            r"\b(?:achetez|acheter maintenant|commandez|profitez.en|j'en profite|decouvrez (?:nos|notre)|shop now|buy now|save now|get (?:your|the) deal|jetzt kaufen|compra ahora)\b",
+            r"\b(?:achetez|acheter maintenant|commandez|profitez.en|j'en profite|decouvrez (?:nos|notre)|(?:telechargez|telecharger) l'app|essayer gratuitement|simuler mon projet|shop now|buy now|save now|use (?:the )?code [a-z0-9]{4,24}|utilisez (?:le )?code [a-z0-9]{4,24}|get (?:your|the) deal|jetzt kaufen|compra ahora)\b",
             &ACTION,
             &content,
         ),

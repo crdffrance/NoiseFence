@@ -544,3 +544,62 @@ fn extortion_hint_cannot_override_authenticated_mail_or_a_legitimate_opinion() {
         assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
     }
 }
+
+#[test]
+fn injected_lure_corroborates_only_an_enabled_rule_and_respects_contradiction() {
+    use noisefence::{
+        engine::Signal,
+        evidence::{Evidence, Source},
+    };
+    for (weight, opinion, complete, expected) in [
+        (1.5, LlmCategory::Ambiguous, true, Outcome::Unwanted),
+        (0.0, LlmCategory::Ambiguous, true, Outcome::Undetermined),
+        (1.5, LlmCategory::Legitimate, true, Outcome::Undetermined),
+        (1.5, LlmCategory::Ambiguous, false, Outcome::Undetermined),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let cfg = common::config(root.path());
+        let mut evidence = Evidence::new(
+            &cfg,
+            noisefence::evidence::Artifacts::new(&cfg, None, None, false),
+            false,
+        );
+        evidence.source = Source::SmtpSession;
+        let mut scan = Scan {
+            complete,
+            score: 98.5,
+            evidence: Some(evidence),
+            message_context: Some(noisefence::message_context::Context {
+                injected_reward_lure: true,
+                ..Default::default()
+            }),
+            reasons: vec![Signal {
+                id: "injected_reward_lure".into(),
+                detail: "Synthetic fixture".into(),
+                weight,
+            }],
+            llm: LlmResult {
+                status: LlmStatus::Complete,
+                coherent: Some(true),
+                verdict: Some(LlmVerdict {
+                    category: opinion.clone(),
+                    confidence: 0.9,
+                    spam_probability: if matches!(opinion, LlmCategory::Legitimate) {
+                        0.1
+                    } else {
+                        0.5
+                    },
+                    explanation: "Fixture".into(),
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        decision::apply(&mut scan, true);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, expected);
+        let once = serde_json::to_value(&scan).unwrap();
+        decision::apply(&mut scan, true);
+        assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+    }
+}

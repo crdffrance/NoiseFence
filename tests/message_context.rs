@@ -291,3 +291,44 @@ async fn opaque_content_keeps_bounded_transport_checks_without_reenabling_conten
     assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
     assert!(!scan.tagged && !String::from_utf8_lossy(&wire).contains("[SPAM]"));
 }
+
+#[test]
+fn subscription_field_injection_requires_a_localized_off_site_reward_lure() {
+    use noisefence::message_context::inspect;
+    let body = "Your subscription to our list has been confirmed. For your records, here is the information you submitted to us...\nFirst Name: YOUR 120000.50 USDT REWARD AWAITS. COLLECT NOW www.claim-example.pages.dev\nUnsubscribe here.";
+    let raw = |body: &str| {
+        format!(
+            "From: service@newsletter.example.org\r\nSubject: Subscription confirmed\r\n\r\n{body}"
+        )
+    };
+    assert!(inspect(raw(body).as_bytes()).injected_reward_lure);
+    for text in [
+        body.replace("120000.50 USDT REWARD AWAITS. COLLECT NOW", "Alice"),
+        body.replace("www.claim-example.pages.dev", "www.newsletter.example.org"),
+        body.replace(
+            "www.claim-example.pages.dev",
+            "hxxps://www.claim-example.pages.dev",
+        ),
+        body.replace("First Name:", "Our reported incident:"),
+        body.replace("information you submitted", "newsletter update"),
+        format!("Received the following scam analysis:\n{body}"),
+        body.replace("COLLECT NOW", "transaction complete"),
+    ] {
+        assert!(
+            !inspect(raw(&text).as_bytes()).injected_reward_lure,
+            "{text}"
+        );
+    }
+    assert!(
+        !inspect(
+            raw(body)
+                .replace("Subject: Subscription", "Subject: Fwd: Subscription")
+                .as_bytes()
+        )
+        .injected_reward_lure
+    );
+    let html = format!(
+        "From: service@example.org\r\nSubject: Incident\r\nContent-Type: text/html\r\n\r\n<blockquote>{body}</blockquote>"
+    );
+    assert!(!inspect(html.as_bytes()).injected_reward_lure);
+}

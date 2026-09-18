@@ -1,6 +1,5 @@
 use super::{Policy, Report, Status, Targets, VERSION};
 use crate::{config::Config, message};
-use regex::Regex;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use std::{
@@ -90,11 +89,7 @@ fn registered(host: &str) -> &str {
     psl::domain_str(host).unwrap_or(host)
 }
 fn urls(text: &str) -> impl Iterator<Item = String> + '_ {
-    static URLS: OnceLock<Regex> = OnceLock::new();
-    URLS.get_or_init(|| Regex::new(r#"(?i)https?://[^\s<>"']{1,4096}"#).unwrap())
-        .find_iter(text)
-        .take(257)
-        .filter_map(|m| canonical_url(m.as_str()))
+    crate::content_urls::extract(text)
 }
 fn mailbox_domain(address: Option<&str>) -> Option<String> {
     address?.rsplit_once('@').and_then(|(_, d)| domain(d))

@@ -17,6 +17,9 @@ pub struct Context {
     /// This contextual evidence never supplies a verdict by itself.
     #[serde(default)]
     pub direct_extortion: bool,
+    /// A cryptocurrency reward instruction echoed in a subscription profile field.
+    #[serde(default)]
+    pub injected_reward_lure: bool,
 }
 
 pub fn inspect(raw: &[u8]) -> Context {
@@ -38,6 +41,14 @@ pub fn inspect(raw: &[u8]) -> Context {
         return result;
     };
     result.merge_text(&subject, &body);
+    let sender = message
+        .from()
+        .and_then(|a| a.first())
+        .and_then(|a| a.address.as_deref())
+        .and_then(|a| a.rsplit_once('@').map(|(_, d)| d.to_ascii_lowercase()));
+    result.injected_reward_lure = sender
+        .as_deref()
+        .is_some_and(|s| injected_reward_lure(&subject, &body, s));
     // Quoted HTML attacks are evidence in a report, not a direct sender demand.
     if (0..message.html_body_count().min(20)).any(|i| {
         message
@@ -45,8 +56,52 @@ pub fn inspect(raw: &[u8]) -> Context {
             .is_some_and(|html| html.to_ascii_lowercase().contains("<blockquote"))
     }) {
         result.direct_extortion = false;
+        result.injected_reward_lure = false;
     }
     result
+}
+
+fn injected_reward_lure(subject: &str, body: &str, sender: &str) -> bool {
+    let subject = subject.to_lowercase();
+    let body = body.to_lowercase();
+    if ["re:", "fw:", "fwd:", "tr:"]
+        .iter()
+        .any(|p| subject.starts_with(p))
+        || body.lines().any(|line| line.trim_start().starts_with('>'))
+        || [
+            "forwarded message",
+            "received the following",
+            "scam analysis",
+            "abuse report",
+            "reported incident",
+            "quoted message",
+            "example of",
+            "sample of",
+        ]
+        .iter()
+        .any(|p| body.contains(p))
+        || !body.contains("subscription")
+        || !body.contains("confirmed")
+        || !body.contains("information you submitted")
+    {
+        return false;
+    }
+    let Some(sender_site) = psl::domain_str(sender) else {
+        return false;
+    };
+    static FIELD: OnceLock<Regex> = OnceLock::new();
+    static REWARD: OnceLock<Regex> = OnceLock::new();
+    static CLAIM: OnceLock<Regex> = OnceLock::new();
+    FIELD.get_or_init(|| Regex::new(r"\bfirst name\s*:\s*([^\r\n]{1,400})").unwrap())
+        .captures_iter(&body).take(4).any(|field| {
+            let value = &field[1];
+            REWARD.get_or_init(|| Regex::new(r"\b[0-9][0-9,.]{1,18}\s*(?:usdt|btc|bitcoin|eth)\b.{0,35}\b(?:reward|prize|bonus)\b").unwrap()).is_match(value)
+                && CLAIM.get_or_init(|| Regex::new(r"\b(?:collect|claim|redeem)\s+(?:it\s+)?now\b").unwrap()).is_match(value)
+                && crate::content_urls::extract(value).any(|url| {
+                    reqwest::Url::parse(&url).ok().and_then(|u| u.host_str().map(str::to_owned))
+                        .is_some_and(|host| psl::domain_str(&host).is_some_and(|site| site != sender_site))
+                })
+        })
 }
 
 impl Context {
@@ -120,6 +175,13 @@ pub fn attach(scan: &mut Scan, raw: &[u8], max_bytes: usize) {
             id: "encrypted_content".into(),
             detail: "Encrypted or opaque content is not readable by this gateway; only accessible evidence was analysed.".into(),
             weight: 0.0,
+        });
+    }
+    if context.injected_reward_lure && !context.encrypted {
+        scan.reasons.push(crate::engine::Signal {
+            id: "injected_reward_lure".into(),
+            detail: "A subscription profile field contains a cryptocurrency reward, an immediate claim instruction and an off-site URL. Authentication of the sending service does not authenticate this submitted content.".into(),
+            weight: 1.5,
         });
     }
     scan.message_context = Some(context);

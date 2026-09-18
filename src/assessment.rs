@@ -79,6 +79,8 @@ pub struct Assessment {
     pub decision_recorded: bool,
     pub complete: bool,
     pub incomplete_reasons: Vec<&'static str>,
+    /// Optional observers do not change the core decision or its completeness.
+    pub supplementary_gaps: Vec<&'static str>,
     /// The content threshold at analysis time, not a fusion threshold.
     /// Absent on old records; do not silently present today's setting as historical.
     pub content_threshold: Option<f64>,
@@ -90,6 +92,52 @@ pub struct Assessment {
 
 pub fn recorded_threshold(scan: &Scan) -> Option<f64> {
     valid_score(scan.analysis_policy.as_ref().map(|p| p.threshold))
+}
+
+pub fn supplementary_gaps(scan: &Scan) -> Vec<&'static str> {
+    use crate::protection::Status;
+    let mut gaps = Vec::new();
+    if let Some(p) = &scan.protection {
+        let missing = |s: &Status| {
+            !matches!(
+                s,
+                Status::Complete | Status::Disabled | Status::NotConfigured
+            )
+        };
+        for (name, result) in [("crdf", &p.crdf), ("virustotal", &p.virustotal)] {
+            if missing(&result.status) || result.omitted > 0 {
+                gaps.push(name);
+            }
+        }
+        if missing(&p.local_status) {
+            gaps.push("link_inventory");
+        }
+        if p.url_resolution.as_ref().is_some_and(|r| {
+            r.omitted > 0
+                || r.local_inventory_available == Some(false)
+                || r.chains.iter().any(|c| !c.complete)
+        }) {
+            gaps.push("url_resolution");
+        }
+    }
+    if scan.early_rbl.as_ref().is_some_and(|r| {
+        r.checks.iter().any(|c| {
+            matches!(
+                c.status,
+                crate::rbl::Status::Unavailable | crate::rbl::Status::Skipped
+            )
+        })
+    }) {
+        gaps.push("rbl");
+    }
+    if scan
+        .mailing
+        .as_ref()
+        .is_some_and(|m| m.status == crate::mailing::Status::Limited)
+    {
+        gaps.push("mailing");
+    }
+    gaps
 }
 
 pub fn assess(scan: &Scan, fallback_threshold: f64) -> Assessment {
@@ -170,6 +218,7 @@ pub fn assess(scan: &Scan, fallback_threshold: f64) -> Assessment {
         decision_recorded: scan.decision.is_some(),
         complete: scan.complete,
         incomplete_reasons,
+        supplementary_gaps: supplementary_gaps(scan),
         content_threshold: recorded_threshold(scan),
         mode: scan.analysis_policy.as_ref().map(|p| p.mode),
         policy_version: scan.analysis_policy.as_ref().map(|p| p.version.clone()),

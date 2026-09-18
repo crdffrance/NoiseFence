@@ -37,10 +37,11 @@ export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
       </p>
       <p className="score-explanation">{score.detail}</p>
       <div className="assessment-facts">
-        <span title={coverage.detail} className={`status ${coverage.complete ? 'good' : 'review'}`}>{coverage.label}</span>
+        <span title={coverage.detail} className={`status ${coverage.complete && !coverage.hasGaps ? 'good' : 'review'}`}>{coverage.label}</span>
         {mail.assessment?.content_threshold != null && <span>Recorded content threshold: <strong>{mail.assessment.content_threshold.toFixed(1)} / 100</strong></span>}
         {mail.assessment?.classification_source === 'historical_fallback' && <span>Historical classification reconstructed</span>}
       </div>
+      {coverage.hasGaps && <p className="score-explanation">{coverage.detail}</p>}
     </div>
   );
 }
