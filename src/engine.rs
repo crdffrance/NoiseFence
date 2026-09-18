@@ -532,6 +532,17 @@ pub struct Engine {
     semantic: Option<Arc<crate::semantic::Hybrid>>,
 }
 impl Engine {
+    pub fn quality_artifacts_sha256(&self) -> String {
+        message::digest(
+            &serde_json::to_vec(&(
+                self.evidence_artifacts.compatible_view(),
+                Some(&self.quality_policy),
+                self.native_filter.as_ref().map(|n| n.quality_binding()),
+            ))
+            .expect("quality artifacts"),
+        )
+    }
+
     pub(crate) fn validate_cluster_publication(
         &self,
         publication: &crate::cluster::artifacts::Publication,

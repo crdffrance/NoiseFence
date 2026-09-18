@@ -339,12 +339,20 @@ pub fn activate(candidate: &Path, report: &Path, destination: &Path) -> Result<(
     Ok(())
 }
 pub async fn export_feedback(store: &crate::store::Store, output: &Path) -> Result<usize> {
-    let rows=store.run(|db|{let mut q=db.prepare("SELECT m.scan,MIN(f.spam),MAX(f.spam) FROM messages m JOIN feedback f ON f.message_id=m.id GROUP BY m.id HAVING MIN(f.spam)=MAX(f.spam)")?;Ok(q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)}).await?;
+    let (rows,protected)=store.run(|db|{
+        let tx=db.transaction()?;
+        let protected=crate::quality::reservations::Reserved::load(&tx)?;
+        let mut q=tx.prepare("SELECT m.scan,MIN(f.spam),MAX(f.spam) FROM messages m JOIN training_feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username AND u.disabled=0
+            WHERE m.created>=?1 AND m.is_dsn=0 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=f.username)
+            GROUP BY m.id HAVING MIN(f.spam)=MAX(f.spam)")?;
+        let rows=q.query_map([crate::now()-30*86400],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok((rows,protected))
+    }).await?;
     let mut f = File::create(output)?;
     let mut count = 0;
     for (scan, spam) in rows {
         let scan: Scan = serde_json::from_str(&scan)?;
-        if scan.complete && !scan.features.is_empty() {
+        if scan.complete && !scan.features.is_empty() && !protected.contains(&scan) {
             writeln!(
                 f,
                 "{}",

@@ -37,6 +37,7 @@ pub struct ExportReport {
     pub incompatible_features: usize,
     pub conflicting_labels: usize,
     pub incomplete: usize,
+    pub protected_campaigns: usize,
 }
 pub async fn export(
     store: &crate::store::Store,
@@ -52,8 +53,9 @@ pub async fn export(
         let admin:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
         ensure!(admin,"native domain model export requires an enabled administrator");
         let now=crate::now();
+        let protected=crate::quality::reservations::Reserved::load(db)?;
         let mut query=db.prepare("SELECT m.id,m.created,m.scan,MIN(f.spam),MAX(f.spam),MAX(f.created)
-          FROM messages m JOIN feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username
+          FROM messages m JOIN training_feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username
           WHERE m.created>=?1 AND m.created<?2 AND m.is_dsn=0 AND f.created>=?1 AND f.created<?2 AND u.disabled=0
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id
             WHERE d.message_id=m.id AND a.username=f.username AND lower(substr(d.destination,instr(d.destination,'@')+1))=?3)
@@ -67,6 +69,7 @@ pub async fn export(
             ensure!((0..=1).contains(&min) && (0..=1).contains(&max),"invalid native human label");
             if min!=max {report.conflicting_labels+=1;continue;}
             let scan:crate::engine::Scan=serde_json::from_str(&scan)?;
+            if protected.contains(&scan) {report.protected_campaigns+=1;continue;}
             let Some(observation)=scan.native_filter else {report.missing_features+=1;continue;};
             if observation.report.status!=super::Status::Complete {report.incomplete+=1;continue;}
             let Some(features)=observation.features else {report.missing_features+=1;continue;};

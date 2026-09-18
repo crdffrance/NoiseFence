@@ -49,13 +49,13 @@ def read_jsonl(path):
     raise ValueError('Too many quality rows')
 
 
-def load_dataset(path, allow_multiple_artifacts=False):
+def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
     data, digest = read_jsonl(path)
     require(len(data) >= 2 and data[0].get('type') == 'header' and data[-1].get('type') == 'footer', 'Incomplete quality export')
     header, rows = data[0], data[1:-1]
     require(header.get('schema') == 'noisefence-quality-dataset-1'
             and header.get('protocol_sha256') == PROTOCOL_HASH
-            and header.get('sampling') == 'uniform_message'
+            and (header.get('sampling') == 'uniform_message' or (header.get('sampling')=='confirmed_regression' and header.get('purpose')=='regression'))
             and data[-1].get('rows') == len(rows)
             and type(header.get('population')) is int and type(header.get('selected')) is int
             and 0 <= len(rows) <= header['selected'] <= header['population'] <= 50000
@@ -83,6 +83,9 @@ def load_dataset(path, allow_multiple_artifacts=False):
         if quality.get('complete_features') is not True or quality.get('source') != 'smtp_session' or not quality.get('values'):
             counts['unusable_observations'] += 1
             continue
+        if allow_multiple_artifacts and quality.get('protocol_sha256') != PROTOCOL_HASH:
+            counts['incompatible_protocol']+=1
+            continue
         require(quality.get('protocol_sha256') == PROTOCOL_HASH and is_hex(quality.get('artifacts_sha256'))
                 and isinstance(quality.get('availability_profile'), str)
                 and 0 < len(quality['availability_profile']) <= 1024
@@ -93,6 +96,17 @@ def load_dataset(path, allow_multiple_artifacts=False):
         artifacts.add(quality['artifacts_sha256'])
         require(is_hex(row.get('fingerprint')) and is_hex(row.get('simhash'), 16), 'Missing campaign identifiers')
         usable.append({**row, 'campaign': row['fingerprint'], 'split': '', 'values': values})
+    if for_training:
+        require(header.get('purpose')=='development', 'Only explicit development samples may be fitted')
+        reserved=header.get('reserved_campaigns',[])
+        require(isinstance(reserved,list) and len(reserved)<=5000 and all(is_hex(r.get('fingerprint')) and is_hex(r.get('simhash'),16) for r in reserved), 'Protected campaign provenance is unavailable')
+        combined=usable+[dict(r,campaign=r['fingerprint']) for r in reserved]
+        excluded=set()
+        for group in components(combined):
+            if any(i>=len(usable) for i in group):excluded.update(i for i in group if i<len(usable))
+        counts['protected_campaign_messages']=len(excluded)
+        usable=[r for i,r in enumerate(usable) if i not in excluded]
+        artifacts={r['quality']['artifacts_sha256'] for r in usable}
     require(allow_multiple_artifacts or len(artifacts) <= 1, 'Detector artifacts changed inside this sample; evaluate separately')
     counts['retained'] = len(rows)
     counts['deleted_or_no_longer_authorized'] = header['selected'] - len(rows)
@@ -255,7 +269,7 @@ def fit_kinds(parts):
 
 def train(dataset, destination, version, base_history=None):
     require(not destination.exists(),'Candidate destination already exists')
-    header, rows, coverage, artifacts, digest = load_dataset(dataset)
+    header, rows, coverage, artifacts, digest = load_dataset(dataset, for_training=True)
     parts, grouping = partition(rows, 'risk', header['partition_cuts'])
     kind_parts, kind_grouping = partition(rows, 'kind', header['partition_cuts'])
     availability = {'risk': readiness(parts, 'risk'), 'kind': readiness(kind_parts, 'kind')}

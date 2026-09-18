@@ -1,0 +1,10 @@
+[Unit]
+Description=Process user-requested NoiseFence calibration jobs
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+Unit=noisefence-quality.service
+
+[Install]
+WantedBy=timers.target

@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
+import {QualityWorkbench,type DatasetPurpose} from './quality-workbench';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
 import { candidateLabel, mailKinds, mailKindLabel, type SampleReadiness, type MailKind, type Risk, type QualityReport } from './quality-types';
 
-type Batch = {id:string;created:number;since:number;until:number;domain:string;population:number;selected:number;available:number;labelled:number};
+type Batch = {purpose:DatasetPurpose;sampling:string;id:string;created:number;since:number;until:number;domain:string;population:number;selected:number;available:number;labelled:number};
 type Member = {id:string;created:number;sender:string;subject:string;risk:Risk|null;kind:MailKind|null;joint_observations:boolean};
 export function QualityDetails({report}:{report:QualityReport}) {
   return <section className="panel message-diagnostics">
@@ -55,12 +56,14 @@ export function QualityConsole({user}:{user:User}) {
   const [offset,setOffset]=useState(0);
   const [days,setDays]=useState(7),[count,setCount]=useState(50),[domain,setDomain]=useState('');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[revision,setRevision]=useState(0);
+  const [purpose,setPurpose]=useState<DatasetPurpose>('development'),[cohort,setCohort]=useState('');
+  const [cohorts,setCohorts]=useState<{id:string;messages:number;since:number;until:number}[]>([]);
   const [configured,setConfigured]=useState(false);
   const [observationStart,setObservationStart]=useState<number|null>(null);
   useEffect(()=>{
     const controller=new AbortController();
-    api<{batches:Batch[];candidate_configured:boolean;observation_start:number|null}>('/quality/samples',undefined,undefined,{signal:controller.signal})
-      .then(result=>{if(!controller.signal.aborted){setBatches(result.batches);setConfigured(result.candidate_configured);setObservationStart(result.observation_start);}})
+    api<{cohorts:{id:string;messages:number;since:number;until:number}[];batches:Batch[];candidate_configured:boolean;observation_start:number|null}>('/quality/samples',undefined,undefined,{signal:controller.signal})
+      .then(result=>{if(!controller.signal.aborted){setCohorts(result.cohorts);setBatches(result.batches);setConfigured(result.candidate_configured);setObservationStart(result.observation_start);}})
       .catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return ()=>controller.abort();
   },[revision]);
@@ -76,7 +79,7 @@ export function QualityConsole({user}:{user:User}) {
   async function create() {
     setBusy(true);setError('');
     try {const until=Math.floor(Date.now()/1000);
-      const result=await api<{id:string}>('/quality/samples',{since:Math.max(until-days*86400,observationStart ?? until),until,count,domain:domain.trim().toLowerCase()},user.csrf);
+      const result=await api<{id:string}>('/quality/samples',{since:until-days*86400,until,count,domain:domain.trim().toLowerCase(),purpose,cohort:purpose==='development'?cohort:''},user.csrf);
       setSelected(result.id);setOffset(0);setRevision(x=>x+1);
     }catch(e){setError(e instanceof Error?e.message:"Creation not available.");}
     finally{setBusy(false);}
@@ -88,20 +91,22 @@ export function QualityConsole({user}:{user:User}) {
     <section className="panel"><p className="eyebrow">QUALITY OF THE FILTER</p><h1>Learning with verified decisions</h1>
       <p>Evaluate a random sample among your accessible messages. The selection ignores the filter score and remains frozen.</p>
       <p className="muted">{configured?"A candidate model is configured for observation.":"The engine is collecting observations. No candidate model is configured yet."}</p>
-      <p className="muted small">{observationStart ? `The period begins as soon as possible on ${new Date(observationStart*1000).toLocaleString("en-GB")}, at the beginning of this collection.` : "Waiting for the first message analyzed with the current engine. Refresh after arrival."}</p>
+      <p className="muted small">{observationStart ? `The period begins as soon as possible on ${new Date(observationStart*1000).toLocaleString("en-GB")}, for the current engine build. Older cohorts remain available for explicit comparison.` : "Waiting for the first message analyzed with the current engine. Refresh after arrival."}</p>
       <div className="quality-controls">
+        <label>Dataset purpose<select value={purpose} onChange={e=>{setPurpose(e.target.value as DatasetPurpose);setCohort('');}}><option value="development">Development · may train candidates</option><option value="regression">Regression · evaluation only</option><option value="holdout">Independent holdout · never train</option></select></label>
+        {purpose==='development'&&<label>Detector cohort<select value={cohort} onChange={e=>setCohort(e.target.value)}><option value="">All versions · comparison first</option>{cohorts.map(c=><option key={c.id} value={c.id}>{c.id.slice(0,12)} · {c.messages} messages · {new Date(c.until*1000).toLocaleDateString('en-GB')}</option>)}</select></label>}
         <label>Period<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={29}>Last 29 days</option></select></label>
-        <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option></select></label>
+        <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option>{user.admin&&<><option value={1000}>1,000</option><option value={5000}>5,000</option></>}</select></label>
         <label htmlFor="quality-domain">Domain (optional)<Input id="quality-domain" value={domain} onChange={e=>setDomain(e.target.value)} placeholder="All my accessible domains" /></label>
-        <Button disabled={busy || observationStart===null} onClick={create}>{busy?"Drawing in progress...":"Create a sample"}</Button>
+        <Button disabled={busy} onClick={create}>{busy?"Drawing in progress...":"Create a sample"}</Button>
         <Button variant="outline" disabled={busy} onClick={()=>setRevision(x=>x+1)}>Refresh</Button>
       </div>{error && <p className="error" role="alert">{error}</p>}
     </section>
     <section className="panel"><h2>Samples retained</h2>
-      {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} onChange={e=>{setSelected(e.target.value);setOffset(0);}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
-      {current && <><p>{current.selected} messages drawn from {current.population} · {current.available} still accessible · {current.labelled} annotated.</p>
+      {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} onChange={e=>{setSelected(e.target.value);setOffset(0);}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.purpose} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
+      {current && <><p>{current.sampling==='confirmed_regression'?`${current.selected} confirmed regression references · Not a representative traffic sample`:`${current.selected} messages drawn from ${current.population}`} · {current.available} still accessible · {current.labelled} annotated.</p>
         <p className="notice">Check the original in your mailbox before answering. The subject alone is insufficient. If unsure, choose “I cannot conclude”.</p>
-        <p className="muted small">The scores are hidden here to avoid influencing your judgment. Annotations feed candidates; they do not change messages already delivered.</p></>}
+        <p className="muted small">The scores are hidden here to avoid influencing your judgment. Development annotations may train candidates. Evaluation annotations stay isolated from training and sender trust. Delivered messages are unchanged.</p></>}
       {current && current.available > 200 && <div className="quality-controls">
         <Button variant="outline" disabled={loading || offset===0} onClick={()=>setOffset(x=>Math.max(0,x-200))}>Prev</Button>
         <span>Page {Math.floor(offset/200)+1} / {Math.ceil(current.available/200)}</span>
@@ -112,10 +117,11 @@ export function QualityConsole({user}:{user:User}) {
         <p>You can validate the risk without knowing the type of mail. Uncertain answers are not transformed into legitimate examples.</p>
         {loaded.readiness.missing_or_incompatible_observations>0 && <p>{loaded.readiness.missing_or_incompatible_observations} messages do not have the necessary observations for this pipeline. Their corrections remain.</p>}
         {loaded.readiness.detector_cohorts>1 && <p>This batch covers several versions of the controls; they will have to be evaluated separately.</p>}
-        <p className="muted small">These accounts describe the available data. The diversity of the examples and their separation over time remain to be verified before any learning.</p>
+        <p className="muted small">These counts describe the available data. Run a comparison to inspect the chronological folds and campaign diversity before training.</p>
       </div>}
       {loading && <output>Loading messages...</output>}
       <div className="quality-members">{members.map(m=><Annotation key={`${m.id}:${revision}`} member={m} user={user} onSaved={()=>setRevision(x=>x+1)}/>)}</div>
     </section>
+    {user.admin&&<QualityWorkbench user={user} batch={selected} purpose={current?.purpose??'regression'} refresh={revision}/>}
   </div>;
 }

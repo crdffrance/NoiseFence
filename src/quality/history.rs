@@ -105,7 +105,7 @@ pub async fn inspect_with_context(
         }
         let now = crate::now();
         let mut query=db.prepare("SELECT json_extract(m.scan,'$.fingerprint'),m.created,MIN(f.spam),MAX(f.spam), json_extract(m.scan,'$.sender_history.behavior.sample')
-          FROM messages m JOIN (SELECT username,message_id,spam,created FROM feedback UNION ALL SELECT username,message_id,CASE risk WHEN 'spam' THEN 1 ELSE 0 END,created FROM quality_labels WHERE risk IN ('spam','legitimate')) f ON f.message_id=m.id JOIN users u ON u.username=f.username
+          FROM messages m JOIN training_feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username
           WHERE m.created>=?1 AND m.created<?2 AND m.is_dsn=0 AND f.created<?2 AND u.admin=1 AND u.disabled=0
           AND (CASE WHEN json_valid(m.scan) THEN json_extract(m.scan,'$.sender_history.key') END)=?3
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=f.username)

@@ -19,6 +19,18 @@ spec=importlib.util.spec_from_file_location('ha_promote',ROOT/'deploy/ha/promote
 promote=importlib.util.module_from_spec(spec);spec.loader.exec_module(promote)
 
 class StandbyTests(unittest.TestCase):
+    def test_managed_candidate_is_included_and_digest_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);job=str(uuid.uuid4());folder=root/'calibration'/job/'candidate';folder.mkdir(parents=True)
+            model=folder/'model.json';model.write_text('{"synthetic":true}')
+            selection={'quality_candidate':{'job':job,'sha256':standby.digest(model)}}
+            with patch.object(standby,'DATA',root):
+                self.assertIn(folder,list(standby.data_paths(selection)))
+                model.write_text('{"synthetic":false}')
+                with self.assertRaises(ValueError):list(standby.data_paths(selection))
+                selection['quality_candidate']['job']='../../escape'
+                with self.assertRaises(ValueError):list(standby.data_paths(selection))
+
     def test_paths_never_escape_or_include_mail_bodies(self):
         for path in ['/etc/shadow','../secret','data/../config/key','data/spool/id.eml','data/incoming/tmp','data/replicas/id.eml','data/research-archive/archive.key','data/research-archive/objects/id/message.enc','config\\key']:
             with self.subTest(path=path),self.assertRaises(ValueError):standby.safe_name(path)

@@ -91,6 +91,7 @@ type Filters = {
   reputation: boolean;
 };
 type Settings = {
+  quality_candidate?: {job:string|null;sha256:string|null}|null;
   research_archive?: ArchiveSettings | null;
   smtp_admission: AdmissionSettings;
   rbl: RblSettings;

@@ -113,7 +113,9 @@ jobs:
           OPENBLAS_NUM_THREADS: '2'
           OMP_NUM_THREADS: '2'
           NOISEFENCE_BINARY: target/release/noisefence
-        run: python3 -m unittest discover -s tests_python -p test_quality.py -v
+        run: |
+          python3 -m unittest discover -s tests_python -p test_quality.py -v
+          python3 -m unittest discover -s tests_python -p test_quality_worker.py -v
   web:
     runs-on: ubuntu-latest
     defaults:

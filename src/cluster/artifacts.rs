@@ -204,9 +204,14 @@ impl Bundle {
             super::protocol::compatible_build(build),
             "Unsupported worker build"
         );
+        ensure!(
+            build == env!("CARGO_PKG_VERSION") || self.settings.quality_candidate.is_none(),
+            "Upgrade every MX before selecting a managed shadow candidate"
+        );
         // Fallback delivery must not silently differ across an older MX.
         ensure!(
-            (build == env!("CARGO_PKG_VERSION") || matches!(build, "0.21.0" | "0.22.0" | "0.23.0"))
+            (build == env!("CARGO_PKG_VERSION")
+                || matches!(build, "0.21.0" | "0.22.0" | "0.23.0" | "0.24.0"))
                 || self
                     .settings
                     .domains
@@ -215,7 +220,7 @@ impl Bundle {
             "Upgrade every MX before enabling unknown-recipient fallback"
         );
         ensure!(
-            (build == env!("CARGO_PKG_VERSION") || build == "0.23.0")
+            (build == env!("CARGO_PKG_VERSION") || matches!(build, "0.23.0" | "0.24.0"))
                 || self
                     .settings
                     .domains
@@ -235,7 +240,10 @@ impl Bundle {
         let mut bundle = self.clone();
         bundle.build = build.into();
         if build != env!("CARGO_PKG_VERSION")
-            && !matches!(build, "0.20.0" | "0.20.3" | "0.21.0" | "0.22.0" | "0.23.0")
+            && !matches!(
+                build,
+                "0.20.0" | "0.20.3" | "0.21.0" | "0.22.0" | "0.23.0" | "0.24.0"
+            )
         {
             bundle.settings.research_archive = None;
             bundle
@@ -255,6 +263,7 @@ impl Bundle {
                     | "0.21.0"
                     | "0.22.0"
                     | "0.23.0"
+                    | "0.24.0"
             )
         {
             // Comparison is not available on older workers. Keep their policy
@@ -265,7 +274,7 @@ impl Bundle {
             }
         }
         if build != env!("CARGO_PKG_VERSION")
-            && !matches!(build, "0.20.3" | "0.21.0" | "0.22.0" | "0.23.0")
+            && !matches!(build, "0.20.3" | "0.21.0" | "0.22.0" | "0.23.0" | "0.24.0")
             && let Some(detection) = &mut bundle.settings.detection
         {
             detection.modules.remove("semantic");

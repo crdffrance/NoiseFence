@@ -50,7 +50,7 @@ class QualityTests(unittest.TestCase):
         data=[{'type':'header','schema':'noisefence-quality-dataset-1','batch':'software-fixture',
                'since':now-2000,'until':now-1,'population':1020,'selected':1020,
                'seed_sha256':digest('synthetic draw'), 'captured_at':now,
-               'sampling':'uniform_message','protocol_sha256':q.PROTOCOL_HASH}]
+               'purpose':'development','sampling':'uniform_message','protocol_sha256':q.PROTOCOL_HASH}]
         names=[f['name'] for f in q.PROTOCOL['features']]
         kind_features=['mailing.conversation','mailing.invoice_subject','mailing.notification_subject',
                        'mailing.newsletter_content','mailing.commercial_offer','mailing.service_message']
@@ -306,6 +306,7 @@ class QualityTests(unittest.TestCase):
             history=self.root/'prospective-base.jsonl';self.write(history,[{'fingerprint':identity,'simhash':identity[:16],'campaign':identity}])
             self.q.train(path,candidate,'SOFTWARE-PROSPECTIVE',history)
         fresh=copy.deepcopy(self.data)
+        fresh[0]["purpose"]="holdout"
         for i,row in enumerate(fresh[1:-1]):
             identity=hashlib.sha256(('separate-evaluation-'+str(i)).encode()).hexdigest()
             row.update(id=identity,fingerprint=identity,simhash=identity[:16],legacy_decision={'source':'legacy','outcome':'unwanted'},baseline_complete=True)
@@ -339,5 +340,50 @@ class QualityTests(unittest.TestCase):
             from quality_metrics import kind_argmax
             self.assertEqual(result['kind'],self.q.KINDS[int(kind_argmax(probe['kind_probabilities']))])
 
+
+    def test_workbench_comparison_uses_humans_and_counts_provider_abstentions(self):
+        from compare_quality import compare
+        data=copy.deepcopy(self.data)
+        for r in data[1:-1]:
+            r['legacy_decision']={'outcome':'legitimate','source':'legacy'}
+            r['baseline_complete']=True
+            r['rspamd']={'status':'complete','action':'soft reject','settings_sha256':'a'*64}
+            r['pipeline_elapsed_ms']=3300
+        data[1]['rspamd']['action']='reject'
+        path=self.root/'comparison.jsonl';self.write(path,data)
+        result=compare(path)
+        self.assertEqual(result['rspamd']['review'],1019)
+        self.assertEqual(result['rspamd']['fp'],1)
+        self.assertEqual(result['baseline']['fp'],0)
+        self.assertEqual(result['pipeline_latency']['p95_ms'],3300)
+        self.assertIsNone(result['pipeline_latency']['native_p95_ms'])
+        self.assertFalse(result['may_activate'])
+        self.assertNotIn(data[1]['id'],json.dumps(result))
+
+    def test_training_never_uses_protected_or_near_campaigns(self):
+        data=copy.deepcopy(self.data)
+        row=data[1]
+        data[0]['reserved_campaigns']=[{'fingerprint':'f'*64,'simhash':f"{int(row['simhash'],16)^1:016x}"}]
+        path=self.root/'reserved.jsonl';self.write(path,data)
+        _,rows,counts,_,_=self.q.load_dataset(path,for_training=True)
+        self.assertEqual(counts['protected_campaign_messages'],1)
+        self.assertNotIn(row['id'],[r['id'] for r in rows])
+        for purpose in ('holdout','regression'):
+            data[0]['purpose']=purpose;self.write(path,data)
+            with self.assertRaisesRegex(ValueError,'development'):self.q.train(path,self.root/('refused-'+purpose),'REFUSED')
+        data[0]['sampling']='confirmed_regression';self.write(path,data)
+        self.q.load_dataset(path,allow_multiple_artifacts=True)
+        with self.assertRaisesRegex(ValueError,'development'):self.q.load_dataset(path,for_training=True)
+        data[0]['purpose']='development';self.write(path,data)
+        with self.assertRaisesRegex(ValueError,'sampling'):self.q.load_dataset(path,for_training=True)
+
+    def test_shadow_pilot_can_improve_capture_without_inventing_fewer_than_zero_false_positives(self):
+        from quality_metrics import outcomes, acceptance
+        y=[0]*100+[1]*20
+        old=outcomes(y,['legitimate']*100+['spam']*18+['review']*2)
+        new=outcomes(y,['legitimate']*100+['spam']*20)
+        self.assertTrue(acceptance(new,old,True,True)['passes_pilot'])
+        self.assertFalse(acceptance(old,old,True,True)['passes_pilot'])
+        self.assertFalse(acceptance(new,old,False,True)['passes_pilot'])
 
 if __name__=='__main__':unittest.main()

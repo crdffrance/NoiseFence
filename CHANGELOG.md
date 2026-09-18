@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.0 — Calibration workbench
+
+- Add development, regression and holdout samples with immutable purpose, cohort selection, and isolated evaluation labels. Protect reserved campaigns from periodic trainers and prevent evaluation labels from changing live sender trust.
+- Add administrator research jobs, NoiseFence/Rspamd comparisons against human labels, campaign metrics, confidence intervals, abstention accounting, and historical score reliability.
+- Train calibrated risk/type shadow candidates offline, verify Python/Rust prediction parity, and select or roll back candidates through versioned Web configuration distributed to MX workers.
+- Add a bounded, network-isolated Linux research worker with durable job status, interruption recovery and private temporary exports. No automatic model activation or delivery-policy change.
+- Version the fusion promotion contract to separate native warm-cache latency from total external-service latency, while preserving legacy validation and tightening recall/review accounting.
+- No production accuracy or Rspamd parity claim: independent human labels and final qualification remain required.
+
+
 ## 0.24.0 — Filter regression fixes
 
 - Inspect bounded plain-text `www.` links in reputation targets and LLM domain context. Exclude email addresses, unsupported schemes, defanged links and hosts without a recognized public suffix; preserve SSRF and fetch limits.

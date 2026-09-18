@@ -2,6 +2,8 @@
 pub mod behavior;
 pub mod evaluation;
 pub mod history;
+pub mod reservations;
+pub mod workflow;
 use crate::{engine::Scan, fusion, message, protection::Status};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};

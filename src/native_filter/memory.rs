@@ -67,7 +67,7 @@ pub(super) async fn inspect_with_permit(
         let now = crate::now();
         let mut query = db.prepare(
             "SELECT m.scan,MIN(f.spam),MAX(f.spam) FROM messages m
-          JOIN feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username
+          JOIN training_feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username
           WHERE m.created>=?1 AND m.created<?2 AND f.created>=?1 AND f.created<?2
           AND m.is_dsn=0 AND u.admin=1 AND u.disabled=0 AND json_valid(m.scan)
           AND json_type(m.scan,'$.native_filter.features')='object'

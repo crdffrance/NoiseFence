@@ -35,7 +35,7 @@ pub async fn inspect(
         }
         let mut q=db.prepare("SELECT json_extract(m.scan,'$.campaign_simhash'),json_extract(m.scan,'$.fingerprint'),COALESCE(json_extract(m.scan,'$.raw_sha256'),m.id),MIN(f.spam),MAX(f.spam)
         FROM (SELECT id,scan FROM messages WHERE created>=?1 ORDER BY created DESC LIMIT 1000) m
-        JOIN feedback f ON f.message_id=m.id AND f.created>=?1
+        JOIN training_feedback f ON f.message_id=m.id AND f.created>=?1
         JOIN users u ON u.username=f.username AND u.admin=1 AND u.disabled=0
         WHERE EXISTS(SELECT 1 FROM deliveries d WHERE d.message_id=m.id AND lower(d.destination) LIKE ?2)
         AND json_array_length(m.scan,'$.features')>=80

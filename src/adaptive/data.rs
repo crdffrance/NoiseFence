@@ -138,8 +138,9 @@ pub async fn export(store: &Store, user: String, scope: String, output: &Path) -
     let (rows, excluded) = store.read(move |db| {
         let admin: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&user],|r| r.get(0))?;
         ensure!(admin,"adaptive export requires an enabled administrator");
+        let protected=crate::quality::reservations::Reserved::load(db)?;
         let mut q = db.prepare("SELECT m.id,m.created,m.scan,MIN(l.class),MAX(l.class),MAX(l.created)
-          FROM messages m JOIN adaptive_labels l ON l.message_id=m.id JOIN users u ON u.username=l.username
+          FROM messages m JOIN adaptive_labels l ON l.message_id=m.id JOIN training_feedback tf ON tf.message_id=l.message_id AND tf.username=l.username JOIN users u ON u.username=l.username
           WHERE m.created>=?1 AND m.created<?2 AND m.is_dsn=0 AND l.created>=?1 AND l.created<?2 AND l.domain=?3 AND u.disabled=0
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=l.username AND lower(substr(d.destination,instr(d.destination,'@')+1))=?3)
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?4 AND lower(substr(d.destination,instr(d.destination,'@')+1))=?3)
@@ -152,6 +153,7 @@ pub async fn export(store: &Store, user: String, scope: String, output: &Path) -
             let min: String=row.get(3)?; let max: String=row.get(4)?;
             if min != max { excluded+=1; continue; }
             let scan: crate::engine::Scan = serde_json::from_str(&row.get::<_,String>(2)?)?;
+            if protected.contains(&scan) {excluded+=1;continue;}
             let Some(native) = scan.native_filter else {excluded+=1;continue;};
             let (Some(features),Some(vector),Some(report)) = (native.features,native.adaptive_vector,native.report.adaptive) else {excluded+=1;continue;};
             if !scan.complete || native.report.status != crate::native_filter::Status::Complete || vector.len()!=WIDTH {excluded+=1;continue;}

@@ -231,6 +231,9 @@ impl Runtime {
             adaptive_vector: None,
         }
     }
+    pub(crate) fn quality_binding(&self) -> (&str, &Option<String>) {
+        (&self.policy_sha256, &self.model_sha256)
+    }
     pub fn offline(&self, raw: &[u8], scopes: &[String]) -> Observation {
         let started = Instant::now();
         let mut out = match input::extract(raw, self.settings.max_bytes).and_then(|input| {

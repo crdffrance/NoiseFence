@@ -30,6 +30,50 @@ pub async fn sample(
     count: usize,
     domain: String,
 ) -> Result<String> {
+    sample_with_purpose(
+        store,
+        username,
+        since,
+        until,
+        count,
+        domain,
+        Purpose::Regression,
+        String::new(),
+    )
+    .await
+}
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum Purpose {
+    Development,
+    #[default]
+    Regression,
+    Holdout,
+}
+impl Purpose {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Development => "development",
+            Self::Regression => "regression",
+            Self::Holdout => "holdout",
+        }
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub async fn sample_with_purpose(
+    store: &Store,
+    username: String,
+    since: i64,
+    until: i64,
+    count: usize,
+    domain: String,
+    purpose: Purpose,
+    cohort: String,
+) -> Result<String> {
+    ensure!(
+        cohort.is_empty() || (purpose == Purpose::Development && super::hash(&cohort)),
+        "Cohort selection is for development only"
+    );
     ensure!(
         (1..=50000).contains(&count)
             && since >= now() - 30 * 86400
@@ -42,8 +86,8 @@ pub async fn sample(
         let tx=db.transaction()?;
         let mut q=tx.prepare("SELECT m.id FROM messages m WHERE m.is_dsn=0 AND m.created>=?2 AND m.created<?3
           AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id
-          WHERE d.message_id=m.id AND g.username=?1 AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))) LIMIT 50001")?;
-        let ids: Vec<String>=q.query_map(params![username,since,until,domain],|r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+          WHERE d.message_id=m.id AND g.username=?1 AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))) AND (?5='' OR json_extract(m.scan,'$.quality.artifacts_sha256')=?5) LIMIT 50001")?;
+        let ids: Vec<String>=q.query_map(params![username,since,until,domain,cohort],|r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         drop(q); ensure!(ids.len()<=50000,"sample population exceeds capacity");
         ensure!(!ids.is_empty(),"no messages in this window");
         let batch_count:usize=tx.query_row("SELECT COUNT(*) FROM quality_batches WHERE username=?1",[&username],|r|r.get(0))?;
@@ -53,6 +97,7 @@ pub async fn sample(
         draw.sort_unstable(); draw.truncate(count);
         let id=uuid::Uuid::new_v4().to_string();
         tx.execute("INSERT INTO quality_batches VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,username,now(),since,until,domain,seed,ids.len(),draw.len()])?;
+        tx.execute("INSERT INTO quality_purposes VALUES(?1,?2,?3)", params![id,purpose.as_str(),cohort])?;
         for (rank,(_,message_id)) in draw.iter().enumerate() {
             tx.execute("INSERT INTO quality_members VALUES(?1,?2,?3)",params![id,message_id,rank])?;
         }
@@ -71,13 +116,6 @@ pub async fn label(
         let tx=db.transaction()?;
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE m.id=?1 AND g.username=?2 AND m.created>=?3 AND m.is_dsn=0)",params![id,username,now()-30*86400],|r|r.get(0))?;
         ensure!(allowed,"message not found");
-        if matches!(risk,Risk::Uncertain) {
-            tx.execute("DELETE FROM feedback WHERE username=?1 AND message_id=?2",params![username,id])?;
-        } else {
-            tx.execute("INSERT INTO feedback(username,message_id,spam,created) VALUES(?1,?2,?3,?4) ON CONFLICT(username,message_id) DO UPDATE SET spam=excluded.spam,created=excluded.created",params![username,id,matches!(risk,Risk::Spam),now()])?;
-            let category=if matches!(risk,Risk::Spam){"spam"}else if matches!(kind,Some(Kind::Newsletter|Kind::Promotion)){"publicity"}else{"legitimate"};
-            tx.execute("INSERT OR REPLACE INTO feedback_categories VALUES(?1,?2,?3)",params![username,id,category])?;
-        }
         tx.execute("INSERT INTO quality_labels VALUES(?1,?2,?3,?4,?5) ON CONFLICT(username,message_id) DO UPDATE SET risk=excluded.risk,kind=excluded.kind,created=excluded.created",params![username,id,risk.as_str(),kind.map(Kind::as_str),now()])?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'quality_label',?3)",params![now(),username,id])?;
         tx.commit()?;Ok(())
@@ -88,8 +126,8 @@ pub async fn batches(store: &Store, username: String) -> Result<Vec<Value>> {
         let mut q=db.prepare("SELECT b.id,b.created,b.since,b.until,b.domain,b.population,b.selected,
           (SELECT COUNT(*) FROM quality_members x JOIN messages m ON m.id=x.message_id WHERE x.batch_id=b.id AND m.created>=?2 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1)),
           (SELECT COUNT(*) FROM quality_members x JOIN messages m ON m.id=x.message_id JOIN quality_labels l ON l.message_id=m.id AND l.username=?1 WHERE x.batch_id=b.id AND m.created>=?2 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1))
-          FROM quality_batches b WHERE b.username=?1 AND b.created>=?2 ORDER BY b.created DESC,b.id DESC LIMIT 100")?;
-        let rows=q.query_map(params![username,now()-30*86400],|r|Ok(json!({"id":r.get::<_,String>(0)?,"created":r.get::<_,i64>(1)?,"since":r.get::<_,i64>(2)?,"until":r.get::<_,i64>(3)?,"domain":r.get::<_,String>(4)?,"population":r.get::<_,usize>(5)?,"selected":r.get::<_,usize>(6)?,"available":r.get::<_,usize>(7)?,"labelled":r.get::<_,usize>(8)?,"sampling":"uniform_message"})))?;
+          ,COALESCE((SELECT purpose FROM quality_purposes p WHERE p.batch_id=b.id),'regression'),EXISTS(SELECT 1 FROM quality_reference_sets r WHERE r.batch_id=b.id) FROM quality_batches b WHERE b.username=?1 AND b.created>=?2 ORDER BY b.created DESC,b.id DESC LIMIT 100")?;
+        let rows=q.query_map(params![username,now()-30*86400],|r|Ok(json!({"id":r.get::<_,String>(0)?,"created":r.get::<_,i64>(1)?,"since":r.get::<_,i64>(2)?,"until":r.get::<_,i64>(3)?,"domain":r.get::<_,String>(4)?,"population":r.get::<_,usize>(5)?,"selected":r.get::<_,usize>(6)?,"available":r.get::<_,usize>(7)?,"labelled":r.get::<_,usize>(8)?,"sampling":if r.get::<_,bool>(10)? {"confirmed_regression"} else {"uniform_message"},"purpose":r.get::<_,String>(9)?})))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await
 }
@@ -167,15 +205,30 @@ pub async fn export(
     batch: String,
     output: &Path,
 ) -> Result<Value> {
-    let rows=store.read(move |db| {
+    let rows=store.run(move |db| {
+        let tx=db.transaction()?;
+        let db=&tx;
         let header:Option<Value>=db.query_row("SELECT since,until,population,selected,seed FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3",params![batch,username,now()-30*86400],|r| Ok(json!({"type":"header","schema":"noisefence-quality-dataset-1","batch":batch,"since":r.get::<_,i64>(0)?,"until":r.get::<_,i64>(1)?,"population":r.get::<_,usize>(2)?,"selected":r.get::<_,usize>(3)?,"seed_sha256":crate::message::digest(r.get::<_,String>(4)?.as_bytes()),"sampling":"uniform_message","protocol_sha256":super::protocol_hash(),"captured_at":now()}))).optional()?;
-        let mut out=vec![header.ok_or_else(||anyhow::anyhow!("sample not found"))?];
+        let mut header=header.ok_or_else(||anyhow::anyhow!("sample not found"))?;
+        let purpose: Option<(String,String)>=db.query_row("SELECT purpose,cohort FROM quality_purposes WHERE batch_id=?1",[&batch],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let (purpose,cohort)=purpose.unwrap_or(("regression".into(),String::new()));
+        header["purpose"]=json!(purpose);header["cohort"]=json!(cohort);
+        let examined:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM quality_jobs WHERE batch_id=?1 AND status IN ('complete','insufficient_labels'))",[&batch],|r|r.get(0))?;
+        header["previously_examined"]=json!(examined);
+        let references:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM quality_reference_sets WHERE batch_id=?1)",[&batch],|r|r.get(0))?;
+        if references {ensure!(purpose=="regression","References must stay regression-only");header["sampling"]=json!("confirmed_regression");header["previously_examined"]=json!(true);}
+        // Only campaign fingerprints are exported, and only for currently accessible references.
+        let mut reserved=db.prepare("SELECT DISTINCT json_extract(m.scan,'$.fingerprint'),json_extract(m.scan,'$.campaign_simhash') FROM quality_protected_messages p JOIN messages m ON m.id=p.message_id WHERE m.created>=?2 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) LIMIT 5001")?;
+        let reservations=reserved.query_map(params![username,now()-30*86400],|r|Ok(json!({"fingerprint":r.get::<_,Option<String>>(0)?,"simhash":r.get::<_,Option<String>>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        ensure!(reservations.len()<=5000,"too many protected campaigns");
+        header["reserved_campaigns"]=json!(reservations);
+        let mut out=vec![header];
         let mut q=db.prepare("SELECT m.id,m.created,m.scan,l.risk,l.kind,l.created FROM quality_members x JOIN messages m ON m.id=x.message_id LEFT JOIN quality_labels l ON l.message_id=m.id AND l.username=?1 WHERE x.batch_id=?2 AND m.created>=?3 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) ORDER BY x.rank")?;
         let mut rows=q.query(params![username,batch,now()-30*86400])?;
         while let Some(row)=rows.next()? {
             let scan:crate::engine::Scan=serde_json::from_str(&row.get::<_,String>(2)?)?;
             let quality=scan.quality.map(|mut q| {q.sender.key=None;if let Some(b)=&mut q.sender.behavior { b.sample=None; }q});
-            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":scan.decision,"baseline_complete":scan.complete,"delivery_classification":scan.delivery_classification,"quality":quality}));
+            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":scan.decision,"baseline_complete":scan.complete,"delivery_classification":scan.delivery_classification,"quality":quality,"rspamd":scan.rspamd.map(|r|json!({"status":r.status,"action":r.action,"score":r.score,"profile":r.profile,"settings_sha256":r.settings_sha256})),"legacy_score":scan.score,"pipeline_elapsed_ms":scan.elapsed_ms}));
         }
         out.push(json!({"type":"footer","rows":out.len()-1}));Ok(out)
     }).await?;

@@ -1,0 +1,26 @@
+[Unit]
+Description=Run a queued NoiseFence calibration job (offline, no automatic activation)
+After=noisefence.service
+
+[Service]
+Type=oneshot
+User=noisefence
+Group=noisefence
+StateDirectory=noisefence/calibration
+StateDirectoryMode=0700
+RuntimeDirectory=noisefence-quality
+RuntimeDirectoryMode=0700
+UMask=0077
+EnvironmentFile=-/etc/noisefence/training.env
+ExecStart=/usr/bin/python3 /opt/noisefence/current/deploy/quality-worker.py
+TimeoutStartSec=35min
+MemoryMax=4G
+OOMScoreAdjust=500
+CPUQuota=200%
+Nice=10
+PrivateNetwork=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/noisefence
+ProtectHome=true
+PrivateTmp=true

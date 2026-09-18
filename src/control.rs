@@ -58,6 +58,8 @@ pub struct Filters {
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_candidate: Option<crate::quality::workflow::Selection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub research_archive: Option<crate::research_archive::Settings>,
     #[serde(default)]
     pub rbl: Option<crate::rbl::Settings>,
@@ -119,6 +121,7 @@ impl Settings {
             })
             .collect();
         Self {
+            quality_candidate: None,
             research_archive: Some(config.research_archive.clone().unwrap_or_default()),
             rbl: Some(config.rbl.clone().unwrap_or_default()),
             smtp_admission: Some(config.smtp_admission.clone().unwrap_or_default()),
@@ -218,6 +221,17 @@ impl Settings {
             );
         }
         let mut cfg = base.clone();
+        if let Some(selection) = &self.quality_candidate {
+            let path = selection.path(&base.data_dir)?;
+            if let Some(path) = &path {
+                let bytes = crate::native_filter::read_bounded(path, 2 * 1024 * 1024)?;
+                ensure!(
+                    Some(crate::message::digest(&bytes)) == selection.sha256,
+                    "Managed candidate digest changed"
+                );
+            }
+            cfg.quality = Some(crate::quality::Settings { candidate: path });
+        }
         if let Some(settings) = &self.research_archive {
             settings.validate()?;
             cfg.research_archive = Some(settings.clone());

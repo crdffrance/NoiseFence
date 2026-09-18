@@ -506,3 +506,47 @@ async fn explicit_pub_labels_preserve_binary_training_and_separate_subtype_confl
         }
     }
 }
+
+#[tokio::test]
+async fn legacy_export_also_respects_reserved_campaigns_and_revoked_grants() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let original = scan();
+    seed(&store, "reserved", original.clone(), &[("alice", false)]).await;
+    let mut near = original.clone();
+    near.fingerprint = noisefence::message::digest(b"near reserved");
+    seed(&store, "near", near, &[("alice", false)]).await;
+    let mut other = original;
+    other.fingerprint = noisefence::message::digest(b"unrelated");
+    other.campaign_simhash = Some("0000000000000000".into());
+    seed(&store, "other", other, &[("bob", true)]).await;
+    store
+        .run(|db| {
+            db.execute(
+                "INSERT INTO quality_reserved VALUES('reserved',?1,'synthetic regression')",
+                [noisefence::now()],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        noisefence::corpus::export_feedback(&store, &dir.path().join("first.jsonl"))
+            .await
+            .unwrap(),
+        1
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='bob'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        noisefence::corpus::export_feedback(&store, &dir.path().join("second.jsonl"))
+            .await
+            .unwrap(),
+        0
+    );
+}

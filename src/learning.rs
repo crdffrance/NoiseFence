@@ -72,6 +72,7 @@ pub struct ExportReport {
     pub considered: usize,
     pub exported: usize,
     pub conflicting: usize,
+    pub protected_campaigns: usize,
     pub incomplete: usize,
     pub unsupported_features: usize,
     pub missing_campaign: usize,
@@ -117,10 +118,11 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
             // A single SQLite read transaction gives a coherent label snapshot in WAL.
             // Re-check current grants; expired metadata and automatic DSNs are excluded.
             let tx = db.transaction()?;
+            let protected=crate::quality::reservations::Reserved::load(&tx)?;
             {
                 let mut query = tx.prepare(
                     "SELECT m.id,m.created,m.scan,MIN(f.spam),MAX(f.spam),MAX(f.created),MIN(c.category),MAX(c.category),COUNT(c.category),COUNT(*)
-                FROM messages m JOIN feedback f ON f.message_id=m.id
+                FROM messages m JOIN training_feedback f ON f.message_id=m.id
                 JOIN users u ON u.username=f.username AND u.disabled=0
                 LEFT JOIN feedback_categories c ON c.message_id=f.message_id AND c.username=f.username
                 WHERE m.is_dsn=0 AND m.created>=?1 AND EXISTS (
@@ -155,6 +157,7 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                     } else { None };
                     let scan: crate::engine::Scan =
                         serde_json::from_str(&row.get::<_, String>(2)?)?;
+                    if protected.contains(&scan) { report.protected_campaigns+=1;continue; }
                     // External availability must not select the local training data.
                     // Old incomplete rows remain excluded: their extraction state is unknown.
                     if !scan.features_complete.unwrap_or(scan.complete) || scan.features.is_empty()

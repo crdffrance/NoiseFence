@@ -819,3 +819,16 @@ details.management-card summary {
 @media(max-width:550px) { .research-archive-fields,.research-archive-nodes { grid-template-columns:minmax(0,1fr); } }
 
 .research-archive-fields input[type=checkbox] { align-self:flex-start; width:1.1rem; height:1.1rem; accent-color:var(--primary); }
+
+.quality-steps, .quality-folds { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: .75rem; margin: 1rem 0; }
+.quality-steps > div, .quality-folds > div { border: 1px solid var(--border); border-radius: .7rem; padding: 1rem; }
+.quality-steps span, .quality-folds span { display: block; font-size: .85rem; opacity: .75; margin-top: .35rem; }
+.quality-folds .ready { border-color: #19816b; }
+.quality-job { border-top: 1px solid var(--border); padding: 1rem 0; }
+.quality-job summary { cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; gap: .75rem; }
+.quality-job summary span { opacity: .7; font-size: .9rem; }
+.quality-table-scroll { overflow-x: auto; }
+.quality-metrics { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.quality-metrics th,.quality-metrics td { padding: .8rem; text-align: left; border-bottom: 1px solid var(--border); }
+.quality-metrics caption { text-align: left; font-size: .85rem; padding: .5rem 0; opacity: .75; }
+.quality-metrics small { display: block; opacity: .65; white-space: nowrap; }

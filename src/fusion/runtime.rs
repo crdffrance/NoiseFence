@@ -103,6 +103,31 @@ pub struct Observation {
     pub prediction: Option<Prediction>,
 }
 
+/// Version 2 separates a measured local warm-cache budget from external latency.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationalEvidence {
+    pub native_p95_ms: f64,
+    pub native_samples: usize,
+    pub max_message_bytes: usize,
+    pub warm_caches: bool,
+    pub native_latency_report_sha256: String,
+    pub pipeline_budget_ms: u64,
+    pub review_spam: usize,
+    pub review_legitimate: usize,
+}
+fn wilson(success: usize, total: usize) -> (f64, f64) {
+    if total == 0 {
+        return (0.0, 1.0);
+    }
+    let z = 1.959963984540054_f64;
+    let n = total as f64;
+    let p = success as f64 / n;
+    let d = 1.0 + z * z / n;
+    let center = p + z * z / (2.0 * n);
+    let radius = z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt();
+    ((center - radius) / d, (center + radius) / d)
+}
 /// An administrator's reviewed evidence bundle. Counts are checked again here;
 /// a successful research run alone cannot enable an SMTP decision. This file
 /// records the full-population audit, frozen test, latency and review references.
@@ -127,6 +152,8 @@ pub struct Validation {
     pub unaccounted_messages: usize,
     pub pipeline_p95_ms: f64,
     pub pipeline_samples: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational: Option<OperationalEvidence>,
 }
 impl Validation {
     pub fn load(path: &Path) -> Result<Self> {
@@ -142,8 +169,10 @@ impl Validation {
     }
     pub fn validate(&self, model: &Model, sha256: &str, now: i64) -> Result<()> {
         ensure!(
-            self.schema == "noisefence-fusion-promotion-1"
-                && self.model_sha256 == sha256
+            matches!(
+                self.schema.as_str(),
+                "noisefence-fusion-promotion-1" | "noisefence-fusion-promotion-2"
+            ) && self.model_sha256 == sha256
                 && self.manifest_sha256 == model.manifest_sha256,
             "fusion validation is for another model"
         );
@@ -180,27 +209,59 @@ impl Validation {
                 .all(|n| n <= 100_000),
             "invalid test counts"
         );
-        let ham = self.tn + self.fp;
-        let unwanted = self.tp + self.fn_count;
+        let (review_spam, review_legitimate) = if self.schema == "noisefence-fusion-promotion-2" {
+            let op = self.operational.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Version 2 requires separate latency and review accounting")
+            })?;
+            ensure!(
+                op.review_spam <= 100_000 && op.review_legitimate <= 100_000,
+                "Invalid review counts"
+            );
+            ensure!(
+                op.native_samples >= 1000
+                    && op.max_message_bytes > 0
+                    && op.max_message_bytes <= 1024 * 1024
+                    && op.warm_caches
+                    && op.native_p95_ms.is_finite()
+                    && (0.0..500.0).contains(&op.native_p95_ms)
+                    && super::valid_hash(&op.native_latency_report_sha256),
+                "Native warm-cache latency target is not demonstrated"
+            );
+            ensure!(
+                (500..=5000).contains(&op.pipeline_budget_ms)
+                    && self.pipeline_p95_ms <= op.pipeline_budget_ms as f64,
+                "Reviewed total pipeline budget exceeded"
+            );
+            (op.review_spam, op.review_legitimate)
+        } else {
+            ensure!(
+                self.operational.is_none() && (0.0..500.0).contains(&self.pipeline_p95_ms),
+                "Legacy full pipeline latency target is not demonstrated"
+            );
+            (0, 0)
+        };
+        let ham = self.tn + self.fp + review_legitimate;
+        let unwanted = self.tp + self.fn_count + review_spam;
         ensure!(
             ham >= 10_000 && unwanted >= 2_000,
-            "independent fusion test is too small"
+            "Independent fusion test is too small"
         );
-        let p = self.fp as f64 / ham as f64;
-        let z = 1.959963984540054_f64;
-        let n = ham as f64;
-        let upper =
-            (p + z * z / (2.0 * n) + z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt())
-                / (1.0 + z * z / n);
         ensure!(
-            self.tp as f64 / unwanted as f64 >= 0.95 && upper <= 0.001,
-            "fusion quality targets are not demonstrated by the reviewed counts"
+            self.tp as f64 / unwanted as f64 >= 0.95 && wilson(self.fp, ham).1 <= 0.001,
+            "Fusion quality targets are not demonstrated by the reviewed counts"
         );
+        if self.operational.is_some() {
+            ensure!(
+                wilson(self.tp, unwanted).0 >= 0.95
+                    && wilson(review_spam + review_legitimate, ham + unwanted).1 <= 0.05,
+                "Recall or review confidence bounds are not demonstrated"
+            );
+        }
         ensure!(
             self.pipeline_samples >= 1000
                 && self.pipeline_p95_ms.is_finite()
-                && (0.0..500.0).contains(&self.pipeline_p95_ms),
-            "full pipeline latency target is not demonstrated"
+                && self.pipeline_p95_ms >= 0.0,
+            "Total pipeline latency measurement is missing"
         );
         Ok(())
     }

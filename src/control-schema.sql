@@ -105,3 +105,44 @@ END;
 CREATE TRIGGER IF NOT EXISTS adaptive_label_withdraw AFTER DELETE ON feedback BEGIN
  DELETE FROM adaptive_labels WHERE username=OLD.username AND message_id=OLD.message_id;
 END;
+
+-- Dataset purpose is fixed at sampling time. Legacy batches remain evaluation only.
+CREATE TABLE IF NOT EXISTS quality_purposes(
+ batch_id TEXT PRIMARY KEY REFERENCES quality_batches(id) ON DELETE CASCADE,
+ purpose TEXT NOT NULL CHECK(purpose IN ('development','regression','holdout')),
+ cohort TEXT NOT NULL DEFAULT ''
+);
+-- Review labels must never be changed by operational feedback.
+DROP TRIGGER IF EXISTS quality_label_invalidate;
+-- Explicit references survive batch deletion while their message metadata exists.
+CREATE TABLE IF NOT EXISTS quality_reserved(
+ message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+ created INTEGER NOT NULL, reason TEXT NOT NULL
+);
+CREATE VIEW IF NOT EXISTS quality_protected_messages AS
+ SELECT message_id FROM quality_reserved UNION
+ SELECT x.message_id FROM quality_members x LEFT JOIN quality_purposes p ON p.batch_id=x.batch_id
+ WHERE COALESCE(p.purpose,'regression')!='development';
+-- All evaluation labels are isolated from implicit/periodic learning and sender trust.
+CREATE VIEW IF NOT EXISTS training_feedback AS
+ SELECT f.* FROM feedback f WHERE NOT EXISTS(SELECT 1 FROM quality_labels q WHERE q.message_id=f.message_id)
+ AND NOT EXISTS(SELECT 1 FROM quality_protected_messages p WHERE p.message_id=f.message_id);
+CREATE TABLE IF NOT EXISTS quality_jobs(
+ id TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+ batch_id TEXT NOT NULL REFERENCES quality_batches(id) ON DELETE CASCADE,
+ operation TEXT NOT NULL CHECK(operation IN ('train','compare','evaluate')),
+ candidate_id TEXT,
+ status TEXT NOT NULL CHECK(status IN ('queued','running','complete','insufficient_labels','failed','cancelled','interrupted')),
+ created INTEGER NOT NULL, started INTEGER, finished INTEGER,
+ report TEXT, model_sha256 TEXT
+);
+CREATE INDEX IF NOT EXISTS quality_job_queue ON quality_jobs(status,created);
+CREATE TABLE IF NOT EXISTS quality_worker_status(
+ id INTEGER PRIMARY KEY CHECK(id=1), heartbeat INTEGER NOT NULL, build TEXT NOT NULL
+);
+
+-- Curated references are labelled as such; never pretend they are a traffic draw.
+CREATE TABLE IF NOT EXISTS quality_reference_sets(
+ batch_id TEXT PRIMARY KEY REFERENCES quality_batches(id) ON DELETE CASCADE,
+ provenance TEXT NOT NULL
+);

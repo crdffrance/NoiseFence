@@ -89,3 +89,5 @@ Bodies and attachments are removed after all recipient outcomes and required rep
 Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities through [SECURITY.md](SECURITY.md). See [THIRD_PARTY.md](THIRD_PARTY.md) for dependencies and upstream acknowledgements.
 
 Optional: [independent Rspamd comparison](docs/rspamd-comparison.md) provides asynchronous engine comparisons in the console without changing NoiseFence delivery decisions.
+
+The [calibration workbench](docs/calibration-workbench.md) compares NoiseFence and Rspamd against human labels, isolates holdouts, and manages shadow candidates from the Web console.

@@ -56,6 +56,14 @@ def atomic_text(path, text):
 
 def data_paths(value):
     if isinstance(value, dict):
+        selection=value.get('quality_candidate')
+        if isinstance(selection,dict) and selection.get('job') is not None:
+            identifier=selection['job']
+            if str(uuid.UUID(identifier))!=identifier:raise ValueError('Invalid managed candidate identifier')
+            candidate=DATA/'calibration'/identifier/'candidate'
+            model=candidate/'model.json'
+            if not model.is_file() or digest(model)!=selection.get('sha256'):raise ValueError('Managed shadow candidate changed or missing')
+            yield candidate
         for v in value.values(): yield from data_paths(v)
     elif isinstance(value, list):
         for v in value: yield from data_paths(v)

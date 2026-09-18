@@ -107,3 +107,41 @@ fn unknown_profile_and_expired_or_mismatched_validation_never_enable_decisions()
     assert!(old.decision.is_none() && old.raw_sha256.is_none());
     assert_eq!(Decision::legacy(&old, 95.0).outcome, Outcome::Undetermined);
 }
+
+#[test]
+fn promotion_v2_counts_abstentions_and_separates_local_and_external_latency() {
+    use noisefence::fusion::runtime::OperationalEvidence;
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let (model, _) = fixture::fixture(&cfg);
+    let hash = digest(b"synthetic model");
+    let mut v = fixture::validation(&model, &hash);
+    v.schema = "noisefence-fusion-promotion-2".into();
+    v.tp = 1980;
+    v.fn_count = 20;
+    v.pipeline_p95_ms = 3300.;
+    assert!(v.validate(&model, &hash, noisefence::now()).is_err());
+    v.operational = Some(OperationalEvidence {
+        native_p95_ms: 120.,
+        native_samples: 1000,
+        max_message_bytes: 1024 * 1024,
+        warm_caches: true,
+        native_latency_report_sha256: digest(b"native benchmark"),
+        pipeline_budget_ms: 5000,
+        review_spam: 0,
+        review_legitimate: 0,
+    });
+    v.validate(&model, &hash, noisefence::now()).unwrap();
+    for case in 0..5 {
+        let mut invalid = v.clone();
+        let op = invalid.operational.as_mut().unwrap();
+        match case {
+            0 => op.native_p95_ms = 500.,
+            1 => op.review_spam = 100,
+            2 => op.review_legitimate = 1500,
+            3 => op.pipeline_budget_ms = 6000,
+            _ => op.native_latency_report_sha256.clear(),
+        };
+        assert!(invalid.validate(&model, &hash, noisefence::now()).is_err());
+    }
+}

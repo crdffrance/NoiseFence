@@ -61,6 +61,7 @@ pub fn validation(model: &Model, sha: &str) -> Validation {
         unaccounted_messages: 0,
         pipeline_p95_ms: 100.0,
         pipeline_samples: 1000,
+        operational: None,
     }
 }
 

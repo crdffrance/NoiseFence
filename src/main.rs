@@ -298,6 +298,11 @@ enum Command {
         count: usize,
         #[arg(long, default_value = "")]
         domain: String,
+
+        #[arg(long, value_enum, default_value_t = noisefence::quality::evaluation::Purpose::Regression)]
+        purpose: noisefence::quality::evaluation::Purpose,
+        #[arg(long, default_value = "")]
+        cohort: String,
     },
     /// Export an annotated sample privately on the server; no content or delivery.
     QualityExport {
@@ -1274,11 +1279,13 @@ async fn main() -> Result<()> {
             until,
             count,
             domain,
+            purpose,
+            cohort,
         } => {
             println!(
                 "{}",
-                noisefence::quality::evaluation::sample(
-                    &store, username, since, until, count, domain
+                noisefence::quality::evaluation::sample_with_purpose(
+                    &store, username, since, until, count, domain, purpose, cohort
                 )
                 .await?
             );

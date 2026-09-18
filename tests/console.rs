@@ -1763,8 +1763,8 @@ async fn quality_sampling_and_dual_labels_enforce_sessions_csrf_and_recipient_ac
     assert_eq!(status, StatusCode::OK);
     let (_, rows) = request(&app, &alice, &path, None).await;
     assert!(
-        rows[0]["risk"].is_null(),
-        "A later old-style correction invalidates its prior dual annotation"
+        rows[0]["risk"] == "legitimate",
+        "Operational feedback must not alter independent evaluation labels"
     );
 }
 
@@ -2237,5 +2237,75 @@ async fn research_archive_is_admin_only_versioned_and_deadline_survives_restart(
         .await
         .0,
         StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[tokio::test]
+async fn calibration_workbench_is_admin_only_and_requires_origin_csrf_and_owned_samples() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    let admin = account(&store, "admin", true, vec![]).await;
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let app = api::router(cfg, store.clone()).unwrap();
+    assert_eq!(
+        request(&app, &alice, "/quality/jobs", None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, &admin, "/quality/jobs", None).await.0,
+        StatusCode::OK
+    );
+    let body =
+        json!({"batch":uuid::Uuid::new_v4().to_string(),"operation":"compare","candidate":null});
+    assert_eq!(
+        request(&app, &alice, "/quality/jobs", Some(body.clone()))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    for (origin, csrf) in [
+        ("https://attacker.example", "test-csrf"),
+        ("http://127.0.0.1:3000", "wrong"),
+    ] {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/v1/quality/jobs")
+            .header("content-type", "application/json")
+            .header("cookie", format!("noisefence_session={admin}"))
+            .header("origin", origin)
+            .header("x-csrf-token", csrf)
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        request(&app, &admin, "/quality/jobs", Some(body)).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            "/quality/candidate",
+            Some(json!({"revision":0,"job":null}))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='admin'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &admin, "/quality/jobs", None).await.0,
+        StatusCode::UNAUTHORIZED
     );
 }

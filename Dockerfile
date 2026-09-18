@@ -51,3 +51,20 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD curl --fail --silent "$NOISEFENCE_HEALTH_URL" || exit 1
 ENTRYPOINT ["/usr/local/bin/noisefence-container-entrypoint"]
 CMD ["serve"]
+
+
+# Optional offline worker image; the default final image remains the SMTP runtime.
+FROM runtime AS calibration
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/* && python3 -m venv /opt/noisefence-learning
+COPY research/requirements.txt /tmp/research-requirements.txt
+RUN /opt/noisefence-learning/bin/pip install --no-cache-dir -r /tmp/research-requirements.txt && rm /tmp/research-requirements.txt
+COPY research/train_quality.py research/train_fusion.py research/compare_quality.py research/evaluate_quality.py research/run_quality.py research/quality_metrics.py research/quality_runtime.py research/quality-protocol.json research/fusion-protocol.json /usr/local/bin/research/
+COPY deploy/quality-worker.py /usr/local/lib/noisefence-quality-worker.py
+USER 10001:10001
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/bin/python3", "/usr/local/lib/noisefence-quality-worker.py"]
+CMD ["--binary", "/usr/local/bin/noisefence", "--loop"]
+
+FROM runtime AS release

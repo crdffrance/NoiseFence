@@ -29,6 +29,7 @@ def baseline(row):
 
 
 def evaluate(dataset, model_path, manifest_path):
+    from compare_quality import rspamd_outcome
     model,model_bytes=load_model(model_path)
     require(model['trained_at']<=time.time()+60,'Future candidate timestamp')
     with manifest_path.open('rb') as f:
@@ -91,13 +92,13 @@ def evaluate(dataset, model_path, manifest_path):
         a,b,c,_=by_id[row['id']];cy.append(a);cb.append(b);ca.append(c)
     prospective=header['since']>=model['trained_at'] and header['since']>=manifest['until'] and digest!=model['dataset_sha256']
     base_provenance=is_hex(manifest.get('base_history_sha256')) and manifest.get('unverifiable_seen_campaigns')==0
-    independent=(base_provenance and prospective and not overlap and not coverage['unverifiable_campaigns'] and not coverage['duplicate_campaign_messages'] and not coverage['conflicting_campaigns'])
+    independent=(header.get('purpose')=='holdout' and not header.get('previously_examined',False) and base_provenance and prospective and not overlap and not coverage['unverifiable_campaigns'] and not coverage['duplicate_campaign_messages'] and not coverage['conflicting_campaigns'])
     complete=(coverage['retained']==header['selected'] and len(y)==len(rows) and not coverage['unsupported_observations'] and not coverage['missing_baseline'])
     b,a=outcomes(y,before),outcomes(y,after)
     report={'schema':'noisefence-quality-evaluation-1','model_sha256':hashlib.sha256(model_bytes).hexdigest(),'model_version':model['version'],
             'dataset_sha256':digest,'training_manifest_sha256':model['training_manifest_sha256'],
-            'sampling':'uniform_message','coverage':dict(coverage),'prospective':prospective,'base_training_provenance_verified':base_provenance,
-            'baseline':b,'candidate':a,'detector_without_antivirus_guard':outcomes(y,detector),
+            'sampling':header['sampling'],'coverage':dict(coverage),'prospective':prospective,'base_training_provenance_verified':base_provenance,
+            'baseline':b,'candidate':a,'rspamd':outcomes(y,[rspamd_outcome(r) for r in rows if r['risk'] in ('legitimate','spam')]),'detector_without_antivirus_guard':outcomes(y,detector),
             'risk_calibration':metrics(y,probabilities,*model['thresholds'],available),
             'campaigns':{'baseline':outcomes(cy,cb),'candidate':outcomes(cy,ca)},
             'acceptance':acceptance(a,b,independent,complete),

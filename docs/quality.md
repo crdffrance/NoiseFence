@@ -1,4 +1,6 @@
 <a id="qualité-du-filtrage--observations-annotations-et-candidats"></a>
+
+The [calibration workbench](calibration-workbench.md) provides the supported Web workflow, offline worker installation, dataset isolation, comparison and shadow rollback. Evaluation annotations never become ordinary training feedback or sender trust.
 # Quality of filtering: observations, annotations and candidates
 
 Since 0.4.8, NoiseFence has maintained an attached observation of the content, controls, reputation and type of mail. The ranking applied remains separate **from the observer candidate**, who cannot tag, quarantine or replace the delivery decision. No private model is delivered with the software.
@@ -6,7 +8,7 @@ Since 0.4.8, NoiseFence has maintained an attached observation of the content, c
 <a id="corriger-sur-un-échantillon-représentatif"></a>
 ## Correct on a representative sample
 
-The **Quality of the filter** page is available to administrators and users. It draws 25 to 200 messages from among those to which the account has access, within a selected period and domain. The proposed period begins with the collection related to the current engine and protocol. It includes incomplete analyses. The draw does not consult any score; its seed, population and members are frozen. The messages arrived then do not change the lot.
+The **Quality of the filter** page is available to administrators and users. It draws up to 200 messages for users and 5,000 for administrators from among those to which the account has access, within a selected period and domain. The period is explicit, and development samples can select a detector cohort. It includes incomplete analyses. The draw does not consult any score; its seed, population and members are frozen. The messages arrived then do not change the lot.
 
 Check the original in the recipient's box, then annotate separately:
 
@@ -17,15 +19,15 @@ An agreed newsletter is legitimate and newsletter-type. A fraudulent advertiseme
 
 The console shows separately the number of risk and type annotations associated with exploitable observations, the missing observations and the number of detector configurations present. The type is optional: it does not block a certain annotation of the risk. These meters do not validate the number per period or a future model.
 
-Some labels also update the historical corrections. "Uncertain" removes the previous binary vote. A new historical correction invalidates the double annotation that has become obsolete. The messages already delivered remain unchanged. Access is rechecked on the server side at each read and write, with session, original control and CSRF for mutations. Hidden copies do not become visible to other accounts.
+Quality annotations are isolated from operational feedback. "Uncertain" changes only the evaluation label. Operational corrections do not overwrite evaluation labels. The messages already delivered remain unchanged. Access is rechecked on the server side at each read and write, with session, original control and CSRF for mutations. Hidden copies do not become visible to other accounts.
 
 <a id="préparer-un-candidat-sur-le-serveur"></a>
 ## Prepare a candidate on the server
 
-For a larger evaluation, the LTC allows up to 50,000 messages in a population of up to 50,000. The same batch sssnotes in the console per 200 pages. The dates are Unix UTC seconds, within the last thirty days. Example to adapt, by replacing the variables with the period, the account and the ID returned by the first order:
+The CLI supports up to 50,000 messages in a population of up to 50,000. The console displays the same frozen batch in pages of 200 messages. The dates are Unix UTC seconds, within the last thirty days. Example to adapt, by replacing the variables with the period, the account and the ID returned by the first order:
 
 ```sh
-noisefence --config /etc/noisefence/config.toml quality-sample \
+noisefence --config /etc/noisefence/config.toml quality-sample --purpose development \
   --username "$ANNOTATOR" --since "$SINCE" --until "$UNTIL" \
   --count 10000 --domain example.org
 

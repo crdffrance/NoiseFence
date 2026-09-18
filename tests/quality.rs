@@ -478,7 +478,7 @@ fn native_observations_are_calibration_inputs_without_recounting_the_legacy_mode
 }
 
 #[tokio::test]
-async fn behavior_uses_authorized_past_quality_labels_and_stays_out_of_delivery() {
+async fn behavior_uses_operational_feedback_and_stays_out_of_delivery() {
     use noisefence::{
         config::Recipient,
         evidence::{AuthResult, State},
@@ -542,7 +542,7 @@ async fn behavior_uses_authorized_past_quality_labels_and_stays_out_of_delivery(
         store
             .run(move |db| {
                 db.execute(
-                    "INSERT INTO quality_labels VALUES('reviewer',?1,'legitimate',NULL,?2)",
+                    "INSERT INTO feedback VALUES('reviewer',?1,0,?2)",
                     params![id, now - 1],
                 )?;
                 Ok(())
@@ -616,4 +616,254 @@ async fn behavior_uses_authorized_past_quality_labels_and_stays_out_of_delivery(
         .unwrap();
     let revoked = quality::history::inspect(root.path(), common::MESSAGE, &scan, &scope).await;
     assert_eq!(revoked.legitimate_campaigns, 0);
+}
+
+#[tokio::test]
+async fn evaluation_truth_never_changes_operational_feedback_and_protects_near_campaigns() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    account(&store, "admin", true, "").await;
+    let mut scan = observed(&common::config(root.path()));
+    scan.quality = Some(quality::snapshot(&scan, None));
+    let id = insert(&store, &scan, "alice@example.test", noisefence::now() - 100).await;
+    store
+        .feedback("admin".into(), id.clone(), true)
+        .await
+        .unwrap();
+    evaluation::label(
+        &store,
+        "admin".into(),
+        id.clone(),
+        Risk::Legitimate,
+        Some(Kind::Notification),
+    )
+    .await
+    .unwrap();
+    let batch = evaluation::sample(
+        &store,
+        "admin".into(),
+        noisefence::now() - 200,
+        noisefence::now(),
+        50,
+        String::new(),
+    )
+    .await
+    .unwrap();
+    let key = id.clone();
+    store
+        .run(move |db| {
+            assert!(db.query_row(
+                "SELECT spam FROM feedback WHERE message_id=?1",
+                [&key],
+                |r| r.get::<_, bool>(0)
+            )?);
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM training_feedback WHERE message_id=?1",
+                    [&key],
+                    |r| r.get::<_, usize>(0)
+                )?,
+                0
+            );
+            let reserved = quality::reservations::Reserved::load(db)?;
+            let mut similar = scan.clone();
+            similar.fingerprint = digest(b"different exact campaign");
+            similar.campaign_simhash = Some("abcdef0123456788".into());
+            assert!(reserved.contains(&similar));
+            similar.campaign_simhash = Some("0000000000000000".into());
+            assert!(!reserved.contains(&similar));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    store
+        .feedback("admin".into(), id.clone(), false)
+        .await
+        .unwrap();
+    let reference = batch.clone();
+    store
+        .run(move |db| {
+            db.execute(
+                "INSERT INTO quality_reference_sets VALUES(?1,'confirmed by the user')",
+                [&reference],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        evaluation::batches(&store, "admin".into()).await.unwrap()[0]["sampling"],
+        "confirmed_regression"
+    );
+    let output = root.path().join("reference.jsonl");
+    evaluation::export(&store, "admin".into(), batch.clone(), &output)
+        .await
+        .unwrap();
+    let text = std::fs::read_to_string(output).unwrap();
+    let header: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(header["sampling"], "confirmed_regression");
+    assert_eq!(header["previously_examined"], true);
+    let rows = evaluation::members(&store, "admin".into(), batch)
+        .await
+        .unwrap();
+    assert_eq!(rows[0]["risk"], "legitimate");
+    evaluation::label(&store, "admin".into(), id, Risk::Uncertain, None)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn calibration_jobs_enforce_purpose_ownership_capacity_and_immutable_candidates() {
+    use quality::{
+        evaluation::Purpose,
+        workflow::{self, Request},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    account(&store, "admin", true, "").await;
+    account(&store, "alice", false, "alice@example.test").await;
+    let scan = observed(&common::config(root.path()));
+    insert(&store, &scan, "alice@example.test", noisefence::now() - 50).await;
+    let regression = evaluation::sample(
+        &store,
+        "admin".into(),
+        noisefence::now() - 100,
+        noisefence::now(),
+        50,
+        String::new(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        workflow::enqueue(
+            &store,
+            "admin".into(),
+            Request {
+                batch: regression.clone(),
+                operation: "train".into(),
+                candidate: None
+            }
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        workflow::enqueue(
+            &store,
+            "alice".into(),
+            Request {
+                batch: regression.clone(),
+                operation: "compare".into(),
+                candidate: None
+            }
+        )
+        .await
+        .is_err()
+    );
+    let comparison = workflow::enqueue(
+        &store,
+        "admin".into(),
+        Request {
+            batch: regression.clone(),
+            operation: "compare".into(),
+            candidate: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        workflow::cancel(&store, "alice".into(), comparison.clone())
+            .await
+            .is_err()
+    );
+    workflow::cancel(&store, "admin".into(), comparison)
+        .await
+        .unwrap();
+    let development = evaluation::sample_with_purpose(
+        &store,
+        "admin".into(),
+        noisefence::now() - 100,
+        noisefence::now(),
+        50,
+        String::new(),
+        Purpose::Development,
+        String::new(),
+    )
+    .await
+    .unwrap();
+    let job = workflow::enqueue(
+        &store,
+        "admin".into(),
+        Request {
+            batch: development.clone(),
+            operation: "train".into(),
+            candidate: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        workflow::enqueue(
+            &store,
+            "admin".into(),
+            Request {
+                batch: development,
+                operation: "train".into(),
+                candidate: None
+            }
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        workflow::candidate(&store, root.path(), "admin".into(), job.clone())
+            .await
+            .is_err()
+    );
+    assert!(
+        workflow::Selection {
+            job: Some("../../config".into()),
+            sha256: Some(digest(b"x"))
+        }
+        .path(root.path())
+        .is_err()
+    );
+    let mut m = model(&quality::snapshot(&scan, None));
+    m.schema = "noisefence-quality-model-2".into();
+    m.training_manifest_sha256 = Some(digest(b"manifest"));
+    m.kind_profiles = m.profiles.clone();
+    let path = root
+        .path()
+        .join("calibration")
+        .join(&job)
+        .join("candidate/model.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let bytes = serde_json::to_vec(&m).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    let hash = digest(&bytes);
+    let key = job.clone();
+    store
+        .run(move |db| {
+            db.execute(
+                "UPDATE quality_jobs SET status='complete',model_sha256=?2 WHERE id=?1",
+                params![key, hash],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    workflow::candidate(&store, root.path(), "admin".into(), job.clone())
+        .await
+        .unwrap();
+    assert!(
+        workflow::candidate(&store, root.path(), "alice".into(), job.clone())
+            .await
+            .is_err()
+    );
+    std::fs::write(&path, [bytes, b" ".to_vec()].concat()).unwrap();
+    assert!(
+        workflow::candidate(&store, root.path(), "admin".into(), job)
+            .await
+            .is_err()
+    );
 }

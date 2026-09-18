@@ -58,8 +58,9 @@ def acceptance(candidate, baseline, independent, coverage_complete):
     comparable=(candidate['messages']==baseline['messages'] and candidate['spam_total']==baseline['spam_total']
                 and candidate['legitimate_total']==baseline['legitimate_total'])
     enough=candidate['spam_total']>=20 and candidate['legitimate_total']>=100
-    pilot=(comparable and enough and independent and coverage_complete and candidate['fp']<baseline['fp']
-           and candidate['tp']>=baseline['tp'] and candidate['review']<=baseline['review'])
+    pilot=(comparable and enough and independent and coverage_complete and candidate['fp']<=baseline['fp']
+           and candidate['tp']>=baseline['tp'] and candidate['review']<=baseline['review']
+           and (candidate['fp']<baseline['fp'] or candidate['tp']>baseline['tp'] or candidate['review']<baseline['review']))
     p,n,size=candidate['spam_total'],candidate['legitimate_total'],candidate['messages']
     lower=0. if not candidate['tp'] else float(beta.ppf(.05,candidate['tp'],p-candidate['tp']+1))
     upper=1. if not n or candidate['fp']==n else float(beta.ppf(.95,candidate['fp']+1,n-candidate['fp']))
