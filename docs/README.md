@@ -49,3 +49,6 @@
 - [Recorded validation results](validation-results.md)
 - [Research protocols](../research/README.md)
 - [Contributing](../CONTRIBUTING.md)
+
+- [Automatic classification](automatic-classification.md): explicit score-threshold policy and historical projections.
+- [Final release qualification](final-release-plan.md): evidence, calibration, coherence and release gates.

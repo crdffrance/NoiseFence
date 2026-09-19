@@ -48,6 +48,21 @@ export function scorePresentation(mail: ScoreInput) {
       : null;
   const model = report?.score.model ?? (useDecision ? mail.decision?.model : mail.model) ?? '';
   const complete = report?.complete ?? mail.complete;
+  const resolution = report?.score_resolution;
+  if (resolution) {
+    const classification = resolution.decision.outcome === 'unwanted' ? 'Spam' : 'Not spam';
+    return {
+      value, model,
+      kind: value === null ? 'unavailable' : complete ? 'content' : 'partial',
+      label: value === null ? 'Score unavailable' : complete ? 'Risk index' : 'Partial risk index',
+      detail: (value === null
+        ? 'No usable score was recorded. The automatic policy accepts the message without inventing a risk value.'
+        : `Engine classification: ${classification} by configured threshold: content index ${value.toFixed(2)} / 100, threshold ${resolution.threshold.toFixed(2)}. This index is not a spam probability.`)
+        + (report?.classification_source === 'recipient_policy' ? ' Recipient rules determine the final category and delivery action shown separately.' : '')
+        + (complete ? '' : ' Analysis remains partial; missing checks are listed separately.')
+        + (resolution.projected ? ' This is a current-policy view of historical evidence; the original decision and delivery are preserved.' : ' Detector disagreements remain recorded; no manual review is required.'),
+    };
+  }
   if (value === null)
     return {
       value,
@@ -144,7 +159,7 @@ export type Arbitration = {
   decision: { outcome: string; score: number | null };
 };
 
-export function arbitrationExplanation(report?: Arbitration | null) {
+export function arbitrationExplanation(report?: Arbitration | null, resolution?: Assessment['score_resolution']) {
   if (!report) return null;
   const label = (outcome: string) =>
     ({ legitimate: 'Legitimate', unwanted: 'Spam', undetermined: 'Undetermined' })[
@@ -157,7 +172,7 @@ export function arbitrationExplanation(report?: Arbitration | null) {
       ambiguous: 'Uncertain second opinion',
       corroborated: 'Corroborating signals',
     }[report.resolution],
-    detail: `Recorded baseline: ${label(report.baseline.outcome)}. Second opinion: ${label(report.opinion)}. ${report.decision.outcome === 'undetermined' ? 'The engine abstains; recipient rules can determine classification and delivery.' : 'These opinions are not independent evidence.'}`,
+    detail: `Recorded baseline: ${label(report.baseline.outcome)}. Second opinion: ${label(report.opinion)}. ${resolution ? `Automatic threshold policy: ${label(resolution.decision.outcome)}. The original disagreement is retained as a diagnostic.` : report.decision.outcome === 'undetermined' ? 'The engine abstains; recipient rules can determine classification and delivery.' : 'These opinions are not independent evidence.'}`,
   };
 }
 
@@ -198,6 +213,8 @@ export function classification(mail: DecisionInput, threshold?: number) {
     return { label: 'Malware', tone: 'spam' };
 
   const recordedCategory = mail.assessment?.version === 1 ? mail.assessment.category : mail.delivery_classification;
+  if (recordedCategory === 'legitimate' && mail.assessment?.score_resolution?.score === null)
+    return { label: 'Accepted — no usable score', tone: 'neutral' };
   if (recordedCategory)
     return (
       (

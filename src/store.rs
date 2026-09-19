@@ -593,6 +593,16 @@ impl Store {
         options: crate::search::Search,
         threshold: f64,
     ) -> Result<crate::search::Page> {
+        self.search_messages_with_policy(username, options, threshold, false)
+            .await
+    }
+    pub async fn search_messages_with_policy(
+        &self,
+        username: String,
+        options: crate::search::Search,
+        threshold: f64,
+        resolve_uncertain_by_score: bool,
+    ) -> Result<crate::search::Page> {
         let terms = options.validate()?;
         let crate::search::Search {
             filter,
@@ -612,6 +622,7 @@ impl Store {
         let search_sql = options.predicate(&terms, &mut values);
         self.read(move|db| {
             let predicate=format!(include_str!("search-filter.sql"), publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL,search=search_sql);
+            let predicate=if resolve_uncertain_by_score {crate::decision::project_sql(&predicate,"?5")} else {predicate};
             let total=db.query_row(&format!("SELECT COUNT(*) FROM messages m WHERE {predicate} AND ?3>=0"),rusqlite::params_from_iter(&values),|r|r.get::<_,u64>(0))?;
             let comparison = if options.filter.starts_with("rspamd_") {
                 let scope = predicate.replace("?2='all'", "(?2='all' OR ?2 LIKE 'rspamd_%')");
@@ -624,7 +635,8 @@ impl Store {
             let mut out=Vec::new();
             for row in rows {
                 let (id,created,sender,scan,feedback,feedback_category)=row?;
-                let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
+                let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let mut s:Scan=serde_json::from_str(&scan)?;
+                crate::decision::project_history(&mut s, resolve_uncertain_by_score, threshold);
                 let assessment=crate::assessment::assess(&s,threshold);
                 let category=assessment.category;
                 let decision=assessment.decision.clone();

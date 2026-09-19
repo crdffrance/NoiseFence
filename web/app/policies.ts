@@ -27,6 +27,7 @@ export function restoreDefaults<
     filters: {
       rule_weights?: Record<string, number>;
       require_corroboration?: boolean;
+      resolve_uncertain_by_score?: boolean;
     };
   },
 >(settings: T) {
@@ -38,6 +39,7 @@ export function restoreDefaults<
       ...settings.filters,
       rule_weights: settings.filters.rule_weights ?? {},
       require_corroboration: settings.filters.require_corroboration ?? false,
+      resolve_uncertain_by_score: settings.filters.resolve_uncertain_by_score ?? false,
     },
   };
 }

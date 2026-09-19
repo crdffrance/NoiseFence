@@ -1,5 +1,14 @@
 /** Versioned projection produced by src/assessment.rs, never used to change policy. */
 export type Assessment = {
+  score_resolution?: {
+    version: string;
+    threshold: number;
+    score: number | null;
+    partial: boolean;
+    projected: boolean;
+    previous: {outcome: string};
+    decision: {outcome: string};
+  } | null;
   version: 1;
   score: {
     value: number | null;
@@ -11,7 +20,7 @@ export type Assessment = {
     scale: 100;
   };
   category: 'spam' | 'publicity' | 'legitimate' | 'undetermined';
-  classification_source: 'recipient_policy' | 'recorded_decision' | 'historical_fallback';
+  classification_source: 'recipient_policy' | 'recorded_decision' | 'historical_fallback' | 'score_threshold';
   decision: {source: 'legacy' | 'fusion' | 'antivirus'; outcome: 'legitimate' | 'unwanted' | 'undetermined'; score: number | null; model: string};
   decision_recorded: boolean;
   complete: boolean;
