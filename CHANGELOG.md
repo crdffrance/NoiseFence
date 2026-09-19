@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1 — DNS coverage and matched engine comparisons
+
+- Verify SMTP identities using the connecting IP's address family. A verified IPv4 identity no longer depends on AAAA availability, and vice versa. An implicit MX needs one observed address; an absent route still requires both families to return empty answers.
+- Check the bounded PTR alternatives concurrently under one deadline. Preserve completed HELO/PTR/sender facts and identify the missing check, with no partial score contribution or enforcement on incomplete analysis.
+- Add paired NoiseFence/Rspamd metrics on the same human-labelled messages, coverage by label, shared campaign representatives and detector-profile provenance. Separate absent analyses, non-final actions, recorded engine risk and the conservative recipient-policy baseline.
+- Show denominators, class-specific review counts and small-sample warnings in the calibration workbench. A retained threat verdict is no longer hidden by incomplete coverage in the paired engine comparison.
+- No trained-model, LLM-prompt or action-policy change. These corrections do not demonstrate a population capture or false-positive rate.
+
 ## 0.25.0 — Calibration workbench
 
 - Add development, regression and holdout samples with immutable purpose, cohort selection, and isolated evaluation labels. Protect reserved campaigns from periodic trainers and prevent evaluation labels from changing live sender trust.
