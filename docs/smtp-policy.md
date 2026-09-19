@@ -21,7 +21,7 @@ cache_ttl_seconds = 300
 The missing table disables the module. With `contribute_to_score = false`, the results are calculated and visible without changing the message score. The `candidate_weight` field allows you to measure the proposed contribution. After calibration, `contribute_to_score = true` applies this contribution. The global mode `filter.mode` and Proton validation continue to control the marking.
 
 <a id="signaux-de-la-version-smtp-policy-1"></a>
-## Signs of version `smtp-policy-1`
+## Signals in `smtp-policy-2`
 
 Weights are logit contributions, not percentages or a probability measure. They are experimental and do not yet have a demonstrated capture improvement.
 
@@ -51,7 +51,11 @@ Its own default time is 800 ms, at most 2,000 ms. Up to eight policy analyses ar
 
 The search covers no more than four PTRs, 32 responses per query and 14 A/AAAA/PTR/MX searches by analysis, without internal retransmissions of the solver. The application cache is limited in number of entries and respects positive and negative TTLs, with a configured ceiling. A zero TTL is not cached. An resolver error is stored for a second as **not available**, never as absence. The Hickory resolver also has its internal DNS cache.
 
-SERVFAIL, REFUSED, timeout, error on an IP family, inconsistent response or overrun of the PTR budget make the result incomplete. Partial contributions are abandoned, local score is retained and delivery is done without prefix. A positive confirmation of a PTR is sufficient even if another PTR is not confirmable. Errors of other control families remain visible.
+Version 2 confirms HELO and PTR identities using the connecting IP's address family. A failing AAAA lookup cannot erase an observed IPv4 match, or vice versa. When HELO has no address in the peer's family, the other family still distinguishes an address mismatch from no address. An implicit MX exists as soon as either family returns an address; claiming that no route exists requires successful empty results from both families.
+
+The bounded PTR alternatives run concurrently. A stale first PTR cannot consume the deadline before a later valid PTR is checked. Queries share one absolute policy deadline and cancellation does not leave detached application work behind.
+
+SERVFAIL, REFUSED, timeout, inconsistent responses or PTR-budget overflow remain incomplete when the missing evidence is necessary to finish a check. The result retains successful HELO/PTR/sender observations and adds a fixed `helo_dns_unavailable`, `ptr_dns_unavailable` or `sender_dns_unavailable` diagnostic for the missing check. All partial weights are zero; the local score is retained and delivery remains without prefix. Historical version-1 results are not rewritten or retrospectively declared complete.
 
 The result `smtp_policy` contains version, status, duration, observations, `candidate_weight`, `applied_weight` and `scoring_enabled`. It is stored with metadata for 30 days and subject to existing rights per recipient. Old messages without this field are read as a disabled module. The weights and characteristics of the content classifier are not changed.
 

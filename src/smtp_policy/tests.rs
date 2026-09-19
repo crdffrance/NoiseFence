@@ -364,7 +364,10 @@ async fn missing_records_and_resolver_failure_have_different_outcomes() {
         if fail {
             assert_eq!(result.status, PolicyStatus::Unavailable);
             assert_eq!(result.applied_weight, 0.0);
-            assert!(result.checks.is_empty());
+            assert!(has(&result, "helo_dns_unavailable"));
+            assert!(has(&result, "ptr_missing"));
+            assert!(has(&result, "sender_mx_present"));
+            assert!(result.checks.iter().all(|r| r.weight == 0.0));
             assert!(!scan.complete && !scan.tagged);
         } else {
             assert_eq!(result.status, PolicyStatus::Complete);
@@ -427,6 +430,183 @@ impl Resolver for Slow {
     async fn lookup(&self, _: &Query) -> Answer {
         std::future::pending().await
     }
+}
+
+#[tokio::test]
+async fn identity_uses_peer_family_and_does_not_require_the_other_family() {
+    for ip in ["192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"] {
+        let peer: IpAddr = ip.parse().unwrap();
+        let canonical = peer.to_canonical();
+        let (_, mut dns) = setup(&canonical.to_string());
+        // Removing the irrelevant answer makes any unnecessary query panic.
+        dns.answers.remove(&if canonical.is_ipv4() {
+            Query::Aaaa("outbound.example.org".into())
+        } else {
+            Query::A("outbound.example.org".into())
+        });
+        let result = Policy::with_resolver(scoring(), dns)
+            .check(
+                peer,
+                "outbound.example.org",
+                "sender@example.org",
+                "gateway.example.org",
+            )
+            .await;
+        assert_eq!(result.status, PolicyStatus::Complete);
+        assert!(has(&result, "helo_verified") && has(&result, "ptr_verified"));
+        assert_eq!(result.applied_weight, -0.25);
+    }
+}
+
+#[tokio::test]
+async fn implicit_mx_requires_both_empty_answers_but_only_one_positive() {
+    for positive in [false, true] {
+        for v6 in [false, true] {
+            let (peer, mut dns) = setup("192.0.2.1");
+            dns.set(Query::Mx("example.org".into()), vec![]);
+            let (good, bad, ip) = if v6 {
+                (
+                    Query::Aaaa("example.org".into()),
+                    Query::A("example.org".into()),
+                    "2001:db8::9",
+                )
+            } else {
+                (
+                    Query::A("example.org".into()),
+                    Query::Aaaa("example.org".into()),
+                    "192.0.2.9",
+                )
+            };
+            dns.set(
+                good,
+                if positive {
+                    vec![Record::Ip(ip.parse().unwrap())]
+                } else {
+                    vec![]
+                },
+            );
+            dns.answers.insert(bad, Answer::unavailable());
+            let result = Policy::with_resolver(scoring(), dns)
+                .check(
+                    peer,
+                    "outbound.example.org",
+                    "sender@example.org",
+                    "gateway.example.org",
+                )
+                .await;
+            assert_eq!(
+                result.status,
+                if positive {
+                    PolicyStatus::Complete
+                } else {
+                    PolicyStatus::Unavailable
+                }
+            );
+            assert_eq!(has(&result, "sender_implicit_mx"), positive);
+            assert!(!has(&result, "sender_no_mail_route"));
+        }
+    }
+}
+
+struct SlowOtherFamily(Dns);
+impl Resolver for SlowOtherFamily {
+    async fn lookup(&self, query: &Query) -> Answer {
+        if matches!(query, Query::Aaaa(name) if name == "example.org")
+            || matches!(query, Query::A(name) if name == "stale.example.org")
+        {
+            std::future::pending().await
+        } else {
+            self.0.lookup(query).await
+        }
+    }
+}
+
+#[tokio::test]
+async fn stale_first_ptr_does_not_hide_a_valid_forward_confirmation() {
+    let (peer, mut dns) = setup("192.0.2.1");
+    dns.set(
+        Query::Ptr(peer),
+        vec![
+            Record::Host("stale.example.org".into()),
+            Record::Host("outbound.example.org".into()),
+        ],
+    );
+    let result = Policy::with_resolver(
+        PolicyConfig {
+            timeout_ms: 20,
+            ..scoring()
+        },
+        SlowOtherFamily(dns),
+    )
+    .check(
+        peer,
+        "outbound.example.org",
+        "sender@example.org",
+        "gateway.example.org",
+    )
+    .await;
+    assert_eq!(result.status, PolicyStatus::Complete);
+    assert!(has(&result, "ptr_verified"));
+    assert_eq!(result.applied_weight, -0.25);
+}
+
+#[tokio::test]
+async fn positive_route_finishes_without_waiting_for_unrelated_dns_deadline() {
+    let (peer, mut dns) = setup("192.0.2.1");
+    dns.set(Query::Mx("example.org".into()), vec![]);
+    dns.set(Query::A("example.org".into()), vec![Record::Ip(peer)]);
+    let result = Policy::with_resolver(
+        PolicyConfig {
+            timeout_ms: 20,
+            ..scoring()
+        },
+        SlowOtherFamily(dns),
+    )
+    .check(
+        peer,
+        "outbound.example.org",
+        "sender@example.org",
+        "gateway.example.org",
+    )
+    .await;
+    assert_eq!(result.status, PolicyStatus::Complete);
+    assert!(has(&result, "sender_implicit_mx"));
+}
+
+#[tokio::test]
+async fn timeouts_preserve_completed_checks_with_zero_partial_contribution() {
+    let policy = Policy::with_resolver(
+        PolicyConfig {
+            timeout_ms: 20,
+            ..scoring()
+        },
+        Slow,
+    );
+    let result = policy
+        .check(
+            "192.0.2.1".parse().unwrap(),
+            "[192.0.2.1]",
+            "",
+            "gateway.example.org",
+        )
+        .await;
+    assert_eq!(result.status, PolicyStatus::Unavailable);
+    assert!(has(&result, "helo_literal_match") && has(&result, "sender_null"));
+    assert!(has(&result, "ptr_dns_unavailable"));
+    assert_eq!(result.applied_weight, 0.0);
+    assert!(result.checks.iter().all(|c| c.weight == 0.0));
+    let mut scan = crate::engine::Scan {
+        complete: true,
+        ..Default::default()
+    };
+    result.apply(&mut scan);
+    assert!(!scan.complete);
+    assert!(
+        scan.reasons
+            .iter()
+            .any(|s| s.id == "smtp_policy_unavailable")
+    );
+    assert_eq!(policy.slots.available_permits(), 8);
 }
 #[tokio::test]
 async fn bounded_deadline_and_busy_slots_fail_open_without_background_work() {
