@@ -37,6 +37,8 @@ pub struct ManagedDomain {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Filters {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resolve_uncertain_by_score: bool,
     #[serde(default)]
     pub rule_weights: BTreeMap<String, f64>,
     pub mode: Mode,
@@ -138,6 +140,7 @@ impl Settings {
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
                 require_corroboration: config.filter.require_corroboration,
+                resolve_uncertain_by_score: config.filter.resolve_uncertain_by_score,
                 authentication: config.filter.authentication,
                 antivirus: config.antivirus.is_some(),
                 signatures: config.signatures.is_some(),
@@ -334,6 +337,7 @@ impl Settings {
         cfg.filter.mode = f.mode;
         cfg.filter.threshold = f.threshold;
         cfg.filter.require_corroboration = f.require_corroboration;
+        cfg.filter.resolve_uncertain_by_score = f.resolve_uncertain_by_score;
         cfg.filter.authentication = f.authentication;
         if !f.antivirus {
             cfg.antivirus = None;

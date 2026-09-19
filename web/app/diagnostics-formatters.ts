@@ -3,6 +3,7 @@ export type HistoricalPolicy = {
   threshold: number;
   mode: 'observe' | 'tag' | 'enforce';
   require_corroboration: boolean;
+  resolve_uncertain_by_score?: boolean;
   rule_weights: Record<string, number>;
 };
 
@@ -145,7 +146,7 @@ export function decisionExplanation(source?: string) {
 export function policySummary(policy: HistoricalPolicy | null) {
   if (!policy) return 'Historical threshold and mode not recorded. Current settings are not used to reconstruct this analysis.';
   const mode = { observe: 'Observation', tag: 'Tagging', enforce: 'Actions enabled' }[policy.mode] ?? 'Unknown mode';
-  return `${mode} · Recorded content threshold ${decimal.format(policy.threshold)} / 100 · corroboration ${policy.require_corroboration ? 'required' : 'not required'}`;
+  return `${mode} · Recorded content threshold ${decimal.format(policy.threshold)} / 100 · corroboration ${policy.require_corroboration ? 'required' : 'not required'}${policy.resolve_uncertain_by_score ? ' · uncertain results resolved by score' : ''}`;
 }
 export function deliveryStatus(status: string) {
   return ({ pending: 'Pending delivery', sending: 'Delivery in progress', delivered: 'Accepted by destination',

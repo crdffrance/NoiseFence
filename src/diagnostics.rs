@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisPolicy {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resolve_uncertain_by_score: bool,
     pub version: String,
     pub threshold: f64,
     pub mode: Mode,
@@ -27,6 +29,7 @@ impl AnalysisPolicy {
             threshold: config.filter.threshold,
             mode: config.filter.mode,
             require_corroboration: config.filter.require_corroboration,
+            resolve_uncertain_by_score: config.filter.resolve_uncertain_by_score,
             rule_weights: config.filter.rule_weights.clone(),
         }
     }
@@ -34,6 +37,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub score_resolution: Option<crate::decision::ScoreResolution>,
     pub rspamd: Option<crate::rspamd::Report>,
     pub native_filter: Option<crate::native_filter::Report>,
     pub score_breakdown: crate::detection_diagnostics::Breakdown,
@@ -53,6 +57,7 @@ impl From<Scan> for Analysis {
         let score_breakdown = crate::detection_diagnostics::breakdown(&scan);
         Self {
             rspamd: scan.rspamd.clone().map(crate::rspamd::Report::visible),
+            score_resolution: scan.score_resolution,
             native_filter: scan.native_filter.map(|observation| observation.report),
             score_breakdown,
             arbitration: scan.arbitration,
@@ -113,6 +118,17 @@ impl Store {
         id: String,
         delivery_id: Option<i64>,
     ) -> Result<Option<MessageDiagnostics>> {
+        self.diagnostics_for_with_policy(username, id, delivery_id, false, 95.)
+            .await
+    }
+    pub async fn diagnostics_for_with_policy(
+        &self,
+        username: String,
+        id: String,
+        delivery_id: Option<i64>,
+        resolve_uncertain_by_score: bool,
+        threshold: f64,
+    ) -> Result<Option<MessageDiagnostics>> {
         self.read(move |db| {
             // The same read snapshot checks both message visibility and every
             // recipient. Knowing a queue id never grants transcript access.
@@ -121,7 +137,9 @@ impl Store {
                 params![id, username, now()-30*86400,delivery_id], |r| r.get(0),
             ).optional()?;
             let Some(scan) = scan else { return Ok(None) };
-            let analysis = serde_json::from_str::<Scan>(&scan)?.into();
+            let mut scan = serde_json::from_str::<Scan>(&scan)?;
+            crate::decision::project_history(&mut scan, resolve_uncertain_by_score, threshold);
+            let analysis = scan.into();
             let mut query = db.prepare("SELECT d.id,d.address,d.destination,d.status,d.attempts,d.next_attempt,NULLIF(d.error,''),(SELECT COUNT(*) FROM delivery_attempts a WHERE a.delivery_id=d.id) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3 IS NULL OR d.id=?3) ORDER BY d.id")?;
             let mut recipients = query.query_map(params![id,username,delivery_id], |r| Ok(RecipientDiagnostics {
                 delivery_id:r.get(0)?, address:r.get(1)?, destination:r.get(2)?, status:r.get(3)?, attempts:r.get(4)?, next_attempt:r.get(5)?, last_error:r.get(6)?, logs_available:r.get(7)?,logs_truncated:false,logs:Vec::new(),

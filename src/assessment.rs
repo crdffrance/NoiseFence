@@ -47,6 +47,7 @@ pub enum ScoreSource {
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ClassificationSource {
+    ScoreThreshold,
     RecipientPolicy,
     RecordedDecision,
     HistoricalFallback,
@@ -71,6 +72,7 @@ pub struct Score {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Assessment {
+    pub score_resolution: Option<crate::decision::ScoreResolution>,
     pub version: u8,
     pub score: Score,
     pub category: Category,
@@ -145,7 +147,15 @@ pub fn assess(scan: &Scan, fallback_threshold: f64) -> Assessment {
     let decision_score = decision
         .filter(|d| d.source != DecisionSource::Antivirus)
         .and_then(|d| valid_score(d.score));
-    let raw = valid_score(Some(scan.score));
+    let raw = if scan
+        .score_resolution
+        .as_ref()
+        .is_some_and(|r| r.score.is_none())
+    {
+        None
+    } else {
+        valid_score(Some(scan.score))
+    };
     let value = decision_score.or(raw);
     let source = if decision_score.is_some() {
         ScoreSource::Decision
@@ -194,6 +204,7 @@ pub fn assess(scan: &Scan, fallback_threshold: f64) -> Assessment {
         }
     }
     Assessment {
+        score_resolution: scan.score_resolution.clone(),
         version: VERSION,
         score: Score {
             value,
@@ -207,6 +218,8 @@ pub fn assess(scan: &Scan, fallback_threshold: f64) -> Assessment {
         category: crate::mailing::category(scan, fallback_threshold),
         classification_source: if scan.delivery_classification.is_some() {
             ClassificationSource::RecipientPolicy
+        } else if scan.score_resolution.is_some() {
+            ClassificationSource::ScoreThreshold
         } else if scan.decision.is_some() {
             ClassificationSource::RecordedDecision
         } else {
@@ -215,7 +228,8 @@ pub fn assess(scan: &Scan, fallback_threshold: f64) -> Assessment {
         decision: scan.decision.clone().unwrap_or_else(|| {
             Decision::legacy(scan, recorded_threshold(scan).unwrap_or(fallback_threshold))
         }),
-        decision_recorded: scan.decision.is_some(),
+        decision_recorded: scan.decision.is_some()
+            && !scan.score_resolution.as_ref().is_some_and(|r| r.projected),
         complete: scan.complete,
         incomplete_reasons,
         supplementary_gaps: supplementary_gaps(scan),
