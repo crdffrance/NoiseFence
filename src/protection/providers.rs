@@ -561,7 +561,7 @@ impl Client {
                 }
                 .map_err(|_| TransportError {
                     failure: Failure::InvalidResponse,
-                    cooldown: Some(300),
+                    cooldown: None,
                     retryable: false,
                 }),
             });
@@ -656,7 +656,7 @@ impl Client {
                         .and_then(|body| parse_crdf_batch(&body, indicators))
                         .map_err(|_| TransportError {
                             failure: Failure::InvalidResponse,
-                            cooldown: Some(300),
+                            cooldown: None,
                             retryable: false,
                         })
                 });
@@ -664,18 +664,27 @@ impl Client {
             match result {
                 Ok(verdicts) => {
                     for (indicator, verdict) in indicators.iter().zip(&verdicts) {
-                        let cache_key = target_key(Provider::Crdf, &credential, indicator, false);
-                        let _ = self
-                            .remember(cache_key, credential.clone(), Some(*verdict), false)
-                            .await;
+                        if let Some(verdict) = verdict {
+                            let cache_key =
+                                target_key(Provider::Crdf, &credential, indicator, false);
+                            let _ = self
+                                .remember(cache_key, credential.clone(), Some(*verdict), false)
+                                .await;
+                        }
                     }
                     return verdicts
                         .into_iter()
-                        .map(|verdict| Lookup {
-                            verdict: Some(verdict),
-                            status: Status::Complete,
-                            cached: false,
-                            failure: None,
+                        .map(|verdict| match verdict {
+                            Some(verdict) => Lookup {
+                                verdict: Some(verdict),
+                                status: Status::Complete,
+                                cached: false,
+                                failure: None,
+                            },
+                            None => {
+                                metrics.failure(Failure::InvalidResponse);
+                                failed(Status::Unavailable, Some(Failure::InvalidResponse))
+                            }
                         })
                         .collect();
                 }
@@ -975,7 +984,10 @@ fn apply_lookup(
         Verdict::NoHit => {}
     }
 }
-fn parse_crdf_batch(body: &serde_json::Value, indicators: &[String]) -> Result<Vec<Verdict>> {
+fn parse_crdf_batch(
+    body: &serde_json::Value,
+    indicators: &[String],
+) -> Result<Vec<Option<Verdict>>> {
     ensure!(body["error"].as_bool() == Some(false), "CRDF error");
     let entries = body["data"]
         .as_array()
@@ -997,7 +1009,7 @@ fn parse_crdf_batch(body: &serde_json::Value, indicators: &[String]) -> Result<V
             let entry = by_url
                 .get(crdf_url(indicator).as_str())
                 .ok_or_else(|| anyhow::anyhow!("CRDF target mismatch"))?;
-            parse_crdf_entry(entry, indicator)
+            Ok(parse_crdf_entry(entry, indicator).ok())
         })
         .collect()
 }

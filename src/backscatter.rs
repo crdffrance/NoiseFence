@@ -75,6 +75,7 @@ pub fn suppression_reason(scan: &Scan, attempt: &Attempt) -> Option<&'static str
             .as_deref()?
             .starts_with("Sanesecurity.Phishing.")
         && matches!(scan.llm.status, LlmStatus::Complete)
+        && scan.llm.opinion() == Some(crate::fusion::runtime::Outcome::Unwanted)
         && matches!(verdict.category, Category::Phishing)
         && (0.9..=1.0).contains(&verdict.confidence)
         && (0.9..=1.0).contains(&verdict.spam_probability)

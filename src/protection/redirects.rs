@@ -84,6 +84,11 @@ pub struct Chain {
     pub source_sha256: String,
     pub hops: Vec<Hop>,
     pub complete: bool,
+    /// Successful HTTP arrival is distinct from proving a final destination.
+    #[serde(default)]
+    pub reached_http_success: bool,
+    #[serde(default)]
+    pub body_truncated: bool,
     pub detail: Option<Detail>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -244,6 +249,7 @@ impl Resolver {
                 site: report_site(host),
                 code,
             });
+            chain.reached_http_success = (200..300).contains(&code);
             let mut next = None;
             if matches!(code, 301 | 302 | 303 | 307 | 308) {
                 let values: Vec<_> = response
@@ -281,18 +287,31 @@ impl Resolver {
                     {
                         return Err(Detail::Encoding);
                     }
-                    if response.content_length().is_some_and(|n| n > 65536) {
-                        return Err(Detail::BodyLimit);
-                    }
+                    // Read only a bounded prefix. An early, fully specified
+                    // meta redirect remains usable even on an oversized page.
+                    // A truncated page without one is still incomplete.
+                    let mut truncated = response.content_length().is_some_and(|n| n > 65536);
                     let mut body = Vec::new();
                     while let Some(chunk) = response.chunk().await.map_err(network_error)? {
-                        if body.len() + chunk.len() > 65536 {
-                            return Err(Detail::BodyLimit);
+                        let remaining = 65536usize.saturating_sub(body.len());
+                        body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+                        if chunk.len() > remaining || (body.len() == 65536 && truncated) {
+                            truncated = true;
+                            break;
                         }
-                        body.extend_from_slice(&chunk);
                     }
-                    let text = std::str::from_utf8(&body).map_err(|_| Detail::Encoding)?;
+                    chain.body_truncated |= truncated;
+                    // Never parse a partly received tag as a redirect URL.
+                    let end = if truncated {
+                        body.iter().rposition(|b| *b == b'>').map_or(0, |i| i + 1)
+                    } else {
+                        body.len()
+                    };
+                    let text = std::str::from_utf8(&body[..end]).map_err(|_| Detail::Encoding)?;
                     next = html_next(&url, text)?;
+                    if truncated && next.is_none() {
+                        return Err(Detail::BodyLimit);
+                    }
                 }
             }
             if let Some(destination) = next {
@@ -310,7 +329,7 @@ impl Resolver {
     pub async fn inspect(&self, urls: &[String], truncated: bool) -> (Report, BTreeSet<String>) {
         let start = Instant::now();
         let mut report = Report {
-            version: "url-resolution-3".into(),
+            version: "url-resolution-4".into(),
             settings_sha256: crate::message::digest(
                 &serde_json::to_vec(&self.settings).expect("URL settings"),
             ),
@@ -331,6 +350,8 @@ impl Resolver {
                 source_sha256: crate::message::digest(original.as_bytes()),
                 hops: vec![],
                 complete: false,
+                reached_http_success: false,
+                body_truncated: false,
                 detail: Some(Detail::Network),
             };
             report.chains.push(chain.clone());

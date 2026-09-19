@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.0 — Evidence grounding and release qualification
+
+- Assign bounded text references in Rust and validate the LLM's declared evidence against message context and observed authentication/domain facts. Keep unsupported claims out of scoring, definite opinions, fusion and backscatter corroboration; expose the diagnostic in the console and signed headers. Reference consistency does not prove semantic correctness; expose fixed response-limit/schema diagnostics without retaining provider bodies.
+- Separate conditional security notifications from current action demands and quoted history. Request a separate mail kind; preserve budgets, observation policy and legacy records.
+- Preserve valid CRDF targets in mixed batches without caching failed targets or imposing account-wide cooldown for a malformed response.
+- Follow complete early meta redirects within a bounded oversized-page prefix. Distinguish HTTP success, body truncation and unresolved chains without relaxing SSRF protection or deadlines.
+- Add recipient-scoped release-readiness counts to the quality workbench and an English qualification procedure. Statistical qualification, a new independent holdout and reference-hardware benchmarks remain required before a final accuracy claim or action activation.
+
 ## 0.26.0 — Explicit automatic score resolution
 
 - Add an opt-in Web policy that resolves uncertain classifications using the available content index and applicable threshold, while retaining original opinions, partial coverage, malware priority and delivery guards.
