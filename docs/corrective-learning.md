@@ -60,6 +60,58 @@ The development door refuses a loss of capture or more false positives on a cont
 
 The private file contains the JSON weights, the head linked to their new print and the report, including for a rejected candidate. It is created atomically and cannot replace an existing file. No details by message is written. Delete the work export after the checks; keep the source data only according to the period of retention allowed.
 
+## Preserve fitting-anchor decisions
+
+Add `--preserve-replay-decisions` to the corrective command to constrain the
+optimizer. Correctly classified **training** replay anchors must retain their
+side of the existing threshold, with a small margin. Incorrect anchors are not
+frozen. Each campaign-out and chronological fit builds its constraints from
+training anchors only. Held-out controls never constrain the optimizer.
+
+This prevents trading known fitting-anchor detections for lower feedback loss.
+It does not guarantee unseen recall: keep the separate control tests and rejection
+gate. `replay_training_decisions` reports the fitting-anchor counters separately
+from `lexical_replay_controls`. The option is opt-in; existing runs keep their
+original objective. Solver failure or a violated constraint cannot publish a
+candidate. There are no added SMTP inference costs because the correction still
+folds into the existing lexical weights.
+
+## Diagnose whether content calibration is sufficient
+
+The offline evidence diagnostic compares three fixed combinations: content,
+content plus authentication, and content plus authentication, LLM and scanner
+observations. It consumes the same trusted `export-learning` snapshot:
+
+```sh
+/opt/noisefence-learning/bin/python research/calibrate_evidence.py \
+  feedback.jsonl evidence-diagnostic.json
+```
+
+The eight documented features, regularization and 0.5 diagnostic boundary are
+fixed before evaluation. Risk coefficients cannot reverse the direction of
+evidence. Unavailable or inconsistent results do not become benign evidence.
+Constant fits abstain. Reports include campaign-out predictions, a chronological
+control, confidence intervals, class counts, availability profiles and detector
+versions. The historical-index baseline includes the rules and any advisory
+contributions recorded at arrival; it is different from a replayed content-only
+baseline. Neither diagnostic is the final SMTP decision after arbitration.
+
+An optional `--references private-references.jsonl` evaluates separately curated
+human regression references. Each row uses `noisefence-learning-1`, source
+`human_regression_reference`, a human boolean `spam` label, pseudonymous `id`,
+`fingerprint`, `simhash`, `observed_at`, `labelled_at`, and recorded SMTP `evidence`.
+Reference campaigns and their near duplicates are excluded from fitting. These
+previously examined references cannot qualify as an independent test.
+
+This small-sample diagnostic is **not a production model or calibrated population
+probability**. Correction sampling changes class prevalence, old LLM prompts can
+behave differently from current prompts, and a low false-positive count may hide
+lost spam recall. The JSON schema is intentionally incompatible with the Rust
+quality/fusion model loaders. Rspamd predictions are never inputs or labels. Use
+the diagnostic to decide which signal families merit a properly labelled,
+cohort-compatible experiment in the calibration workbench; do not activate its
+coefficients or lower promotion requirements.
+
 <a id="vérification"></a>
 ## Verification
 

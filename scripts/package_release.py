@@ -38,7 +38,7 @@ def main():
     shutil.copy2(ROOT/'scripts/smtp_load.py',output/'scripts/smtp_load.py')
     # Data-only feedback fitting runtime, without corpora, private models or hub clients.
     (output/'research').mkdir()
-    for filename in ['train_feedback.py','train_linear.py','semantic-protocol.json','requirements.txt',
+    for filename in ['train_feedback.py','train_linear.py','adapt_feedback.py','calibrate_evidence.py','semantic-protocol.json','requirements.txt',
                      'train_fusion.py','evaluate_population.py','fusion-protocol.json','fusion.md','labeling-protocol.md',
                      'train_quality.py','quality-protocol.json','quality_metrics.py',
                      'quality_runtime.py','evaluate_quality.py','compare_quality.py','run_quality.py']:
