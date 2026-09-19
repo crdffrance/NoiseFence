@@ -56,6 +56,7 @@ pub mod custom_filtering;
 
 mod capacity;
 mod content_urls;
+mod content_view;
 pub mod management;
 pub mod message_context;
 pub mod preferences;

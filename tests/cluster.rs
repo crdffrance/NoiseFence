@@ -1422,7 +1422,7 @@ fn current_coordinator_preserves_verification_and_observers_for_v23_workers() {
 }
 
 #[test]
-fn dns_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout() {
+fn llm_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout() {
     let root = tempfile::tempdir().unwrap();
     let mut c = (*config(root.path(), Role::Coordinator)).clone();
     c.domains[0].recipient_verification = Some(Default::default());
@@ -1444,18 +1444,20 @@ fn dns_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout(
         .modules
         .insert("semantic".into(), json!({"timeout_ms":1500}));
     bundle.digest = bundle.hash().unwrap();
-    let old = bundle.for_build("0.25.0").unwrap();
-    assert_eq!(
-        serde_json::to_value(&old.settings).unwrap(),
-        serde_json::to_value(&bundle.settings).unwrap()
-    );
-    assert_eq!(old.shared, bundle.shared);
-    assert_eq!(
-        serde_json::to_value(&old.files).unwrap(),
-        serde_json::to_value(&bundle.files).unwrap()
-    );
-    assert_eq!(old.build, "0.25.0");
-    assert_ne!(old.digest, bundle.digest);
-    old.validate().unwrap();
-    assert!(bundle.for_build("0.25.2").is_err());
+    for build in ["0.25.0", "0.25.1"] {
+        let old = bundle.for_build(build).unwrap();
+        assert_eq!(
+            serde_json::to_value(&old.settings).unwrap(),
+            serde_json::to_value(&bundle.settings).unwrap()
+        );
+        assert_eq!(old.shared, bundle.shared);
+        assert_eq!(
+            serde_json::to_value(&old.files).unwrap(),
+            serde_json::to_value(&bundle.files).unwrap()
+        );
+        assert_eq!(old.build, build);
+        assert_ne!(old.digest, bundle.digest);
+        old.validate().unwrap();
+    }
+    assert!(bundle.for_build("0.25.3").is_err());
 }

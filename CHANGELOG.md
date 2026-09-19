@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.2 — LLM request context and action-link inspection
+
+- Separate current message text from bounded quoted history, normalize Latin invisible-character obfuscation, and preserve the existing shared LLM text cap. Quotation boundaries remain untrusted hints.
+- Expose bounded, unverified destinations inside recognized redirect wrappers without exporting URL tokens in link context. Prioritize current HTML action links in URL inspection while retaining existing SSRF checks, opt-in fetching and provider limits.
+- Version the LLM instructions to evaluate the current request and destination together, with explicit safeguards for legitimate invoices, notifications, reports and tracking links. Preserve authentication provenance, budgets, conservative arbitration and delivery policy.
+- Add regression coverage for nested redirects, ambiguous parameters, thread dilution, quoted incident reports, legitimate wrappers and UTF-8 limits. No global accuracy claim or automatic model activation.
+
 ## 0.25.1 — DNS coverage and matched engine comparisons
 
 - Verify SMTP identities using the connecting IP's address family. A verified IPv4 identity no longer depends on AAAA availability, and vice versa. An implicit MX needs one observed address; an absent route still requires both families to return empty answers.

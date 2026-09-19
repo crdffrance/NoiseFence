@@ -248,6 +248,7 @@ pub fn local_checks(
         report.local_status = Status::Limited;
     }
     let mut found: BTreeMap<String, HashSet<&str>> = BTreeMap::new();
+    let mut priorities: BTreeMap<String, (u8, usize)> = BTreeMap::new();
     let mut add_urls = |text: &str, source: &'static str| {
         for (index, url) in urls(text).enumerate() {
             if index >= 256 {
@@ -280,6 +281,33 @@ pub fn local_checks(
         if html.len() > 256 * 1024 {
             report.local_status = Status::Limited;
             continue;
+        }
+        for (index, link) in crate::content_view::html(html)
+            .links
+            .into_iter()
+            .enumerate()
+        {
+            let rank = (link.priority(), index);
+            priorities
+                .entry(link.url.clone())
+                .and_modify(|r| *r = (*r).min(rank))
+                .or_insert(rank);
+            for embedded in crate::content_urls::embedded_destinations(&link.url) {
+                if found.len() < 512 || found.contains_key(&embedded) {
+                    // An inventory candidate, not an observed redirect. Active URL checks
+                    // retain the same public-address validation and configured limits.
+                    found
+                        .entry(embedded.clone())
+                        .or_default()
+                        .insert("html_embedded_destination");
+                    priorities
+                        .entry(embedded)
+                        .and_modify(|r| *r = (*r).min(rank))
+                        .or_insert(rank);
+                } else {
+                    report.local_status = Status::Limited;
+                }
+            }
         }
         let document = Html::parse_document(html);
         static LINKS: OnceLock<Selector> = OnceLock::new();
@@ -354,7 +382,13 @@ pub fn local_checks(
         }
     }
     let mut found: Vec<_> = found.into_iter().collect();
-    found.sort_by_key(|(url, sources)| (!feed.contains(url), !sources.contains("ocr_qr")));
+    found.sort_by_key(|(url, sources)| {
+        (
+            !feed.contains(url),
+            !sources.contains("ocr_qr"),
+            priorities.get(url).copied().unwrap_or((2, usize::MAX)),
+        )
+    });
     for (url, sources) in found {
         // Forms and remote images are never submitted/fetched by this feature.
         if policy.follow_urls && sources.iter().any(|source| *source != "form") {
@@ -397,6 +431,31 @@ pub fn local_checks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn current_action_destinations_precede_quoted_history_and_footer() {
+        let cfg = config();
+        let policy = Policy {
+            follow_urls: true,
+            ..Policy::default()
+        };
+        let raw = mail(
+            "<div class='gmail_quote'><a href='https://a.example.org/old'>Old invoice</a><a href='https://b.example.org/old'>Old booking</a></div><a href='https://c.example.org'>Privacy</a><a href='https://www.google.com/url?q=https://z.example.net/portal'>Listen</a>",
+        );
+        let (_, targets) = local_checks(&raw, "", &cfg, &policy, &Feed::default());
+        assert!(targets.urls.len() >= 4);
+        assert!(targets.urls[..2].contains(&"https://z.example.net/portal".into()));
+        assert!(
+            targets.urls[..2]
+                .iter()
+                .any(|u| u.starts_with("https://www.google.com/url?"))
+        );
+        // Form actions remain inventory-only, including wrapped form URLs.
+        let raw = mail(
+            "<form action='https://www.google.com/url?q=https://z.example.net/post'>Submit</form>",
+        );
+        let (_, targets) = local_checks(&raw, "", &cfg, &policy, &Feed::default());
+        assert!(targets.urls.is_empty());
+    }
     fn config() -> Config {
         let mut c: Config = toml::from_str(include_str!("../../config/development.toml")).unwrap();
         c.domains[0].name = "crdf.fr".into();
