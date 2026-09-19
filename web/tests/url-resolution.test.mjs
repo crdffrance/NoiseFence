@@ -112,3 +112,10 @@ test('JavaScript navigation is not presented as a completed resolution', () => {
     /script navigation is not executed/,
   );
 });
+
+test('an oversized HTTP success is not a completed redirect analysis',()=>{
+ const html=render({...base,chains:[{source_sha256:'x',complete:false,detail:'body_limit',reached_http_success:true,body_truncated:true,hops:[{site:'example.org',code:200}]}]});
+ assert.match(html,/full page was not scanned/);
+ assert.match(html,/final destination could not be established/);
+ assert.match(html,/Incomplete redirect chain/);
+});

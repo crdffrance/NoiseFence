@@ -1,4 +1,5 @@
 'use client';
+import {ReleaseReadiness} from './release-readiness';
 import { useEffect, useState } from 'react';
 import {QualityWorkbench,type DatasetPurpose} from './quality-workbench';
 import { Button } from '@/components/ui/button';
@@ -88,6 +89,7 @@ export function QualityConsole({user}:{user:User}) {
   const loading=!!selected && (loaded.id!==selected || loaded.revision!==revision || loaded.offset!==offset);
   const members=selected && !loading ? loaded.members : [];
   return <div className="quality-console">
+    <ReleaseReadiness revision={revision} />
     <section className="panel"><p className="eyebrow">QUALITY OF THE FILTER</p><h1>Learning with verified decisions</h1>
       <p>Evaluate a random sample among your accessible messages. The selection ignores the filter score and remains frozen.</p>
       <p className="muted">{configured?"A candidate model is configured for observation.":"The engine is collecting observations. No candidate model is configured yet."}</p>

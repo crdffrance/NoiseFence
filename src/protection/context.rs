@@ -180,6 +180,8 @@ mod tests {
                     code: 200,
                 }],
                 complete,
+                reached_http_success: true,
+                body_truncated: false,
                 detail: None,
             }],
             omitted: 0,

@@ -41,3 +41,13 @@ Before each connection, the engine solves the A and AAAA families, controls all 
 HTML responses are abandoned after inspection. The report keeps SHA-256 URL fingerprints, registrable domains without subdomains, HTTP codes and states. It does not keep path, request, or downloaded page. It follows the authorizations and the retention of the diagnostics of the message; the old messages are not assigned an invented visit.
 
 The tests only use local servers and synthetic messages: HTTP and HTML redirections, secretless queries, unreliable TLS responses, DNS changes between two jumps, private destinations, loops, ceilings, expiration, supplier quotas and exact match of the destination in the local base. They do not measure a catch rate on real traffic.
+
+### Oversized HTML pages
+
+Version `url-resolution-4` inspects at most 65,536 body bytes and may follow an
+unambiguous, complete meta-refresh tag within that prefix. An incomplete tag
+cannot provide a destination. A truncated page without a usable redirect remains
+incomplete. `body_truncated` records truncation on any visited hop;
+`reached_http_success` records receipt of a 2xx response at the latest HTTP hop.
+Neither field establishes a safe URL or a complete final-page scan. Scripts
+remain inert and all redirects undergo the existing DNS/address restrictions.

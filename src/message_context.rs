@@ -10,6 +10,8 @@ pub struct Context {
     pub encrypted: bool,
     pub threat_report: bool,
     pub transaction_notice: bool,
+    #[serde(default)]
+    pub conditional_security_notice: bool,
     /// An explicit demand conflicts with the apparent reporting/receipt context.
     #[serde(default)]
     pub action_demand: bool,
@@ -137,6 +139,19 @@ impl Context {
         .iter()
         .any(|s| body.contains(s));
         self.transaction_notice = shipment || (payment_subject && payment_body);
+        self.conditional_security_notice = [
+            "if this was you",
+            "if it was you",
+            "si c’était vous",
+            "si c'etait vous",
+            "si c'était vous",
+        ]
+        .iter()
+        .any(|p| body.contains(p))
+            && ["ignore", "ignorer"].iter().any(|p| body.contains(p))
+            && ["password", "mot de passe", "security", "sécurité"]
+                .iter()
+                .any(|p| subject.contains(p));
         static DEMAND: OnceLock<Regex> = OnceLock::new();
         self.direct_extortion =
             direct_extortion(&subject, &body) && !self.threat_report && !self.transaction_notice;

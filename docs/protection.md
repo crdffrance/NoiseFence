@@ -74,3 +74,12 @@ Downloads are bounded to 20 seconds, 8 MiB and 50,000 URLs. Atomic replacement f
 Synthetic tests cover deceptive links, entities, public/private suffixes, exact exceptions, correlated OCR/HTML findings, expiry, attachment hashes, provider failures, durable quotas, contradictory feedback, administrator/CSRF controls and unchanged scoring. They do not measure traffic-wide detection quality or make paid requests.
 
 Provider references: [CRDF API](https://threatcenter.crdf.fr/api/doc/), [VirusTotal domains](https://docs.virustotal.com/reference/domain-info), [VirusTotal files](https://docs.virustotal.com/reference/file-info).
+
+### Partial CRDF responses
+
+A batch must still bind every requested target exactly once. Foreign, missing or
+duplicate targets invalidate the batch. Within a correctly bound batch, a
+malformed individual result is unavailable and uncached while valid neighbours
+remain usable. Invalid response payloads do not impose account-wide cooldown.
+Provider authentication failures, explicit rate limits and bounded Retry-After
+continue to back off. Unavailable, timeout and unknown are not malicious results.
