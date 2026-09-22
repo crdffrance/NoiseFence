@@ -1,4 +1,6 @@
 mod common;
+#[path = "common/unavailable_score.rs"]
+mod unavailable_score;
 use noisefence::{
     api,
     cluster::{self, Role},
@@ -128,6 +130,112 @@ async fn remote(p: &Pair, id: &str) -> ha::replica::Manifest {
     })
     .await
     .unwrap()
+}
+#[tokio::test]
+async fn unavailable_index_replicates_without_becoming_zero_or_a_clean_verdict() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    let scan = unavailable_score::scan(&p.config);
+    let expected = serde_json::to_value(&scan).unwrap();
+    p.a.enqueue(
+        id.clone(),
+        "sender@example.org".into(),
+        vec![p.config.recipient("alice@example.test").unwrap()],
+        scan.clone(),
+        common::MESSAGE.to_vec(),
+    )
+    .await
+    .unwrap();
+    let manifest = remote(&p, &id).await;
+    assert_eq!(manifest.scan, expected);
+    assert_eq!(
+        std::fs::read(ha::replica::body_path(&p.b, "mx1", &id)).unwrap(),
+        common::MESSAGE
+    );
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let confirmed = remote(&p, &id).await;
+    assert!(confirmed.confirmed);
+    assert_eq!(confirmed.scan, expected);
+    let restored: engine::Scan = serde_json::from_value(confirmed.scan).unwrap();
+    assert_eq!(
+        noisefence::assessment::historical(&restored).score.value,
+        None
+    );
+    assert!(p.a.claim().await.unwrap().is_some());
+    assert!(p.b.claim().await.unwrap().is_none());
+    let target = tempfile::tempdir().unwrap();
+    ha::recovery::snapshot_database(
+        &p.a.root.join("state.sqlite3"),
+        &target.path().join("state.sqlite3"),
+    )
+    .unwrap();
+    let receipt = fence(p._a.path());
+    ha::recovery::restore_queue(&p.b.root, target.path(), "mx1", &receipt)
+        .await
+        .unwrap();
+    let recovered = Store::open(target.path()).unwrap();
+    let recovered_id = id.clone();
+    let recovered_scan: engine::Scan = recovered
+        .read(move |db| {
+            let raw: String = db.query_row(
+                "SELECT scan FROM messages WHERE id=?1",
+                [recovered_id],
+                |r| r.get(0),
+            )?;
+            Ok(serde_json::from_str(&raw)?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(&recovered_scan).unwrap(), expected);
+    assert_eq!(
+        std::fs::read(recovered.raw_path(&id)).unwrap(),
+        common::MESSAGE
+    );
+    // A peer cannot replace a valid saved receipt with inconsistent metadata.
+    let settings = p.config.replication.as_ref().unwrap();
+    let key = cluster::protocol::credential(&settings.credential_file).unwrap();
+    let mut invalid_manifest = remote(&p, &id).await;
+    invalid_manifest.generation += 1;
+    invalid_manifest.scan["scoring"] = serde_json::Value::Null;
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/replication/v1/manifest",
+            settings.peer_url
+        ))
+        .bearer_auth(key)
+        .header("x-noisefence-node", "mx1")
+        .json(&invalid_manifest)
+        .send()
+        .await
+        .unwrap();
+    assert!(!response.status().is_success());
+    assert_eq!(remote(&p, &id).await.scan, expected);
+    // The sender also rejects bad scores before uploading any body candidate.
+    let invalid_id = uuid::Uuid::new_v4().to_string();
+    let untouched_id = uuid::Uuid::new_v4().to_string();
+    let valid = scan.clone();
+    let mut invalid = scan;
+    invalid.scoring = None;
+    assert!(
+        p.a.enqueue_variants(
+            "sender@example.org".into(),
+            [(untouched_id.clone(), valid), (invalid_id.clone(), invalid)]
+                .into_iter()
+                .map(|(id, scan)| noisefence::store::QueueVariant {
+                    id,
+                    scan,
+                    raw: common::MESSAGE.to_vec().into(),
+                    recipients: vec![(p.config.recipient("alice@example.test").unwrap(), None)],
+                })
+                .collect()
+        )
+        .await
+        .is_err()
+    );
+    assert!(!p.a.raw_path(&invalid_id).exists());
+    assert!(!ha::replica::body_path(&p.b, "mx1", &invalid_id).exists());
+    assert!(!p.a.raw_path(&untouched_id).exists());
+    assert!(!ha::replica::body_path(&p.b, "mx1", &untouched_id).exists());
 }
 #[tokio::test]
 async fn accepted_message_has_two_durable_bodies_and_only_one_queue_owner() {

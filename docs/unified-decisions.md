@@ -50,6 +50,32 @@ upgrade, mixed-version validation and failover qualification remain required
 before production rollout. A policy hash is a consistency identifier, not an
 authentication mechanism.
 
+## Unavailable index transport
+
+The existing numeric `Scan.score` storage field uses exactly `-1` when the
+versioned content-scoring ledger cannot produce an index. This is a storage
+sentinel, not a negative risk score. Public assessments keep the raw score absent;
+an independently available fusion decision can still supply a selected index.
+
+Both replica manifests and central-history ingestion use the same validation:
+the sentinel requires an incomplete scan, the supported scoring-ledger version,
+absent ledger score and total, and the explicit `score_combination_invalid`
+reason. Recorded snapshots must agree with this unavailable state. Other negative
+values, nonfinite values, out-of-range scores, fabricated legacy scores and
+inconsistent canonical score selections are rejected. Ordinary legacy 0–100
+records remain supported without requiring a new ledger.
+
+Senders validate the entire replica batch before uploading bodies. Receiving
+peers also validate independently. A rejected history batch rolls back as a
+whole; unavailable indices do not become zero, a clean verdict or a local queue.
+Replication, confirmation and fenced recovery preserve the receipt snapshot.
+
+Upgrade the history coordinator and both replica endpoints before enabling this
+scoring implementation. Earlier receivers reject the sentinel: SMTP then defers
+under the two-copy policy, and history remains pending until a compatible
+receiver acknowledges it. Never translate the sentinel to zero to work around a
+mixed-version rollout. This does not implement coordinated bundle activation.
+
 ## Remaining implementation and qualification
 
 1. Complete controlled score combination using normalized detector observations.

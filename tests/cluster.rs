@@ -1,6 +1,84 @@
 #[path = "common/backscatter.rs"]
 mod backscatter_fixture;
 mod common;
+#[path = "common/unavailable_score.rs"]
+mod unavailable_score;
+
+#[tokio::test]
+async fn unavailable_index_survives_history_sync_and_invalid_batch_rolls_back() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let ca = config(a.path(), Role::Coordinator);
+    let cb = config(b.path(), Role::Worker);
+    let central = prepare(&ca).await;
+    let remote = prepare(&cb).await;
+    node(&central, "mx2").await;
+    account(&central, "alice", false, &["alice@example.test"]).await;
+    let id = uuid::Uuid::new_v4().to_string();
+    let scan = unavailable_score::scan(&cb);
+    let expected = serde_json::to_value(&scan).unwrap();
+    remote
+        .enqueue(
+            id.clone(),
+            "sender@example.org".into(),
+            vec![cb.recipient("alice@example.test").unwrap()],
+            scan,
+            common::MESSAGE.to_vec(),
+        )
+        .await
+        .unwrap();
+    let mut records = history::export(&remote).await.unwrap();
+    let mut invalid: history::Record =
+        serde_json::from_value(serde_json::to_value(&records[0]).unwrap()).unwrap();
+    invalid.id = uuid::Uuid::new_v4().to_string();
+    invalid.scan.scoring = None;
+    records.push(invalid);
+    assert!(
+        central
+            .run(move |db| history::ingest(db, "mx2", records, noisefence::now()))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        central
+            .read(|db| Ok(
+                db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?
+            ))
+            .await
+            .unwrap(),
+        0
+    );
+    let records = history::export(&remote).await.unwrap();
+    let receipts = central
+        .run(move |db| history::ingest(db, "mx2", records, noisefence::now()))
+        .await
+        .unwrap();
+    history::acknowledge(&remote, receipts).await.unwrap();
+    assert!(history::export(&remote).await.unwrap().is_empty());
+    let persisted_id = id.clone();
+    let stored: engine::Scan = central
+        .read(move |db| {
+            let raw: String = db.query_row(
+                "SELECT scan FROM messages WHERE id=?1",
+                [persisted_id],
+                |r| r.get(0),
+            )?;
+            Ok(serde_json::from_str(&raw)?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(&stored).unwrap(), expected);
+    let view = noisefence::assessment::historical(&stored);
+    assert_eq!(view.score.value, None);
+    assert_eq!(view.category, noisefence::mailing::Category::Undetermined);
+    let visible = central
+        .list("alice".into(), "".into(), "all".into(), 0, 1.)
+        .await
+        .unwrap();
+    assert_eq!(visible.len(), 1);
+    assert!(central.claim().await.unwrap().is_none());
+    assert!(!central.raw_path(&id).exists());
+}
 #[path = "common/fusion.rs"]
 mod fusion_fixture;
 use axum::{

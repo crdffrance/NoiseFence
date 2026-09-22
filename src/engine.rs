@@ -998,7 +998,7 @@ impl Engine {
         let report = crate::scoring::combine(scan, lexical, opaque);
         // A finite out-of-range sentinel survives legacy Scan JSON round-trips;
         // public assessments expose None, never a fabricated zero or NaN.
-        scan.score = report.score.unwrap_or(-1.0);
+        scan.score = report.score.unwrap_or(crate::scoring::UNAVAILABLE_SCORE);
         if report.score.is_none() {
             scan.complete = false;
             scan.reasons.push(Signal {
@@ -2493,6 +2493,7 @@ mod tests {
         crate::decision_record::record_recipient(&mut scan, &config, None, 42);
         let restored: Scan = serde_json::from_str(&serde_json::to_string(&scan).unwrap()).unwrap();
         let view = crate::assessment::historical(&restored);
+        crate::scoring::validate_transport(&restored).unwrap();
         assert_eq!(view.score.value, None);
         assert!(
             view.incomplete_reasons

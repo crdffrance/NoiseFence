@@ -86,10 +86,7 @@ impl Manifest {
             "Unresolved replica needs a body"
         );
         let scan: crate::engine::Scan = serde_json::from_value(self.scan.clone())?;
-        ensure!(
-            scan.score.is_finite() && (0.0..=100.0).contains(&scan.score),
-            "Invalid score"
-        );
+        crate::scoring::validate_transport(&scan)?;
         let mut addresses = BTreeSet::new();
         for d in &self.deliveries {
             ensure!(
@@ -252,6 +249,10 @@ pub async fn prepare(store: &Store, sender: &str, variants: &[QueueVariant]) -> 
         .try_acquire_owned()
         .context("Replication busy; retry SMTP")?;
     let batch = async {
+        // Validate the complete batch before creating any remote body candidate.
+        for v in variants {
+            crate::scoring::validate_transport(&v.scan)?;
+        }
         for v in variants {
             ensure!(
                 valid_id(&v.id) && v.raw.len() as u64 <= runtime.max_message_bytes,

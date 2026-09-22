@@ -5,6 +5,115 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const VERSION: &str = "content-logit-deduplicated-1";
+/// Wire-compatible storage sentinel, never a displayed risk index.
+pub const UNAVAILABLE_SCORE: f64 = -1.0;
+
+/// Shared boundary check for queue replication and central history. A negative
+/// number alone is not an unavailable-score contract: require the producer's
+/// ledger, incomplete status and explicit reason. Never recalculate old scores.
+pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
+    use crate::assessment::{Score, ScoreKind, ScoreSource, valid_score};
+    use crate::fusion::runtime::{Decision, DecisionSource};
+    use anyhow::ensure;
+    let valid_optional = |value: Option<f64>| value.is_none() || valid_score(value).is_some();
+    let validate_decision = |decision: &Decision| -> anyhow::Result<()> {
+        ensure!(valid_optional(decision.score), "Invalid detector score");
+        ensure!(
+            scan.score != UNAVAILABLE_SCORE
+                || decision.source != DecisionSource::Legacy
+                || decision.score.is_none(),
+            "Unavailable content index replaced by a legacy decision score"
+        );
+        Ok(())
+    };
+    let validate_view = |score: &Score, decision: &Decision| -> anyhow::Result<()> {
+        validate_decision(decision)?;
+        ensure!(
+            score.scale == 100
+                && [score.value, score.raw, score.decision]
+                    .into_iter()
+                    .all(valid_optional),
+            "Invalid recorded score"
+        );
+        let expected = score.decision.or(score.raw);
+        let source = if score.decision.is_some() {
+            ScoreSource::Decision
+        } else if score.raw.is_some() {
+            ScoreSource::Raw
+        } else {
+            ScoreSource::Unavailable
+        };
+        ensure!(
+            score.value == expected
+                && score.source == source
+                && (score.kind == ScoreKind::Unavailable) == score.value.is_none(),
+            "Inconsistent recorded score"
+        );
+        ensure!(
+            scan.score != UNAVAILABLE_SCORE || score.raw.is_none(),
+            "Unavailable raw score was replaced"
+        );
+        // Legacy decisions may be synthesized for display on records whose
+        // selected score still comes from raw content, not a recorded vote.
+        ensure!(
+            match decision.source {
+                DecisionSource::Legacy =>
+                    score.decision.is_none() || score.decision == decision.score,
+                DecisionSource::Fusion => score.decision == decision.score,
+                DecisionSource::Antivirus => score.decision.is_none(),
+            },
+            "Recorded decision score disagrees with its source"
+        );
+        Ok(())
+    };
+    if let Some(decision) = &scan.decision {
+        validate_decision(decision)?;
+    }
+    if let Some(record) = &scan.analysis_result {
+        validate_view(&record.score, &record.detector_decision)?;
+    }
+    if let Some(record) = &scan.recipient_decision {
+        validate_view(&record.assessment.score, &record.assessment.decision)?;
+    }
+    if valid_score(Some(scan.score)).is_some() {
+        return Ok(());
+    }
+    ensure!(
+        scan.score == UNAVAILABLE_SCORE && !scan.complete,
+        "Invalid decision score"
+    );
+    let report = scan
+        .scoring
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Missing unavailable-score ledger"))?;
+    ensure!(
+        report.version == VERSION
+            && report.score.is_none()
+            && report.total_logit.is_none()
+            && scan
+                .reasons
+                .iter()
+                .any(|r| r.id == "score_combination_invalid" && r.weight == 0.0),
+        "Invalid unavailable-score ledger"
+    );
+    if let Some(record) = &scan.analysis_result {
+        ensure!(
+            record.version == crate::decision_record::VERSION
+                && record.coverage != crate::decision_record::Coverage::Complete
+                && record.scoring.as_ref() == Some(report),
+            "Unavailable-score snapshot changed"
+        );
+    }
+    if let Some(record) = &scan.recipient_decision {
+        ensure!(
+            record.version == crate::decision_record::VERSION
+                && record.coverage != crate::decision_record::Coverage::Complete
+                && !record.assessment.complete,
+            "Unavailable recipient score marked complete"
+        );
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

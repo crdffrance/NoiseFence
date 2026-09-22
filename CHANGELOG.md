@@ -2,6 +2,7 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Share strict score validation across replica manifests and central history. Preserve explicitly unavailable content indices and frozen receipts without fabricating zero, while rejecting inconsistent or out-of-range scores. Validate complete outbound replica batches before uploading bodies; cover confirmation, fenced restoration and atomic history rollback. Upgrade both receiving endpoints before rollout.
 - Remove the six-copy SMTP ceiling: share immutable bodies between policy variants, stream spool writes and replica uploads, and bound aggregate headers/metadata. Split copies at the existing 100-recipient replica limit; retain atomic batch acceptance and temporary deferral on resource failures. Check full-batch disk space and bound remote preparation as a whole.
 
 - Add opt-in scoped inheritance across organization, alias/domain and mailbox profiles, retaining domain preferences when a mailbox adds rules. Keep legacy ordering for existing configurations. Personal rules run before administrator rules and cannot stop them; deterministic ties use the original rule IDs.

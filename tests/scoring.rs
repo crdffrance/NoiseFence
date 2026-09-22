@@ -5,6 +5,97 @@ use noisefence::{
     scoring::{self, Adjustment},
 };
 use std::path::Path;
+#[path = "common/unavailable_score.rs"]
+mod unavailable_score;
+
+#[test]
+fn unavailable_transport_requires_explicit_consistent_evidence() {
+    let config: Config = toml::from_str(include_str!("../config/development.toml")).unwrap();
+    let original = unavailable_score::scan(&config);
+    scoring::validate_transport(&original).unwrap();
+    let roundtrip: Scan = serde_json::from_str(&serde_json::to_string(&original).unwrap()).unwrap();
+    scoring::validate_transport(&roundtrip).unwrap();
+    assert_eq!(
+        noisefence::assessment::historical(&roundtrip).score.value,
+        None
+    );
+    let mutations: &[fn(&mut Scan)] = &[
+        |s| s.score = -2.,
+        |s| s.score = -0.5,
+        |s| s.score = 100.01,
+        |s| s.score = f64::NAN,
+        |s| s.score = f64::INFINITY,
+        |s| s.complete = true,
+        |s| s.scoring = None,
+        |s| s.scoring.as_mut().unwrap().version = "unknown".into(),
+        |s| s.scoring.as_mut().unwrap().score = Some(0.),
+        |s| s.scoring.as_mut().unwrap().total_logit = Some(0.),
+        |s| s.reasons.retain(|r| r.id != "score_combination_invalid"),
+        |s| s.analysis_result.as_mut().unwrap().scoring = None,
+        |s| s.analysis_result.as_mut().unwrap().score.raw = Some(0.),
+        |s| s.analysis_result.as_mut().unwrap().score.scale = 1,
+        |s| {
+            s.analysis_result.as_mut().unwrap().coverage =
+                noisefence::decision_record::Coverage::Complete
+        },
+        |s| {
+            s.analysis_result.as_mut().unwrap().score.source =
+                noisefence::assessment::ScoreSource::Raw
+        },
+        |s| s.recipient_decision.as_mut().unwrap().assessment.complete = true,
+        |s| {
+            s.recipient_decision
+                .as_mut()
+                .unwrap()
+                .assessment
+                .score
+                .value = Some(0.)
+        },
+        |s| s.decision.as_mut().unwrap().score = Some(-1.),
+        |s| s.decision.as_mut().unwrap().score = Some(0.),
+    ];
+    for (index, mutate) in mutations.iter().enumerate() {
+        let mut scan = original.clone();
+        mutate(&mut scan);
+        assert!(
+            scoring::validate_transport(&scan).is_err(),
+            "mutation {index}"
+        );
+    }
+    // Pre-snapshot records remain supported when their ledger explicitly proves
+    // unavailable content; an unrelated fusion decision may still have a score.
+    let mut scan = original.clone();
+    scan.analysis_result = None;
+    scan.recipient_decision = None;
+    scoring::validate_transport(&scan).unwrap();
+    scan.decision = Some(noisefence::fusion::runtime::Decision {
+        source: noisefence::fusion::runtime::DecisionSource::Fusion,
+        outcome: noisefence::fusion::runtime::Outcome::Unwanted,
+        score: Some(97.),
+        model: "separate-fusion-fixture".into(),
+    });
+    decision_record::record_recipient(&mut scan, &config, None, noisefence::now());
+    scoring::validate_transport(&scan).unwrap();
+    assert_eq!(
+        noisefence::assessment::historical(&scan).score.value,
+        Some(97.)
+    );
+    assert_eq!(noisefence::assessment::historical(&scan).score.raw, None);
+    for score in [0., 0.1, 100.] {
+        let scan = Scan {
+            score,
+            ..Default::default()
+        };
+        scoring::validate_transport(&scan).unwrap();
+    }
+    assert!(
+        scoring::validate_transport(&Scan {
+            score: -1.,
+            ..Default::default()
+        })
+        .is_err()
+    );
+}
 
 fn signal(id: &str, weight: f64) -> Signal {
     Signal {
