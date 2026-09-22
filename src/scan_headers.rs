@@ -27,6 +27,7 @@ pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Assessment-Version",
     "X-NoiseFence-Classification-Source",
     "X-NoiseFence-Content-Threshold",
+    "X-NoiseFence-Score-Boundary",
     "X-NoiseFence-Policy-Version",
     "X-NoiseFence-Delivery-Policy",
     "X-NoiseFence-Subject-Tag",
@@ -99,6 +100,17 @@ fn number(value: Option<f64>) -> String {
 }
 
 struct Writer(String);
+fn precise(value: f64) -> String {
+    if !value.is_finite() {
+        return "unavailable".into();
+    }
+    let text = value.to_string();
+    if text.len() <= 32 {
+        text
+    } else {
+        format!("{value:e}")
+    }
+}
 impl Writer {
     fn field(&mut self, name: &str, value: impl AsRef<str>) {
         debug_assert!(FIELDS.contains(&name));
@@ -296,6 +308,12 @@ pub(crate) fn render(
         "X-NoiseFence-Content-Threshold",
         number(report.content_threshold),
     );
+    h.field("X-NoiseFence-Score-Boundary", report.score_boundary.as_ref().map_or_else(
+        || if report.score.value.is_some() { "not_recorded" } else { "unavailable" }.into(),
+        |b| format!("version={}; unit={}; value={}; cutoff={}; index-cutoff={}; above={}; model-sha256={};",
+            b.version, match b.source { crate::score_boundary::Source::Content => "content_index", crate::score_boundary::Source::Fusion => "fusion_logit" },
+            precise(b.value), precise(b.cutoff), precise(b.index_cutoff), b.above,
+            b.model_sha256.as_deref().filter(|h| crate::compatibility::valid_hash(h)).unwrap_or("not_recorded"))));
     h.field(
         "X-NoiseFence-Policy-Version",
         report
@@ -641,6 +659,54 @@ mod tests {
         assert!(h["x-noisefence-vision"].contains("status=limited"));
         assert_eq!(h["x-noisefence-vision-errors"], "pixel_limit");
         assert!(!h.values().any(|v| v.contains("Private")));
+    }
+
+    #[test]
+    fn score_boundary_headers_preserve_native_units_and_missing_history() {
+        for value in [f64::MAX, f64::MIN_POSITIVE, 1e-300, 95.00000000001] {
+            assert!(precise(value).len() < 32);
+            assert_eq!(precise(value).parse::<f64>().unwrap(), value);
+        }
+        let mut s = scan();
+        s.decision = Some(crate::fusion::runtime::Decision {
+            source: DecisionSource::Fusion,
+            outcome: Outcome::Legitimate,
+            score: Some(50.),
+            model: "fusion-boundary-fixture".into(),
+        });
+        let hash = crate::message::digest(b"synthetic boundary model");
+        s.fusion.model_sha256 = Some(hash.clone());
+        s.fusion_boundary = Some(crate::score_boundary::Boundary {
+            version: 1,
+            source: crate::score_boundary::Source::Fusion,
+            value: 0.,
+            cutoff: 1.,
+            index_cutoff: 50.,
+            above: false,
+            model: "fusion-boundary-fixture".into(),
+            model_sha256: Some(hash.clone()),
+            calibration: Some(crate::score_boundary::Calibration {
+                slope: 0.,
+                intercept: 0.,
+            }),
+        });
+        crate::decision_record::record_recipient(&mut s, &config(), None, 42);
+        let h = headers(&s);
+        let field = &h["x-noisefence-score-boundary"];
+        assert!(
+            field.contains("unit=fusion_logit; value=0; cutoff=1; index-cutoff=50; above=false;")
+        );
+        assert!(field.contains(&hash));
+        assert_eq!(h["x-noisefence-score"], "50.0");
+        // Render the frozen boundary even if the mutable runtime metadata changes.
+        s.fusion_boundary = None;
+        assert_eq!(&headers(&s)["x-noisefence-score-boundary"], field);
+        s.recipient_decision
+            .as_mut()
+            .unwrap()
+            .assessment
+            .score_boundary = None;
+        assert_eq!(headers(&s)["x-noisefence-score-boundary"], "not_recorded");
     }
 
     #[test]

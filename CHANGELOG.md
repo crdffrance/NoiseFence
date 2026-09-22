@@ -2,6 +2,8 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Record the selected score's native operating point and fusion model/calibration identity. Keep recipient content thresholds distinct from fusion logit cutoffs in frozen receipts, English details and signed diagnostic headers. Preserve native comparisons through flat/saturated mappings and full-precision header values; missing historical fusion boundaries remain unknown. No scoring formula, action or activation policy changes.
+- Enable exact JSON float round trips after replica tests exposed low-order drift in a saved fusion probability. Preserve stored numbers across queue/history serialization; allow only a few rounding units when validating calibration computations across hosts. Native cutoff comparisons remain exact. Requalify model artifacts before rollout; accepted history is not rescored.
 - Share strict score validation across replica manifests and central history. Preserve explicitly unavailable content indices and frozen receipts without fabricating zero, while rejecting inconsistent or out-of-range scores. Validate complete outbound replica batches before uploading bodies; cover confirmation, fenced restoration and atomic history rollback. Upgrade both receiving endpoints before rollout.
 - Remove the six-copy SMTP ceiling: share immutable bodies between policy variants, stream spool writes and replica uploads, and bound aggregate headers/metadata. Split copies at the existing 100-recipient replica limit; retain atomic batch acceptance and temporary deferral on resource failures. Check full-batch disk space and bound remote preparation as a whole.
 

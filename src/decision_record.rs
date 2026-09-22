@@ -34,6 +34,8 @@ pub enum Classification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score_boundary: Option<crate::score_boundary::Boundary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_combination: Option<crate::fusion::combination::Accounting>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoring: Option<crate::scoring::Report>,
@@ -84,6 +86,7 @@ pub fn record_analysis(scan: &mut Scan, config: &Config) {
     }
     let view = crate::assessment::assess_unrecorded(scan, config.filter.threshold);
     scan.analysis_result = Some(Box::new(AnalysisResult {
+        score_boundary: view.score_boundary,
         version: VERSION,
         scoring: scan.scoring.clone(),
         fusion_combination: scan.fusion_combination.clone(),
@@ -119,6 +122,8 @@ pub fn record_recipient(
         view.classification_source = crate::assessment::ClassificationSource::RecipientPolicy;
     }
     view.content_threshold = view.content_threshold.or(Some(config.filter.threshold));
+    view.score_boundary =
+        crate::score_boundary::selected(scan, &view.score, view.content_threshold);
     view.mode = view.mode.or(Some(config.filter.mode));
     view.policy_version = view
         .policy_version
@@ -153,6 +158,7 @@ pub fn record_recipient(
         "version": VERSION, "analysis_policy": scan.analysis_policy,
         "custom_policy": policy.map(|p| &p.policy), "profile": policy.and_then(|p| p.profile.as_ref()),
         "threshold": view.content_threshold, "category": view.category,
+        "score_boundary": view.score_boundary,
         "classification": classification, "action": view.action, "rule_ids": rule_ids,
         "trace":policy.and_then(|p|p.trace.as_ref()),
     })).expect("typed receipt policy"));

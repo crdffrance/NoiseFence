@@ -511,6 +511,14 @@ fn automatic_resolution_uses_recipient_threshold_and_keeps_partial_delivery_safe
             );
             assert_eq!(result.category, expected);
             assert_eq!(result.threshold, threshold);
+            let mut receipt = scan.clone();
+            noisefence::decision_record::record_recipient(&mut receipt, &cfg, Some(&result), 100);
+            let boundary = noisefence::assessment::historical(&receipt)
+                .score_boundary
+                .unwrap();
+            assert_eq!(boundary.source, noisefence::score_boundary::Source::Content);
+            assert_eq!(boundary.cutoff, threshold);
+            assert_eq!(boundary.above, 96. >= threshold);
             assert_eq!(
                 result.action.effective,
                 if complete && expected == Category::Spam {

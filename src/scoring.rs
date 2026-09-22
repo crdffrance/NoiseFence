@@ -69,11 +69,34 @@ pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
     if let Some(decision) = &scan.decision {
         validate_decision(decision)?;
     }
+    let validate_boundary = |boundary: &crate::score_boundary::Boundary,
+                             score: &Score,
+                             decision: &Decision|
+     -> anyhow::Result<()> {
+        boundary.validate(score)?;
+        ensure!(
+            (boundary.source == crate::score_boundary::Source::Fusion)
+                == (score.source == ScoreSource::Decision
+                    && decision.source == DecisionSource::Fusion),
+            "Score boundary uses the wrong detector units"
+        );
+        Ok(())
+    };
     if let Some(record) = &scan.analysis_result {
         validate_view(&record.score, &record.detector_decision)?;
+        if let Some(boundary) = &record.score_boundary {
+            validate_boundary(boundary, &record.score, &record.detector_decision)?;
+        }
     }
     if let Some(record) = &scan.recipient_decision {
         validate_view(&record.assessment.score, &record.assessment.decision)?;
+        if let Some(boundary) = &record.assessment.score_boundary {
+            validate_boundary(
+                boundary,
+                &record.assessment.score,
+                &record.assessment.decision,
+            )?;
+        }
     }
     if valid_score(Some(scan.score)).is_some() {
         return Ok(());

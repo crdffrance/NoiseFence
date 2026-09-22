@@ -1,3 +1,5 @@
+#[path = "common/fusion.rs"]
+mod boundary_fixture;
 mod common;
 #[path = "common/unavailable_score.rs"]
 mod unavailable_score;
@@ -131,6 +133,51 @@ async fn remote(p: &Pair, id: &str) -> ha::replica::Manifest {
     .await
     .unwrap()
 }
+#[tokio::test]
+async fn fusion_score_boundary_crosses_replica_confirmation_without_using_content_cutoff() {
+    let p = pair().await;
+    let mut cfg = (*p.config).clone();
+    let (model, _) =
+        boundary_fixture::install(&mut cfg, noisefence::fusion::runtime::Mode::Decision);
+    let runtime =
+        noisefence::fusion::runtime::Runtime::load(cfg.fusion.as_ref().unwrap(), &model.artifacts)
+            .unwrap();
+    let (_, evidence) = boundary_fixture::fixture(&cfg);
+    let mut scan = engine::Scan {
+        score: 99.,
+        complete: true,
+        features_complete: Some(true),
+        evidence: Some(evidence),
+        analysis_policy: Some(noisefence::diagnostics::AnalysisPolicy::capture(&cfg)),
+        ..Default::default()
+    };
+    runtime.apply(&mut scan);
+    noisefence::decision_record::record_recipient(&mut scan, &cfg, None, noisefence::now());
+    let expected = serde_json::to_value(&scan).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    p.a.enqueue(
+        id.clone(),
+        "sender@example.org".into(),
+        vec![cfg.recipient("alice@example.test").unwrap()],
+        scan,
+        common::MESSAGE.to_vec(),
+    )
+    .await
+    .unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let replica = remote(&p, &id).await;
+    assert!(replica.confirmed);
+    assert_eq!(replica.scan, expected);
+    let stored: engine::Scan = serde_json::from_value(replica.scan).unwrap();
+    let view = noisefence::assessment::historical(&stored);
+    let boundary = view.score_boundary.unwrap();
+    assert_eq!(boundary.cutoff, model.cutoff);
+    assert_ne!(Some(boundary.cutoff), view.content_threshold);
+    assert_eq!(boundary.source, noisefence::score_boundary::Source::Fusion);
+    assert!(p.a.claim().await.unwrap().is_some());
+    assert!(p.b.claim().await.unwrap().is_none());
+}
+
 #[tokio::test]
 async fn unavailable_index_replicates_without_becoming_zero_or_a_clean_verdict() {
     let p = pair().await;

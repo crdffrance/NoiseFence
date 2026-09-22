@@ -73,6 +73,8 @@ pub struct Score {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Assessment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score_boundary: Option<crate::score_boundary::Boundary>,
     pub score_resolution: Option<crate::decision::ScoreResolution>,
     pub version: u8,
     pub score: Score,
@@ -238,7 +240,8 @@ pub(crate) fn assess_unrecorded(scan: &Scan, fallback_threshold: f64) -> Assessm
             incomplete_reasons.push("unspecified");
         }
     }
-    Assessment {
+    let mut view = Assessment {
+        score_boundary: None,
         score_resolution: scan.score_resolution.clone(),
         version: VERSION,
         score: Score {
@@ -282,7 +285,10 @@ pub(crate) fn assess_unrecorded(scan: &Scan, fallback_threshold: f64) -> Assessm
         } else {
             SubjectTag::None
         },
-    }
+    };
+    view.score_boundary =
+        crate::score_boundary::selected(scan, &view.score, view.content_threshold);
+    view
 }
 
 #[cfg(test)]

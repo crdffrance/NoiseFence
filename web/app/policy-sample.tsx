@@ -167,7 +167,7 @@ export function PolicySample({
                     {actionReason(row.assessment.action.reason)}.
                   </p>
                   <p>
-                    Threshold: {row.assessment.threshold} · unavailable
+                    Content threshold: {row.assessment.threshold} · unavailable
                     conditions: {row.assessment.unavailable_conditions}
                   </p>
                   <PolicyTraceDetails trace={row.assessment.trace} />

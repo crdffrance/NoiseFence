@@ -1,5 +1,16 @@
 /** Versioned projection produced by src/assessment.rs, never used to change policy. */
 export type Assessment = {
+  score_boundary?: {
+    version: 1;
+    source: 'content' | 'fusion';
+    value: number;
+    cutoff: number;
+    index_cutoff: number;
+    above: boolean;
+    model: string;
+    model_sha256: string | null;
+    calibration: {slope: number; intercept: number} | null;
+  } | null;
   score_resolution?: {
     version: string;
     threshold: number;

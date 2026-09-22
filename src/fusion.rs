@@ -820,13 +820,11 @@ impl Model {
                 .collect();
             (retained.iter().sum::<f64>() + self.bias, retained, None)
         };
-        let calibrated = self.calibration.slope * logit + self.calibration.intercept;
-        let probability = if calibrated >= 0.0 {
-            1.0 / (1.0 + (-calibrated).exp())
-        } else {
-            let p = calibrated.exp();
-            p / (1.0 + p)
-        };
+        let probability = crate::score_boundary::probability(
+            logit,
+            self.calibration.slope,
+            self.calibration.intercept,
+        );
         let mut contributions: Vec<_> = specs()
             .iter()
             .zip(values)

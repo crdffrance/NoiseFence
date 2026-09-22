@@ -50,6 +50,41 @@ upgrade, mixed-version validation and failover qualification remain required
 before production rollout. A policy hash is a consistency identifier, not an
 authentication mechanism.
 
+## Recorded score boundaries
+
+`Assessment.score_boundary` freezes the operating point of its selected index.
+It records the comparison's native units, value, cutoff, inclusive result and
+mapped index cutoff. Fusion boundaries also retain the exact model hash and
+calibration coefficients used at receipt time. Runtime capture uses the same
+calibration function as prediction, including flat and saturated mappings. The
+native logit comparison remains authoritative for fusion; comparing rounded
+0–100 values cannot recover every boundary decision.
+Transport validation tolerates a few floating-point rounding units when checking
+the calibration mapping across hosts. It never rewrites recorded numbers or
+relaxes the native inclusive cutoff comparison.
+JSON decoding enables Serde's `float_roundtrip` feature so serialization and
+replication preserve stored floating-point bits, including values next to a
+cutoff. Previously accepted messages are not rescored by this change.
+
+The shared analysis keeps its original boundary; recipient snapshots capture
+their effective content thresholds or the unchanged detector-owned fusion cutoff.
+Rule and evidence overrides remain separate. Boundaries do not change scoring,
+classification, action eligibility or the authority of an observer. Observation
+fusion retains its own diagnostic operating point without replacing the active
+content boundary. No current configuration fills a missing historical fusion
+boundary. Existing strict `Prediction` and `Decision` wire schemas are unchanged;
+the optional fields are additive outside those schemas.
+Older readers can parse the existing decisions but may omit these optional fields
+when re-exporting typed metadata. Upgrade all receipt/history consumers before
+qualifying boundary preservation across MX versions; an omitted boundary stays
+unknown rather than being reconstructed from current settings.
+
+The English detail panel and `X-NoiseFence-Score-Boundary` consume these snapshots.
+`Content-Threshold` remains the compatibility field for content settings and is
+never presented as a fusion cutoff. Canonical boundary validation is shared by
+queue replication and history ingestion. These checks validate consistency, not
+the authenticity of a model supplied by a trusted node or its detection quality.
+
 ## Unavailable index transport
 
 The existing numeric `Scan.score` storage field uses exactly `-1` when the

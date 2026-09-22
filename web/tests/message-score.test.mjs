@@ -305,3 +305,33 @@ test('the receipt detail renders inherited threshold ownership and escaped rule 
   assert.match(html,/Selected actions/); assert.match(html,/Missing facts/); assert.match(html,/unavailable: body/);
   assert.match(html,/&lt;script&gt;rule&lt;\/script&gt;/); assert.doesNotMatch(html,/<script>/);
 });
+
+test('fusion detail uses the frozen native boundary rather than the content setting', () => {
+  const assessment = {version:1, category:'spam', complete:true,
+    score:{value:50, raw:99, decision:50, kind:'decision', source:'decision', model:'fusion-fixture'},
+    decision:{source:'fusion',outcome:'unwanted',score:50,model:'fusion-fixture'},
+    incomplete_reasons:[],content_threshold:95,
+    score_boundary:{version:1,source:'fusion',value:2,cutoff:1,index_cutoff:50,above:true,model:'fusion-fixture',model_sha256:'a'.repeat(64),calibration:{slope:0,intercept:0}}};
+  const mail={...base,recipient_decision:{version:1,classification:'spam',coverage:'complete',policy_sha256:'b'.repeat(64),assessment}};
+  let html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail}));
+  assert.match(html,/Recorded score boundary: <strong>1 logit<\/strong>/);
+  assert.match(html,/Mapped boundary: 50 \/ 100/);
+  assert.match(html,/native comparison applies/);
+  assert.match(html,/at or above/);
+  assert.doesNotMatch(html,/95/);
+  const legacy={...mail,recipient_decision:{...mail.recipient_decision,assessment:{...assessment,score_boundary:null}}};
+  html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail:legacy}));
+  assert.match(html,/Fusion boundary not recorded/);
+  assert.doesNotMatch(html,/95/);
+});
+
+test('content boundary displays exact threshold precision and its scope', () => {
+  const assessment={version:1,category:'legitimate',complete:true,
+    score:{value:95,kind:'content',source:'raw',model:'content-fixture'},decision:decision('legacy','legitimate',95),
+    incomplete_reasons:[],content_threshold:95.00001,
+    score_boundary:{version:1,source:'content',value:95,cutoff:95.00001,index_cutoff:95.00001,above:false,model:'content-fixture',model_sha256:null,calibration:null}};
+  const html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail:{...base,assessment}}));
+  assert.match(html,/95\.00001 \/ 100/);
+  assert.match(html,/below/);
+  assert.match(html,/recipient rules and delivery restrictions can take precedence/);
+});

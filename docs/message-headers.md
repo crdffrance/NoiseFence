@@ -32,6 +32,7 @@ Newly prepared messages use **`X-NoiseFence-Header-Version: 5`**. The API and he
 | `X-NoiseFence-Category` | Recorded delivery classification: `spam`, `publicity`, `legitimate` or `undetermined` |
 | `X-NoiseFence-Classification-Source` | `recipient_policy`, `recorded_decision` or `historical_fallback` |
 | `X-NoiseFence-Content-Threshold` | Content threshold captured at analysis time; `unavailable` when absent |
+| `X-NoiseFence-Score-Boundary` | Versioned comparison for the selected score: native unit/value/cutoff, mapped index cutoff, inclusive comparison result and optional fusion model hash; `not_recorded` for missing history, `unavailable` without a usable score |
 | `X-NoiseFence-Policy-Version` | Recorded decision policy version, or `not_recorded` |
 | `X-NoiseFence-Delivery-Policy` | Original requested/effective action and a bounded reason code, or `not_recorded` |
 | `X-NoiseFence-Subject-Tag` | Prefix actually added: `none`, `spam` (`[SPAM]`) or `publicity` (`[PUB]`) |
@@ -43,6 +44,20 @@ Version 4 adds the explicit receipt decision fields. `Category` remains a compat
 Version 5 preserves those aliases and adds `Action-Coverage`. Its `eligible=yes`
 means evidence requirements are met; it does not override observation mode or
 Proton validation. Read `Action-Effective` for the action actually prepared.
+
+The additive `Score-Boundary` field uses boundary version 1. `content_index`
+compares the selected content index with its recorded recipient threshold.
+`fusion_logit` compares the uncalibrated fusion logit with the model's own cutoff;
+`index-cutoff` is its mapped 0–100 display value, not another comparison rule.
+Native comparisons are inclusive (`value >= cutoff`). Flat calibration and
+floating-point saturation can map opposite sides of a cutoff to the same index.
+Boundary numbers retain round-trip precision, using scientific notation when
+needed; the existing one-decimal score and content-threshold aliases are unchanged.
+Evidence and recipient rules can override a score-based classification, and
+delivery restrictions can alter its action. This field describes the score's
+operating point, not sole authority to classify or quarantine a message.
+Older receipt snapshots retain missing boundaries; readers never substitute the
+current content setting for a missing fusion cutoff.
 For example, `basis=score_threshold; eligible=no; missing=subject_rewrite;`
 explains why a scored spam was delivered without the requested subject prefix.
 

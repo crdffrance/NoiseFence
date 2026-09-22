@@ -314,6 +314,7 @@ impl Runtime {
     pub fn apply(&self, scan: &mut Scan) {
         let started = Instant::now();
         scan.fusion_combination = None;
+        scan.fusion_boundary = None;
         let mut observation = Observation {
             mode: self.mode,
             status: Status::NotRun,
@@ -335,6 +336,11 @@ impl Runtime {
         {
             match self.model.predict_accounted(evidence) {
                 Ok((prediction, mut accounting)) => {
+                    scan.fusion_boundary = Some(crate::score_boundary::Boundary::fusion(
+                        &self.model,
+                        &self.sha256,
+                        prediction.logit,
+                    ));
                     if let Some(report) = &mut accounting {
                         report.model_sha256 = Some(self.sha256.clone());
                     }
