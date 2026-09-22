@@ -40,6 +40,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub scoring: Option<crate::scoring::Report>,
     pub observations: Option<crate::observations::Report>,
     pub assessment: crate::assessment::Assessment,
     pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
@@ -54,14 +55,35 @@ pub struct Analysis {
     pub policy: Option<AnalysisPolicy>,
     pub lexical_logit: Option<f64>,
     pub semantic_contribution: Option<f64>,
-    pub rule_weight_total: f64,
+    pub rule_weight_total: Option<f64>,
     pub evidence: Option<crate::evidence::Evidence>,
     pub protection: Option<crate::protection::Report>,
 }
 impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
         let score_breakdown = crate::detection_diagnostics::breakdown(&scan);
+        let scoring = crate::scoring::recorded(&scan).cloned();
+        let rule_weight_total = if let Some(report) = &scoring {
+            report.rules_total
+        } else {
+            let total = scan
+                .reasons
+                .iter()
+                .filter(|r| r.id != "model_contribution")
+                .map(|r| r.weight)
+                .sum::<f64>();
+            total.is_finite().then_some(total)
+        };
+        let lexical_logit = scoring
+            .as_ref()
+            .map(|r| r.lexical)
+            .unwrap_or_else(|| scan.evidence.as_ref().and_then(|e| e.lexical_logit));
+        let semantic_contribution = scoring
+            .as_ref()
+            .map(|r| r.semantic)
+            .unwrap_or(scan.semantic.contribution);
         Self {
+            scoring,
             observations: scan
                 .analysis_result
                 .as_ref()
@@ -77,14 +99,9 @@ impl From<Scan> for Analysis {
             feature_version: scan.feature_version,
             features_complete: scan.features_complete,
             policy: scan.analysis_policy,
-            lexical_logit: scan.evidence.as_ref().and_then(|e| e.lexical_logit),
-            semantic_contribution: scan.semantic.contribution,
-            rule_weight_total: scan
-                .reasons
-                .iter()
-                .filter(|r| r.id != "model_contribution")
-                .map(|r| r.weight)
-                .sum(),
+            lexical_logit,
+            semantic_contribution,
+            rule_weight_total,
             evidence: scan.evidence,
             protection: scan.protection,
         }

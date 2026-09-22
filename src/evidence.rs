@@ -243,6 +243,7 @@ impl Artifacts {
         };
         let policy = serde_json::json!({
             "detector_build":crate::compatibility::DETECTOR_BUILD_SHA256, "schema":SCHEMA,
+            "score_combination":crate::scoring::VERSION,
             "rules":"legacy-rules-with-contextual-dqs-1", "semantic_compiled":cfg!(feature="semantic"),
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
             "rule_weights":config.filter.rule_weights,

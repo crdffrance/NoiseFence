@@ -155,3 +155,46 @@ Web activation is checked in the configuration transaction and requires a recent
 authenticated report of the new build from every enabled registered MX. Unreported,
 stale or older workers block the revision. Deactivation remains available. This
 upgrade gate does not replace the planned atomic multi-node activation protocol.
+
+## Exact content-index accounting
+
+The release candidate records `scoring` in the scan and the immutable
+`analysis_result.scoring` snapshot. The policy is
+`content-logit-deduplicated-1`; its version is bound into the detector artifact
+fingerprint. This report is the calculation used by the content scorer, rather
+than a later reconstruction from today's configuration. Diagnostics and the
+English console read the stored report. Historical records without it retain
+explicitly unknown accounting. Fusion estimates remain distinct from this
+content index.
+
+The calculation keeps the existing lexical output (or fixed `-5` rules baseline
+when no model applies), eligible semantic contribution and configured rule
+weights. All these inputs have log-odds units. It does not add native/Rspamd
+points, provider probabilities, admission RBLs or comparison predictions. Missing
+semantic results supply no vote; a malformed successful result does not become a
+zero. Opaque bodies explicitly skip the content models.
+
+Recognized message-level signal IDs contribute once in a deterministic order.
+Identical repeated signals cannot increase either positive or mitigating weight.
+Contradictory weights for the same signal, nonfinite inputs, or an unrecognized
+nonzero signal make the content index unavailable. The evaluator does not choose
+the largest accusation. Zero-weight incident diagnostics remain diagnostics.
+LLM weight is reconciled with the current usable, coherent, grounded opinion, so
+a retained old signal cannot revive an unavailable or unsupported result. The
+existing ban on using that same LLM as independent score corroboration remains.
+
+Each recorded entry contains a fixed rule ID, family, occurrence count, proposed
+weight, retained weight and adjustment code. The ledger includes lexical,
+semantic, baseline, retained-rule total, total log-odds and the resulting index.
+It contains no message excerpts or provider response prose. Repeated evaluations
+do not add previous `model_contribution` outputs again. Invalid calculations
+expose a null score, not zero, in the canonical assessment. Internally, the old
+nonoptional `Scan.score` uses `-1` for this case so serialization remains finite;
+consumers must use the canonical assessment and validate the 0–100 range.
+
+This prevents duplicate application of a message-level signal; it does **not**
+prove independence of different signals. In particular, SPF and DMARC failures
+may remain correlated, and the lexical model can already encode rule-related
+features. Cross-family caps, calibrated combination and independent full-pipeline
+qualification remain required. No accuracy improvement or production activation
+is claimed from these structural tests.

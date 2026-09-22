@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub const VERSION: u8 = 1;
 pub const INCOMPLETE_REASONS: &[&str] = &[
+    "score_combination_invalid",
     "encrypted_content",
     "analysis_budget",
     "signature_budget",

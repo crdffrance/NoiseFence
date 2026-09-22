@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from './client';
+import { ScoreAccounting } from './scoring-view';
 import { observationState, observationRole, observationScope, observationName,
   observationResult, observationMeasurement, sharedObservationGroups,
   type ObservationReport } from './observations-format';
@@ -165,6 +166,7 @@ function AnalysisDetails({
         </div>
       </dl>
       <p className="diagnostic-callout">{policySummary(analysis.policy)}</p>
+      <ScoreAccounting report={analysis.scoring} />
       <DetectorObservations report={analysis.observations} />
       {analysis.policy && (
         <p className="diagnostic-muted">

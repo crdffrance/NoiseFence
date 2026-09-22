@@ -71,6 +71,8 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring: Option<crate::scoring::Report>,
     /// Explicit rendering capability, set by the live pipeline before policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject_rewrite_ready: Option<bool>,
@@ -955,7 +957,7 @@ impl Engine {
         scan.reasons.retain(|r| {
             !matches!(
                 r.id.as_str(),
-                "model_contribution" | "content_model_skipped"
+                "model_contribution" | "content_model_skipped" | "score_combination_invalid"
             )
         });
         let opaque = scan.message_context.as_ref().is_some_and(|c| c.encrypted);
@@ -971,15 +973,11 @@ impl Engine {
                 evidence.lexical_state = crate::evidence::State::Limited;
             }
         }
-        let mut content = self
-            .model
-            .as_ref()
-            .filter(|_| !opaque)
-            .map(|m| {
-                scan.model = m.version.clone();
-                m.logit(&scan.features)
-            })
-            .unwrap_or(RULES_BASELINE_LOGIT);
+        let lexical = self.model.as_ref().filter(|_| !opaque).map(|m| {
+            scan.model = m.version.clone();
+            m.logit(&scan.features)
+        });
+        let mut content = lexical.unwrap_or(RULES_BASELINE_LOGIT);
         if !opaque
             && self.model.is_some()
             && let Some(evidence) = &mut scan.evidence
@@ -995,16 +993,20 @@ impl Engine {
             content += scan.semantic.contribution.unwrap_or(0.0);
             scan.model = scan.semantic.model.clone();
         }
-        let rules = scan.reasons.iter().map(|r| r.weight).sum::<f64>();
-        let score = sigmoid(content + rules) * 100.0;
-        scan.score = if scan.feature_version == crate::features::VERSION {
-            // Round only for display. Rounding here shifts a calibrated cutoff
-            // and can classify a legitimate 94.99 as spam at a threshold of 95.
-            score
-        } else {
-            (score * 10.0).round() / 10.0
-        };
-        if !opaque && self.model.is_some() {
+        let report = crate::scoring::combine(scan, lexical, opaque);
+        // A finite out-of-range sentinel survives legacy Scan JSON round-trips;
+        // public assessments expose None, never a fabricated zero or NaN.
+        scan.score = report.score.unwrap_or(-1.0);
+        if report.score.is_none() {
+            scan.complete = false;
+            scan.reasons.push(Signal {
+                id: "score_combination_invalid".into(),
+                detail: "The content index could not be calculated from consistent finite contributions.".into(),
+                weight: 0.0,
+            });
+        }
+        scan.scoring = Some(report);
+        if !opaque && self.model.is_some() && content.is_finite() {
             scan.reasons.push(Signal {
                 id: "model_contribution".into(),
                 detail: "Local model contribution: text and structure".into(),
@@ -2222,6 +2224,63 @@ mod tests {
         );
         assert!(reputation_domains(b"Subject: x\r\n\r\n", "", "[IPv6:2001:db8::1]", "").is_empty());
     }
+    #[test]
+    fn scoring_replay_deduplicates_inputs_and_preserves_receipt_accounting() {
+        let config = Config::load(Path::new("config/development.toml")).unwrap();
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let mut scan = engine.extract(b"Subject: fixture\r\n\r\nUrgent: verify your account");
+        engine.score(&mut scan);
+        let initial = scan.score;
+        scan.reasons.extend(scan.reasons.clone());
+        engine.score(&mut scan);
+        assert_eq!(scan.score, initial);
+        let ledger = scan.scoring.clone().unwrap();
+        engine.score(&mut scan);
+        assert_eq!(scan.scoring.as_ref(), Some(&ledger));
+        assert!(crate::detection_diagnostics::breakdown(&scan).matches_recorded_score);
+        crate::decision_record::record_recipient(&mut scan, &config, None, 42);
+        let view = crate::diagnostics::Analysis::from(scan.clone());
+        assert_eq!(view.scoring, Some(ledger));
+        assert_eq!(view.assessment.score.raw, Some(initial));
+        let encoded = serde_json::to_string(&scan).unwrap();
+        let restored: Scan = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            crate::assessment::historical(&restored).score.raw,
+            Some(initial)
+        );
+    }
+
+    #[test]
+    fn malformed_scoring_input_is_unavailable_across_serialization_and_policy() {
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.filter.resolve_uncertain_by_score = true;
+        config.filter.partial_actions = true;
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let mut scan = engine.extract(b"Subject: fixture\r\n\r\nUrgent");
+        scan.reasons.push(Signal {
+            id: "urgency".into(),
+            detail: "conflict".into(),
+            weight: 2.,
+        });
+        engine.score(&mut scan);
+        assert!(!scan.complete);
+        assert_eq!(scan.scoring.as_ref().unwrap().score, None);
+        crate::decision::resolve_by_score(&mut scan, true, config.filter.threshold);
+        crate::decision_record::record_recipient(&mut scan, &config, None, 42);
+        let restored: Scan = serde_json::from_str(&serde_json::to_string(&scan).unwrap()).unwrap();
+        let view = crate::assessment::historical(&restored);
+        assert_eq!(view.score.value, None);
+        assert!(
+            view.incomplete_reasons
+                .iter()
+                .any(|r| r == "score_combination_invalid")
+        );
+        assert_eq!(
+            crate::actions::evaluate(&restored, &config).effective,
+            crate::actions::Action::Deliver
+        );
+    }
+
     #[cfg(feature = "semantic")]
     #[test]
     fn semantic_score_is_added_once_and_failure_preserves_lexical_fallback() {

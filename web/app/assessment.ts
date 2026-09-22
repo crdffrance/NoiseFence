@@ -56,6 +56,7 @@ export const missingCheckLabels: Record<string, string> = {
   llm_unavailable: 'LLM analysis',
   semantic_unavailable: 'semantic analysis',
   encrypted_content: 'encrypted or opaque content',
+  score_combination_invalid: 'Inconsistent score contributions',
   smtp_policy_unavailable: 'SMTP / DNS consistency',
   vision_incomplete: 'OCR / visual codes',
   complementary_signature_unavailable: 'complementary signatures',

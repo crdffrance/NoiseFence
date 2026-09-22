@@ -7,7 +7,8 @@
 - Make history, search and statistics preserve receipt-time decisions; original policy absence remains explicit. Add version 5 headers and English console details for the canonical record.
 - Record bounded, normalized detector observations with availability, provenance, scope, native units and shared evidence groups. Preserve completed provider targets across partial outages; distinguish no-hit, stale, timeout and quota results. Display the receipt-time report in English diagnostics without rebuilding historical observations.
 - Add an opt-in Web policy for partial actions with recorded evidence requirements per decision. Require explicit subject-rendering readiness and retain requested/effective actions when a fallback copy cannot be tagged. Observation and Proton gates remain independent.
-- Refuse Web activation until every enabled registered MX has recently reported the new build; older workers retain parseable disabled settings. Preserve bounded wire variants. Controlled score combination, full-pipeline calibration and atomic coordinated rollout remain pending; no detection-rate claim or production activation.
+- Centralize the content-index calculation in a versioned receipt-time ledger: count identical message-level signals once, reject conflicting/nonfinite weighted inputs, and reconcile stale LLM signals against the usable opinion. Show retained contributions and exact historical accounting in English diagnostics. Correlated signals with different identities still require joint calibration.
+- Refuse Web activation until every enabled registered MX has recently reported the new build; older workers retain parseable disabled settings. Preserve bounded wire variants. Qualified cross-family score combination, full-pipeline calibration and atomic coordinated rollout remain pending; no detection-rate claim or production activation.
 
 ## 0.27.0 — Evidence grounding and release qualification
 

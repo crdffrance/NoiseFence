@@ -53,6 +53,7 @@ pub mod actions;
 pub mod quarantine;
 pub mod rules;
 mod scan_headers;
+pub mod scoring;
 pub mod search;
 
 pub mod custom_filtering;

@@ -58,6 +58,7 @@ export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
+    scoring?: import('./scoring-format').ScoringReport | null;
     observations?: import('./observations-format').ObservationReport | null;
     rspamd?: import('./rspamd-format').RspamdReport | null;
     elapsed_ms: number;
@@ -75,7 +76,7 @@ export type MessageDiagnostics = {
     } | null;
     lexical_logit: number | null;
     semantic_contribution: number | null;
-    rule_weight_total: number;
+    rule_weight_total: number | null;
     evidence: {
       authentication?: AuthenticationEvidence;
       lexical_state?: string;
