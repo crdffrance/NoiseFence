@@ -2,6 +2,8 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Remove the six-copy SMTP ceiling: share immutable bodies between policy variants, stream spool writes and replica uploads, and bound aggregate headers/metadata. Split copies at the existing 100-recipient replica limit; retain atomic batch acceptance and temporary deferral on resource failures. Check full-batch disk space and bound remote preparation as a whole.
+
 - Add opt-in scoped inheritance across organization, alias/domain and mailbox profiles, retaining domain preferences when a mailbox adds rules. Keep legacy ordering for existing configurations. Personal rules run before administrator rules and cannot stop them; deterministic ties use the original rule IDs.
 - Record recipient-specific profile inheritance, threshold ownership, matched/missing/stopped rules, winning effects and malware priority. Display the receipt trace in the English console without exposing rule values or changing accepted history. Scoped risk-index conditions use the same selected index as the receipt and UI.
 - Add a Web draft comparison on 1–50 explicit message IDs for one recipient. Reuse retained detector results, freeze the evaluation time and sample fingerprint, and exclude unknown comparisons from change counts. No content is sent, rescanned or modified; truncated or unavailable facts stay unknown.

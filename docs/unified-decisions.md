@@ -34,12 +34,15 @@ Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
 copy. Each copy exposes only its own decision in version 5 diagnostic headers.
 
-The existing limit of six distinct wire copies per SMTP transaction remains. It
-is checked before allocating a seventh copy; disk admission reserves capacity
-when mailbox preferences can create variants as well as administrator rules.
-A transaction exceeding that bound is temporarily rejected, not partly accepted.
-Senders can retry smaller recipient batches. Streaming more policy variants is
-separate capacity work, not enabled by this change.
+Recipient variants share one immutable body allocation and retain their own
+headers. Disk writes and replica uploads stream both chunks. The configured SMTP
+recipient bound still applies, up to 1,000 total recipients/variants; each copy
+contains at most 100 recipients for compatibility with the replica protocol.
+Aggregate variant headers are capped at 16 MiB and serialized metadata at 32 MiB.
+Disk capacity is checked for the complete wire batch plus the configured reserve.
+All files are synced before a single SQLite transaction commits every recipient.
+Rendering/capacity failures defer the whole SMTP transaction without changing the
+detector verdict. See [queue variants](queue-variants.md) for limits and recovery.
 
 Persisted JSON and SMTP bytes already travel in the durable replication manifest.
 This change does not relax the two-copy acceptance requirement. Coordinated

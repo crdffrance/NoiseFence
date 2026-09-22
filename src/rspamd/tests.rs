@@ -235,7 +235,7 @@ async fn asynchronous_scan_uses_original_envelope_and_only_updates_comparison_af
         .map(|id| crate::store::QueueVariant {
             id: id.into(),
             scan: scan.clone(),
-            raw: MAIL.to_vec(),
+            raw: MAIL.to_vec().into(),
             recipients: vec![(recipients()[0].clone(), None)],
         })
         .to_vec();

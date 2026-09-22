@@ -940,3 +940,179 @@ async fn smtp_accepts_only_after_two_copies_and_defers_when_the_peer_dies_during
     stop.send(true).unwrap();
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn streamed_variants_replicate_exact_wires_and_late_conflicts_never_commit_a_partial_batch() {
+    use noisefence::{queue_body::WireBody, store::QueueVariant};
+    let p = pair().await;
+    let payload = WireBody::shared_payload(common::MESSAGE).unwrap();
+    let make = |id: String, i: usize| {
+        let mut recipient = p.config.recipient("alice@example.test").unwrap();
+        recipient.address = format!("r{i}@example.test");
+        let wire = noisefence::message::rewrite(
+            common::MESSAGE,
+            false,
+            &format!("X-NoiseFence-Id: {id}\r\n"),
+        )
+        .unwrap();
+        let mut scan = engine::extract(common::MESSAGE, 100_000);
+        scan.action = Some(noisefence::actions::evaluate(&scan, &p.config));
+        noisefence::decision_record::record_recipient(&mut scan, &p.config, None, 1234);
+        QueueVariant {
+            id,
+            scan,
+            raw: WireBody::with_shared_payload(wire, &payload).unwrap(),
+            recipients: vec![(recipient, None)],
+        }
+    };
+    let ids: Vec<_> = (0..8).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+    p.a.enqueue_variants(
+        "s@example.org".into(),
+        ids.iter()
+            .enumerate()
+            .map(|(i, id)| make(id.clone(), i))
+            .collect(),
+    )
+    .await
+    .unwrap();
+    for id in &ids {
+        let local = std::fs::read(p.a.raw_path(id)).unwrap();
+        let replica = std::fs::read(ha::replica::body_path(&p.b, "mx1", id)).unwrap();
+        assert_eq!(local, replica);
+    }
+    assert_eq!(ha::status(&p.b).await.unwrap().remote_messages, 8);
+    let mut second: Vec<_> = (0..8)
+        .map(|i| make(uuid::Uuid::new_v4().to_string(), i))
+        .collect();
+    let new_ids: Vec<_> = second.iter().take(7).map(|v| v.id.clone()).collect();
+    second[7].id = ids[0].clone(); // The wire has another ID/hash: immutable peer conflict.
+    assert!(
+        p.a.enqueue_variants("s@example.org".into(), second)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        p.a.read(|db| Ok(
+            db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?
+        ))
+        .await
+        .unwrap(),
+        8
+    );
+    for id in &new_ids {
+        assert!(!p.a.raw_path(id).exists());
+    }
+    assert!(
+        p.b.claim().await.unwrap().is_none(),
+        "unconfirmed candidates never acquire delivery ownership"
+    );
+    // Confirm and recover the accepted batch without reclassification.
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let delivered =
+        p.b.read(|db| {
+            Ok(db.query_row(
+                "SELECT COUNT(*) FROM ha_remote WHERE generation>0",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(delivered, 8);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn smtp_accepts_eight_scoped_policies_as_one_replicated_transaction() {
+    use noisefence::{
+        custom_filtering::{Condition, Field, Operator, Ordering, Policy, Rule},
+        engine::Engine,
+        relay, smtp,
+    };
+    use tokio::io::{AsyncWriteExt, BufReader};
+    let p = pair().await;
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let mut cfg = (*p.config).clone();
+    cfg.domains[0].accept_all_recipients = true;
+    let addresses: Vec<_> = (0..8).map(|i| format!("r{i}@example.test")).collect();
+    cfg.custom_filtering = Some(Policy {
+        ordering: Ordering::Scoped,
+        rules: addresses
+            .iter()
+            .enumerate()
+            .map(|(i, address)| Rule {
+                id: format!("rule-{i}"),
+                name: format!("Recipient {i}"),
+                enabled: true,
+                priority: 0,
+                scope: address.clone(),
+                expires: None,
+                any: false,
+                conditions: vec![Condition {
+                    field: Field::Recipient,
+                    op: Operator::Equals,
+                    value: address.clone(),
+                }],
+                category: Some(noisefence::mailing::Category::Publicity),
+                action: None,
+                stop: false,
+            })
+            .collect(),
+        ..Default::default()
+    });
+    cfg.validate().unwrap();
+    let cfg = Arc::new(cfg);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop, rx) = tokio::sync::watch::channel(false);
+    let state = smtp::State {
+        config: cfg.clone(),
+        store: p.a.clone(),
+        engine: Arc::new(Engine::new(cfg).unwrap()),
+        processing: Arc::new(tokio::sync::Semaphore::new(1)),
+    };
+    let task = tokio::spawn(smtp::serve(listener, state, rx));
+    let mut io: smtp::Wire = BufReader::new(Box::new(
+        tokio::net::TcpStream::connect(address).await.unwrap(),
+    ));
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 220);
+    for command in ["EHLO example.org\r\n", "MAIL FROM:<sender@example.org>\r\n"] {
+        smtp::reply(&mut io, command).await.unwrap();
+        assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    }
+    for address in &addresses {
+        smtp::reply(&mut io, &format!("RCPT TO:<{address}>\r\n"))
+            .await
+            .unwrap();
+        assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    }
+    smtp::reply(&mut io, "DATA\r\n").await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 354);
+    io.write_all(common::MESSAGE).await.unwrap();
+    io.write_all(b".\r\n").await.unwrap();
+    io.flush().await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    let rows=p.a.read(|db|Ok(db.prepare("SELECT m.id,m.scan,d.address FROM messages m JOIN deliveries d ON d.message_id=m.id ORDER BY d.address")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)).await.unwrap();
+    assert_eq!(rows.len(), 8);
+    for ((id, json, address), expected) in rows.iter().zip(&addresses) {
+        assert_eq!(address, expected);
+        let scan: engine::Scan = serde_json::from_str(json).unwrap();
+        let record = scan.recipient_decision.unwrap();
+        assert_eq!(
+            record.assessment.category,
+            noisefence::mailing::Category::Publicity
+        );
+        assert_eq!(record.policy_trace.unwrap().rules.len(), 1);
+        let raw = std::fs::read(p.a.raw_path(id)).unwrap();
+        assert_eq!(
+            raw,
+            std::fs::read(ha::replica::body_path(&p.b, "mx1", id)).unwrap()
+        );
+        assert_eq!(
+            noisefence::message::fields(&raw).unwrap().1,
+            noisefence::message::fields(common::MESSAGE).unwrap().1
+        );
+    }
+    drop(io);
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+}

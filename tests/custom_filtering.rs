@@ -379,7 +379,7 @@ async fn durable_batch_rolls_back_every_variant_and_preserves_existing_spool() {
     let mk = |id: String| QueueVariant {
         id,
         scan: scan(),
-        raw: common::MESSAGE.to_vec(),
+        raw: common::MESSAGE.to_vec().into(),
         recipients: vec![(cfg.recipient("alice@example.test").unwrap(), None)],
     };
     store

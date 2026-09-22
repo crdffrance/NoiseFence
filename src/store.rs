@@ -17,7 +17,7 @@ use std::{
 pub struct QueueVariant {
     pub id: String,
     pub scan: Scan,
-    pub raw: Vec<u8>,
+    pub raw: crate::queue_body::WireBody,
     pub recipients: Vec<(Recipient, Option<crate::custom_filtering::Assessment>)>,
 }
 
@@ -289,7 +289,7 @@ impl Store {
             vec![QueueVariant {
                 id,
                 scan,
-                raw,
+                raw: raw.into(),
                 recipients: recipients.into_iter().map(|r| (r, None)).collect(),
             }],
         )
@@ -301,11 +301,40 @@ impl Store {
         sender: String,
         variants: Vec<QueueVariant>,
     ) -> Result<()> {
+        self.enqueue_variants_with_reserve(sender, variants, 0)
+            .await
+    }
+    pub async fn enqueue_variants_with_reserve(
+        &self,
+        sender: String,
+        variants: Vec<QueueVariant>,
+        minimum_free_bytes: u64,
+    ) -> Result<()> {
         ensure!(
-            !variants.is_empty() && variants.len() <= 6,
+            !variants.is_empty() && variants.len() <= crate::queue_body::MAX_VARIANTS,
             "invalid queue batch"
         );
+        let mut budget = crate::queue_body::Budget::default();
+        let mut recipients = 0usize;
+        let mut required = minimum_free_bytes;
+        let mut ids = std::collections::HashSet::new();
         for v in &variants {
+            ensure!(ids.insert(&v.id), "duplicate queue identifier");
+            ensure!(
+                !v.recipients.is_empty()
+                    && v.recipients.len() <= crate::queue_body::MAX_RECIPIENTS_PER_VARIANT,
+                "invalid variant recipient count"
+            );
+            recipients += v.recipients.len();
+            ensure!(
+                recipients <= crate::queue_body::MAX_VARIANTS,
+                "queue recipient capacity exceeded"
+            );
+            budget.metadata(&(&v.scan, &v.recipients))?;
+            budget.headers(&v.raw)?;
+            required = required
+                .checked_add(v.raw.len() as u64)
+                .ok_or_else(|| anyhow::anyhow!("queue size overflow"))?;
             ensure!(
                 !v.id.is_empty()
                     && v.id.len() <= 100
@@ -322,6 +351,10 @@ impl Store {
                 );
             }
         }
+        ensure!(
+            available_bytes(&self.root)? >= required,
+            "insufficient space for complete queue batch"
+        );
         crate::ha::replica::prepare(self, &sender, &variants).await?;
         let root = self.root.clone();
         let db = self.db.clone();
@@ -329,10 +362,11 @@ impl Store {
         tokio::task::spawn_blocking(move || -> Result<()> {
             let mut written=Vec::new();
             let result=(|| -> Result<()> {
+                ensure!(available_bytes(&root)? >= required,"insufficient space for complete queue batch");
                 for v in &variants {
                     let path=root.join("spool").join(format!("{}.eml",v.id));
                     let mut f=OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
-                    written.push(path); f.write_all(&v.raw)?; f.sync_all()?;
+                    written.push(path); v.raw.write_to(&mut f)?; f.sync_all()?;
                 }
                 File::open(root.join("spool"))?.sync_all()?;
                 let mut db=db.lock().map_err(|_|anyhow::anyhow!("database lock poisoned"))?;

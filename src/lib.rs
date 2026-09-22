@@ -65,6 +65,7 @@ pub mod management;
 pub mod message_context;
 pub mod policy_trace;
 pub mod preferences;
+pub mod queue_body;
 
 pub mod reliability;
 

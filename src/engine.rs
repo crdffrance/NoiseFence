@@ -1193,7 +1193,7 @@ impl Engine {
             )
             .await?;
         let variant = variants.remove(0);
-        Ok((variant.scan, variant.raw))
+        Ok((variant.scan, variant.raw.to_vec()))
     }
     pub(crate) async fn process_smtp(
         &self,
@@ -1647,55 +1647,67 @@ impl Engine {
             if let Some(report) = context.3 {
                 report.attach(&mut scan);
             }
-            self.variants(raw, &scan, sender, id, context.2, |scan, variant_id| {
-                let subject_tag = if scan
-                    .action
-                    .as_ref()
-                    .is_some_and(|a| a.effective == crate::actions::Action::Tag)
-                {
-                    match crate::mailing::category(scan, self.config.filter.threshold) {
-                        crate::mailing::Category::Spam => Some(message::SubjectTag::Spam),
-                        crate::mailing::Category::Publicity => Some(message::SubjectTag::Publicity),
-                        _ => None,
+            Ok::<_, anyhow::Error>(self.variants(
+                raw,
+                &scan,
+                sender,
+                id,
+                context.2,
+                |scan, variant_id| {
+                    let subject_tag = if scan
+                        .action
+                        .as_ref()
+                        .is_some_and(|a| a.effective == crate::actions::Action::Tag)
+                    {
+                        match crate::mailing::category(scan, self.config.filter.threshold) {
+                            crate::mailing::Category::Spam => Some(message::SubjectTag::Spam),
+                            crate::mailing::Category::Publicity => {
+                                Some(message::SubjectTag::Publicity)
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    let tag = subject_tag == Some(message::SubjectTag::Spam);
+                    let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
+                    // If the chain cannot be extended, preserve the signed subject and fail open.
+                    if (tag || pub_tag) && !arc.can_be_sealed() {
+                        anyhow::bail!("ARC chain cannot be extended");
                     }
-                } else {
-                    None
-                };
-                let tag = subject_tag == Some(message::SubjectTag::Spam);
-                let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
-                // If the chain cannot be extended, preserve the signed subject and fail open.
-                if (tag || pub_tag) && !arc.can_be_sealed() {
-                    anyhow::bail!("ARC chain cannot be extended");
-                }
-                scan.tagged = tag;
-                scan.pub_tagged = pub_tag;
-                crate::decision_record::record_subject_tag(scan);
-                let mut bytes = message::rewrite_with_tag(
-                    raw,
-                    subject_tag,
-                    &format!(
-                        "{}{}",
-                        self.headers(ip, variant_id, scan, context.3),
-                        results.to_header()
-                    ),
-                )?;
-                if let Some(key) = &self.arc_key
-                    && arc.can_be_sealed()
-                {
-                    let changed =
-                        AuthenticatedMessage::parse(&bytes).context("modified message parse")?;
-                    let signature = ArcSealer::from_key(rsa_key(key)?)
-                        .domain(self.config.filter.arc_domain.as_deref().unwrap())
-                        .selector(self.config.filter.arc_selector.as_deref().unwrap())
-                        .headers(crate::scan_headers::signed_fields())
-                        .seal(&changed, &results, &arc)?;
-                    bytes = [signature.to_header().as_bytes(), &bytes].concat();
-                }
-                Ok(bytes)
-            })
+                    scan.tagged = tag;
+                    scan.pub_tagged = pub_tag;
+                    crate::decision_record::record_subject_tag(scan);
+                    let mut bytes = message::rewrite_with_tag(
+                        raw,
+                        subject_tag,
+                        &format!(
+                            "{}{}",
+                            self.headers(ip, variant_id, scan, context.3),
+                            results.to_header()
+                        ),
+                    )?;
+                    if let Some(key) = &self.arc_key
+                        && arc.can_be_sealed()
+                    {
+                        let changed = AuthenticatedMessage::parse(&bytes)
+                            .context("modified message parse")?;
+                        let signature = ArcSealer::from_key(rsa_key(key)?)
+                            .domain(self.config.filter.arc_domain.as_deref().unwrap())
+                            .selector(self.config.filter.arc_selector.as_deref().unwrap())
+                            .headers(crate::scan_headers::signed_fields())
+                            .seal(&changed, &results, &arc)?;
+                        bytes = [signature.to_header().as_bytes(), &bytes].concat();
+                    }
+                    Ok(bytes)
+                },
+            ))
         };
         match tokio::time::timeout(Duration::from_secs(5), work).await {
-            Ok(Ok(mut variants)) => {
+            Ok(Ok(variants)) => {
+                // Rendering/capacity errors are SMTP deferrals, not missing
+                // detector evidence and not a reason to rescore the message.
+                let mut variants = variants?;
                 for v in &mut variants {
                     v.scan.elapsed_ms = started.elapsed().as_millis() as u64;
                 }
@@ -1723,10 +1735,45 @@ impl Engine {
         sender: &str,
         id: &str,
         recipients: &[crate::config::Recipient],
+        render: impl FnMut(&mut Scan, &str) -> Result<Vec<u8>>,
+    ) -> Result<Vec<crate::store::QueueVariant>> {
+        // Signing and rendering a large fan-out must not monopolize a Tokio
+        // worker. Borrowed authenticated headers remain valid inside this scope.
+        let work = || self.variants_inner(raw, scan, sender, id, recipients, render);
+        if tokio::runtime::Handle::try_current()
+            .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
+        {
+            tokio::task::block_in_place(work)
+        } else {
+            work()
+        }
+    }
+    fn variants_inner(
+        &self,
+        raw: &[u8],
+        scan: &Scan,
+        sender: &str,
+        id: &str,
+        recipients: &[crate::config::Recipient],
         mut render: impl FnMut(&mut Scan, &str) -> Result<Vec<u8>>,
     ) -> Result<Vec<crate::store::QueueVariant>> {
         use crate::store::QueueVariant;
+        anyhow::ensure!(
+            recipients.len() <= self.config.smtp.max_recipients
+                && recipients.len() <= crate::queue_body::MAX_VARIANTS,
+            "too many queue recipients"
+        );
         let mut variants: Vec<QueueVariant> = Vec::new();
+        let render_started = Instant::now();
+        let mut budget = crate::queue_body::Budget::default();
+        let mut groups = std::collections::HashMap::<String, usize>::new();
+        let payload = (!recipients.is_empty())
+            .then(|| crate::queue_body::WireBody::shared_payload(raw))
+            .transpose()?;
+        let pack = |wire| match &payload {
+            Some(body) => crate::queue_body::WireBody::with_shared_payload(wire, body),
+            None => Ok(crate::queue_body::WireBody::from(wire)),
+        };
         let mut base = scan.clone();
         crate::decision_record::record_analysis(&mut base, &self.config);
         base.action = Some(crate::actions::evaluate(scan, &self.config));
@@ -1744,6 +1791,10 @@ impl Engine {
             let policy = self.config.custom_filtering.as_ref().unwrap_or(&empty);
             let common_prepared = crate::custom_filtering::Prepared::new(policy, &facts);
             for recipient in recipients {
+                anyhow::ensure!(
+                    render_started.elapsed() < Duration::from_secs(30),
+                    "queue render capacity deadline exceeded"
+                );
                 let effective = self.config.preferences.policy(policy, recipient);
                 let own_prepared = match &effective {
                     std::borrow::Cow::Owned(p) => {
@@ -1771,19 +1822,29 @@ impl Engine {
                     Some(&assessment),
                     recorded_at,
                 );
-                if let Some(v) = variants.iter_mut().find(|v| {
-                    v.scan.recipient_decision.as_ref().map(|d| &d.policy_sha256)
-                        == s.recipient_decision.as_ref().map(|d| &d.policy_sha256)
+                budget.metadata(&(recipient, &assessment))?;
+                let key = s
+                    .recipient_decision
+                    .as_ref()
+                    .expect("recorded recipient")
+                    .policy_sha256
+                    .clone();
+                if let Some(index) = groups.get(&key).copied().filter(|i| {
+                    variants[*i].recipients.len() < crate::queue_body::MAX_RECIPIENTS_PER_VARIANT
                 }) {
-                    v.recipients.push((recipient.clone(), Some(assessment)));
+                    variants[index]
+                        .recipients
+                        .push((recipient.clone(), Some(assessment)));
                 } else {
-                    anyhow::ensure!(variants.len() < 6, "too many policy wire variants");
+                    budget.metadata(&s)?;
                     let variant_id = if variants.is_empty() {
                         id.to_owned()
                     } else {
                         uuid::Uuid::new_v4().to_string()
                     };
-                    let wire = render(&mut s, &variant_id)?;
+                    let wire = pack(render(&mut s, &variant_id)?)?;
+                    budget.headers(&wire)?;
+                    groups.insert(key, variants.len());
                     variants.push(QueueVariant {
                         id: variant_id,
                         scan: s,
@@ -1794,13 +1855,37 @@ impl Engine {
             }
         } else {
             crate::decision_record::record_recipient(&mut base, &self.config, None, recorded_at);
-            let wire = render(&mut base, id)?;
-            variants.push(QueueVariant {
-                id: id.into(),
-                scan: base,
-                raw: wire,
-                recipients: recipients.iter().cloned().map(|r| (r, None)).collect(),
-            });
+            let chunks: Vec<_> = if recipients.is_empty() {
+                vec![recipients]
+            } else {
+                recipients
+                    .chunks(crate::queue_body::MAX_RECIPIENTS_PER_VARIANT)
+                    .collect()
+            };
+            for chunk in chunks {
+                anyhow::ensure!(
+                    render_started.elapsed() < Duration::from_secs(30),
+                    "queue render capacity deadline exceeded"
+                );
+                let mut s = base.clone();
+                if recipients.len() > crate::queue_body::MAX_RECIPIENTS_PER_VARIANT {
+                    s.transaction_id = Some(id.into());
+                }
+                let variant_id = if variants.is_empty() {
+                    id.to_owned()
+                } else {
+                    uuid::Uuid::new_v4().to_string()
+                };
+                budget.metadata(&(&s, chunk))?;
+                let wire = pack(render(&mut s, &variant_id)?)?;
+                budget.headers(&wire)?;
+                variants.push(QueueVariant {
+                    id: variant_id,
+                    scan: s,
+                    raw: wire,
+                    recipients: chunk.iter().cloned().map(|r| (r, None)).collect(),
+                });
+            }
         }
         Ok(variants)
     }
@@ -1860,6 +1945,140 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn more_than_six_distinct_policies_share_the_body_without_merging_receipts() {
+        use crate::custom_filtering::{Binding, Ordering, Policy, Profile};
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.smtp.max_recipients = 1000;
+        cfg.domains[0].accept_all_recipients = true;
+        let recipients: Vec<_> = (0..1000)
+            .map(|i| cfg.recipient(&format!("r{i}@example.test")).unwrap())
+            .collect();
+        cfg.custom_filtering = Some(Policy {
+            ordering: Ordering::Scoped,
+            profiles: vec![Profile {
+                id: "same".into(),
+                name: "Same actions".into(),
+                threshold: Some(99.),
+                require_corroboration: true,
+                spam: crate::actions::Action::Deliver,
+                publicity: crate::actions::Action::Deliver,
+                review: crate::actions::Action::Deliver,
+                quarantine_days: 7,
+            }],
+            bindings: recipients
+                .iter()
+                .map(|r| Binding {
+                    scope: r.address.clone(),
+                    profile: "same".into(),
+                })
+                .collect(),
+            ..Default::default()
+        });
+        let engine = Engine::new(Arc::new(cfg)).unwrap();
+        let raw = b"Subject: test\r\n\r\nunchanged body\r\n";
+        let scan = Scan {
+            score: 1.,
+            complete: true,
+            features_complete: Some(true),
+            ..Default::default()
+        };
+        let variants = engine
+            .variants(
+                raw,
+                &scan,
+                "s@example.org",
+                "fixture",
+                &recipients,
+                |scan, id| {
+                    message::rewrite(
+                        raw,
+                        false,
+                        &engine.headers("192.0.2.1".parse().unwrap(), id, scan, None),
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 1000);
+        let body = variants[0].raw.payload_identity();
+        let hashes = variants
+            .iter()
+            .map(|v| {
+                v.scan
+                    .recipient_decision
+                    .as_ref()
+                    .unwrap()
+                    .policy_sha256
+                    .clone()
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(hashes.len(), 1000);
+        for (v, r) in variants.iter().zip(&recipients) {
+            assert_eq!(v.raw.payload_identity(), body);
+            assert_eq!(v.recipients.len(), 1);
+            assert_eq!(v.recipients[0].0.address, r.address);
+            assert!(
+                v.scan
+                    .recipient_decision
+                    .as_ref()
+                    .unwrap()
+                    .policy_trace
+                    .as_ref()
+                    .unwrap()
+                    .profiles
+                    .iter()
+                    .any(|p| p.scope == r.address)
+            );
+            let wire = v.raw.to_vec();
+            assert_eq!(
+                message::fields(&wire).unwrap().1,
+                message::fields(raw).unwrap().1
+            );
+            assert!(!String::from_utf8_lossy(&wire).contains("@example.test"));
+        }
+    }
+    #[test]
+    fn identical_policies_split_at_the_existing_replica_recipient_bound() {
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.smtp.max_recipients = 1000;
+        cfg.domains[0].accept_all_recipients = true;
+        let recipients: Vec<_> = (0..1000)
+            .map(|i| cfg.recipient(&format!("r{i}@example.test")).unwrap())
+            .collect();
+        let engine = Engine::new(Arc::new(cfg)).unwrap();
+        let raw = b"Subject: test\r\n\r\nbody\r\n";
+        let scan = Scan {
+            score: 1.,
+            complete: true,
+            ..Default::default()
+        };
+        let variants = engine
+            .variants(
+                raw,
+                &scan,
+                "s@example.org",
+                "fixture",
+                &recipients,
+                |scan, id| {
+                    message::rewrite(
+                        raw,
+                        false,
+                        &engine.headers("192.0.2.1".parse().unwrap(), id, scan, None),
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 10);
+        assert!(
+            variants.iter().all(|v| v.recipients.len() == 100
+                && v.scan.transaction_id.as_deref() == Some("fixture"))
+        );
+        assert!(
+            variants
+                .iter()
+                .all(|v| v.raw.payload_identity() == variants[0].raw.payload_identity())
+        );
+    }
+    #[test]
     fn fallback_wire_copy_cannot_claim_a_requested_tag_was_applied() {
         use crate::actions::{Action, Policy};
         let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
@@ -1912,13 +2131,14 @@ mod tests {
                 .contains(&crate::action_coverage::Requirement::SubjectRewrite)
         );
         assert!(!variant.scan.tagged);
-        let wire = String::from_utf8_lossy(&variant.raw);
+        let raw_copy = variant.raw.to_vec();
+        let wire = String::from_utf8_lossy(&raw_copy);
         assert!(wire.contains("Subject: Original subject\r\n"));
         assert!(wire.contains("X-NoiseFence-Action-Requested: tag\r\n"));
         assert!(wire.contains("X-NoiseFence-Action-Effective: deliver\r\n"));
         assert!(wire.contains("missing=subject_rewrite;"));
         assert_eq!(
-            message::fields(&variant.raw).unwrap().1,
+            message::fields(&raw_copy).unwrap().1,
             message::fields(raw).unwrap().1
         );
     }
@@ -1990,9 +2210,11 @@ mod tests {
                 "test",
                 &recipients,
                 |scan, id| {
-                    Ok(engine
-                        .headers("192.0.2.1".parse().unwrap(), id, scan, None)
-                        .into_bytes())
+                    message::rewrite(
+                        b"Subject: x\r\n\r\nbody",
+                        false,
+                        &engine.headers("192.0.2.1".parse().unwrap(), id, scan, None),
+                    )
                 },
             )
             .unwrap();
@@ -2006,7 +2228,7 @@ mod tests {
                 record.assessment.action.as_ref().unwrap().effective,
                 expected
             );
-            let wire = String::from_utf8(copy.raw.clone())
+            let wire = String::from_utf8(copy.raw.to_vec())
                 .unwrap()
                 .replace("\r\n\t", " ");
             let value = serde_json::to_value(expected).unwrap();

@@ -383,15 +383,7 @@ async fn session(
                     continue;
                 }
                 if available_bytes(&state.store.root)?
-                    < cfg.smtp.minimum_free_bytes
-                        + cfg.smtp.max_message_bytes as u64
-                            * if cfg.custom_filtering.is_some()
-                                || !cfg.preferences.mailboxes.is_empty()
-                            {
-                                6
-                            } else {
-                                1
-                            }
+                    < cfg.smtp.minimum_free_bytes + cfg.smtp.max_message_bytes as u64
                 {
                     reply(&mut io, "452 4.3.1 Insufficient storage\r\n").await?;
                     continue;
@@ -670,7 +662,14 @@ async fn session(
                                 }),
                             }
                         });
-                        let accepted = state.store.enqueue_variants(sender, variants).await;
+                        let accepted = state
+                            .store
+                            .enqueue_variants_with_reserve(
+                                sender,
+                                variants,
+                                cfg.smtp.minimum_free_bytes,
+                            )
+                            .await;
                         if let Some(ticket) = comparison.filter(|_| accepted.is_ok()) {
                             ticket.commit(ids);
                         }
