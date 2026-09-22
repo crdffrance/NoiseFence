@@ -385,7 +385,13 @@ async fn session(
                 if available_bytes(&state.store.root)?
                     < cfg.smtp.minimum_free_bytes
                         + cfg.smtp.max_message_bytes as u64
-                            * if cfg.custom_filtering.is_some() { 6 } else { 1 }
+                            * if cfg.custom_filtering.is_some()
+                                || !cfg.preferences.mailboxes.is_empty()
+                            {
+                                6
+                            } else {
+                                1
+                            }
                 {
                     reply(&mut io, "452 4.3.1 Insufficient storage\r\n").await?;
                     continue;

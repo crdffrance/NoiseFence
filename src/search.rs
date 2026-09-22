@@ -261,7 +261,7 @@ fn terms_for_column(column: &str, text: &str) -> String {
 }
 // Same numeric value as the console, including partial scores; a missing score
 // does not become zero, and an antivirus verdict is not a probability.
-const SCORE: &str = "(CASE WHEN COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' AND json_type(m.scan,'$.decision.score') IN ('real','integer') AND json_extract(m.scan,'$.decision.score') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.decision.score') WHEN json_type(m.scan,'$.score') IN ('real','integer') AND json_extract(m.scan,'$.score') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.score') END)";
+const SCORE: &str = "(CASE WHEN json_type(m.scan,'$.recipient_decision')='object' THEN json_extract(m.scan,'$.recipient_decision.assessment.score.value') WHEN COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' AND json_type(m.scan,'$.decision.score') IN ('real','integer') AND json_extract(m.scan,'$.decision.score') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.decision.score') WHEN COALESCE(json_extract(m.scan,'$.features_complete'),1)!=0 AND NOT COALESCE(json_type(m.scan,'$.score_resolution')='object' AND json_type(m.scan,'$.score_resolution.score')='null',0) AND json_type(m.scan,'$.score') IN ('real','integer') AND json_extract(m.scan,'$.score') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.score') END)";
 
 pub(crate) fn migrate(db: &Connection) -> Result<()> {
     let exists: bool = db.query_row(

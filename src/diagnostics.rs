@@ -37,6 +37,8 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub assessment: crate::assessment::Assessment,
+    pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     pub score_resolution: Option<crate::decision::ScoreResolution>,
     pub rspamd: Option<crate::rspamd::Report>,
     pub native_filter: Option<crate::native_filter::Report>,
@@ -56,6 +58,8 @@ impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
         let score_breakdown = crate::detection_diagnostics::breakdown(&scan);
         Self {
+            assessment: crate::assessment::historical(&scan),
+            recipient_decision: scan.recipient_decision,
             rspamd: scan.rspamd.clone().map(crate::rspamd::Report::visible),
             score_resolution: scan.score_resolution,
             native_filter: scan.native_filter.map(|observation| observation.report),
@@ -126,8 +130,8 @@ impl Store {
         username: String,
         id: String,
         delivery_id: Option<i64>,
-        resolve_uncertain_by_score: bool,
-        threshold: f64,
+        _resolve_uncertain_by_score: bool,
+        _threshold: f64,
     ) -> Result<Option<MessageDiagnostics>> {
         self.read(move |db| {
             // The same read snapshot checks both message visibility and every
@@ -137,8 +141,7 @@ impl Store {
                 params![id, username, now()-30*86400,delivery_id], |r| r.get(0),
             ).optional()?;
             let Some(scan) = scan else { return Ok(None) };
-            let mut scan = serde_json::from_str::<Scan>(&scan)?;
-            crate::decision::project_history(&mut scan, resolve_uncertain_by_score, threshold);
+            let scan = serde_json::from_str::<Scan>(&scan)?;
             let analysis = scan.into();
             let mut query = db.prepare("SELECT d.id,d.address,d.destination,d.status,d.attempts,d.next_attempt,NULLIF(d.error,''),(SELECT COUNT(*) FROM delivery_attempts a WHERE a.delivery_id=d.id) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3 IS NULL OR d.id=?3) ORDER BY d.id")?;
             let mut recipients = query.query_map(params![id,username,delivery_id], |r| Ok(RecipientDiagnostics {

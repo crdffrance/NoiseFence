@@ -7,6 +7,12 @@ use std::net::IpAddr;
 pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Id",
     "X-NoiseFence-Header-Version",
+    "X-NoiseFence-Record-Version",
+    "X-NoiseFence-Classification",
+    "X-NoiseFence-Coverage",
+    "X-NoiseFence-Policy-SHA256",
+    "X-NoiseFence-Action-Requested",
+    "X-NoiseFence-Action-Effective",
     "X-NoiseFence-Version",
     "X-NoiseFence-Mode",
     "X-NoiseFence-Score",
@@ -175,6 +181,30 @@ pub(crate) fn render(
         mail_parser::DateTime::from_timestamp(crate::now()).to_rfc822()
     ));
     let report = assessment::assess(scan, config.filter.threshold);
+    if let Some(record) = &scan.recipient_decision {
+        h.field("X-NoiseFence-Record-Version", record.version.to_string());
+        h.field("X-NoiseFence-Classification", word(&record.classification));
+        h.field("X-NoiseFence-Coverage", word(&record.coverage));
+        h.field("X-NoiseFence-Policy-SHA256", &record.policy_sha256);
+        if let Some(action) = &report.action {
+            h.field("X-NoiseFence-Action-Requested", word(&action.requested));
+            h.field("X-NoiseFence-Action-Effective", word(&action.effective));
+        } else {
+            h.field("X-NoiseFence-Action-Requested", "not_recorded");
+            h.field("X-NoiseFence-Action-Effective", "not_recorded");
+        }
+    } else {
+        for name in [
+            "X-NoiseFence-Record-Version",
+            "X-NoiseFence-Classification",
+            "X-NoiseFence-Coverage",
+            "X-NoiseFence-Policy-SHA256",
+            "X-NoiseFence-Action-Requested",
+            "X-NoiseFence-Action-Effective",
+        ] {
+            h.field(name, "not_recorded");
+        }
+    }
     if let Some(r) = &report.score_resolution {
         h.field(
             "X-NoiseFence-Score-Resolution",
@@ -201,9 +231,12 @@ pub(crate) fn render(
     );
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "3");
+    h.field("X-NoiseFence-Header-Version", "4");
     h.field("X-NoiseFence-Version", env!("CARGO_PKG_VERSION"));
-    h.field("X-NoiseFence-Mode", word(&config.filter.mode));
+    h.field(
+        "X-NoiseFence-Mode",
+        word(&report.mode.unwrap_or(config.filter.mode)),
+    );
     h.field("X-NoiseFence-Score", number(report.score.value));
     h.field("X-NoiseFence-Score-Type", word(&report.score.kind));
     h.field("X-NoiseFence-Score-Source", word(&report.score.source));
@@ -272,7 +305,7 @@ pub(crate) fn render(
         "X-NoiseFence-Analysis",
         format!(
             "complete={}; elapsed-ms={};",
-            yes(scan.complete),
+            yes(report.complete),
             scan.elapsed_ms
         ),
     );
@@ -751,7 +784,7 @@ mod contract_tests {
                 ("X-NoiseFence-Score-Type", word(&report.score.kind)),
                 ("X-NoiseFence-Category", report.category.as_str().into()),
                 ("X-NoiseFence-Subject-Tag", "none".into()),
-                ("X-NoiseFence-Header-Version", "3".into()),
+                ("X-NoiseFence-Header-Version", "4".into()),
                 (
                     "X-NoiseFence-Status",
                     if s.complete { "complete" } else { "incomplete" }.into(),

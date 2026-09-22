@@ -1,4 +1,4 @@
-import { coveragePresentation } from './assessment';
+import { coveragePresentation, receiptAssessment } from './assessment';
 import { ScoreMeter } from './brand';
 import { scorePresentation, type ScoreInput } from './presentation';
 
@@ -25,6 +25,8 @@ export function MessageScore({
 export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
   const score = scorePresentation(mail);
   const coverage = coveragePresentation(mail);
+  const assessment = receiptAssessment(mail);
+  const record = mail.recipient_decision?.version === 1 ? mail.recipient_decision : null;
   return (
     <div className={`message-score-details ${score.kind}`}>
       <div className="score-large">
@@ -38,9 +40,12 @@ export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
       <p className="score-explanation">{score.detail}</p>
       <div className="assessment-facts">
         <span title={coverage.detail} className={`status ${coverage.complete && !coverage.hasGaps ? 'good' : 'review'}`}>{coverage.label}</span>
-        {mail.assessment?.content_threshold != null && <span>Recorded content threshold: <strong>{mail.assessment.content_threshold.toFixed(1)} / 100</strong></span>}
-        {mail.assessment?.classification_source === 'historical_fallback' && <span>Historical classification reconstructed</span>}
+        {assessment?.content_threshold != null && <span>Recorded policy threshold: <strong>{assessment.content_threshold.toFixed(1)} / 100</strong></span>}
+        {assessment?.classification_source === 'historical_fallback' && <span>{assessment.content_threshold == null ? 'Original policy not recorded' : 'Historical classification reconstructed'}</span>}
+        {record && <span>Receipt policy: <code title={record.policy_sha256}>{record.policy_sha256.slice(0, 12)}</code></span>}
+        {record?.profile && <span>Profile: <strong>{record.profile}</strong></span>}
       </div>
+      {record && assessment?.action && <p className="score-explanation">Requested action: {assessment.action.requested}. Effective action: {assessment.action.effective}. Reason: {assessment.action.reason.replaceAll('_', ' ')}. This decision is preserved when settings change.</p>}
       {coverage.hasGaps && <p className="score-explanation">{coverage.detail}</p>}
     </div>
   );

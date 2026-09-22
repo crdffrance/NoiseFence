@@ -8,6 +8,7 @@ pub mod config;
 pub mod confirmation;
 pub mod corpus;
 pub mod decision;
+pub mod decision_record;
 pub mod delivery_log;
 pub mod detection_diagnostics;
 pub mod diagnostics;

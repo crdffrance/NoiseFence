@@ -64,6 +64,13 @@ pub struct Applied {
 }
 
 pub fn evaluate(scan: &Scan, config: &Config) -> Applied {
+    if let Some(action) = scan
+        .recipient_decision
+        .as_ref()
+        .and_then(|r| r.assessment.action.as_ref())
+    {
+        return action.clone();
+    }
     let policy = Policy::from_config(config);
     let malware = scan.antivirus.status == AntivirusStatus::Malware;
     let requested = if malware {
@@ -75,17 +82,44 @@ pub fn evaluate(scan: &Scan, config: &Config) -> Applied {
             _ => Action::Deliver,
         }
     };
+    constrain(
+        scan,
+        config,
+        crate::mailing::category(scan, config.filter.threshold),
+        requested,
+        policy.quarantine_days,
+        if malware {
+            "malware_priority"
+        } else {
+            "category"
+        },
+    )
+}
+
+/// The common operational restrictions for global and scoped policies.
+pub fn constrain(
+    scan: &Scan,
+    config: &Config,
+    category: Category,
+    requested: Action,
+    quarantine_days: u16,
+    requested_reason: &str,
+) -> Applied {
+    let malware = scan.antivirus.status == AntivirusStatus::Malware;
     let (effective, reason) = if config.filter.mode == Mode::Observe {
         (Action::Deliver, "observation")
     } else if !scan.complete && !(malware && requested == Action::Quarantine) {
         (Action::Deliver, "incomplete")
+    } else if requested == Action::Tag && !matches!(category, Category::Spam | Category::Publicity)
+    {
+        (Action::Deliver, "category_without_prefix")
     } else {
-        (requested, "category")
+        (requested, requested_reason)
     };
     Applied {
         requested,
         effective,
         reason: reason.into(),
-        quarantine_days: policy.quarantine_days,
+        quarantine_days,
     }
 }

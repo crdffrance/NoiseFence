@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Unified receipt decisions (work in progress)
+
+- Persist versioned analysis and recipient-decision snapshots before rendering SMTP copies. Preserve policy thresholds, requested/effective actions and coverage across configuration changes, queue replication and restoration.
+- Share action constraints between global and scoped policies. Split copies with different effective policies instead of merging incompatible delivery and quarantine headers.
+- Make history, search and statistics preserve receipt-time decisions; original policy absence remains explicit. Add version 4 headers and English console details for the canonical record.
+- Preserve observation, existing action safety gates and bounded wire variants. Evidence normalization, full-pipeline calibration and coordinated rollout remain pending; no detection-rate claim or production activation.
+
 ## 0.27.0 — Evidence grounding and release qualification
 
 - Assign bounded text references in Rust and validate the LLM's declared evidence against message context and observed authentication/domain facts. Keep unsupported claims out of scoring, definite opinions, fusion and backscatter corroboration; expose the diagnostic in the console and signed headers. Reference consistency does not prove semantic correctness; expose fixed response-limit/schema diagnostics without retaining provider bodies.

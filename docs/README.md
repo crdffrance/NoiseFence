@@ -50,5 +50,7 @@
 - [Research protocols](../research/README.md)
 - [Contributing](../CONTRIBUTING.md)
 
-- [Automatic classification](automatic-classification.md): explicit score-threshold policy and historical projections.
+- [Automatic classification](automatic-classification.md): explicit score-threshold policy and immutable history.
 - [Final release qualification](final-release-plan.md): evidence, calibration, coherence and release gates.
+
+- [Unified receipt decisions](unified-decisions.md): canonical records, policy variants and remaining qualification work.

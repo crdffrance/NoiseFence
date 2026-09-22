@@ -35,33 +35,10 @@ fn restore_score_resolution(scan: &mut Scan) {
     scan.reasons.retain(|r| r.id != SCORE_RESOLUTION_REASON);
 }
 
-/// SQL projection for the same opt-in historical classification used by the
-/// console. Only fixed SQL and a caller-owned threshold placeholder are used.
-/// Access-control predicates and stored decisions/actions remain unchanged.
-pub(crate) fn project_sql(sql: &str, threshold: &str) -> String {
-    let outcome = "json_extract(m.scan,'$.decision.outcome')";
-    let category = "json_extract(m.scan,'$.delivery_classification')";
-    let recorded_threshold = format!(
-        "COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,{threshold})"
-    );
-    let selected = format!(
-        "CASE WHEN COALESCE(json_extract(m.scan,'$.features_complete'),1)!=0 AND json_extract(m.scan,'$.score') BETWEEN 0 AND 100 AND json_extract(m.scan,'$.score')>={recorded_threshold} THEN 'unwanted' ELSE 'legitimate' END"
-    );
-    let resolved = format!(
-        "CASE WHEN COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' AND (COALESCE({outcome}='undetermined',json_extract(m.scan,'$.complete')=0) OR {category}='undetermined') THEN {selected} ELSE {outcome} END"
-    );
-    let category_resolved = format!(
-        "CASE WHEN {category}='undetermined' AND COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' THEN NULL ELSE {category} END"
-    );
-    // Substitutions are simultaneous: generated expressions must not be rewritten.
-    sql.replace(category, "__NF_POLICY_CATEGORY__")
-        .replace(outcome, &resolved)
-        .replace("__NF_POLICY_CATEGORY__", &category_resolved)
-}
-
+/// Explicit simulation only. Normal history reads preserve receipt-time decisions.
 pub fn project_history(scan: &mut Scan, enabled: bool, fallback_threshold: f64) {
     // Already resolved records retain the policy used at receipt time.
-    if !enabled || scan.score_resolution.is_some() {
+    if !enabled || scan.score_resolution.is_some() || scan.recipient_decision.is_some() {
         return;
     }
     let threshold = crate::assessment::recorded_threshold(scan).unwrap_or(fallback_threshold);

@@ -71,6 +71,12 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    /// Immutable receipt-time observations, shared by recipient policy variants.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis_result: Option<Box<crate::decision_record::AnalysisResult>>,
+    /// Receipt-time classification and effective policy used for this wire copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub score_resolution: Option<crate::decision::ScoreResolution>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1621,6 +1627,9 @@ impl Engine {
             // Header timing is the completed analysis, before wire rendering/ARC.
             // The stored elapsed time below additionally includes these operations.
             scan.elapsed_ms = started.elapsed().as_millis() as u64;
+            if let Some(report) = context.3 {
+                report.attach(&mut scan);
+            }
             self.variants(raw, &scan, sender, id, context.2, |scan, variant_id| {
                 let subject_tag = if scan
                     .action
@@ -1643,6 +1652,7 @@ impl Engine {
                 }
                 scan.tagged = tag;
                 scan.pub_tagged = pub_tag;
+                crate::decision_record::record_subject_tag(scan);
                 let mut bytes = message::rewrite_with_tag(
                     raw,
                     subject_tag,
@@ -1698,10 +1708,12 @@ impl Engine {
         recipients: &[crate::config::Recipient],
         mut render: impl FnMut(&mut Scan, &str) -> Result<Vec<u8>>,
     ) -> Result<Vec<crate::store::QueueVariant>> {
-        use crate::{actions::Action, store::QueueVariant};
+        use crate::store::QueueVariant;
         let mut variants: Vec<QueueVariant> = Vec::new();
         let mut base = scan.clone();
+        crate::decision_record::record_analysis(&mut base, &self.config);
         base.action = Some(crate::actions::evaluate(scan, &self.config));
+        let recorded_at = crate::now();
         if (self.config.custom_filtering.is_some() || !self.config.preferences.mailboxes.is_empty())
             && !recipients.is_empty()
         {
@@ -1730,22 +1742,25 @@ impl Engine {
                     scan,
                     prepared,
                     recipient,
-                    crate::now(),
+                    recorded_at,
                 );
-                let category = assessment.category;
-                let tag = assessment.action.effective == Action::Tag;
+                let mut s = base.clone();
+                s.delivery_classification = Some(assessment.category);
+                s.transaction_id = Some(id.into());
+                s.action = Some(assessment.action.clone());
+                crate::decision_record::record_recipient(
+                    &mut s,
+                    &self.config,
+                    Some(&assessment),
+                    recorded_at,
+                );
                 if let Some(v) = variants.iter_mut().find(|v| {
-                    v.scan.delivery_classification == Some(category)
-                        && (v.scan.tagged || v.scan.pub_tagged) == tag
+                    v.scan.recipient_decision.as_ref().map(|d| &d.policy_sha256)
+                        == s.recipient_decision.as_ref().map(|d| &d.policy_sha256)
                 }) {
                     v.recipients.push((recipient.clone(), Some(assessment)));
-                    // Distinct per-recipient actions are shown on the delivery, not as a global assertion.
-                    v.scan.action = None;
                 } else {
-                    let mut s = base.clone();
-                    s.delivery_classification = Some(category);
-                    s.transaction_id = Some(id.into());
-                    s.action = Some(assessment.action.clone());
+                    anyhow::ensure!(variants.len() < 6, "too many policy wire variants");
                     let variant_id = if variants.is_empty() {
                         id.to_owned()
                     } else {
@@ -1761,6 +1776,7 @@ impl Engine {
                 }
             }
         } else {
+            crate::decision_record::record_recipient(&mut base, &self.config, None, recorded_at);
             let wire = render(&mut base, id)?;
             variants.push(QueueVariant {
                 id: id.into(),
@@ -1769,7 +1785,6 @@ impl Engine {
                 recipients: recipients.iter().cloned().map(|r| (r, None)).collect(),
             });
         }
-        anyhow::ensure!(variants.len() <= 6, "too many policy wire variants");
         Ok(variants)
     }
     fn headers(
@@ -1800,6 +1815,9 @@ impl Engine {
         self.decide(&mut scan);
         scan.action = Some(crate::actions::evaluate(&scan, &self.config));
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
+        if let Some(report) = context.2 {
+            report.attach(&mut scan);
+        }
         self.variants(raw, &scan, context.0, id, context.1, |scan, variant_id| {
             message::rewrite(raw, false, &self.headers(ip, variant_id, scan, context.2))
         })
@@ -1823,6 +1841,118 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn receipt_variants_separate_actions_and_share_only_identical_policies() {
+        use crate::{
+            actions::{Action, Policy as Actions},
+            custom_filtering::{Binding, Policy, Profile},
+        };
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.filter.mode = crate::config::Mode::Enforce;
+        cfg.filter.require_corroboration = false;
+        cfg.actions = Some(Actions {
+            spam: Action::Quarantine,
+            publicity: Action::Deliver,
+            malware: Action::Quarantine,
+            quarantine_days: 14,
+        });
+        let profile = |id: &str, spam| Profile {
+            id: id.into(),
+            name: id.into(),
+            threshold: None,
+            require_corroboration: false,
+            spam,
+            publicity: Action::Deliver,
+            review: Action::Deliver,
+            quarantine_days: 14,
+        };
+        cfg.custom_filtering = Some(Policy {
+            profiles: vec![
+                profile("hold", Action::Quarantine),
+                profile("accept", Action::Deliver),
+            ],
+            bindings: vec![
+                Binding {
+                    scope: "*".into(),
+                    profile: "hold".into(),
+                },
+                Binding {
+                    scope: "bob@example.test".into(),
+                    profile: "accept".into(),
+                },
+            ],
+            ..Default::default()
+        });
+        let recipients = vec![
+            cfg.recipient("alice@example.test").unwrap(),
+            cfg.recipient("bob@example.test").unwrap(),
+            cfg.recipient("alice@example.test").unwrap(),
+        ];
+        let engine = Engine::new(Arc::new(cfg.clone())).unwrap();
+        let mut scan = Scan {
+            score: 99.,
+            complete: true,
+            model: "fixture".into(),
+            ..Default::default()
+        };
+        scan.decision = Some(crate::fusion::runtime::Decision::legacy(
+            &scan,
+            cfg.filter.threshold,
+        ));
+        scan.analysis_policy = Some(crate::diagnostics::AnalysisPolicy::capture(&cfg));
+        let copies = engine
+            .variants(
+                b"Subject: x\r\n\r\nbody",
+                &scan,
+                "sender@example.org",
+                "test",
+                &recipients,
+                |scan, id| {
+                    Ok(engine
+                        .headers("192.0.2.1".parse().unwrap(), id, scan, None)
+                        .into_bytes())
+                },
+            )
+            .unwrap();
+        assert_eq!(copies.len(), 2);
+        assert_eq!(copies[0].recipients.len(), 2);
+        assert_eq!(copies[1].recipients.len(), 1);
+        for (copy, expected) in copies.iter().zip([Action::Quarantine, Action::Deliver]) {
+            assert_eq!(copy.scan.action.as_ref().unwrap().effective, expected);
+            let record = copy.scan.recipient_decision.as_ref().unwrap();
+            assert_eq!(
+                record.assessment.action.as_ref().unwrap().effective,
+                expected
+            );
+            let wire = String::from_utf8(copy.raw.clone())
+                .unwrap()
+                .replace("\r\n\t", " ");
+            let value = serde_json::to_value(expected).unwrap();
+            assert!(wire.contains(&format!(
+                "X-NoiseFence-Action-Effective: {}\r\n",
+                value.as_str().unwrap()
+            )));
+            assert!(wire.contains("X-NoiseFence-Classification: spam\r\n"));
+            assert!(wire.contains("X-NoiseFence-Score: 99.0\r\n"));
+            assert!(!wire.contains("alice@"));
+            assert!(!wire.contains("bob@"));
+        }
+        assert_ne!(
+            copies[0]
+                .scan
+                .recipient_decision
+                .as_ref()
+                .unwrap()
+                .policy_sha256,
+            copies[1]
+                .scan
+                .recipient_decision
+                .as_ref()
+                .unwrap()
+                .policy_sha256
+        );
+    }
+
     #[test]
     fn visual_links_keep_a_reputation_slot_after_envelope_identities() {
         let raw = format!(

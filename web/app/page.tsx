@@ -2,7 +2,7 @@
 import {groundingSummary, responseIssueLabel, type LlmGrounding} from './llm-evidence';
 import { RspamdComparison, RspamdOverview } from './rspamd-comparison';
 import type { RspamdReport, ComparisonSummary } from './rspamd-format';
-import type { Assessment } from './assessment';
+import type { Assessment, RecipientDecision } from './assessment';
 import { MyFilters } from './preferences';
 import { ClusterConsole } from './cluster';
 import { OnboardingGate } from './onboarding';
@@ -94,6 +94,7 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  recipient_decision?: RecipientDecision | null;
   rspamd?: RspamdReport | null;
   assessment?: Assessment;
   node_id?: string | null;

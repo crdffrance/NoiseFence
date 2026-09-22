@@ -124,9 +124,14 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 assert_eq!(headers.iter().filter(|h| h.starts_with(name)).count(), 1);
             }
             let decision = scan.decision.as_ref().unwrap();
-            let displayed = decision.score.unwrap_or(scan.score);
-            assert!(rendered.contains(&format!("X-NoiseFence-Score: {displayed:.1}\r\n")));
-            assert!(rendered.contains("X-NoiseFence-Header-Version: 3\r\n"));
+            let assessment = noisefence::assessment::historical(&scan);
+            let displayed = assessment
+                .score
+                .value
+                .map(|v| format!("{v:.1}"))
+                .unwrap_or_else(|| "unavailable".into());
+            assert!(rendered.contains(&format!("X-NoiseFence-Score: {displayed}\r\n")));
+            assert!(rendered.contains("X-NoiseFence-Header-Version: 4\r\n"));
             assert!(rendered.contains(&format!(
                     "X-NoiseFence-Decision: {}\r\n",
                     serde_json::to_value(decision.outcome)
@@ -142,7 +147,7 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
             assert_eq!(rendered.contains("Subject: [SPAM]"), scan.tagged);
             assert_eq!(scan.complete, !limited);
             if limited {
-                assert!(rendered.contains("X-NoiseFence-Score-Type: partial\r\n"));
+                assert!(rendered.contains("X-NoiseFence-Score-Type: unavailable\r\n"));
                 assert!(rendered.contains("X-NoiseFence-Decision-Score: unavailable\r\n"));
                 assert_eq!(decision.outcome, Outcome::Undetermined);
                 assert!(decision.score.is_none());
@@ -847,7 +852,7 @@ async fn smtp_accepts_spam_and_pub_durably_into_quarantine_without_rewriting_sub
 }
 
 #[tokio::test]
-async fn scoped_filtering_splits_wire_once_and_keeps_recipient_actions_and_acl() {
+async fn scoped_filtering_splits_distinct_actions_and_keeps_recipient_headers_and_acl() {
     use noisefence::{actions::Action, config::Mode, custom_filtering::*, mailing::Category};
     let root = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(root.path())).clone();
@@ -964,6 +969,19 @@ async fn scoped_filtering_splits_wire_once_and_keeps_recipient_actions_and_acl()
             }
         );
         let wire = std::fs::read(store.raw_path(&id)).unwrap();
+        let record = scan.recipient_decision.as_ref().unwrap();
+        assert_eq!(
+            record.assessment.action.as_ref().unwrap().effective,
+            a.action.effective
+        );
+        let rendered = String::from_utf8_lossy(&wire).replace("\r\n\t", " ");
+        assert!(rendered.contains(&format!(
+                "X-NoiseFence-Action-Effective: {}\r\n",
+                serde_json::to_value(a.action.effective)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+            )));
         assert_eq!(
             noisefence::message::fields(&wire).unwrap().1,
             noisefence::message::fields(common::MESSAGE).unwrap().1
@@ -981,19 +999,22 @@ async fn scoped_filtering_splits_wire_once_and_keeps_recipient_actions_and_acl()
         .list("alice".into(), "".into(), "publicity".into(), 0, 95.0)
         .await
         .unwrap();
-    assert_eq!(alice.len(), 1);
-    assert_eq!(alice[0].recipients.len(), 2);
-    assert!(alice[0].action.is_none());
+    assert_eq!(alice.len(), 2);
     assert!(
-        alice[0]
-            .recipients
+        alice
             .iter()
+            .all(|m| m.recipients.len() == 1 && m.action.is_some())
+    );
+    assert!(
+        alice
+            .iter()
+            .flat_map(|m| &m.recipients)
             .any(|r| r.address == "billing@example.test" && r.status == "quarantined")
     );
     assert!(
-        alice[0]
-            .recipients
+        alice
             .iter()
+            .flat_map(|m| &m.recipients)
             .any(|r| r.address == "alice@example.test" && r.status == "pending")
     );
     assert!(!serde_json::to_string(&alice).unwrap().contains("Spam Bob"));

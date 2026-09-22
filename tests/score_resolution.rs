@@ -111,7 +111,7 @@ fn disagreement_resolves_once_and_keeps_the_original_opinions() {
 }
 
 #[tokio::test]
-async fn historical_search_projection_matches_totals_and_preserves_private_rows_and_deliveries() {
+async fn history_does_not_reclassify_abstentions_under_current_policy() {
     use noisefence::{api, search::Search, store::Store};
     let root = tempfile::tempdir().unwrap();
     let store = Store::open(root.path()).unwrap();
@@ -162,10 +162,10 @@ async fn historical_search_projection_matches_totals_and_preserves_private_rows_
         .unwrap();
     for (filter, expected) in [
         ("all", 4),
-        ("spam", 2),
-        ("legitimate", 1),
-        ("publicity", 1),
-        ("review", 0),
+        ("spam", 0),
+        ("legitimate", 0),
+        ("publicity", 0),
+        ("review", 3),
         ("incomplete", 1),
     ] {
         let page = store
@@ -184,13 +184,10 @@ async fn historical_search_projection_matches_totals_and_preserves_private_rows_
         assert_eq!(page.messages.len() as u64, expected);
         for m in page.messages {
             assert_ne!(m.id, "hidden");
-            assert_ne!(m.category, Category::Undetermined);
-            assert!(m.assessment.score_resolution.as_ref().unwrap().projected);
-            assert!(!m.assessment.decision_recorded);
-            assert_eq!(
-                m.assessment.score_resolution.as_ref().unwrap().threshold,
-                95.
-            );
+            assert_eq!(m.category, Category::Undetermined);
+            assert!(m.assessment.score_resolution.is_none());
+            assert!(m.assessment.decision_recorded);
+            assert_eq!(m.assessment.content_threshold, Some(95.));
         }
     }
     let diagnostics = store
@@ -198,7 +195,11 @@ async fn historical_search_projection_matches_totals_and_preserves_private_rows_
         .await
         .unwrap()
         .unwrap();
-    assert!(diagnostics.analysis.score_resolution.unwrap().projected);
+    assert!(diagnostics.analysis.score_resolution.is_none());
+    assert_eq!(
+        diagnostics.analysis.assessment.category,
+        Category::Undetermined
+    );
     assert!(
         store
             .diagnostics_for_with_policy("alice".into(), "hidden".into(), None, true, 50.)

@@ -2,7 +2,7 @@
 //! Facts are ephemeral; recipient assessments contain no message body or rule values.
 use crate::{
     actions::{Action, Applied},
-    config::{Config, Mode, Recipient},
+    config::{Config, Recipient},
     engine::Scan,
     mailing::Category,
 };
@@ -571,23 +571,20 @@ pub fn assess_prepared(
         category = Category::Spam;
         requested = global.malware;
     }
-    let (effective, reason) = if cfg.filter.mode == Mode::Observe {
-        (Action::Deliver, "observation")
-    } else if !scan.complete && !(malware && requested == Action::Quarantine) {
-        (Action::Deliver, "incomplete")
-    } else if requested == Action::Tag && !matches!(category, Category::Spam | Category::Publicity)
-    {
-        (Action::Deliver, "category_without_prefix")
-    } else {
-        (
-            requested,
-            if malware {
-                "malware_priority"
-            } else {
-                "custom_policy"
-            },
-        )
-    };
+    let action = crate::actions::constrain(
+        scan,
+        cfg,
+        category,
+        requested,
+        profile
+            .map(|p| p.quarantine_days)
+            .unwrap_or(global.quarantine_days),
+        if malware {
+            "malware_priority"
+        } else {
+            "custom_policy"
+        },
+    );
     Assessment {
         policy: prepared.digest.clone(),
         profile: profile.map(|p| p.name.clone()),
@@ -596,13 +593,6 @@ pub fn assess_prepared(
         category,
         matched,
         unavailable_conditions,
-        action: Applied {
-            requested,
-            effective,
-            reason: reason.into(),
-            quarantine_days: profile
-                .map(|p| p.quarantine_days)
-                .unwrap_or(global.quarantine_days),
-        },
+        action,
     }
 }

@@ -97,6 +97,14 @@ async fn pair() -> Pair {
     }
 }
 async fn enqueue(p: &Pair, id: &str) -> anyhow::Result<()> {
+    let mut scan = engine::extract(common::MESSAGE, 1024 * 1024);
+    scan.analysis_policy = Some(noisefence::diagnostics::AnalysisPolicy::capture(&p.config));
+    scan.decision = Some(noisefence::fusion::runtime::Decision::legacy(
+        &scan,
+        p.config.filter.threshold,
+    ));
+    scan.action = Some(noisefence::actions::evaluate(&scan, &p.config));
+    noisefence::decision_record::record_recipient(&mut scan, &p.config, None, noisefence::now());
     p.a.enqueue(
         id.into(),
         "sender@example.org".into(),
@@ -104,7 +112,7 @@ async fn enqueue(p: &Pair, id: &str) -> anyhow::Result<()> {
             p.config.recipient("alice@example.test").unwrap(),
             p.config.recipient("bob@example.test").unwrap(),
         ],
-        engine::extract(common::MESSAGE, 1024 * 1024),
+        scan,
         common::MESSAGE.to_vec(),
     )
     .await
@@ -173,6 +181,8 @@ async fn rspamd_report_propagates_over_ha_without_changing_ownership_or_delivery
     scan.score = 12.5;
     scan.complete = true;
     scan.decision = Some(Decision::legacy(&scan, p.config.filter.threshold));
+    scan.action = Some(noisefence::actions::evaluate(&scan, &p.config));
+    noisefence::decision_record::record_recipient(&mut scan, &p.config, None, noisefence::now());
     scan.rspamd = Some(pending.clone());
     p.a.enqueue(
         id.clone(),
@@ -449,9 +459,28 @@ async fn restore_from_a_crashed_sender_holds_uncertainty_and_does_not_replay_del
         .unwrap();
     assert_eq!(report["held_recipients"], 1);
     assert_eq!(report["copied"], 1);
+    let expected_scan = remote(&p, &id).await.scan;
     let restored = Store::open(target.path()).unwrap();
     restored.recover().await.unwrap();
     assert!(restored.claim().await.unwrap().is_none());
+    let key = id.clone();
+    let restored_scan: serde_json::Value = restored
+        .read(move |db| {
+            let raw: String =
+                db.query_row("SELECT scan FROM messages WHERE id=?1", [key], |r| r.get(0))?;
+            Ok(serde_json::from_str(&raw)?)
+        })
+        .await
+        .unwrap();
+    assert!(expected_scan["recipient_decision"].is_object());
+    assert_eq!(
+        restored_scan["recipient_decision"],
+        expected_scan["recipient_decision"]
+    );
+    assert_eq!(
+        restored_scan["analysis_result"],
+        expected_scan["analysis_result"]
+    );
     let states = restored
         .read(|db| {
             Ok(db
