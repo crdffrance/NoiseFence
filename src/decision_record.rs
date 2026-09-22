@@ -34,6 +34,8 @@ pub enum Classification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observations: Option<crate::observations::Report>,
     pub raw_sha256: Option<String>,
     pub artifacts: Option<crate::evidence::Artifacts>,
     pub score: Score,
@@ -76,6 +78,7 @@ pub fn record_analysis(scan: &mut Scan, config: &Config) {
     let view = crate::assessment::assess_unrecorded(scan, config.filter.threshold);
     scan.analysis_result = Some(Box::new(AnalysisResult {
         version: VERSION,
+        observations: Some(crate::observations::capture(scan)),
         raw_sha256: scan.raw_sha256.clone(),
         artifacts: scan.evidence.as_ref().map(|e| e.artifacts.clone()),
         score: view.score,

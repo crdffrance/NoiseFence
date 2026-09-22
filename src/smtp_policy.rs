@@ -80,6 +80,14 @@ pub enum PolicyStatus {
     Busy,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckKind {
+    Helo,
+    Ptr,
+    Sender,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolicyResult {
     pub status: PolicyStatus,
@@ -90,6 +98,9 @@ pub struct PolicyResult {
     pub applied_weight: f64,
     pub scoring_enabled: bool,
     pub checks: Vec<crate::engine::Signal>,
+    /// Explicit deadlines; historical narrative is never parsed to infer them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timeouts: Vec<CheckKind>,
 }
 impl PolicyResult {
     pub fn apply(&self, scan: &mut crate::engine::Scan) {
@@ -323,11 +334,18 @@ impl<R: Resolver> Policy<R> {
             tokio::time::timeout_at(deadline, self.sender(sender)),
         );
         result.status = PolicyStatus::Complete;
-        for (name, check) in [("helo", helo), ("ptr", reverse), ("sender", sender)] {
+        for (name, kind, check) in [
+            ("helo", CheckKind::Helo, helo),
+            ("ptr", CheckKind::Ptr, reverse),
+            ("sender", CheckKind::Sender, sender),
+        ] {
             match check {
                 Ok(Ok(signal)) => result.checks.push(signal),
                 missing => {
                     result.status = PolicyStatus::Unavailable;
+                    if missing.is_err() {
+                        result.timeouts.push(kind);
+                    }
                     result.checks.push(signal(
                         &format!("{name}_dns_unavailable"),
                         if missing.is_err() {

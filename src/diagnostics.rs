@@ -37,6 +37,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub observations: Option<crate::observations::Report>,
     pub assessment: crate::assessment::Assessment,
     pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     pub score_resolution: Option<crate::decision::ScoreResolution>,
@@ -58,6 +59,10 @@ impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
         let score_breakdown = crate::detection_diagnostics::breakdown(&scan);
         Self {
+            observations: scan
+                .analysis_result
+                .as_ref()
+                .and_then(|r| r.observations.clone()),
             assessment: crate::assessment::historical(&scan),
             recipient_decision: scan.recipient_decision,
             rspamd: scan.rspamd.clone().map(crate::rspamd::Report::visible),

@@ -47,8 +47,10 @@ authentication mechanism.
 
 ## Remaining implementation and qualification
 
-1. Normalize detector states, provenance and shared evidence; cap contributions
-   by family and prevent the same LLM opinion becoming independent corroboration.
+1. Complete controlled score combination using normalized detector observations.
+   Grouping records correlations; it is not a new weighting policy. Preserve the
+   existing native family caps and exclusion of the LLM from independent
+   corroboration, then qualify any scoring change separately.
 2. Replace the broad incomplete-analysis action guard with tested, explicit
    coverage requirements per decision. Keep subject-signature constraints separate.
 3. Extend effective-profile inheritance and fixed-sample policy simulation with
@@ -68,3 +70,44 @@ message disclosure is required for this structural refactor.
 See [automatic classification](automatic-classification.md),
 [message headers](message-headers.md) and
 [release qualification](final-release-plan.md).
+
+## Normalized detector observations
+
+New receipt snapshots include `analysis_result.observations` (schema 1). Older
+snapshots remain readable and have no normalized report: API reads never infer
+missing historical observations using current settings. Reports are captured
+before recipient rules, replicated with the existing scan and preserved on retry.
+
+Each observation records availability, role, scope, original measurement units,
+artifact/version metadata where available, references to retained evidence and
+an exclusion reason when its result cannot be used. Availability is one of
+`complete`, `partial`, `unavailable`, `timeout`, `budget_exceeded`, `disabled` or
+`not_applicable`. A completed LLM request with unsupported claims is explicitly
+excluded; its reported confidence is not a calibrated probability. SMTP/DNS
+deadlines are recorded as typed check identifiers, never reconstructed by parsing
+historical prose. A completed authentication check without its required result
+is invalid; imported trace headers do not supply original SMTP authentication.
+
+CRDF and VirusTotal results preserve each completed target even if other targets
+later time out or exhaust quota/capacity. Each target retains lookup time and
+recorded freshness bounds. `no_hit` means not listed, not safe. Stale observations
+are unavailable. A host-root lookup, domain lookup, file hash and navigated URL
+have distinct scopes; successful HTTP navigation is not a clean verdict.
+
+The same hashed queried domain links DQS, CRDF and VirusTotal observations without
+retaining a plaintext domain in this report. Historical targets with no recorded
+identity are not guessed. Admission RBLs share the connecting-IP evidence group
+and retain their admission-only role. Native family totals retain points and
+their comparison-only role, including both raw and capped contributions. Native
+LLM contributions share the LLM group: they are not another independent opinion.
+Rspamd remains separate post-acceptance comparison metadata and cannot mutate
+the recorded detector inputs or decision.
+
+The English diagnostics table displays these distinctions and shared groups.
+Reports are bounded to 160 observations, 48 targets per reputation provider,
+32 admission checks and 32 URL chains, with an explicit omitted count. They copy
+no message excerpts, provider response bodies, query credentials or URL paths.
+Grouping currently documents correlations; this addition does not reweight
+the production score, qualify a model, change delivery actions or activate a
+provider. Cross-family contribution deduplication and action-specific coverage
+requirements remain separate implementation and qualification work.

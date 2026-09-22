@@ -141,6 +141,11 @@ pub struct Scan {
     /// Absent on historical rows: never infer checks from their missing reasons.
     #[serde(default)]
     pub evidence: Option<crate::evidence::Evidence>,
+    /// Aligned to evidence.reputation.domains. Hash actual normalized query
+    /// targets, never infer them from imported headers or a positive result.
+    /// Kept outside the strict legacy Evidence schema for rollback readability.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reputation_target_hashes: Vec<String>,
     /// Canonical decision. Historical rows use their original legacy score.
     #[serde(default)]
     pub decision: Option<crate::fusion::runtime::Decision>,
@@ -1060,6 +1065,10 @@ impl Engine {
             return Ok(());
         };
         let targets = reputation_targets(raw, &scan.sender, helo, sender, visual_domains);
+        scan.reputation_target_hashes = targets
+            .iter()
+            .map(|target| crate::message::digest(target.domain.as_bytes()))
+            .collect();
         let evidence = &mut scan
             .evidence
             .as_mut()

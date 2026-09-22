@@ -57,6 +57,7 @@ export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
+    observations?: import('./observations-format').ObservationReport | null;
     rspamd?: import('./rspamd-format').RspamdReport | null;
     elapsed_ms: number;
     feature_version: number;
