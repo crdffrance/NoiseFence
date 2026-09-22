@@ -71,6 +71,9 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    /// Explicit rendering capability, set by the live pipeline before policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_rewrite_ready: Option<bool>,
     /// Immutable receipt-time observations, shared by recipient policy variants.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analysis_result: Option<Box<crate::decision_record::AnalysisResult>>,
@@ -1634,6 +1637,7 @@ impl Engine {
             }
             self.decide(&mut scan);
             // Header timing is the completed analysis, before wire rendering/ARC.
+            scan.subject_rewrite_ready = Some(arc.can_be_sealed() && self.arc_key.is_some());
             // The stored elapsed time below additionally includes these operations.
             scan.elapsed_ms = started.elapsed().as_millis() as u64;
             if let Some(report) = context.3 {
@@ -1819,6 +1823,7 @@ impl Engine {
         ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
         self.score(&mut scan);
+        scan.subject_rewrite_ready = Some(false);
         scan.tagged = false;
         scan.pub_tagged = false;
         self.decide(&mut scan);
@@ -1850,6 +1855,70 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fallback_wire_copy_cannot_claim_a_requested_tag_was_applied() {
+        use crate::actions::{Action, Policy};
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.filter.mode = crate::config::Mode::Enforce;
+        cfg.filter.partial_actions = true;
+        cfg.actions = Some(Policy {
+            spam: Action::Quarantine,
+            publicity: Action::Deliver,
+            malware: Action::Quarantine,
+            quarantine_days: 7,
+        });
+        cfg.custom_filtering = Some(serde_json::from_value(serde_json::json!({
+            "rules":[{"id":"test-tag","name":"Test tag","enabled":true,"priority":1,"scope":"*",
+                "expires":null,"any":false,"conditions":[{"field":"recipient","op":"equals","value":"alice@example.test"}],
+                "category":"spam","action":"tag","stop":true}]
+        })).unwrap());
+        // Exercise the defensive renderer even with unchecked installation gates.
+        let cfg = Arc::new(cfg);
+        let engine = Engine::new(cfg.clone()).unwrap();
+        let recipients = [cfg.recipient("alice@example.test").unwrap()];
+        let raw = b"From: sender@example.org\r\nSubject: Original subject\r\n\r\nOriginal body\r\n";
+        let scan = Scan {
+            complete: false,
+            features_complete: Some(true),
+            ..Default::default()
+        };
+        let variants = engine
+            .finish_unchecked(
+                raw,
+                scan,
+                "192.0.2.1".parse().unwrap(),
+                "test-fallback",
+                Instant::now(),
+                ("sender@example.org", &recipients, None),
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 1);
+        let variant = &variants[0];
+        let record = variant.scan.recipient_decision.as_ref().unwrap();
+        let action = record.assessment.action.as_ref().unwrap();
+        assert_eq!(action.requested, Action::Tag);
+        assert_eq!(action.effective, Action::Deliver);
+        assert_eq!(action.reason, "subject_rewrite_unavailable");
+        assert!(
+            action
+                .coverage
+                .as_ref()
+                .unwrap()
+                .missing
+                .contains(&crate::action_coverage::Requirement::SubjectRewrite)
+        );
+        assert!(!variant.scan.tagged);
+        let wire = String::from_utf8_lossy(&variant.raw);
+        assert!(wire.contains("Subject: Original subject\r\n"));
+        assert!(wire.contains("X-NoiseFence-Action-Requested: tag\r\n"));
+        assert!(wire.contains("X-NoiseFence-Action-Effective: deliver\r\n"));
+        assert!(wire.contains("missing=subject_rewrite;"));
+        assert_eq!(
+            message::fields(&variant.raw).unwrap().1,
+            message::fields(raw).unwrap().1
+        );
+    }
+
     #[tokio::test]
     async fn receipt_variants_separate_actions_and_share_only_identical_policies() {
         use crate::{

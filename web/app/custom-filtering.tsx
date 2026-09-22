@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from './client';
 import { actionLabel, type DeliveryAction } from './actions';
+import { actionReason, type ActionCoverage } from './action-coverage';
+import { ActionCoverageDetails } from './action-coverage-view';
 import { SensitivitySelect } from './filter-sensitivity-control';
 import type { SensitivityLevel } from './filter-sensitivity';
 type Category = 'spam' | 'publicity' | 'legitimate' | 'undetermined';
@@ -68,6 +70,7 @@ export type FilteringAssessment = {
   matched: { id: string; name: string; fields: Field[] }[];
   unavailable_conditions: number;
   action: {
+    coverage?: ActionCoverage | null;
     requested: DeliveryAction;
     effective: DeliveryAction;
     reason: string;
@@ -114,12 +117,9 @@ export function FilteringDetails({ value }: { value: FilteringAssessment }) {
       <p>
         {actionLabel[value.action.requested]} requested ·{' '}
         {actionLabel[value.action.effective]} Implemented
-        {value.action.reason === 'observation'
-          ? ' (observation)'
-          : value.action.reason === 'incomplete'
-            ? " (incomplete analysis)"
-            : ''}
+        {' · '}{actionReason(value.action.reason)}
       </p>
+      <ActionCoverageDetails coverage={value.action.coverage} />
       <p className="muted small">
         Initial classification: {categories[value.original_category]} · threshold{' '}
         {value.threshold} · policy {value.policy.slice(0, 12)}

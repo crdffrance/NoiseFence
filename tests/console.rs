@@ -1364,6 +1364,7 @@ async fn held_message(store: &Store, cfg: &noisefence::config::Config) -> String
     let mut scan = extract(common::MESSAGE, 10000);
     scan.score = 99.;
     scan.action = Some(noisefence::actions::Applied {
+        coverage: None,
         requested: noisefence::actions::Action::Quarantine,
         effective: noisefence::actions::Action::Quarantine,
         reason: "category".into(),

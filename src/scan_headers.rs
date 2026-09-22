@@ -13,6 +13,7 @@ pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Policy-SHA256",
     "X-NoiseFence-Action-Requested",
     "X-NoiseFence-Action-Effective",
+    "X-NoiseFence-Action-Coverage",
     "X-NoiseFence-Version",
     "X-NoiseFence-Mode",
     "X-NoiseFence-Score",
@@ -205,6 +206,34 @@ pub(crate) fn render(
             h.field(name, "not_recorded");
         }
     }
+    if let Some(coverage) = report.action.as_ref().and_then(|a| a.coverage.as_ref()) {
+        let list = |items: &[crate::action_coverage::Requirement]| {
+            if items.is_empty() {
+                "none".into()
+            } else {
+                items
+                    .iter()
+                    .take(16)
+                    .map(word)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            }
+        };
+        h.field(
+            "X-NoiseFence-Action-Coverage",
+            format!(
+                "version={}; partial-policy={}; basis={}; eligible={}; required={}; missing={};",
+                token(&coverage.version).unwrap_or("unknown"),
+                yes(coverage.partial_actions),
+                word(&coverage.basis),
+                yes(coverage.eligible()),
+                list(&coverage.required),
+                list(&coverage.missing)
+            ),
+        );
+    } else {
+        h.field("X-NoiseFence-Action-Coverage", "not_recorded");
+    }
     if let Some(r) = &report.score_resolution {
         h.field(
             "X-NoiseFence-Score-Resolution",
@@ -231,7 +260,7 @@ pub(crate) fn render(
     );
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "4");
+    h.field("X-NoiseFence-Header-Version", "5");
     h.field("X-NoiseFence-Version", env!("CARGO_PKG_VERSION"));
     h.field(
         "X-NoiseFence-Mode",
@@ -784,7 +813,7 @@ mod contract_tests {
                 ("X-NoiseFence-Score-Type", word(&report.score.kind)),
                 ("X-NoiseFence-Category", report.category.as_str().into()),
                 ("X-NoiseFence-Subject-Tag", "none".into()),
-                ("X-NoiseFence-Header-Version", "4".into()),
+                ("X-NoiseFence-Header-Version", "5".into()),
                 (
                     "X-NoiseFence-Status",
                     if s.complete { "complete" } else { "incomplete" }.into(),

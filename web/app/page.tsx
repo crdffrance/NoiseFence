@@ -13,6 +13,7 @@ import { AdmissionDetails, type AdmissionDecision } from './smtp-admission';
 import type { EarlyRbl } from './rbl-types';
 import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
+import { actionReason } from './action-coverage';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
 import { RecoveryCodes } from './mfa';
@@ -1351,10 +1352,7 @@ function Home() {
                       <p className="small muted">
                         Action at reception:{' '}
                         {actionLabel[selected.action.effective]}.
-                        {selected.action.reason === 'observation' &&
-                          ` Active observation; planned action: ${actionLabel[selected.action.requested]}.`}
-                        {selected.action.reason === 'incomplete' &&
-                          "Incomplete analysis: transmission without prefix."}
+                        {' '}{actionReason(selected.action.reason)}. Planned action: {actionLabel[selected.action.requested]}.
                       </p>
                     )}
                     {selected.recipients.map((r) => (

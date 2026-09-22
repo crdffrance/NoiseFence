@@ -4,6 +4,7 @@ export type HistoricalPolicy = {
   mode: 'observe' | 'tag' | 'enforce';
   require_corroboration: boolean;
   resolve_uncertain_by_score?: boolean;
+  partial_actions?: boolean;
   rule_weights: Record<string, number>;
 };
 

@@ -420,6 +420,39 @@ fn partial_phishing() -> Scan {
 }
 
 #[test]
+fn qualified_partial_threat_actions_use_observed_requirements_not_raw_score() {
+    use noisefence::{
+        action_coverage::Basis,
+        actions::{self, Action},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.mode = Mode::Enforce;
+    cfg.filter.partial_actions = true;
+    cfg.filter.resolve_uncertain_by_score = false;
+    cfg.actions = Some(actions::Policy {
+        spam: Action::Quarantine,
+        publicity: Action::Deliver,
+        malware: Action::Quarantine,
+        quarantine_days: 7,
+    });
+    let mut scan = partial_phishing();
+    scan.score = 5.; // A deterministic evidence finding is not a fabricated high score.
+    decision::apply(&mut scan, true);
+    let a = actions::evaluate(&scan, &cfg);
+    assert_eq!(a.effective, Action::Quarantine);
+    assert_eq!(a.coverage.unwrap().basis, Basis::EstablishedThreat);
+    assert_eq!(scan.score, 5.);
+    assert!(!scan.complete);
+    scan.evidence.as_mut().unwrap().authentication.spf =
+        Some(noisefence::evidence::AuthResult::Pass);
+    // Keep the old verdict to exercise the runtime coverage guard defensively.
+    let a = actions::evaluate(&scan, &cfg);
+    assert_eq!(a.effective, Action::Deliver);
+    assert!(!a.coverage.unwrap().eligible());
+}
+
+#[test]
 fn independent_positive_evidence_survives_an_unrelated_dns_failure_without_enforcement() {
     let mut scan = partial_phishing();
     decision::apply(&mut scan, true);

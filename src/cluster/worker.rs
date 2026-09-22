@@ -161,6 +161,7 @@ async fn poll(
             let pending_metadata =
                 db.query_row("SELECT COUNT(*) FROM cluster_dirty", [], |r| r.get(0))?;
             Ok(protocol::NodeStatus {
+                build: None,
                 research_archive,
                 replication,
                 hostname: snapshot.config.hostname.clone(),

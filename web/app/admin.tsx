@@ -75,6 +75,7 @@ type Domain = {
   aliases: Record<string, string>;
 };
 type Filters = {
+  partial_actions?: boolean;
   resolve_uncertain_by_score?: boolean;
   mode: 'observe' | 'tag' | 'enforce';
   rule_weights: Record<string, number>;
@@ -234,7 +235,7 @@ type FilterSection = (typeof filterSections)[number]['id'];
 const modules: {
   key: keyof Omit<
     Filters,
-    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights' | 'resolve_uncertain_by_score'
+    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights' | 'resolve_uncertain_by_score' | 'partial_actions'
   >;
   title: string;
   description: string;
@@ -1165,6 +1166,12 @@ export function AdminConsole({
                 onChange={(v) => filterAt('resolve_uncertain_by_score', v)}
               />
               <Toggle
+                label="Apply actions when decision-specific evidence is sufficient"
+                description="Allow actions on partial analyses only when the selected decision has its required evidence. Score-based spam needs readable content, automatic score resolution and the applicable threshold. Explicit matched rules remain separate. Tagging still requires a ready ARC renderer and Proton validation. Off by default; qualify the policy and upgrade every MX before activation."
+                checked={Boolean(draft.filters.partial_actions)}
+                onChange={(v) => filterAt('partial_actions', v)}
+              />
+              <Toggle
                 label="Require corroboration before classifying spam"
                 description={draft.filters.resolve_uncertain_by_score ? "Missing corroboration is recorded, then the configured threshold resolves the classification automatically." : "A high content score needs corroboration to become a spam classification. This reduces model-only false positives but can leave spam under review. Validated fusion uses its own policy."}
                 checked={Boolean(draft.filters.require_corroboration)}
@@ -1179,6 +1186,7 @@ export function AdminConsole({
             <ActionSettings
               policy={deliveryPolicy(draft)}
               mode={draft.filters.mode}
+              partialActions={Boolean(draft.filters.partial_actions)}
               spamTagReady={config.tag_ready}
               pubTagReady={config.pub_tag_ready}
               publicityEnabled={!!draft.mailing}

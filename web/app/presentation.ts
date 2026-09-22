@@ -93,7 +93,7 @@ export function scorePresentation(mail: ScoreInput) {
       model,
       kind: 'partial',
       label: 'Partial risk index',
-      detail: `Risk index based on available results${limited ? ', with limited content extraction' : ''}. ${missing.length ? `Incomplete checks: ${missing.join(', ')}. ` : ''}Missing results could change this index. Analysis remains partial.${decision?.source === 'antivirus' ? ' The antivirus detection takes priority.' : mail.reasons?.some(r => r.id === 'observed_threat_partial') ? ' Corroborated phishing evidence still supports the unwanted verdict; automatic enforcement remains disabled.' : ''}`,
+      detail: `Risk index based on available results${limited ? ', with limited content extraction' : ''}. ${missing.length ? `Incomplete checks: ${missing.join(', ')}. ` : ''}Missing results could change this index. Analysis remains partial.${decision?.source === 'antivirus' ? ' The antivirus detection takes priority.' : mail.reasons?.some(r => r.id === 'observed_threat_partial') ? ' Corroborated phishing evidence still supports the unwanted verdict; delivery follows the recorded action policy.' : ''}`,
     };
   }
   if (report ? report.score.kind === 'internal' : mail.model === 'dsn')

@@ -48,6 +48,7 @@ pub mod vision;
 
 pub mod control;
 
+pub mod action_coverage;
 pub mod actions;
 pub mod quarantine;
 pub mod rules;

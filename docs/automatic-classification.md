@@ -4,7 +4,7 @@ Since 0.26.0, administrators can enable **Resolve uncertain results using the sc
 
 This is an operator policy, not a new model or evidence of better accuracy. On an unresolved decision, the recorded content index is compared with the applicable content threshold: greater than or equal means spam; lower means legitimate or marketing according to the existing mail-kind assessment. A completed decisive fusion decision and antivirus priority are preserved. Recipient profiles use their own applicable threshold, and explicit recipient actions remain distinct from the engine decision.
 
-A disagreement with the LLM or missing corroboration remains in the diagnostic record but no longer creates a manual review category when this option is active. If extraction failed or there is no finite index in 0–100, automatic classification fails open; the score is unavailable rather than a fabricated zero. Incomplete coverage remains visible and existing incomplete-analysis delivery guards still apply. Observation continues to deliver messages regardless of the classification.
+A disagreement with the LLM or missing corroboration remains in the diagnostic record but no longer creates a manual review category when this option is active. If extraction failed or there is no finite index in 0–100, automatic classification fails open; the score is unavailable rather than a fabricated zero. Incomplete coverage remains visible. The default action policy requires complete analysis; the separately enabled [partial-action policy](unified-decisions.md#evidence-requirements-for-actions) checks explicit evidence requirements. Observation continues to deliver messages regardless of the classification.
 
 ## Evidence and historical records
 

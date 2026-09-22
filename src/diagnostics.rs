@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisPolicy {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial_actions: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resolve_uncertain_by_score: bool,
     pub version: String,
     pub threshold: f64,
@@ -25,6 +27,7 @@ pub struct AnalysisPolicy {
 impl AnalysisPolicy {
     pub fn capture(config: &Config) -> Self {
         Self {
+            partial_actions: config.filter.partial_actions,
             version: crate::decision::VERSION.into(),
             threshold: config.filter.threshold,
             mode: config.filter.mode,

@@ -29,7 +29,7 @@ export type Assessment = {
   content_threshold: number | null;
   mode: 'observe' | 'tag' | 'enforce' | null;
   policy_version: string | null;
-  action: {requested: string; effective: string; reason: string; quarantine_days: number} | null;
+  action: {requested: string; effective: string; reason: string; quarantine_days: number; coverage?: import('./action-coverage').ActionCoverage | null} | null;
   subject_tag: 'none' | 'spam' | 'publicity';
 };
 

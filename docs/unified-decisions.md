@@ -27,10 +27,12 @@ missing or inconclusive classification; the configured automatic delivery policy
 still applies. Primary malware evidence takes priority over this absence.
 
 Global and custom policies now share operational action constraints. Observation
-still delivers; existing incomplete-analysis and Proton marking guards remain.
+still delivers. Complete-analysis guards remain the default; an explicit Web
+policy can evaluate partial actions against decision-specific evidence instead.
+Proton marking guards remain independent.
 Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
-copy. Each copy exposes only its own decision in version 4 diagnostic headers.
+copy. Each copy exposes only its own decision in version 5 diagnostic headers.
 
 The existing limit of six distinct wire copies per SMTP transaction remains. It
 is checked before allocating a seventh copy; disk admission reserves capacity
@@ -51,8 +53,9 @@ authentication mechanism.
    Grouping records correlations; it is not a new weighting policy. Preserve the
    existing native family caps and exclusion of the LLM from independent
    corroboration, then qualify any scoring change separately.
-2. Replace the broad incomplete-analysis action guard with tested, explicit
-   coverage requirements per decision. Keep subject-signature constraints separate.
+2. Qualify the optional decision-specific action policy against independent
+   labels, including requested/effective-action mistakes. It is not enabled by
+   default and does not establish a new detection accuracy claim.
 3. Extend effective-profile inheritance and fixed-sample policy simulation with
    complete precedence traces and administrator safety restrictions.
 4. Complete frozen-context parity and recovery tests across both MX versions,
@@ -109,5 +112,46 @@ Reports are bounded to 160 observations, 48 targets per reputation provider,
 no message excerpts, provider response bodies, query credentials or URL paths.
 Grouping currently documents correlations; this addition does not reweight
 the production score, qualify a model, change delivery actions or activate a
-provider. Cross-family contribution deduplication and action-specific coverage
-requirements remain separate implementation and qualification work.
+provider. Cross-family contribution deduplication and qualification remain open.
+
+## Evidence requirements for actions
+
+The 0.28.0 release candidate adds the administrator setting
+`filters.partial_actions` (Web) / `filter.partial_actions` (installation), default
+`false`. In the English console it is **Apply actions when decision-specific
+evidence is sufficient**. With the default, partial analyses still deliver except
+for the existing primary-malware quarantine exception.
+
+When explicitly enabled, a partial action records one of these bases:
+
+| Basis | Required facts |
+| --- | --- |
+| Primary malware | The main antivirus reported trusted malware |
+| Explicit recipient rule | A configured rule matched available facts; this is a policy override, not detector confirmation |
+| Established threat | The existing deterministic threat rule's complete evidence requirements still hold |
+| Score threshold | Completed content extraction, a finite risk index, automatic score resolution enabled, and the actual recipient threshold reached |
+| Validated fusion | A usable unwanted fusion decision and completed decision-mode fusion observation; expired or unsupported fusion cannot gain action authority through legacy fallback |
+| Message kind | A completed promotion/newsletter finding |
+
+An unresolved classification without an explicit matching rule supplies no
+quarantine authority. Missing facts never satisfy requirements. Delivering
+without a tag requires no positive threat finding and does not establish safety.
+
+Tagging additionally requires a ready subject renderer. The live pipeline records
+ARC rendering capability before recipient evaluation; its fallback path explicitly
+records that rewriting is unavailable. Thus the stored effective action and the
+SMTP bytes agree even when a rule requests a tag during a failed check. Configured
+Proton compatibility and ARC activation validation are unchanged.
+
+`action.coverage` records the evaluator version, selected policy, basis, required
+facts and missing facts. History, rule simulation, English details and the signed
+version 5 `X-NoiseFence-Action-Coverage` header use this receipt-time trace.
+Observation mode always delivers, even when the evidence requirements are met.
+
+This is an opt-in action-policy change, not a new scoring model. Qualify it before
+activation. The release candidate is `0.28.0-rc.1`, distinct from existing 0.27.0
+nodes: earlier workers only receive bundles with this setting omitted/disabled.
+Web activation is checked in the configuration transaction and requires a recent
+authenticated report of the new build from every enabled registered MX. Unreported,
+stale or older workers block the revision. Deactivation remains available. This
+upgrade gate does not replace the planned atomic multi-node activation protocol.

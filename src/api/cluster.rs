@@ -123,6 +123,7 @@ async fn sync(
         .status
         .last_error
         .map(|s| crate::delivery_log::sanitize(&s, 400).0);
+    request.status.build = Some(request.build.clone());
     let publication = control.publication().await?;
     let bundle = publication.bundle.for_build(&request.build)?;
     let owner = id.clone();

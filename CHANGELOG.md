@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased — Unified receipt decisions (work in progress)
+## 0.28.0-rc.1 — Unified receipt decisions (unreleased)
 
 - Persist versioned analysis and recipient-decision snapshots before rendering SMTP copies. Preserve policy thresholds, requested/effective actions and coverage across configuration changes, queue replication and restoration.
 - Share action constraints between global and scoped policies. Split copies with different effective policies instead of merging incompatible delivery and quarantine headers.
-- Make history, search and statistics preserve receipt-time decisions; original policy absence remains explicit. Add version 4 headers and English console details for the canonical record.
+- Make history, search and statistics preserve receipt-time decisions; original policy absence remains explicit. Add version 5 headers and English console details for the canonical record.
 - Record bounded, normalized detector observations with availability, provenance, scope, native units and shared evidence groups. Preserve completed provider targets across partial outages; distinguish no-hit, stale, timeout and quota results. Display the receipt-time report in English diagnostics without rebuilding historical observations.
-- Preserve observation, existing action safety gates and bounded wire variants. Controlled score combination, full-pipeline calibration and coordinated rollout remain pending; no detection-rate claim or production activation.
+- Add an opt-in Web policy for partial actions with recorded evidence requirements per decision. Require explicit subject-rendering readiness and retain requested/effective actions when a fallback copy cannot be tagged. Observation and Proton gates remain independent.
+- Refuse Web activation until every enabled registered MX has recently reported the new build; older workers retain parseable disabled settings. Preserve bounded wire variants. Controlled score combination, full-pipeline calibration and atomic coordinated rollout remain pending; no detection-rate claim or production activation.
 
 ## 0.27.0 — Evidence grounding and release qualification
 

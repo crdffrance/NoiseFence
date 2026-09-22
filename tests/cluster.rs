@@ -1474,3 +1474,85 @@ fn score_resolution_cannot_be_enabled_while_older_workers_use_another_policy() {
         assert!(bundle.for_build(build).is_err());
     }
 }
+
+#[test]
+fn partial_action_policy_is_omitted_for_legacy_and_requires_every_mx_to_upgrade() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = config(root.path(), Role::Coordinator);
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    let bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    let older = bundle.for_build("0.27.0").unwrap();
+    assert!(
+        serde_json::to_value(&older.settings).unwrap()["filters"]
+            .get("partial_actions")
+            .is_none()
+    );
+    assert!(older.shared["filter"].get("partial_actions").is_none());
+    for shared in [false, true] {
+        std::sync::Arc::make_mut(&mut cfg).filter.partial_actions = shared;
+        let mut settings = noisefence::control::Settings::from_config(&cfg);
+        settings.filters.partial_actions = !shared;
+        let bundle = artifacts::capture(&cfg, settings, 2).unwrap().bundle;
+        assert!(bundle.for_build("0.27.0").is_err());
+        assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    }
+}
+
+#[tokio::test]
+async fn console_cannot_commit_partial_actions_until_enabled_workers_report_the_new_build() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let store = prepare(&cfg).await;
+    account(&store, "admin", true, &[]).await;
+    store.run(|db| { db.execute("INSERT INTO cluster_nodes(id,name,token_hash,created) VALUES('mx2','mx2','fixture',?1)",[noisefence::now()])?;Ok(()) }).await.unwrap();
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut settings = control.snapshot().settings.clone();
+    settings.filters.partial_actions = true;
+    for (build, age) in [
+        (None, 0),
+        (Some("0.27.0"), 0),
+        (Some(env!("CARGO_PKG_VERSION")), 120),
+    ] {
+        let status = json!({"build":build}).to_string();
+        store
+            .run(move |db| {
+                db.execute(
+                    "UPDATE cluster_nodes SET status=?1,last_seen=?2",
+                    params![status, noisefence::now() - age],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let error = control
+            .apply(0, settings.clone(), "admin".into())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("Upgrade every enabled MX"));
+        assert_eq!(control.snapshot().revision, 0);
+        assert!(!control.snapshot().config.filter.partial_actions);
+        assert_eq!(
+            store
+                .read(|db| Ok(
+                    db.query_row("SELECT COUNT(*) FROM console_revisions", [], |r| r
+                        .get::<_, i64>(0))?
+                ))
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE cluster_nodes SET last_seen=?1", [noisefence::now()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    control.apply(0, settings, "admin".into()).await.unwrap();
+    assert!(control.snapshot().config.filter.partial_actions);
+    assert_eq!(
+        control.snapshot().config.filter.mode,
+        noisefence::config::Mode::Observe
+    );
+}

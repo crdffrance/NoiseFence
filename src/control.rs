@@ -38,6 +38,8 @@ pub struct ManagedDomain {
 #[serde(deny_unknown_fields)]
 pub struct Filters {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial_actions: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resolve_uncertain_by_score: bool,
     #[serde(default)]
     pub rule_weights: BTreeMap<String, f64>,
@@ -136,6 +138,7 @@ impl Settings {
             mailing: config.mailing.as_ref().map(|c| c.policy.clone()),
             actions: config.actions.clone(),
             filters: Filters {
+                partial_actions: config.filter.partial_actions,
                 rule_weights: config.filter.rule_weights.clone(),
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
@@ -338,6 +341,7 @@ impl Settings {
         cfg.filter.threshold = f.threshold;
         cfg.filter.require_corroboration = f.require_corroboration;
         cfg.filter.resolve_uncertain_by_score = f.resolve_uncertain_by_score;
+        cfg.filter.partial_actions = f.partial_actions;
         cfg.filter.authentication = f.authentication;
         if !f.antivirus {
             cfg.antivirus = None;
@@ -802,6 +806,11 @@ impl Controller {
             let engine=Arc::new(tokio::task::spawn_blocking(move||template.reconfigure(cfg)).await??);
             let raw=serde_json::to_string(&settings)?;
             ensure!(raw.len()<=128*1024,"Configuration trop volumineuse.");
+            let previous=this.snapshot();
+            let require_partial_workers=config.filter.partial_actions &&
+                (!previous.config.filter.partial_actions ||
+                    (previous.config.filter.mode!=config.filter.mode && config.filter.mode!=Mode::Observe));
+            let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {
                 let tx=db.transaction()?;
                 let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
@@ -814,6 +823,10 @@ impl Controller {
                 } else {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
                 ensure!(enabled,"Administrator rights revoked.");
+                }
+                if require_partial_workers {
+                    let missing:i64=tx.query_row("SELECT COUNT(*) FROM cluster_nodes WHERE enabled=1 AND (COALESCE(last_seen,0)<?1 OR COALESCE(json_extract(CASE WHEN json_valid(status) THEN status ELSE '{}' END,'$.build'),'')<>?2)",params![worker_cutoff,env!("CARGO_PKG_VERSION")],|r|r.get(0))?;
+                    ensure!(missing==0,"Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions.");
                 }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;
                 let id=tx.last_insert_rowid();

@@ -249,6 +249,7 @@ impl Artifacts {
             "authentication":config.filter.authentication,
             "confirmation": (crate::confirmation::VERSION, config.filter.require_corroboration),
             "decision_policy": crate::decision::VERSION,
+            "action_coverage": (crate::action_coverage::VERSION, config.filter.partial_actions),
             "reputation_enabled":config.filter.spamhaus_key_env.is_some(), "reputation":REPUTATION_VERSION,
             "antivirus":av(&config.antivirus),"signatures":av(&config.signatures),
             "vision":config.vision.as_ref().map(|c| serde_json::json!({

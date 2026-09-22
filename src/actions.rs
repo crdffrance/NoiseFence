@@ -57,6 +57,8 @@ impl Policy {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Applied {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<crate::action_coverage::Evaluation>,
     pub requested: Action,
     pub effective: Action,
     pub reason: String,
@@ -88,10 +90,14 @@ pub fn evaluate(scan: &Scan, config: &Config) -> Applied {
         crate::mailing::category(scan, config.filter.threshold),
         requested,
         policy.quarantine_days,
-        if malware {
-            "malware_priority"
-        } else {
-            "category"
+        crate::action_coverage::Context {
+            threshold: config.filter.threshold,
+            matched_rule: false,
+            reason: if malware {
+                "malware_priority"
+            } else {
+                "category"
+            },
         },
     )
 }
@@ -103,20 +109,33 @@ pub fn constrain(
     category: Category,
     requested: Action,
     quarantine_days: u16,
-    requested_reason: &str,
+    context: crate::action_coverage::Context<'_>,
 ) -> Applied {
-    let malware = scan.antivirus.status == AntivirusStatus::Malware;
+    let coverage = crate::action_coverage::evaluate(scan, config, category, requested, &context);
     let (effective, reason) = if config.filter.mode == Mode::Observe {
         (Action::Deliver, "observation")
-    } else if !scan.complete && !(malware && requested == Action::Quarantine) {
-        (Action::Deliver, "incomplete")
+    } else if !coverage.eligible() {
+        (
+            Action::Deliver,
+            if coverage
+                .missing
+                .contains(&crate::action_coverage::Requirement::SubjectRewrite)
+            {
+                "subject_rewrite_unavailable"
+            } else if config.filter.partial_actions {
+                "action_requirements_unmet"
+            } else {
+                "incomplete"
+            },
+        )
     } else if requested == Action::Tag && !matches!(category, Category::Spam | Category::Publicity)
     {
         (Action::Deliver, "category_without_prefix")
     } else {
-        (requested, requested_reason)
+        (requested, context.reason)
     };
     Applied {
+        coverage: Some(coverage),
         requested,
         effective,
         reason: reason.into(),

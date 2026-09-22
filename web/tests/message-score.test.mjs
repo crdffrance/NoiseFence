@@ -216,6 +216,10 @@ async function compileComponent(name, imports = {}) {
 }
 const components = await compileComponent('message-score', {
   './brand': await compileComponent('brand'),
+  './action-coverage': new URL('../app/action-coverage.ts', import.meta.url).href,
+  './action-coverage-view': await compileComponent('action-coverage-view', {
+    './action-coverage': new URL('../app/action-coverage.ts', import.meta.url).href,
+  }),
   './assessment': new URL('../app/assessment.ts', import.meta.url).href,
   './presentation': new URL('../app/presentation.ts', import.meta.url).href,
 });
@@ -265,5 +269,19 @@ test('partial coverage preserves a supported threat verdict without implying enf
   const shown=scorePresentation({...base,complete:false,decision:decision('legacy','unwanted',null),reasons:[{id:'smtp_policy_unavailable'},{id:'observed_threat_partial'}]});
   assert.equal(shown.kind,'partial');
   assert.match(shown.detail,/Corroborated phishing evidence/);
-  assert.match(shown.detail,/automatic enforcement remains disabled/);
+  assert.match(shown.detail,/recorded action policy/);
+});
+
+test('the actual detail component displays missing action evidence without hiding the score', () => {
+  const assessment = {version:1,category:'spam',complete:false,score:{value:99.4,kind:'partial',model:'fixture',source:'raw'},
+    decision:decision('legacy','unwanted',99.4),incomplete_reasons:['smtp_policy_unavailable'],content_threshold:95,
+    action:{requested:'tag',effective:'deliver',reason:'subject_rewrite_unavailable',coverage:{version:'action-coverage-1',partial_actions:true,
+      basis:'score_threshold',required:['usable_content','subject_rewrite'],missing:['subject_rewrite']}}};
+  const mail = {...base,recipient_decision:{version:1,classification:'spam',coverage:'partial',policy_sha256:'a'.repeat(64),assessment}};
+  const html = renderToStaticMarkup(createElement(MessageScoreDetails,{mail}));
+  assert.match(html,/99\.4/);
+  assert.match(html,/cannot be rewritten safely/);
+  assert.match(html,/Configured score threshold/);
+  assert.match(html,/<strong>Met<\/strong> · Content extraction completed/);
+  assert.match(html,/<strong>Missing<\/strong> · Subject renderer ready/);
 });

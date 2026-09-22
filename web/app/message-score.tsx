@@ -1,4 +1,6 @@
 import { coveragePresentation, receiptAssessment } from './assessment';
+import { actionReason } from './action-coverage';
+import { ActionCoverageDetails } from './action-coverage-view';
 import { ScoreMeter } from './brand';
 import { scorePresentation, type ScoreInput } from './presentation';
 
@@ -45,7 +47,7 @@ export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
         {record && <span>Receipt policy: <code title={record.policy_sha256}>{record.policy_sha256.slice(0, 12)}</code></span>}
         {record?.profile && <span>Profile: <strong>{record.profile}</strong></span>}
       </div>
-      {record && assessment?.action && <p className="score-explanation">Requested action: {assessment.action.requested}. Effective action: {assessment.action.effective}. Reason: {assessment.action.reason.replaceAll('_', ' ')}. This decision is preserved when settings change.</p>}
+      {record && assessment?.action && <><p className="score-explanation">Requested action: {assessment.action.requested}. Effective action: {assessment.action.effective}. {actionReason(assessment.action.reason)}. This decision is preserved when settings change.</p><ActionCoverageDetails coverage={assessment.action.coverage} /></>}
       {coverage.hasGaps && <p className="score-explanation">{coverage.detail}</p>}
     </div>
   );

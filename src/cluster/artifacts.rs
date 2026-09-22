@@ -206,13 +206,23 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0")
+                || (!self.settings.filters.partial_actions
+                    && self
+                        .shared
+                        .pointer("/filter/partial_actions")
+                        .and_then(Value::as_bool)
+                        != Some(true)),
+            "Upgrade every MX before enabling decision-specific partial actions"
+        );
+        ensure!(
+            build == env!("CARGO_PKG_VERSION")
+                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0")
                 || self.settings.quality_candidate.is_none(),
             "Upgrade every MX before selecting a managed shadow candidate"
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || build == "0.26.0"
+                || matches!(build, "0.26.0" | "0.27.0")
                 || !self.settings.filters.resolve_uncertain_by_score,
             "Upgrade every MX before enabling automatic score resolution"
         );
@@ -229,6 +239,7 @@ impl Bundle {
                         | "0.25.1"
                         | "0.25.2"
                         | "0.26.0"
+                        | "0.27.0"
                 ))
                 || self
                     .settings
@@ -241,7 +252,7 @@ impl Bundle {
             (build == env!("CARGO_PKG_VERSION")
                 || matches!(
                     build,
-                    "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0"
+                    "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0"
                 ))
                 || self
                     .settings
@@ -252,7 +263,7 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0")
+                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0")
                 || !self
                     .settings
                     .filters
@@ -275,6 +286,7 @@ impl Bundle {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
             )
         {
             bundle.settings.research_archive = None;
@@ -300,6 +312,7 @@ impl Bundle {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
             )
         {
             // Comparison is not available on older workers. Keep their policy
@@ -321,6 +334,7 @@ impl Bundle {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
             )
             && let Some(detection) = &mut bundle.settings.detection
         {

@@ -579,10 +579,14 @@ pub fn assess_prepared(
         profile
             .map(|p| p.quarantine_days)
             .unwrap_or(global.quarantine_days),
-        if malware {
-            "malware_priority"
-        } else {
-            "custom_policy"
+        crate::action_coverage::Context {
+            threshold,
+            matched_rule: !matched.is_empty(),
+            reason: if malware {
+                "malware_priority"
+            } else {
+                "custom_policy"
+            },
         },
     );
     Assessment {

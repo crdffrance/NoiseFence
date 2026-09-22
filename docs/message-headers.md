@@ -1,13 +1,13 @@
 # Message diagnostic headers
 
-Newly prepared messages use **`X-NoiseFence-Header-Version: 4`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
+Newly prepared messages use **`X-NoiseFence-Header-Version: 5`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
 
 ## Risk, classification and delivery
 
 | Header | Meaning |
 | --- | --- |
 | `X-NoiseFence-Id` | Queue identifier; not an authorization token |
-| `X-NoiseFence-Header-Version` | Wire contract version, currently `4` |
+| `X-NoiseFence-Header-Version` | Wire contract version, currently `5` |
 | `X-NoiseFence-Assessment-Version` | Shared API/header assessment contract, currently `1` |
 | `X-NoiseFence-Record-Version` | Receipt decision schema version, currently `1`, or `not_recorded` |
 | `X-NoiseFence-Classification` | `legitimate`, `publicity`, `spam`, `phishing`, `malware`, `unassessed`, or `not_recorded` |
@@ -15,6 +15,7 @@ Newly prepared messages use **`X-NoiseFence-Header-Version: 4`**. The API and he
 | `X-NoiseFence-Policy-SHA256` | Fingerprint of the applied policy, threshold, rules and action; not a signature |
 | `X-NoiseFence-Action-Requested` | Requested `deliver`, `tag` or `quarantine`, or `not_recorded` |
 | `X-NoiseFence-Action-Effective` | Effective preparation-time action, or `not_recorded` |
+| `X-NoiseFence-Action-Coverage` | Action evaluator version, partial-action policy, basis, evidence eligibility, required and missing fact codes; `not_recorded` on old records |
 | `X-NoiseFence-Version` | NoiseFence software version |
 | `X-NoiseFence-Mode` | Processing mode: `observe`, `tag` or `enforce` |
 | `X-NoiseFence-Score` | Selected finite risk value, one decimal place, or `unavailable` |
@@ -38,6 +39,12 @@ Newly prepared messages use **`X-NoiseFence-Header-Version: 4`**. The API and he
 Version 2 mixed coverage and actual tagging in `Status` (`incomplete`, `spam`, `pub`, `observed`). **Consumers must branch on Header-Version.** Versions 3 and 4 preserve these aliases: read `Category` for classification, `Status` for coverage and `Subject-Tag` for modification. Observation can therefore record `Category: spam` with `Status: complete`, delivery effective `deliver`, and `Subject-Tag: none`.
 
 Version 4 adds the explicit receipt decision fields. `Category` remains a compatibility grouping: phishing and malware belong to spam; `Classification` provides the detailed recorded finding. `unassessed` is not a verified legitimate classification. Legacy rows without a receipt record emit `not_recorded` for the new fields.
+
+Version 5 preserves those aliases and adds `Action-Coverage`. Its `eligible=yes`
+means evidence requirements are met; it does not override observation mode or
+Proton validation. Read `Action-Effective` for the action actually prepared.
+For example, `basis=score_threshold; eligible=no; missing=subject_rewrite;`
+explains why a scored spam was delivered without the requested subject prefix.
 
 The risk index is not generally a spam probability. A missing decision score does not erase a valid content index. Malware does not become a fabricated 100. The captured content threshold is not a fusion model's decision threshold. The delivery-policy header describes preparation time, not a later manual quarantine release or the destination's inbox placement.
 
@@ -65,7 +72,7 @@ The risk index is not generally a spam probability. A missing decision score doe
 A shortened synthetic example:
 
 ```text
-X-NoiseFence-Header-Version: 4
+X-NoiseFence-Header-Version: 5
 X-NoiseFence-Assessment-Version: 1
 X-NoiseFence-Mode: observe
 X-NoiseFence-Score: 87.4

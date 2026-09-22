@@ -108,7 +108,7 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
 /// Successfully observed threats survive unrelated optional-check failures.
 /// Direct extortion still needs observed failed authentication and a second
 /// content signal; no raw score or unavailable check supplies confirmation.
-fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
+pub(crate) fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
     use crate::evidence::{AuthResult, Source, State};
     let Some(context) = &scan.message_context else {
         return false;
@@ -282,9 +282,9 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         scan.reasons.push(Signal {
             id: OBSERVED_THREAT_REASON.into(),
             detail: if scan.message_context.as_ref().is_some_and(|c| c.direct_extortion) {
-                "Explicit compromise, disclosure threat and cryptocurrency payment demand are corroborated by observed failed authentication and a phishing signature or strong phishing analysis. Coverage remains incomplete and automatic enforcement stays disabled."
+                "Explicit compromise, disclosure threat and cryptocurrency payment demand are corroborated by observed failed authentication and a phishing signature or strong phishing analysis. Coverage remains incomplete; the action policy evaluates its own requirements."
             } else {
-                "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted, coverage remains incomplete, and automatic enforcement stays disabled."
+                "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted and coverage remains incomplete. The action policy evaluates its own requirements."
             }.into(),
             weight: 0.0,
         });
