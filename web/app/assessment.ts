@@ -35,6 +35,7 @@ export type Assessment = {
 
 /** Frozen at receipt, shared by API, SMTP headers and replicated queue copies. */
 export type RecipientDecision = {
+  policy_trace?: import('./policy-trace').PolicyTrace | null;
   version: 1;
   recorded_at: number;
   policy_sha256: string;

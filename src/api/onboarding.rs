@@ -8,6 +8,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/onboarding/check", post(check))
         .route("/onboarding/accept", post(accept))
         .route("/admin/filtering/preview", post(preview))
+        .route("/admin/filtering/sample", post(sample))
 }
 pub(super) fn grants(cfg: &Config, username: &str, addresses: &mut Vec<String>) -> Result<()> {
     ensure!(
@@ -251,6 +252,11 @@ async fn preview(
     body.policy
         .validate(&cfg)
         .map_err(|e| Error(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut proposed = (*cfg).clone();
+    proposed.custom_filtering = Some(body.policy.clone());
+    proposed
+        .validate()
+        .map_err(|e| Error(StatusCode::BAD_REQUEST, e.to_string()))?;
     if !body.score.is_finite()
         || !(0.0..=100.0).contains(&body.score)
         || body.body.len() > 100_000
@@ -275,6 +281,11 @@ async fn preview(
         cfg.filter.threshold,
     ));
     crate::decision::apply(&mut scan, cfg.filter.require_corroboration);
+    crate::decision::resolve_by_score(
+        &mut scan,
+        cfg.filter.resolve_uncertain_by_score,
+        cfg.filter.threshold,
+    );
     let mut facts = crate::custom_filtering::Facts::default();
     use crate::custom_filtering::Field;
     facts.put(Field::EnvelopeFrom, &body.sender);
@@ -285,9 +296,106 @@ async fn preview(
     facts.put(Field::Subject, &body.subject);
     facts.put(Field::Body, &body.body);
     facts.put(Field::Score, &body.score.to_string());
+    let policy = cfg.preferences.policy(&body.policy, &recipient);
     let assessment =
-        crate::custom_filtering::assess(&body.policy, &cfg, &scan, &facts, &recipient, now());
+        crate::custom_filtering::assess(&policy, &cfg, &scan, &facts, &recipient, now());
     Ok(Json(
-        json!({"simulation":true,"assessment":assessment,"note":"Simulation of the rules with the facts seized. DMARC, antivirus and reputation controls are not executed."}),
+        json!({"simulation":true,"assessment":assessment,"note":"Synthetic rule simulation using entered facts and saved personal preferences. DMARC, antivirus and reputation checks are not executed. No messages or settings are changed."}),
     ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Sample {
+    policy: crate::custom_filtering::Policy,
+    recipient: String,
+    message_ids: Vec<String>,
+    at: Option<i64>,
+}
+async fn sample(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<Sample>,
+) -> ApiResult<Json<Value>> {
+    let actor = admin::administrator(&app, &h, true).await?;
+    let (cfg, revision) = if let Some(control) = &app.control {
+        let s = control.snapshot();
+        (s.config.clone(), Some(s.revision))
+    } else {
+        (app.config.clone(), None)
+    };
+    body.policy
+        .validate(&cfg)
+        .map_err(|e| Error(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut proposed = (*cfg).clone();
+    proposed.custom_filtering = Some(body.policy.clone());
+    proposed
+        .validate()
+        .map_err(|e| Error(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let at = body.at.unwrap_or_else(now);
+    if body.message_ids.is_empty()
+        || body.message_ids.len() > 50
+        || at <= 0
+        || at > now() + 366 * 86400
+        || body
+            .message_ids
+            .iter()
+            .any(|id| uuid::Uuid::parse_str(id).is_err())
+        || body
+            .message_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != body.message_ids.len()
+    {
+        return Err(Error(
+            StatusCode::BAD_REQUEST,
+            "Choose 1 to 50 distinct message IDs and a valid evaluation time.".into(),
+        ));
+    }
+    let recipient = cfg
+        .recipient(&body.recipient)
+        .filter(|r| r.address == body.recipient)
+        .ok_or_else(|| Error(StatusCode::BAD_REQUEST, "Recipient not configured.".into()))?;
+    let ids = body.message_ids;
+    let address = body.recipient;
+    let snapshots=app.store.read(move|db| {
+        let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[actor.username],|r|r.get(0))?;
+        ensure!(active,"Administrator rights revoked.");
+        let mut query=db.prepare("SELECT m.sender,m.scan FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.id=?1 AND d.address=?2 AND (m.created>=?3 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1))")?;
+        let mut snapshots=Vec::new(); let mut bytes=0usize;
+        for id in ids {
+            let row=query.query_row(params![id,address,now()-30*86400],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
+            if let Some((_,scan))=&row { bytes=bytes.saturating_add(scan.len()); }
+            ensure!(bytes<=16*1024*1024,"The selected sample exceeds the metadata budget; choose fewer messages.");
+            snapshots.push((id,row));
+        }
+        Ok(snapshots)
+    }).await?;
+    let result=tokio::task::spawn_blocking(move|| -> Result<Value> {
+        let mut rows=Vec::new();let mut matrix=std::collections::BTreeMap::<String,usize>::new();let mut changed=0usize;let mut complete_comparisons=0usize;let mut sample_binding=Vec::new();
+        for (id,row) in snapshots {
+            let Some((sender,json))=row else { rows.push(json!({"id":id,"status":"not_available"}));continue; };
+            let scan:crate::engine::Scan=serde_json::from_str(&json)?;
+            sample_binding.push(json!({"id":id,"scan_sha256":message::digest(json.as_bytes())}));
+            let before=crate::assessment::historical(&scan);
+            let assessment=crate::custom_filtering::simulate(&body.policy,&cfg,&scan,&sender,&recipient,at);
+            let before_action=before.action.as_ref().map(|a|a.effective);
+            let different=before.category!=assessment.category || before_action.is_some_and(|a|a!=assessment.action.effective);
+            let comparable=assessment.unavailable_conditions==0 && scan.recipient_decision.is_some() && before_action.is_some();
+            changed+=usize::from(comparable && different);
+            complete_comparisons+=usize::from(comparable);
+            if comparable {
+                *matrix.entry(format!("{} -> {}",before.category.as_str(),assessment.category.as_str())).or_default()+=1;
+            }
+            rows.push(json!({"id":id,"status":"simulated","historical_policy_recorded":scan.recipient_decision.is_some(),"before_category":before.category,"before_action":before_action,
+                "changed":comparable.then_some(different),"comparable":comparable,"assessment":assessment}));
+        }
+        sample_binding.sort_by(|a,b|a["id"].as_str().cmp(&b["id"].as_str()));
+        let sample_sha256=message::digest(&serde_json::to_vec(&json!({"recipient":recipient.address,"messages":sample_binding}))?);
+        Ok(json!({"simulation":true,"at":at,"configuration_revision":revision,"sample_sha256":sample_sha256,
+            "evaluated":sample_binding.len(),"changed":changed,"complete_comparisons":complete_comparisons,"matrix":matrix,"rows":rows,
+            "note":"Policy-only simulation on frozen detector results and retained metadata. Uses saved global settings and personal preferences; bodies and unrecorded facts remain unknown. No messages are reanalysed, sent or changed; this is not an accuracy evaluation."}))
+    }).await.map_err(anyhow::Error::from)??;
+    Ok(Json(result))
 }

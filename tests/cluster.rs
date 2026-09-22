@@ -1500,6 +1500,141 @@ fn partial_action_policy_is_omitted_for_legacy_and_requires_every_mx_to_upgrade(
     }
 }
 
+#[test]
+fn scoped_policy_bundles_refuse_old_mxs_but_keep_earlier_capabilities() {
+    use noisefence::custom_filtering::{Ordering, Policy};
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    let base = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    assert!(base.for_build("0.28.0-rc.2").is_ok());
+    for shared in [false, true] {
+        let mut b = base.clone();
+        if shared {
+            b.shared["custom_filtering"] = json!(Policy {
+                ordering: Ordering::Scoped,
+                ..Default::default()
+            });
+        } else {
+            b.settings.custom_filtering = Some(Policy {
+                ordering: Ordering::Scoped,
+                ..Default::default()
+            });
+        }
+        b.digest = b.hash().unwrap();
+        for build in ["0.27.0", "0.28.0-rc.1", "0.28.0-rc.2"] {
+            assert!(b.for_build(build).is_err(), "{build}");
+        }
+        assert!(b.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    }
+    let mut b = base;
+    b.settings.filters.partial_actions = true;
+    b.digest = b.hash().unwrap();
+    for build in ["0.28.0-rc.1", "0.28.0-rc.2"] {
+        assert!(b.for_build(build).is_ok());
+    }
+    b.shared["fusion"] = json!({"family_caps":true});
+    b.digest = b.hash().unwrap();
+    assert!(b.for_build("0.28.0-rc.1").is_err());
+    assert!(b.for_build("0.28.0-rc.2").is_ok());
+}
+
+#[tokio::test]
+async fn scoped_policy_activation_and_edits_require_fresh_capable_workers() {
+    use noisefence::custom_filtering::{Ordering, Policy};
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let store = prepare(&cfg).await;
+    account(&store, "admin", true, &[]).await;
+    store.run(|db|{db.execute("INSERT INTO cluster_nodes(id,name,token_hash,created) VALUES('mx2','mx2','fixture',?1)",[noisefence::now()])?;Ok(())}).await.unwrap();
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut settings = control.snapshot().settings.clone();
+    settings.custom_filtering = Some(Policy {
+        ordering: Ordering::Scoped,
+        ..Default::default()
+    });
+    for (build, age) in [
+        (None, 0),
+        (Some("0.28.0-rc.2"), 0),
+        (Some(env!("CARGO_PKG_VERSION")), 120),
+    ] {
+        let status = json!({"build":build}).to_string();
+        store
+            .run(move |db| {
+                db.execute(
+                    "UPDATE cluster_nodes SET status=?1,last_seen=?2",
+                    params![status, noisefence::now() - age],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert!(
+            control
+                .apply(0, settings.clone(), "admin".into())
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Upgrade every enabled MX")
+        );
+        assert_eq!(control.snapshot().revision, 0);
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE cluster_nodes SET last_seen=?1", [noisefence::now()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let revision = control
+        .apply(0, settings.clone(), "admin".into())
+        .await
+        .unwrap();
+    assert_eq!(
+        control
+            .snapshot()
+            .config
+            .custom_filtering
+            .as_ref()
+            .unwrap()
+            .ordering,
+        Ordering::Scoped
+    );
+    // A downgraded node cannot silently receive subsequent scoped revisions.
+    store
+        .run(|db| {
+            db.execute(
+                "UPDATE cluster_nodes SET status=?1",
+                [json!({"build":"0.28.0-rc.2"}).to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        control
+            .apply(revision, settings.clone(), "admin".into())
+            .await
+            .is_err()
+    );
+    assert_eq!(control.snapshot().revision, revision);
+    settings.custom_filtering.as_mut().unwrap().ordering = Ordering::LegacyPriority;
+    control
+        .apply(revision, settings, "admin".into())
+        .await
+        .unwrap();
+    assert_eq!(
+        control
+            .snapshot()
+            .config
+            .custom_filtering
+            .as_ref()
+            .unwrap()
+            .ordering,
+        Ordering::LegacyPriority
+    );
+}
+
 #[tokio::test]
 async fn console_cannot_commit_partial_actions_until_enabled_workers_report_the_new_build() {
     let root = tempfile::tempdir().unwrap();

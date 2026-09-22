@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
+
+- Add opt-in scoped inheritance across organization, alias/domain and mailbox profiles, retaining domain preferences when a mailbox adds rules. Keep legacy ordering for existing configurations. Personal rules run before administrator rules and cannot stop them; deterministic ties use the original rule IDs.
+- Record recipient-specific profile inheritance, threshold ownership, matched/missing/stopped rules, winning effects and malware priority. Display the receipt trace in the English console without exposing rule values or changing accepted history. Scoped risk-index conditions use the same selected index as the receipt and UI.
+- Add a Web draft comparison on 1–50 explicit message IDs for one recipient. Reuse retained detector results, freeze the evaluation time and sample fingerprint, and exclude unknown comparisons from change counts. No content is sent, rescanned or modified; truncated or unavailable facts stay unknown.
+- Require fresh compatible reports from every enabled worker before scoped policy activation or edits. Refuse scoped bundles to older MX builds; retain audited support for rc.1 partial actions and rc.2 capped fusion. This is a compatibility gate, not atomic multi-node activation.
+- No production deployment, model promotion or new detection-rate claim. Independent full-pipeline qualification and coordinated activation remain required.
+
 ## 0.28.0-rc.2 — Bounded fusion candidates (unreleased)
 
 - Add a version-2 learned fusion model with explicit log-odds limits per detector family. Use the same capped likelihood during fitting and the same capped calculation for calibration, threshold selection, Python evaluation and Rust runtime prediction. Keep legacy model behavior unchanged.

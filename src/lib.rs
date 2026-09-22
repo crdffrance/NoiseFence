@@ -63,6 +63,7 @@ mod content_urls;
 mod content_view;
 pub mod management;
 pub mod message_context;
+pub mod policy_trace;
 pub mod preferences;
 
 pub mod reliability;

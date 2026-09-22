@@ -243,6 +243,7 @@ fn inherit_keeps_the_administrator_exact_mailbox_threshold_and_follows_later_upd
             profile: "admin".into(),
         }],
         rules: vec![],
+        ..Default::default()
     };
     profile.id = "personal".into();
     profile.threshold = None;

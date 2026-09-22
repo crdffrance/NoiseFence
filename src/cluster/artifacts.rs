@@ -205,7 +205,21 @@ impl Bundle {
             "Unsupported worker build"
         );
         ensure!(
-            build == env!("CARGO_PKG_VERSION")
+            super::protocol::supports_scoped_policy(build)
+                || (self
+                    .settings
+                    .custom_filtering
+                    .as_ref()
+                    .is_none_or(|p| p.ordering != crate::custom_filtering::Ordering::Scoped)
+                    && self
+                        .shared
+                        .pointer("/custom_filtering/ordering")
+                        .and_then(Value::as_str)
+                        != Some("scoped")),
+            "Upgrade every MX before enabling scoped policy inheritance"
+        );
+        ensure!(
+            super::protocol::supports_capped_fusion(build)
                 || (self
                     .shared
                     .pointer("/fusion/family_caps")
@@ -222,7 +236,7 @@ impl Bundle {
             "Upgrade every MX before enabling capped fusion models"
         );
         ensure!(
-            (build == env!("CARGO_PKG_VERSION") || build == "0.28.0-rc.1")
+            super::protocol::supports_partial_actions(build)
                 || (!self.settings.filters.partial_actions
                     && self
                         .shared
@@ -235,14 +249,20 @@ impl Bundle {
             build == env!("CARGO_PKG_VERSION")
                 || matches!(
                     build,
-                    "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0" | "0.28.0-rc.1"
+                    "0.25.0"
+                        | "0.25.1"
+                        | "0.25.2"
+                        | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
                 )
                 || self.settings.quality_candidate.is_none(),
             "Upgrade every MX before selecting a managed shadow candidate"
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.26.0" | "0.27.0" | "0.28.0-rc.1")
+                || matches!(build, "0.26.0" | "0.27.0" | "0.28.0-rc.1" | "0.28.0-rc.2")
                 || !self.settings.filters.resolve_uncertain_by_score,
             "Upgrade every MX before enabling automatic score resolution"
         );
@@ -261,6 +281,7 @@ impl Bundle {
                         | "0.26.0"
                         | "0.27.0"
                         | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
                 ))
                 || self
                     .settings
@@ -281,6 +302,7 @@ impl Bundle {
                         | "0.26.0"
                         | "0.27.0"
                         | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
                 ))
                 || self
                     .settings
@@ -293,7 +315,13 @@ impl Bundle {
             build == env!("CARGO_PKG_VERSION")
                 || matches!(
                     build,
-                    "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0" | "0.28.0-rc.1"
+                    "0.25.0"
+                        | "0.25.1"
+                        | "0.25.2"
+                        | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
                 )
                 || !self
                     .settings
@@ -319,6 +347,7 @@ impl Bundle {
                     | "0.26.0"
                     | "0.27.0"
                     | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
             )
         {
             bundle.settings.research_archive = None;
@@ -346,6 +375,7 @@ impl Bundle {
                     | "0.26.0"
                     | "0.27.0"
                     | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
             )
         {
             // Comparison is not available on older workers. Keep their policy
@@ -369,6 +399,7 @@ impl Bundle {
                     | "0.26.0"
                     | "0.27.0"
                     | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
             )
             && let Some(detection) = &mut bundle.settings.detection
         {
@@ -385,7 +416,7 @@ impl Bundle {
                 .remove("smtp_admission");
         }
 
-        if build != env!("CARGO_PKG_VERSION")
+        if !super::protocol::supports_capped_fusion(build)
             && let Some(detection) = &mut bundle.settings.detection
         {
             detection.modules.remove("fusion");

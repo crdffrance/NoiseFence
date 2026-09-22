@@ -56,8 +56,8 @@ authentication mechanism.
 2. Qualify the optional decision-specific action policy against independent
    labels, including requested/effective-action mistakes. It is not enabled by
    default and does not establish a new detection accuracy claim.
-3. Extend effective-profile inheritance and fixed-sample policy simulation with
-   complete precedence traces and administrator safety restrictions.
+3. Qualify scoped-profile inheritance and fixed-sample policy simulation on
+   representative policies before activating it across the organization.
 4. Complete frozen-context parity and recovery tests across both MX versions,
    including policy/model bundle activation and rollback.
 5. Evaluate the whole pipeline on recent independent human-labelled messages,
@@ -70,7 +70,8 @@ Proton gates pass. The current research model has not established the targets of
 at least 95% capture and at most 0.1% false positives. No new provider or private
 message disclosure is required for this structural refactor.
 
-See [automatic classification](automatic-classification.md),
+See [scoped policies and simulation](scoped-policies.md),
+[automatic classification](automatic-classification.md),
 [message headers](message-headers.md) and
 [release qualification](final-release-plan.md).
 

@@ -52,9 +52,12 @@ pub struct AnalysisResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecipientDecision {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_trace: Option<crate::policy_trace::Trace>,
     pub version: u32,
     pub recorded_at: i64,
-    /// Includes effective threshold/action/rule matches; excludes recipient identities.
+    /// Digest of the effective threshold/action/rules and recipient-scoped trace.
+    /// Only the digest, never the trace's addresses, is exposed in SMTP headers.
     pub policy_sha256: String,
     pub profile: Option<String>,
     pub rule_ids: Vec<String>,
@@ -151,8 +154,10 @@ pub fn record_recipient(
         "custom_policy": policy.map(|p| &p.policy), "profile": policy.and_then(|p| p.profile.as_ref()),
         "threshold": view.content_threshold, "category": view.category,
         "classification": classification, "action": view.action, "rule_ids": rule_ids,
+        "trace":policy.and_then(|p|p.trace.as_ref()),
     })).expect("typed receipt policy"));
     scan.recipient_decision = Some(Box::new(RecipientDecision {
+        policy_trace: policy.and_then(|p| p.trace.clone()),
         version: VERSION,
         recorded_at,
         policy_sha256,

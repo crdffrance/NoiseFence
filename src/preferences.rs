@@ -57,6 +57,7 @@ impl Preference {
                 })
                 .collect(),
             rules: self.rules.clone(),
+            ..Default::default()
         }
     }
 }
@@ -129,6 +130,9 @@ impl Settings {
         if !self.enabled {
             return Cow::Borrowed(base);
         }
+        if base.ordering == crate::custom_filtering::Ordering::Scoped {
+            return self.scoped_policy(base, recipient);
+        }
         let selected = self
             .mailboxes
             .iter()
@@ -168,6 +172,10 @@ impl Settings {
                 scope: recipient.address.clone(),
                 profile: profile.id.clone(),
             });
+            combined.origins.profiles.insert(
+                profile.id.clone(),
+                personal.profile.as_ref().unwrap().id.clone(),
+            );
             combined.profiles.push(profile);
         }
         // Administrator rules run last and remain authoritative. Personal rules cannot stop them.
@@ -177,7 +185,15 @@ impl Settings {
         let mut rules = personal.rules.clone();
         rules.sort_by(|a, b| (a.priority, &a.id).cmp(&(b.priority, &b.id)));
         for (i, r) in rules.iter_mut().enumerate() {
-            r.id = format!("mailbox-{i}");
+            let original = r.id.clone();
+            r.id = (i..)
+                .map(|n| format!("mailbox-{n}"))
+                .find(|id| {
+                    !base.rules.iter().any(|r| &r.id == id)
+                        && !combined.origins.rules.contains_key(id)
+                })
+                .unwrap();
+            combined.origins.rules.insert(r.id.clone(), original);
             r.stop = false;
         }
         rules.extend(combined.rules);
@@ -185,6 +201,52 @@ impl Settings {
             r.priority = i as u16;
         }
         combined.rules = rules;
+        Cow::Owned(combined)
+    }
+    fn scoped_policy<'a>(&self, base: &'a Policy, recipient: &Recipient) -> Cow<'a, Policy> {
+        let mut selected: Vec<_> = self
+            .mailboxes
+            .iter()
+            .filter_map(|(scope, p)| {
+                crate::custom_filtering::scope_rank(scope, recipient).map(|rank| (rank, scope, p))
+            })
+            .collect();
+        if selected.is_empty() {
+            return Cow::Borrowed(base);
+        }
+        selected.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        let mut combined = base.clone();
+        for (_, scope, preference) in selected {
+            if let Some(profile) = &preference.profile {
+                let mut copy = profile.clone();
+                copy.id = (0..)
+                    .map(|n| format!("__personal_profile_{n}"))
+                    .find(|id| !combined.profiles.iter().any(|p| &p.id == id))
+                    .unwrap();
+                combined
+                    .origins
+                    .profiles
+                    .insert(copy.id.clone(), profile.id.clone());
+                combined.bindings.push(Binding {
+                    scope: scope.clone(),
+                    profile: copy.id.clone(),
+                });
+                combined.profiles.push(copy);
+            }
+            for rule in &preference.rules {
+                let mut copy = rule.clone();
+                copy.id = (0..)
+                    .map(|n| format!("__personal_rule_{n}"))
+                    .find(|id| !combined.rules.iter().any(|r| &r.id == id))
+                    .unwrap();
+                copy.stop = false;
+                combined
+                    .origins
+                    .rules
+                    .insert(copy.id.clone(), rule.id.clone());
+                combined.rules.push(copy);
+            }
+        }
         Cow::Owned(combined)
     }
 }

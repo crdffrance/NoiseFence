@@ -1,6 +1,7 @@
 import { coveragePresentation, receiptAssessment } from './assessment';
 import { actionReason } from './action-coverage';
 import { ActionCoverageDetails } from './action-coverage-view';
+import { PolicyTraceDetails } from './policy-trace-view';
 import { ScoreMeter } from './brand';
 import { scorePresentation, type ScoreInput } from './presentation';
 
@@ -49,6 +50,7 @@ export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
       </div>
       {record && assessment?.action && <><p className="score-explanation">Requested action: {assessment.action.requested}. Effective action: {assessment.action.effective}. {actionReason(assessment.action.reason)}. This decision is preserved when settings change.</p><ActionCoverageDetails coverage={assessment.action.coverage} /></>}
       {coverage.hasGaps && <p className="score-explanation">{coverage.detail}</p>}
+      {record?.policy_trace && <PolicyTraceDetails trace={record.policy_trace} />}
     </div>
   );
 }

@@ -215,6 +215,9 @@ async function compileComponent(name, imports = {}) {
   return `data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`;
 }
 const components = await compileComponent('message-score', {
+  './policy-trace-view': await compileComponent('policy-trace-view', {
+    './policy-trace': new URL('../app/policy-trace.ts', import.meta.url).href,
+  }),
   './brand': await compileComponent('brand'),
   './action-coverage': new URL('../app/action-coverage.ts', import.meta.url).href,
   './action-coverage-view': await compileComponent('action-coverage-view', {
@@ -284,4 +287,21 @@ test('the actual detail component displays missing action evidence without hidin
   assert.match(html,/Configured score threshold/);
   assert.match(html,/<strong>Met<\/strong> · Content extraction completed/);
   assert.match(html,/<strong>Missing<\/strong> · Subject renderer ready/);
+});
+
+test('the receipt detail renders inherited threshold ownership and escaped rule names', () => {
+  const assessment={version:1,category:'spam',complete:true,score:{value:96,kind:'content',model:'fixture',source:'raw'},
+    decision:decision('legacy','unwanted',96),incomplete_reasons:[],content_threshold:95,action:null};
+  const trace={version:'recipient-policy-trace-1',ordering:'scoped',threshold_profile:'domain',threshold_locked:false,
+    profiles:[{id:'mailbox',name:'Personal actions',scope:'alice@example.test',origin:'personal',threshold:null,selected:true},
+      {id:'domain',name:'Domain threshold',scope:'*@example.test',origin:'administrator',threshold:95,selected:false}],
+    rules:[{id:'one',name:'<script>rule</script>',scope:'*',origin:'administrator',priority:0,outcome:'missing_facts',unavailable:['body'],
+      category_before:'spam',category_after:'spam',action_before:'deliver',action_after:'deliver',stop:false}],
+    stopped_by:null,category_rule:null,action_rule:null,malware_override:false};
+  const mail={...base,recipient_decision:{version:1,classification:'spam',coverage:'complete',policy_sha256:'b'.repeat(64),assessment,policy_trace:trace}};
+  const html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail}));
+  assert.match(html,/Policy inheritance and rule decisions/);
+  assert.match(html,/Threshold source: <strong>Domain threshold \(\*@example.test\)<\/strong>/);
+  assert.match(html,/Selected actions/); assert.match(html,/Missing facts/); assert.match(html,/unavailable: body/);
+  assert.match(html,/&lt;script&gt;rule&lt;\/script&gt;/); assert.doesNotMatch(html,/<script>/);
 });
