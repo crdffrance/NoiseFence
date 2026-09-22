@@ -149,7 +149,7 @@ version 5 `X-NoiseFence-Action-Coverage` header use this receipt-time trace.
 Observation mode always delivers, even when the evidence requirements are met.
 
 This is an opt-in action-policy change, not a new scoring model. Qualify it before
-activation. The release candidate is `0.28.0-rc.1`, distinct from existing 0.27.0
+activation. This capability was introduced in `0.28.0-rc.1`, distinct from 0.27.0
 nodes: earlier workers only receive bundles with this setting omitted/disabled.
 Web activation is checked in the configuration transaction and requires a recent
 authenticated report of the new build from every enabled registered MX. Unreported,
@@ -195,6 +195,56 @@ consumers must use the canonical assessment and validate the 0–100 range.
 This prevents duplicate application of a message-level signal; it does **not**
 prove independence of different signals. In particular, SPF and DMARC failures
 may remain correlated, and the lexical model can already encode rule-related
-features. Cross-family caps, calibrated combination and independent full-pipeline
-qualification remain required. No accuracy improvement or production activation
+features. The bounded fusion implementation below provides a separate candidate
+path; fitting its family limits and independent full-pipeline qualification remain
+required before replacing this index. No accuracy improvement or production activation
 is claimed from these structural tests.
+
+## Bounded learned fusion
+
+Version `0.28.0-rc.2` supports `noisefence-fusion-model-2`. Its mandatory
+`combination` policy, `noisefence-fusion-family-caps-1`, gives explicit minimum and
+maximum contributions for each of eight families: lexical, semantic,
+authentication, SMTP policy, reputation, main antivirus, advisory signatures and
+LLM. Bounds contain zero and lie within −32 to +32 **log-odds**, not native-rule
+points. No default limits are silently assigned to a model. A zero-width bound
+at zero disables that family's contribution.
+
+The model learns regularized coefficients jointly, using the capped family sums
+inside its training loss. Development selection, reserved calibration, threshold
+selection, evaluation and Rust prediction all apply the same caps **before**
+calibration. The intercept is separate. Limits are frozen in the experiment
+manifest and model bytes; editing any limit invalidates the model hash in the
+qualification report. Existing version-1 models retain their original uncapped
+calculation and cannot carry an unrecognized cap policy.
+
+At runtime, `fusion.family_caps = true` must match the installed version-2 model.
+The Web administrator can select the installed fusion engine's operating mode and
+matching contract in **Detection engines → Learned fusion model**. Model and
+validation files remain installed on the server; this control does not fit or
+promote a model automatically. A mismatch is rejected before a configuration
+revision is committed. Changing the actual learned limits requires a new fitting
+and qualification run, rather than changing a live number outside calibration.
+
+Decision mode for a capped model requires a version-2 promotion report, including
+independent human-labelled population coverage, recall/FPR confidence bounds and
+separate local/pipeline latency evidence. A synthetic report is never promotion
+evidence. Web activation also requires every enabled registered MX to have a
+fresh authenticated report of the capable build. Version-1 model settings remain
+readable by older workers; capped bundles are refused. This compatibility gate
+does not implement the separately planned atomic multi-node activation protocol.
+
+`analysis_result.fusion_combination` records every raw/retained family total,
+limits, model bias, resulting logit, cap-policy fingerprint and runtime model
+fingerprint. Historical diagnostics read this immutable record. The additional
+ledger is outside the old strict `Prediction` JSON type so rollback readers can
+still open accepted messages. Per-feature explanations use retained
+contributions after proportional family adjustment. Rspamd comparisons do not
+enter this model, and primary malware priority remains independent of its score.
+
+These limits bound aggregate influence; they do not establish statistical
+independence or cure a poor base model. The existing feature vector consolidates
+some repeated evidence, but normalized target groups across additional providers
+still require a qualified combination adapter. Fusion's existing supported-profile
+and tag-eligibility restrictions remain in force. Broader partial-coverage
+classification needs its own qualification; this change does not bypass it.

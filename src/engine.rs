@@ -72,6 +72,8 @@ pub struct SemanticResult {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusion_combination: Option<crate::fusion::combination::Accounting>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoring: Option<crate::scoring::Report>,
     /// Explicit rendering capability, set by the live pipeline before policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]

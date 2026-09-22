@@ -215,6 +215,7 @@ fn malware_does_not_depend_on_content_models_or_optional_failures() {
 fn unavailable_validated_fusion_cannot_be_replaced_by_unqualified_threshold_actions() {
     let mut cfg = config();
     cfg.fusion = Some(noisefence::fusion::runtime::Settings {
+        family_caps: false,
         model: "fixture.json".into(),
         mode: noisefence::fusion::runtime::Mode::Decision,
         validation_report: Some("fixture-validation.json".into()),

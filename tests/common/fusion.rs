@@ -19,6 +19,7 @@ pub fn fixture(config: &Config) -> (Model, Evidence) {
     evidence.authentication.arc = Some(AuthResult::None);
     evidence.authentication.arc_can_seal = Some(true);
     let model = Model {
+        combination: None,
         schema: fusion::SCHEMA.into(),
         version: "SOFTWARE-TEST-ONLY".into(),
         protocol_sha256: fusion::protocol_sha256(),
@@ -74,9 +75,29 @@ pub fn install(config: &mut Config, mode: Mode) -> (Model, Validation) {
     let report = config.data_dir.join("software-test-validation.json");
     std::fs::write(&report, serde_json::to_vec(&validation).unwrap()).unwrap();
     config.fusion = Some(Settings {
+        family_caps: false,
         model: path,
         mode,
         validation_report: Some(report),
     });
     (model, validation)
+}
+
+/// Fabricated v2 proof only for exercising guards; never production evidence.
+pub fn validation_v2(model: &Model, sha: &str) -> Validation {
+    let mut proof = validation(model, sha);
+    proof.schema = "noisefence-fusion-promotion-2".into();
+    proof.tp = 1990;
+    proof.fn_count = 10;
+    proof.operational = Some(noisefence::fusion::runtime::OperationalEvidence {
+        native_p95_ms: 100.,
+        native_samples: 1000,
+        max_message_bytes: 1024 * 1024,
+        warm_caches: true,
+        native_latency_report_sha256: digest(b"synthetic native benchmark"),
+        pipeline_budget_ms: 5000,
+        review_spam: 0,
+        review_legitimate: 0,
+    });
+    proof
 }

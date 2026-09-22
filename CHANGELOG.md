@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.28.0-rc.2 — Bounded fusion candidates (unreleased)
+
+- Add a version-2 learned fusion model with explicit log-odds limits per detector family. Use the same capped likelihood during fitting and the same capped calculation for calibration, threshold selection, Python evaluation and Rust runtime prediction. Keep legacy model behavior unchanged.
+- Record family contributions before and after limits, the bias, policy and model fingerprints with receipt decisions. Display the English accounting separately from legacy content-index and native-rule points.
+- Expose installed fusion mode and model-contract selection in the administrator's Web engine settings. Require matching model/configuration, version-2 independent quality/latency qualification and fresh compatible MX reports before decision activation. Keep old queue prediction JSON readable and refuse capped bundles to earlier workers.
+- Synthetic parity and regression tests validate software consistency, not detection quality. No fitted production model, new detection-rate claim or deployment accompanies this release candidate.
+
 ## 0.28.0-rc.1 — Unified receipt decisions (unreleased)
 
 - Persist versioned analysis and recipient-decision snapshots before rendering SMTP copies. Preserve policy thresholds, requested/effective actions and coverage across configuration changes, queue replication and restoration.

@@ -10,7 +10,7 @@ const source = await readFile(new URL('../app/scoring-view.tsx',import.meta.url)
 const js=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText
   .replaceAll('"react/jsx-runtime"',JSON.stringify(import.meta.resolve('react/jsx-runtime')))
   .replaceAll("'./scoring-format'",JSON.stringify(new URL('../app/scoring-format.ts',import.meta.url).href));
-const {ScoreAccounting}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const {ScoreAccounting,FusionAccountingView}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const report={version:'content-logit-deduplicated-1',baseline:-5,lexical:null,semantic:null,rules_total:1.5,total_logit:-3.5,score:2.9312,invalid_inputs:0,
   contributions:[{id:'llm_advisory',family:'llm',occurrences:2,proposed:1.5,retained:1.5,adjustment:'duplicate'}]};
 
@@ -35,4 +35,19 @@ test('missing legacy accounting and an invalid index never display a fabricated 
   assert.equal(scoreValue(null),'Not available');
   assert.equal(scoreValue(0),'0');
   assert.match(scoreAdjustment('detector_policy'),/usable detector opinion/);
+});
+
+
+test('capped fusion view shows raw and retained units without implying activation',()=>{
+  const html=renderToStaticMarkup(createElement(FusionAccountingView,{report:{version:'noisefence-fusion-family-caps-1',policy_sha256:'a'.repeat(64),bias:-2,total_logit:1,
+    families:{llm:{raw:8,retained:3,minimum:-1,maximum:3}}}}));
+  assert.match(html,/8<\/td><td>3 · capped/);
+  assert.match(html,/learned log-odds/);
+  assert.match(html,/before calibration/);
+  assert.match(html,/Observation mode does not change delivery/);
+  assert.match(html,/requires refitting/);
+  assert.match(html,/role of this calculation.*not recorded/);
+  const comparison=renderToStaticMarkup(createElement(FusionAccountingView,{decisionSource:'legacy',report:{version:'fixture',families:{},bias:0,total_logit:0}}));
+  assert.match(comparison,/did not supply the final detector decision/);
+  assert.equal(renderToStaticMarkup(createElement(FusionAccountingView,{})),'');
 });

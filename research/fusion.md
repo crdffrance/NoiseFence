@@ -216,3 +216,60 @@ Wilson's intervals per message imply the independence of messages, often violate
 A receipt is created before the predictions in the output folder and in `candidate/population-tests/<digest>.json`. A second execution on the same dataset with this candidate folder is refused, even to another release. Failure after the prediction starts also consumes the test. Copying the records, modifying the labels after examining the predictions or reusing the campaigns does not make the test new. Hashs and declarations prevent accidental confusion; they do not prove the sincerity of a review or the completeness of a history against an operator who would falsify them.
 
 References: [probability calibration](https://scikit-learn.org/stable/modules/calibration.html), [threshold selection on separate data](https://scikit-learn.org/stable/modules/classification_threshold.html), [preventing train/test leakage](https://scikit-learn.org/stable/common_pitfalls.html#data-leakage).
+
+## Version-2 candidates with family limits
+
+Use experiment schema `noisefence-fusion-experiment-2` to fit the capped native
+model. Keep all version-1 manifest fields and add an inline `combination` object:
+
+```json
+{
+  "schema": "noisefence-fusion-family-caps-1",
+  "families": {
+    "lexical": {"minimum": -1.5, "maximum": 1.5},
+    "semantic": {"minimum": -1.5, "maximum": 1.5},
+    "authentication": {"minimum": -1.5, "maximum": 1.5},
+    "smtp_policy": {"minimum": -1.5, "maximum": 1.5},
+    "reputation": {"minimum": -1.5, "maximum": 1.5},
+    "antivirus": {"minimum": -1.5, "maximum": 1.5},
+    "signatures": {"minimum": -1.5, "maximum": 1.5},
+    "llm": {"minimum": -1.5, "maximum": 1.5}
+  }
+}
+```
+
+These numbers are **synthetic verification values**, not recommended production
+limits. Choose the policy using fitting/development data and freeze it before
+calibration and the independent test. It is covered by the manifest hash. There
+is no unbounded fallback for an omitted, unknown or invalid family. A version-1
+manifest cannot silently acquire this field.
+
+The fitting objective is regularized logistic loss over
+`bias + sum(clamp(X_family * weights_family, minimum, maximum))`. Optimization
+uses training-only feature scaling without centering so family origins remain
+unchanged. Exported coefficients are converted back to native feature units.
+Calibration sees the capped logits. The five frozen ablations, grouped/time
+splits, immutable fitting receipt and single-use test policy remain unchanged.
+
+Run fitting and evaluation with the existing commands:
+
+```sh
+python research/train_fusion.py fit /private/experiment/manifest.json /private/experiment/candidate
+python research/train_fusion.py evaluate /private/experiment/manifest.json /private/experiment/candidate
+```
+
+For software-only verification, save the example policy object as
+`/tmp/synthetic-family-caps.json`, build `noisefence` and `fusion_fixture`, and run:
+
+```sh
+cargo build --locked --bin noisefence --example fusion_fixture
+python research/test_fusion_caps.py
+python research/verify_fusion.py /tmp/new-capped-parity --family-caps /tmp/synthetic-family-caps.json
+```
+
+The parity verifier requires at least one prediction actually affected by a cap,
+compares logits/probabilities/decisions across Rust and Python, and separately
+checks population evaluation. It uses no real emails or external services.
+Without `--family-caps`, it still verifies version-1 model compatibility.
+Production activation requires a fresh version-2 promotion report bound to the
+exact capped model; passing synthetic parity never supplies that report.

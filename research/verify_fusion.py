@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--binary', type=Path, default=Path('target/debug/noisefence'))
+    parser.add_argument('--family-caps', type=Path, help='Explicit family-cap policy for a version-2 synthetic experiment')
     parser.add_argument('--fixture', type=Path, default=Path('target/debug/examples/fusion_fixture'))
     args = parser.parse_args()
     os.umask(0o077)
@@ -44,17 +45,24 @@ def main():
                                             'campaign': hashlib.sha256(b'base fixture campaign').hexdigest(),
                                             'simhash': hashlib.sha256(b'base fixture simhash').hexdigest()[:16]}]})
     manifest = args.output/'manifest.json'
-    fusion.private_json(manifest, {'schema': 'noisefence-fusion-experiment-1', 'version': 'synthetic-parity',
+    experiment = {'schema': 'noisefence-fusion-experiment-1', 'version': 'synthetic-parity',
                                   'purpose': 'research', 'protocol_sha256': fusion.PROTOCOL_HASH,
                                   'vectors': pin(vectors), 'annotations': pin(annotations), 'base_history': pin(history),
                                   'sampling': {'kind': 'synthetic', 'description': 'Fabricated observations for software verification only',
                                                'authorization': 'No real message, delivery, detector query or model training corpus',
-                                               'start_at': 1788739200, 'end_at': 1788739599}})
+                                               'start_at': 1788739200, 'end_at': 1788739599}}
+    if args.family_caps:
+        policy = fusion.decode(fusion.bound_bytes(args.family_caps, 16 * 1024))
+        fusion.validate_combination(policy)
+        experiment['schema'] = 'noisefence-fusion-experiment-2'
+        experiment['combination'] = policy
+    fusion.private_json(manifest, experiment)
     candidate = args.output/'candidate'
     fusion.fit(manifest, candidate)
     _, _, _, rows, _ = fusion.load_experiment(manifest)
     maximum_logit_error = maximum_probability_error = 0.
     checked = 0
+    capped_predictions = 0
     for variant in fusion.VARIANTS:
         predictions = args.output/(variant+'-native.jsonl')
         model_path = candidate/(variant+'.json')
@@ -63,6 +71,9 @@ def main():
         native = {r['id']: r['prediction'] for r in fusion.lines(predictions) if r['type'] == 'row'}
         model = fusion.decode(model_path.read_bytes())
         logits, probabilities, decisions = fusion.model_predictions(model, rows)
+        if model.get('combination'):
+            raw = np.array([r['values'] for r in rows]) @ np.array(model['weights']) + model['bias']
+            capped_predictions += int(np.sum(np.abs(raw-logits) > 1e-9))
         for index, row in enumerate(rows):
             p = native[row['id']]
             maximum_logit_error = max(maximum_logit_error, abs(p['logit']-logits[index]))
@@ -71,10 +82,12 @@ def main():
             fusion.require(row['tag_eligible'] or not p['would_tag'], 'Incomplete fixture marked')
             checked += 1
     fusion.require(maximum_logit_error < 1e-9 and maximum_probability_error < 1e-9, 'Native numerical parity failed')
+    if args.family_caps:
+        fusion.require(capped_predictions > 0, 'Capped parity fixture did not exercise any family limit')
     result = fusion.evaluate(manifest, candidate)
     fusion.require(not result['production_eligible'] and not result['target_supported_on_this_test'],
                    'Synthetic data incorrectly authorized production')
-    report = {'synthetic': True, 'predictions_checked': checked, 'variants': len(fusion.VARIANTS),
+    report = {'synthetic': True, 'capped_predictions': capped_predictions, 'predictions_checked': checked, 'variants': len(fusion.VARIANTS),
               'application': artifacts['application'], 'protocol_sha256': fusion.PROTOCOL_HASH,
               'max_logit_error': maximum_logit_error, 'max_probability_error': maximum_probability_error,
               'decision_disagreements': 0, 'production_eligible': False, 'mail_sent': False}

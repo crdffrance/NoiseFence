@@ -40,6 +40,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub fusion_combination: Option<crate::fusion::combination::Accounting>,
     pub scoring: Option<crate::scoring::Report>,
     pub observations: Option<crate::observations::Report>,
     pub assessment: crate::assessment::Assessment,
@@ -83,6 +84,10 @@ impl From<Scan> for Analysis {
             .map(|r| r.semantic)
             .unwrap_or(scan.semantic.contribution);
         Self {
+            fusion_combination: scan
+                .analysis_result
+                .as_ref()
+                .and_then(|r| r.fusion_combination.clone()),
             scoring,
             observations: scan
                 .analysis_result

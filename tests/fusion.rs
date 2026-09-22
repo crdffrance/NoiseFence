@@ -27,6 +27,7 @@ fn model(e: &Evidence) -> Model {
         .position(|f| f.name == "lexical.logit_clipped_32")
         .unwrap()] = 2.0;
     Model {
+        combination: None,
         schema: fusion::SCHEMA.into(),
         version: "test-fusion-1".into(),
         protocol_sha256: fusion::protocol_sha256(),
@@ -267,4 +268,109 @@ fn offline_export_is_atomic_private_bounded_to_one_cohort_and_omissions_visible(
             .to_string_lossy()
             .ends_with(".partial")
     }));
+}
+
+fn caps() -> fusion::combination::Policy {
+    fusion::combination::Policy {
+        schema: fusion::combination::SCHEMA.into(),
+        families: fusion::combination::FAMILIES
+            .into_iter()
+            .map(|name| {
+                (
+                    name.into(),
+                    fusion::combination::Limit {
+                        minimum: -1.,
+                        maximum: 1.,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn capped_model_contract_applies_joint_limits_before_calibration() {
+    let e = evidence();
+    let mut m = model(&e);
+    m.schema = fusion::CAPPED_SCHEMA.into();
+    m.combination = Some(caps());
+    // Two features from the same source/family do not each get a fresh cap.
+    let first = fusion::specs()
+        .iter()
+        .position(|f| f.name == "lexical.logit_clipped_32")
+        .unwrap();
+    let second = fusion::specs()
+        .iter()
+        .position(|f| f.name == "lexical.state.complete")
+        .unwrap();
+    m.weights[first] = 8.;
+    m.weights[second] = 3.;
+    let (p, accounting) = m.predict_accounted(&e).unwrap();
+    let report = accounting.unwrap();
+    assert_eq!(report.families["lexical"].raw, 7.);
+    assert_eq!(report.families["lexical"].retained, 1.);
+    assert_eq!(p.logit, 0.75);
+    assert_eq!(report.total_logit, p.logit);
+    assert!((p.contributions.iter().map(|c| c.contribution).sum::<f64>() - 1.).abs() < 1e-12);
+    assert!((p.probability - noisefence::engine::sigmoid(0.5)).abs() < 1e-12);
+    m.weights[first] = -8.;
+    m.weights[second] = -3.;
+    let (p, report) = m.predict_accounted(&e).unwrap();
+    assert_eq!(report.unwrap().families["lexical"].retained, -1.);
+    assert_eq!(p.logit, -1.25);
+    assert!(!p.above_threshold);
+    // Existing models retain their exact calculation; no cap is inferred.
+    m.combination = None;
+    m.schema = fusion::SCHEMA.into();
+    assert_eq!(m.predict(&e).unwrap().logit, -7.25);
+    assert!(m.predict_accounted(&e).unwrap().1.is_none());
+}
+
+#[test]
+fn family_limits_are_explicit_validated_and_bound_to_the_model_bytes() {
+    let e = evidence();
+    let mut m = model(&e);
+    m.combination = Some(caps());
+    assert!(m.validate().is_err()); // v1 cannot hide a v2 policy
+    m.schema = fusion::CAPPED_SCHEMA.into();
+    m.validate().unwrap();
+    let encoded = serde_json::to_vec(&m).unwrap();
+    assert!(
+        serde_json::from_slice::<Model>(&encoded)
+            .unwrap()
+            .predict(&e)
+            .is_ok()
+    );
+    let hash = m.combination.as_ref().unwrap().sha256();
+    m.combination
+        .as_mut()
+        .unwrap()
+        .families
+        .get_mut("llm")
+        .unwrap()
+        .maximum = 0.;
+    assert_ne!(m.combination.as_ref().unwrap().sha256(), hash);
+    for case in 0..5 {
+        let mut p = caps();
+        match case {
+            0 => {
+                p.families.remove("llm");
+            }
+            1 => {
+                p.families.insert(
+                    "unknown".into(),
+                    fusion::combination::Limit {
+                        minimum: -1.,
+                        maximum: 1.,
+                    },
+                );
+            }
+            2 => p.families.get_mut("llm").unwrap().maximum = 33.,
+            3 => p.families.get_mut("llm").unwrap().minimum = 1.,
+            _ => p.families.get_mut("llm").unwrap().maximum = f64::NAN,
+        }
+        assert!(p.validate().is_err());
+    }
+    m.combination = None;
+    assert!(m.validate().is_err()); // v2 cannot silently fall back to uncapped
 }

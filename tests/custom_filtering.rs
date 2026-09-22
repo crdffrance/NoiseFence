@@ -195,6 +195,7 @@ fn levels_cannot_bypass_fusion_malware_or_incomplete_analysis() {
     assert_eq!(result.category, Category::Undetermined);
     assert_eq!(result.threshold, cfg.filter.threshold);
     cfg.fusion = Some(noisefence::fusion::runtime::Settings {
+        family_caps: false,
         model: "fixture".into(),
         mode: noisefence::fusion::runtime::Mode::Decision,
         validation_report: None,

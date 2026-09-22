@@ -810,6 +810,9 @@ impl Controller {
             let require_partial_workers=config.filter.partial_actions &&
                 (!previous.config.filter.partial_actions ||
                     (previous.config.filter.mode!=config.filter.mode && config.filter.mode!=Mode::Observe));
+            let require_fusion_workers=config.fusion.as_ref().is_some_and(|f| f.family_caps &&
+                (previous.config.fusion.as_ref().is_none_or(|p| !p.family_caps) ||
+                 (f.mode==crate::fusion::runtime::Mode::Decision && previous.config.fusion.as_ref().is_none_or(|p| p.mode!=f.mode))));
             let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {
                 let tx=db.transaction()?;
@@ -824,9 +827,9 @@ impl Controller {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
                 ensure!(enabled,"Administrator rights revoked.");
                 }
-                if require_partial_workers {
+                if require_partial_workers || require_fusion_workers {
                     let missing:i64=tx.query_row("SELECT COUNT(*) FROM cluster_nodes WHERE enabled=1 AND (COALESCE(last_seen,0)<?1 OR COALESCE(json_extract(CASE WHEN json_valid(status) THEN status ELSE '{}' END,'$.build'),'')<>?2)",params![worker_cutoff,env!("CARGO_PKG_VERSION")],|r|r.get(0))?;
-                    ensure!(missing==0,"Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions.");
+                    ensure!(missing==0,"Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions or capped fusion.");
                 }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;
                 let id=tx.last_insert_rowid();

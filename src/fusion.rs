@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, io::Read, path::Path, sync::OnceLock};
 
 pub const SCHEMA: &str = "noisefence-fusion-model-1";
+pub const CAPPED_SCHEMA: &str = "noisefence-fusion-model-2";
+pub mod combination;
 pub const FEATURE_SCHEMA: &str = "noisefence-fusion-features-1";
 pub mod io;
 pub mod population;
@@ -676,6 +678,8 @@ pub struct Calibration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Model {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combination: Option<combination::Policy>,
     pub schema: String,
     pub version: String,
     pub protocol_sha256: String,
@@ -725,8 +729,12 @@ impl Model {
     }
     pub fn validate(&self) -> Result<()> {
         validate_artifacts(&self.artifacts)?;
+        if let Some(policy) = &self.combination {
+            policy.validate()?;
+        }
         ensure!(
-            self.schema == SCHEMA
+            ((self.schema == SCHEMA && self.combination.is_none())
+                || (self.schema == CAPPED_SCHEMA && self.combination.is_some()))
                 && self.protocol_sha256 == protocol_sha256()
                 && self.purpose == "research",
             "unsupported fusion contract or purpose"
@@ -788,18 +796,30 @@ impl Model {
         Ok(())
     }
     pub fn predict(&self, evidence: &Evidence) -> Result<Prediction> {
+        Ok(self.predict_accounted(evidence)?.0)
+    }
+    pub fn predict_accounted(
+        &self,
+        evidence: &Evidence,
+    ) -> Result<(Prediction, Option<combination::Accounting>)> {
         self.validate()?;
         ensure!(
             self.artifacts.equivalent(&evidence.artifacts),
             "fusion detector artifacts do not match the observations"
         );
         let values = features(evidence)?;
-        let logit = values
-            .iter()
-            .zip(&self.weights)
-            .map(|(x, w)| x * w)
-            .sum::<f64>()
-            + self.bias;
+        let (logit, retained, accounting) = if let Some(policy) = &self.combination {
+            let (accounting, retained) =
+                combination::apply(policy, specs(), &values, &self.weights, self.bias)?;
+            (accounting.total_logit, retained, Some(accounting))
+        } else {
+            let retained: Vec<f64> = values
+                .iter()
+                .zip(&self.weights)
+                .map(|(x, w)| x * w)
+                .collect();
+            (retained.iter().sum::<f64>() + self.bias, retained, None)
+        };
         let calibrated = self.calibration.slope * logit + self.calibration.intercept;
         let probability = if calibrated >= 0.0 {
             1.0 / (1.0 + (-calibrated).exp())
@@ -810,12 +830,12 @@ impl Model {
         let mut contributions: Vec<_> = specs()
             .iter()
             .zip(values)
-            .zip(&self.weights)
-            .filter(|((_, x), w)| *x * **w != 0.0)
-            .map(|((spec, value), weight)| Contribution {
+            .zip(retained)
+            .filter(|(_, contribution)| *contribution != 0.0)
+            .map(|((spec, value), contribution)| Contribution {
                 feature: spec.name.clone(),
                 value,
-                contribution: value * weight,
+                contribution,
             })
             .collect();
         contributions.sort_by(|a, b| {
@@ -830,15 +850,18 @@ impl Model {
             .binary_search(&availability_profile(evidence))
             .is_ok();
         let tag_eligible = tag_eligible(evidence);
-        Ok(Prediction {
-            version: self.version.clone(),
-            logit,
-            probability,
-            above_threshold: logit >= self.cutoff,
-            profile_supported,
-            tag_eligible,
-            would_tag: profile_supported && tag_eligible && logit >= self.cutoff,
-            contributions,
-        })
+        Ok((
+            Prediction {
+                version: self.version.clone(),
+                logit,
+                probability,
+                above_threshold: logit >= self.cutoff,
+                profile_supported,
+                tag_eligible,
+                would_tag: profile_supported && tag_eligible && logit >= self.cutoff,
+                contributions,
+            },
+            accounting,
+        ))
     }
 }

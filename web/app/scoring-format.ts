@@ -16,3 +16,8 @@ export function scoreAdjustment(value:string) {
 export function scoreValue(value:number|null|undefined) {
   return value != null && Number.isFinite(value) ? new Intl.NumberFormat('en-GB',{maximumFractionDigits:4}).format(value) : 'Not available';
 }
+
+export type FusionAccounting = {
+  version:string;model_sha256?:string|null;policy_sha256:string;bias:number;total_logit:number;
+  families:Record<string,{raw:number;retained:number;minimum:number;maximum:number}>;
+};

@@ -206,6 +206,23 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
+                || (self
+                    .shared
+                    .pointer("/fusion/family_caps")
+                    .and_then(Value::as_bool)
+                    != Some(true)
+                    && !self
+                        .settings
+                        .detection
+                        .as_ref()
+                        .and_then(|d| d.modules.get("fusion"))
+                        .is_some_and(
+                            |m| m.get("family_caps").and_then(Value::as_bool) == Some(true)
+                        )),
+            "Upgrade every MX before enabling capped fusion models"
+        );
+        ensure!(
+            (build == env!("CARGO_PKG_VERSION") || build == "0.28.0-rc.1")
                 || (!self.settings.filters.partial_actions
                     && self
                         .shared
@@ -216,13 +233,16 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0")
+                || matches!(
+                    build,
+                    "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0" | "0.28.0-rc.1"
+                )
                 || self.settings.quality_candidate.is_none(),
             "Upgrade every MX before selecting a managed shadow candidate"
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.26.0" | "0.27.0")
+                || matches!(build, "0.26.0" | "0.27.0" | "0.28.0-rc.1")
                 || !self.settings.filters.resolve_uncertain_by_score,
             "Upgrade every MX before enabling automatic score resolution"
         );
@@ -240,6 +260,7 @@ impl Bundle {
                         | "0.25.2"
                         | "0.26.0"
                         | "0.27.0"
+                        | "0.28.0-rc.1"
                 ))
                 || self
                     .settings
@@ -252,7 +273,14 @@ impl Bundle {
             (build == env!("CARGO_PKG_VERSION")
                 || matches!(
                     build,
-                    "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0"
+                    "0.23.0"
+                        | "0.24.0"
+                        | "0.25.0"
+                        | "0.25.1"
+                        | "0.25.2"
+                        | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
                 ))
                 || self
                     .settings
@@ -263,7 +291,10 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0")
+                || matches!(
+                    build,
+                    "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0" | "0.27.0" | "0.28.0-rc.1"
+                )
                 || !self
                     .settings
                     .filters
@@ -287,6 +318,7 @@ impl Bundle {
                     | "0.25.2"
                     | "0.26.0"
                     | "0.27.0"
+                    | "0.28.0-rc.1"
             )
         {
             bundle.settings.research_archive = None;
@@ -313,6 +345,7 @@ impl Bundle {
                     | "0.25.2"
                     | "0.26.0"
                     | "0.27.0"
+                    | "0.28.0-rc.1"
             )
         {
             // Comparison is not available on older workers. Keep their policy
@@ -335,6 +368,7 @@ impl Bundle {
                     | "0.25.2"
                     | "0.26.0"
                     | "0.27.0"
+                    | "0.28.0-rc.1"
             )
             && let Some(detection) = &mut bundle.settings.detection
         {
@@ -351,6 +385,11 @@ impl Bundle {
                 .remove("smtp_admission");
         }
 
+        if build != env!("CARGO_PKG_VERSION")
+            && let Some(detection) = &mut bundle.settings.detection
+        {
+            detection.modules.remove("fusion");
+        }
         bundle.digest = bundle.hash()?;
         Ok(bundle)
     }

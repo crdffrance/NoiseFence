@@ -58,6 +58,8 @@ export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
+    assessment?: import('./assessment').Assessment;
+    fusion_combination?: import('./scoring-format').FusionAccounting | null;
     scoring?: import('./scoring-format').ScoringReport | null;
     observations?: import('./observations-format').ObservationReport | null;
     rspamd?: import('./rspamd-format').RspamdReport | null;

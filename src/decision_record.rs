@@ -34,6 +34,8 @@ pub enum Classification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusion_combination: Option<crate::fusion::combination::Accounting>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoring: Option<crate::scoring::Report>,
     pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -81,6 +83,7 @@ pub fn record_analysis(scan: &mut Scan, config: &Config) {
     scan.analysis_result = Some(Box::new(AnalysisResult {
         version: VERSION,
         scoring: scan.scoring.clone(),
+        fusion_combination: scan.fusion_combination.clone(),
         observations: Some(crate::observations::capture(scan)),
         raw_sha256: scan.raw_sha256.clone(),
         artifacts: scan.evidence.as_ref().map(|e| e.artifacts.clone()),

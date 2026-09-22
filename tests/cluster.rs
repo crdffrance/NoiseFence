@@ -1,6 +1,8 @@
 #[path = "common/backscatter.rs"]
 mod backscatter_fixture;
 mod common;
+#[path = "common/fusion.rs"]
+mod fusion_fixture;
 use axum::{
     Router,
     body::Body,
@@ -1551,6 +1553,153 @@ async fn console_cannot_commit_partial_actions_until_enabled_workers_report_the_
         .unwrap();
     control.apply(0, settings, "admin".into()).await.unwrap();
     assert!(control.snapshot().config.filter.partial_actions);
+    assert_eq!(
+        control.snapshot().config.filter.mode,
+        noisefence::config::Mode::Observe
+    );
+}
+
+#[test]
+fn capped_fusion_bundles_refuse_legacy_workers_without_breaking_uncapped_models() {
+    use fusion_fixture as fixture;
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    fixture::install(&mut cfg, noisefence::fusion::runtime::Mode::Observe);
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    let bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    for build in ["0.27.0", "0.28.0-rc.1"] {
+        let old = bundle.for_build(build).unwrap();
+        assert!(old.shared["fusion"].get("family_caps").is_none());
+        assert!(
+            !old.settings
+                .detection
+                .unwrap()
+                .modules
+                .contains_key("fusion")
+        );
+    }
+    for shared in [false, true] {
+        let mut candidate = bundle.clone();
+        if shared {
+            candidate.shared["fusion"]["family_caps"] = json!(true);
+        } else {
+            candidate
+                .settings
+                .detection
+                .as_mut()
+                .unwrap()
+                .modules
+                .get_mut("fusion")
+                .unwrap()["family_caps"] = json!(true);
+        }
+        candidate.digest = candidate.hash().unwrap();
+        assert!(candidate.for_build("0.28.0-rc.1").is_err());
+        assert!(candidate.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    }
+}
+
+#[tokio::test]
+async fn capped_fusion_web_decisions_require_fresh_capable_workers_before_revision_commit() {
+    use fusion_fixture as fixture;
+    use noisefence::fusion::{
+        self,
+        combination::{Limit, Policy},
+        runtime::Mode,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    let (mut model, _) = fixture::install(&mut cfg, Mode::Observe);
+    model.schema = fusion::CAPPED_SCHEMA.into();
+    model.combination = Some(Policy {
+        schema: fusion::combination::SCHEMA.into(),
+        families: fusion::combination::FAMILIES
+            .into_iter()
+            .map(|n| {
+                (
+                    n.into(),
+                    Limit {
+                        minimum: -1.,
+                        maximum: 1.,
+                    },
+                )
+            })
+            .collect(),
+    });
+    let settings = cfg.fusion.as_mut().unwrap();
+    settings.family_caps = true;
+    let bytes = serde_json::to_vec(&model).unwrap();
+    std::fs::write(&settings.model, &bytes).unwrap();
+    let proof = fixture::validation_v2(&model, &noisefence::message::digest(&bytes));
+    std::fs::write(
+        settings.validation_report.as_ref().unwrap(),
+        serde_json::to_vec(&proof).unwrap(),
+    )
+    .unwrap();
+    let cfg = Arc::new(cfg);
+    let store = prepare(&cfg).await;
+    account(&store, "admin", true, &[]).await;
+    store.run(|db| {db.execute("INSERT INTO cluster_nodes(id,name,token_hash,created) VALUES('mx2','mx2','fixture',?1)",[noisefence::now()])?;Ok(())}).await.unwrap();
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut proposed = control.snapshot().settings.clone();
+    proposed
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .get_mut("fusion")
+        .unwrap()["mode"] = json!("decision");
+    for (build, age) in [
+        (None, 0),
+        (Some("0.28.0-rc.1"), 0),
+        (Some(env!("CARGO_PKG_VERSION")), 120),
+    ] {
+        let status = json!({"build":build}).to_string();
+        store
+            .run(move |db| {
+                db.execute(
+                    "UPDATE cluster_nodes SET status=?1,last_seen=?2",
+                    params![status, noisefence::now() - age],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let error = control
+            .apply(0, proposed.clone(), "admin".into())
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("Upgrade every enabled MX"),
+            "{error:#}"
+        );
+        assert_eq!(control.snapshot().revision, 0);
+        assert_eq!(
+            control.snapshot().config.fusion.as_ref().unwrap().mode,
+            Mode::Observe
+        );
+        assert_eq!(
+            store
+                .read(|db| Ok(
+                    db.query_row("SELECT COUNT(*) FROM console_revisions", [], |r| r
+                        .get::<_, i64>(0))?
+                ))
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE cluster_nodes SET last_seen=?1", [noisefence::now()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    control.apply(0, proposed, "admin".into()).await.unwrap();
+    assert_eq!(
+        control.snapshot().config.fusion.as_ref().unwrap().mode,
+        Mode::Decision
+    );
     assert_eq!(
         control.snapshot().config.filter.mode,
         noisefence::config::Mode::Observe

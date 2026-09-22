@@ -33,6 +33,7 @@ const RSPAMD: &[&str] = &[
     "queue_capacity",
     "timeout_ms",
 ];
+const FUSION: &[&str] = &["mode", "family_caps"];
 const SEMANTIC: &[&str] = &["timeout_ms"];
 const VISION: &[&str] = &[
     "timeout_ms",
@@ -98,6 +99,11 @@ impl Detection {
         if let Some(s) = &c.rspamd {
             modules.insert("rspamd".into(), select(s, RSPAMD));
         }
+        if let Some(s) = &c.fusion {
+            let mut value = select(s, FUSION);
+            value["family_caps"] = json!(s.family_caps);
+            modules.insert("fusion".into(), value);
+        }
         if let Some(s) = &c.filter.semantic {
             modules.insert("semantic".into(), select(s, SEMANTIC));
         }
@@ -127,6 +133,12 @@ impl Detection {
                 "Engine not installed: {name}"
             );
             match name.as_str() {
+                "fusion" => {
+                    if let Some(s) = &mut c.fusion {
+                        patch(s, value, FUSION)?;
+                        s.validate()?;
+                    }
+                }
                 "semantic" => {
                     if let Some(s) = &mut c.filter.semantic {
                         patch(s, value, SEMANTIC)?;
