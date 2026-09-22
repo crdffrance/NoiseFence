@@ -172,18 +172,19 @@ impl Local {
                     "Invalid recovery transition"
                 );
             } else {
+                // A release/abort reply may be lost before the authority stages
+                // again. Only the exact durably installed base can be superseded;
+                // this never skips application of an uninstalled committed epoch.
                 ensure!(
-                    matches!(old.phase, Phase::Released | Phase::Aborted)
-                        && r.phase == Phase::Preparing
-                        && r.base_epoch == local.installed_epoch,
+                    r.phase == Phase::Preparing && r.base_epoch == local.installed_epoch,
                     "Previous activation not resolved locally"
                 );
             }
             local
         } else {
             ensure!(
-                r.phase == Phase::Preparing && r.recovery_of.is_none(),
-                "Enroll through a prepared rollout first"
+                matches!(r.phase, Phase::Preparing | Phase::Aborted) && r.recovery_of.is_none(),
+                "An unprepared node cannot enroll into a committed rollout"
             );
             Self {
                 version: 1,

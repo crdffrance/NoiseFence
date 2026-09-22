@@ -15,6 +15,11 @@ pub(super) struct Prepared {
     snapshot: Arc<Snapshot>,
 }
 impl Controller {
+    /// Volatile proof from a successful runtime transition, never reconstructed
+    /// from a stored readiness flag before loading models after restart.
+    pub fn activation_receipt(&self) -> Option<Acknowledgement> {
+        self.activation_receipt.lock().unwrap().clone()
+    }
     async fn activation_runtime(
         self: &Arc<Self>,
         bundle: &artifacts::Bundle,
@@ -125,7 +130,7 @@ impl Controller {
             .node_id
             .clone();
         let this = self.clone();
-        tokio::spawn(async move {
+        let receipt = tokio::spawn(async move {
             let _permit = this.applying.clone().acquire_owned().await?;
             // Reject stale/conflicting replies before disrupting a live runtime.
             let (enrolling, mut local) = this
@@ -220,6 +225,8 @@ impl Controller {
             }
             Ok(local.acknowledgement())
         })
-        .await?
+        .await??;
+        *self.activation_receipt.lock().unwrap() = receipt.clone();
+        Ok(receipt)
     }
 }

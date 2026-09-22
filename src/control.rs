@@ -1,5 +1,6 @@
 //! Validated, durable console configuration; one coherent snapshot per SMTP transaction.
 mod activation;
+mod activation_authority;
 use crate::{
     config::{Config, Domain, Mode},
     engine::Engine,
@@ -586,6 +587,8 @@ fn cluster_model_identity(config: &Config) -> String {
     })).expect("model identity"))
 }
 pub struct Controller {
+    activation_receipt: std::sync::Mutex<Option<crate::cluster::activation::Acknowledgement>>,
+    activation_serial: Arc<tokio::sync::Mutex<()>>,
     prepared_activation: std::sync::Mutex<Option<activation::Prepared>>,
     pub base: Arc<Config>,
     pub store: Store,
@@ -600,10 +603,13 @@ pub struct Controller {
 }
 impl Controller {
     pub async fn load(base: Arc<Config>, store: Store) -> Result<Arc<Self>> {
-        let participant = store
+        let (participant, authority) = store
             .run(|db| {
                 let tx = db.transaction()?;
-                crate::cluster::activation::participant::Local::read(&tx)
+                Ok((
+                    crate::cluster::activation::participant::Local::read(&tx)?,
+                    crate::cluster::activation::Journal::read(&tx)?,
+                ))
             })
             .await?;
         let saved = store
@@ -624,6 +630,10 @@ impl Controller {
         settings.hydrate(&base);
         let clustered = if let Some(local) = &participant {
             Some(local.installed().clone())
+        } else if let Some(journal) = &authority {
+            // Staging can commit before this node has prepared its participant
+            // journal. Recover its frozen base even if installation sources moved.
+            Some(journal.current().clone())
         } else if crate::cluster::is_worker(&base) {
             store
                 .read(|db| {
@@ -680,7 +690,7 @@ impl Controller {
             0
         };
         let config = Arc::new(effective);
-        let seed = if participant.is_some() || crate::cluster::is_worker(&base) {
+        let seed = if clustered.is_some() || crate::cluster::is_worker(&base) {
             config.clone()
         } else {
             let mut seed = (*base).clone();
@@ -733,6 +743,8 @@ impl Controller {
             .archive
             .configure(config.research_archive.clone().unwrap_or_default());
         Ok(Arc::new(Self {
+            activation_receipt: std::sync::Mutex::new(None),
+            activation_serial: Arc::new(tokio::sync::Mutex::new(())),
             prepared_activation: std::sync::Mutex::new(None),
             base,
             store,
@@ -748,7 +760,10 @@ impl Controller {
             cluster_keys: RwLock::new(key_hash),
             retired: std::sync::Mutex::new(None),
             active: RwLock::new(Arc::new(Snapshot {
-                activation_epoch: participant.as_ref().map(|p| p.installed_epoch().clone()),
+                activation_epoch: participant
+                    .as_ref()
+                    .map(|p| p.installed_epoch().clone())
+                    .or_else(|| authority.as_ref().map(|j| j.current_epoch())),
                 rbl,
                 revision,
                 settings,
@@ -846,6 +861,8 @@ impl Controller {
             let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {
                 let tx=db.transaction()?;
+                ensure!(crate::cluster::activation::Journal::read(&tx)?.is_none(),
+                    "Use coordinated activation for this storage");
                 let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
                 ensure!(current==revision,"Configuration modified in another session.");
                 if let Some((scope,hash))=&delegated {
@@ -885,9 +902,33 @@ pub fn effective_from_disk(base: Arc<Config>) -> Result<Arc<Config>> {
     if !path.exists() {
         return Ok(base);
     }
-    let db =
+    let mut db =
         rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
+    let clustered: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state')",
+        [],
+        |r| r.get(0),
+    )?;
+    if clustered {
+        let tx = db.transaction()?;
+        let local = crate::cluster::activation::participant::Local::read(&tx)?;
+        let authority = crate::cluster::activation::Journal::read(&tx)?;
+        let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        ensure!(
+            version <= 6 && ((local.is_none() && authority.is_none()) == (version != 6)),
+            "Invalid coordinated storage format"
+        );
+        if let Some(bundle) = local
+            .as_ref()
+            .map(|l| l.installed())
+            .or_else(|| authority.as_ref().map(|j| j.current()))
+        {
+            return Ok(Arc::new(crate::cluster::artifacts::materialize(
+                &base, bundle, true,
+            )?));
+        }
+    }
     if crate::cluster::is_worker(&base) {
         let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state')", [], |r| r.get(0))?;
         if exists {

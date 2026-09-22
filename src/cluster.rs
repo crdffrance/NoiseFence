@@ -138,8 +138,17 @@ pub async fn run(
         worker::run(control, stop).await
     } else {
         let mut stop = stop;
-        let _ = stop.changed().await;
-        Ok(())
+        loop {
+            tokio::select! {
+                _=stop.changed()=>return Ok(()),
+                result=control.advance_activation()=>{
+                    if let Err(error)=result {
+                        tracing::warn!(error=%crate::delivery_log::sanitize(&error.to_string(),400).0,"coordinated activation pending");
+                    }
+                }
+            }
+            tokio::select! {_=stop.changed()=>return Ok(()),_=tokio::time::sleep(std::time::Duration::from_secs(2))=>{}}
+        }
     }
 }
 

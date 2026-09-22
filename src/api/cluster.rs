@@ -1,10 +1,13 @@
 //! Browser administration uses sessions/CSRF; node exchange uses separate, revocable identities.
 use super::*;
 use crate::cluster::{Role, history, protocol};
+use anyhow::Context;
 
 pub(super) fn routes(app: App) -> Router<App> {
     let nodes = Router::new()
         .route("/cluster/v1/sync", post(sync))
+        .route("/cluster/v2/sync", post(sync_v2))
+        .route("/cluster/v2/artifacts/{hash}", get(activation_artifact))
         .route(
             "/cluster/v1/admission",
             post(admission).layer(DefaultBodyLimit::max(4096)),
@@ -15,7 +18,84 @@ pub(super) fn routes(app: App) -> Router<App> {
     Router::new()
         .route("/admin/cluster", get(overview))
         .route("/admin/cluster/nodes", post(save_node))
+        .route(
+            "/admin/cluster/activation",
+            get(activation_status).post(stage_activation),
+        )
+        .route("/admin/cluster/activation/abort", post(abort_activation))
+        .route(
+            "/admin/cluster/activation/recover",
+            post(recover_activation),
+        )
         .merge(nodes)
+}
+async fn activation_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    super::admin::administrator(&app, &h, false).await?;
+    let c = coordinator(&app)?;
+    let activation = c.activation_journal().await?;
+    Ok(Json(
+        json!({"committed_revision":activation.as_ref().map(|j|j.current().revision),"activation":activation,"installed_revision":c.snapshot().revision,"smtp_ready":c.cluster_ready()}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActivationStage {
+    revision: i64,
+    settings: crate::control::Settings,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActivationCommand {
+    epoch: crate::cluster::activation::Epoch,
+}
+async fn stage_activation(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<ActivationStage>,
+) -> ApiResult<Json<Value>> {
+    let actor = super::admin::administrator(&app, &h, true).await?;
+    let journal = coordinator(&app)?
+        .stage_activation_session(
+            body.revision,
+            body.settings,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+    Ok(Json(json!({"activation":journal,"staged":true})))
+}
+async fn abort_activation(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<ActivationCommand>,
+) -> ApiResult<Json<Value>> {
+    let actor = super::admin::administrator(&app, &h, true).await?;
+    let journal = coordinator(&app)?
+        .abort_activation_session(
+            body.epoch,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+    Ok(Json(json!({"activation":journal})))
+}
+async fn recover_activation(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<ActivationCommand>,
+) -> ApiResult<Json<Value>> {
+    let actor = super::admin::administrator(&app, &h, true).await?;
+    let journal = coordinator(&app)?
+        .recover_activation_session(
+            body.epoch,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+    Ok(Json(json!({"activation":journal})))
 }
 fn coordinator(app: &App) -> ApiResult<Arc<crate::control::Controller>> {
     if !app
@@ -105,9 +185,49 @@ async fn node_guard(State(app): State<App>, request: Request, next: Next) -> Res
 async fn sync(
     State(app): State<App>,
     h: HeaderMap,
-    Json(mut request): Json<protocol::Poll>,
+    Json(request): Json<protocol::Poll>,
 ) -> ApiResult<Json<protocol::Reply>> {
+    let (reply, _) = sync_exchange(app, h, request, false, None).await?;
+    Ok(Json(reply))
+}
+async fn sync_v2(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(request): Json<crate::cluster::activation::transport::Request>,
+) -> ApiResult<Json<crate::cluster::activation::transport::Reply>> {
+    use crate::cluster::activation::transport;
+    if request.protocol != transport::PROTOCOL || request.poll.build != env!("CARGO_PKG_VERSION") {
+        return Err(Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Unsupported activation protocol or build".into(),
+        ));
+    }
+    let (data, activation) =
+        sync_exchange(app, h, request.poll, true, request.acknowledgement).await?;
+    Ok(Json(transport::Reply {
+        protocol: transport::PROTOCOL.into(),
+        data,
+        activation,
+    }))
+}
+async fn sync_exchange(
+    app: App,
+    h: HeaderMap,
+    mut request: protocol::Poll,
+    coordinated: bool,
+    acknowledgement: Option<crate::cluster::activation::Acknowledgement>,
+) -> ApiResult<(protocol::Reply, Option<crate::cluster::activation::Journal>)> {
+    use crate::cluster::activation::{Journal, Phase, transport::Peer};
     let id = node(&app, &h).await?;
+    let credential = message::digest(
+        h.get(header::AUTHORIZATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .strip_prefix("Bearer ")
+            .unwrap()
+            .as_bytes(),
+    );
     let control = coordinator(&app)?;
     if !protocol::compatible_build(&request.build)
         || request.digest.len() > 64
@@ -124,15 +244,47 @@ async fn sync(
         .last_error
         .map(|s| crate::delivery_log::sanitize(&s, 400).0);
     request.status.build = Some(request.build.clone());
+    let activation = control.activation_journal().await?;
+    if !coordinated && activation.is_some() {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "This cluster requires coordinated activation".into(),
+        ));
+    }
     let publication = control.publication().await?;
-    let bundle = publication.bundle.for_build(&request.build)?;
+    let bundle = if let Some(j) = &activation {
+        j.current().clone()
+    } else {
+        publication.bundle.for_build(&request.build)?
+    };
     let owner = id.clone();
     let revision = request.revision;
     let digest = request.digest;
+    let peer = coordinated.then(|| Peer {
+        seen: now(),
+        build: request.build.clone(),
+        revision,
+        digest: digest.clone(),
+        credential: credential.clone(),
+    });
     let status = serde_json::to_string(&request.status).map_err(anyhow::Error::from)?;
-    let (receipts,commands)=app.store.run(move|db| {
+    let (receipts,commands,activation)=app.store.run(move|db| {
+        ensure!(db.query_row("SELECT EXISTS(SELECT 1 FROM cluster_nodes WHERE id=?1 AND enabled=1 AND token_hash=?2)",params![owner,credential],|r|r.get::<_,bool>(0))?,"Node identity revoked");
         let receipts=history::ingest(db,&owner,request.records,now())?;
         let tx=db.transaction()?;
+        ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_nodes WHERE id=?1 AND enabled=1 AND token_hash=?2)",params![owner,credential],|r|r.get::<_,bool>(0))?,"Node identity revoked");
+        let mut journal=Journal::read(&tx)?;
+        ensure!(coordinated || journal.is_none(),"Cluster enrolled during legacy synchronization");
+        if let Some(j)=&journal {
+            let r=j.rollout().context("Missing activation rollout")?;
+            ensure!(owner!=j.owner() && r.participants().contains_key(&owner),"Node is not an enrolled activation participant");
+            if let Some(ack)=&acknowledgement {
+                if ack.epoch==*r.epoch() {
+                    if r.phase()!=Phase::Aborted {journal=Some(Journal::acknowledge(&tx,&owner,ack,now())?);}
+                } else {ensure!(ack.epoch.sequence<r.epoch().sequence,"Unknown activation receipt");}
+            }
+        } else {ensure!(acknowledgement.is_none(),"Previously enrolled node cannot return to legacy synchronization");}
+        if let Some(peer)=peer {peer.save(&tx,&owner)?;}
         tx.execute("UPDATE cluster_nodes SET last_seen=?2,applied_revision=?3,applied_digest=?4,status=?5 WHERE id=?1 AND enabled=1",params![owner,now(),revision,digest,status])?;
         for r in request.results {
             ensure!(uuid::Uuid::parse_str(&r.id).is_ok() && ["done","expired","conflict"].contains(&r.result.as_str()),"Invalid command receipt");
@@ -141,36 +293,111 @@ async fn sync(
         tx.execute("UPDATE cluster_commands SET result='expired',finished=?1 WHERE finished IS NULL AND expires<?1",[now()])?;
         let commands=tx.prepare("SELECT id,message_id,recipient,command,username,expires FROM cluster_commands WHERE node_id=?1 AND finished IS NULL ORDER BY created LIMIT 32")?.query_map([&owner],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,i64>(5)?)))?.map(|r| {let (id,message_id,recipient,command,username,expires)=r?;Ok(history::Command{id,message_id,recipient,command:serde_json::from_str(&command)?,username,expires})}).collect::<anyhow::Result<Vec<_>>>()?;
         tx.execute("DELETE FROM cluster_commands WHERE finished<?1",[now()-30*86400])?;
-        tx.commit()?;Ok((receipts,commands))
+        tx.commit()?;Ok((receipts,commands,journal))
     }).await?;
     let config = publication.config.clone();
+    let key_config = if let Some(j) = &activation {
+        let r = j.rollout().context("Missing activation rollout")?;
+        crate::cluster::artifacts::materialize(
+            &control.base,
+            if r.phase() == Phase::Aborted {
+                r.base()
+            } else {
+                r.candidate()
+            },
+            false,
+        )?
+    } else {
+        config.clone()
+    };
     let owner = id.clone();
     let budget = request.budget;
     let (credits, secrets) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
         Ok((
             crate::cluster::budget::grant(&config, &owner, &budget, now())?,
-            protocol::secrets(&config)?,
+            protocol::secrets(&key_config)?,
         ))
     })
     .await
     .map_err(anyhow::Error::from)??;
     node(&app, &h).await?;
-    if control.snapshot().revision != publication.bundle.revision {
+    if !coordinated && control.snapshot().revision != publication.bundle.revision {
         return Err(Error(
             StatusCode::CONFLICT,
             "Modified configuration; resume synchronization.".into(),
         ));
     }
-    Ok(Json(protocol::Reply {
-        protocol: "noisefence-cluster-1".into(),
-        node_id: id,
-        server_time: now(),
-        bundle,
-        receipts,
-        commands,
-        credits,
-        secrets,
-    }))
+    Ok((
+        protocol::Reply {
+            protocol: "noisefence-cluster-1".into(),
+            node_id: id,
+            server_time: now(),
+            bundle,
+            receipts,
+            commands,
+            credits,
+            secrets,
+        },
+        activation,
+    ))
+}
+async fn activation_artifact(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(hash): Path<String>,
+) -> ApiResult<Response> {
+    let id = node(&app, &h).await?;
+    let control = coordinator(&app)?;
+    let journal = control.activation_journal().await?.ok_or(Error(
+        StatusCode::NOT_FOUND,
+        "No activation artifacts".into(),
+    ))?;
+    if !crate::compatibility::valid_hash(&hash)
+        || !journal
+            .rollout()
+            .is_some_and(|r| r.participants().contains_key(&id))
+    {
+        return Err(Error(
+            StatusCode::NOT_FOUND,
+            "Unknown activation artifact".into(),
+        ));
+    }
+    let (path, size) = journal
+        .bundles()
+        .into_iter()
+        .find_map(|b| {
+            b.files
+                .iter()
+                .find(|(_, f)| f.sha256 == hash)
+                .map(|(name, f)| {
+                    (
+                        crate::cluster::artifacts::directory(&control.base.data_dir, b).join(name),
+                        f.size,
+                    )
+                })
+        })
+        .ok_or(Error(
+            StatusCode::NOT_FOUND,
+            "Unknown activation artifact".into(),
+        ))?;
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(anyhow::Error::from)?;
+    if file.metadata().await.map_err(anyhow::Error::from)?.len() != size {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Frozen model size changed".into(),
+        ));
+    }
+    node(&app, &h).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (header::CONTENT_LENGTH, size.to_string()),
+        ],
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)),
+    )
+        .into_response())
 }
 async fn artifact(
     State(app): State<App>,

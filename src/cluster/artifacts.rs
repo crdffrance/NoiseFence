@@ -31,6 +31,80 @@ pub struct Publication {
     pub paths: BTreeMap<String, PathBuf>,
     pub config: crate::config::Config,
 }
+
+/// Freeze a captured publication in its content-addressed model directory before
+/// making a rollout durable. Only manifest-listed files are copied, bounded and
+/// hashed while streaming. No HTTP recipient ever receives mutable source paths.
+pub fn freeze(root: &Path, publication: &Publication, reserve: u64) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    publication.bundle.validate()?;
+    let dir = directory(root, &publication.bundle);
+    for (name, artifact) in &publication.bundle.files {
+        let path = dir.join(name);
+        if path.exists() {
+            ensure!(
+                file_digest(&path)? == (artifact.size, artifact.sha256.clone()),
+                "Corrupt frozen model"
+            );
+            continue;
+        }
+        ensure!(
+            crate::store::available_bytes(root)? >= reserve.saturating_add(artifact.size),
+            "Insufficient space to stage models"
+        );
+        let parent = path.parent().unwrap();
+        std::fs::create_dir_all(parent)?;
+        let temp = parent.join(format!(".stage-{}", uuid::Uuid::new_v4()));
+        let result = (|| -> Result<()> {
+            let mut input = std::fs::File::open(
+                publication
+                    .paths
+                    .get(name)
+                    .context("Missing model source")?,
+            )?;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp)?;
+            let mut digest = Sha256::new();
+            let mut size = 0u64;
+            let mut buffer = [0; 65536];
+            loop {
+                let n = input.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                size += n as u64;
+                ensure!(size <= artifact.size, "Model changed while staging");
+                digest.update(&buffer[..n]);
+                output.write_all(&buffer[..n])?;
+            }
+            ensure!(
+                size == artifact.size && hex::encode(digest.finalize()) == artifact.sha256,
+                "Model changed while staging"
+            );
+            output.sync_all()?;
+            drop(output);
+            std::fs::rename(&temp, &path)?;
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        result?;
+    }
+    // Persist nested directory entries too, including a newly created model set.
+    if dir.exists() {
+        std::fs::File::open(&dir)?.sync_all()?;
+        std::fs::File::open(dir.parent().unwrap())?.sync_all()?;
+        std::fs::File::open(root.join("cluster"))?.sync_all()?;
+        std::fs::File::open(root)?.sync_all()?;
+    }
+    Ok(())
+}
 const SHARED: &[&str] = &[
     "filter",
     "actions",
@@ -570,12 +644,27 @@ pub fn materialize(
 
 /// Retain the active manifest and one preceding generation, never arbitrary paths.
 pub fn prune_models(root: &Path, active: &Bundle, previous: Option<&Bundle>) -> Result<()> {
+    let mut keep = vec![active];
+    keep.extend(previous);
+    prune_retained(root, &keep)
+}
+/// Explicit retention protects active, pending and recovery model sets.
+pub fn prune_retained(root: &Path, bundles: &[&Bundle]) -> Result<()> {
+    ensure!(
+        !bundles.is_empty(),
+        "Cannot prune without a retained model manifest"
+    );
+    for b in bundles {
+        b.validate()?;
+    }
     let parent = root.join("cluster/models");
     if !parent.is_dir() {
         return Ok(());
     }
-    let active = directory(root, active);
-    let previous = previous.map(|b| directory(root, b));
+    let retained = bundles
+        .iter()
+        .map(|b| directory(root, b))
+        .collect::<std::collections::HashSet<_>>();
     for entry in std::fs::read_dir(parent)? {
         let entry = entry?;
         let name = entry.file_name();
@@ -583,8 +672,7 @@ pub fn prune_models(root: &Path, active: &Bundle, previous: Option<&Bundle>) -> 
         if entry.file_type()?.is_dir()
             && name.len() == 64
             && name.bytes().all(|b| b.is_ascii_hexdigit())
-            && entry.path() != active
-            && previous.as_ref() != Some(&entry.path())
+            && !retained.contains(&entry.path())
         {
             std::fs::remove_dir_all(entry.path())?;
         }

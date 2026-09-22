@@ -6,6 +6,7 @@
 //! No timer or missing participant counts as readiness.
 pub mod gate;
 pub mod participant;
+pub mod transport;
 
 use super::artifacts::Bundle;
 use anyhow::{Result, ensure};
@@ -119,6 +120,16 @@ pub struct Journal {
     rollout: Option<Rollout>,
 }
 impl Journal {
+    pub fn owner(&self) -> &str {
+        &self.owner
+    }
+    pub fn bundles(&self) -> Vec<&Bundle> {
+        let mut bundles = vec![&self.current];
+        if let Some(r) = &self.rollout {
+            bundles.extend([&r.base, &r.candidate]);
+        }
+        bundles
+    }
     pub fn current(&self) -> &Bundle {
         &self.current
     }
