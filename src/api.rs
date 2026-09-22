@@ -520,7 +520,7 @@ async fn password(
 }
 async fn health(State(app): State<App>) -> Json<Value> {
     Json(
-        json!({"status":"ok","smtp_ready":!app.config.console_only && crate::ha::ready(&app.store) && app.control.as_ref().is_none_or(|c|c.cluster_ready())}),
+        json!({"status":"ok","smtp_ready":!app.config.console_only && crate::ha::ready(&app.store) && app.store.activation.ready() && app.control.as_ref().is_none_or(|c|c.cluster_ready())}),
     )
 }
 async fn metrics(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {

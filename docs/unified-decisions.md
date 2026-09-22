@@ -113,6 +113,11 @@ mixed-version rollout. This does not implement coordinated bundle activation.
 
 ## Remaining implementation and qualification
 
+The [coordinated activation implementation](coordinated-activation.md) now provides
+durable authority/participant journals, a runtime preparation driver and SMTP
+acceptance fencing. Authenticated transport and authority/Web orchestration are
+still required; these primitives are not a completed production rollout feature.
+
 1. Complete controlled score combination using normalized detector observations.
    Grouping records correlations; it is not a new weighting policy. Preserve the
    existing native family caps and exclusion of the LLM from independent

@@ -21,8 +21,23 @@ pub struct QueueVariant {
     pub recipients: Vec<(Recipient, Option<crate::custom_filtering::Assessment>)>,
 }
 
+/// Database safety guards only advance: enabling an older feature must never
+/// let an older binary bypass protections installed by a newer one.
+pub(crate) fn require_format(tx: &rusqlite::Transaction<'_>, minimum: i64) -> Result<()> {
+    let current: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    ensure!(
+        (1..=6).contains(&minimum) && current <= 6,
+        "Unsupported database format"
+    );
+    if current < minimum {
+        tx.pragma_update(None, "user_version", minimum)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct Store {
+    pub activation: Arc<crate::cluster::activation::gate::Gate>,
     pub archive: Arc<crate::research_archive::Runtime>,
     pub root: PathBuf,
     db: Arc<Mutex<Connection>>,
@@ -127,7 +142,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version <= 5, "database is newer than this binary");
+        ensure!(version <= 6, "database is newer than this binary");
         if version == 0 {
             let tx = db.transaction()?;
             tx.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER NOT NULL,sender TEXT NOT NULL,scan TEXT NOT NULL,is_dsn INTEGER NOT NULL DEFAULT 0,raw_present INTEGER NOT NULL DEFAULT 1);
@@ -151,6 +166,22 @@ impl Store {
         }
         crate::search::migrate(&migration)?;
         migration.execute_batch(crate::mfa::SCHEMA)?;
+        let journal = crate::cluster::activation::Journal::read(&migration)?;
+        let participant = crate::cluster::activation::participant::Local::read(&migration)?;
+        ensure!(
+            (journal.is_none() && participant.is_none()) || version == 6,
+            "Activation journal requires the coordinated database format"
+        );
+        let activation = if version == 6 {
+            let epoch = participant
+                .as_ref()
+                .map(|p| p.installed_epoch().clone())
+                .or_else(|| journal.as_ref().map(|j| j.current_epoch()))
+                .ok_or_else(|| anyhow::anyhow!("Coordinated activation journal missing"))?;
+            crate::cluster::activation::gate::Gate::recovering(Some(epoch))?
+        } else {
+            crate::cluster::activation::gate::Gate::legacy()
+        };
         migration.commit()?;
         crate::smtp_admission::Admission::new(crate::smtp_admission::Settings {
             enabled: true,
@@ -159,6 +190,7 @@ impl Store {
         .initialize(&mut db)?;
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         Ok(Self {
+            activation,
             archive: Arc::new(crate::research_archive::Runtime::new(root)),
             root: root.into(),
             db: Arc::new(Mutex::new(db)),
@@ -314,6 +346,14 @@ impl Store {
             !variants.is_empty() && variants.len() <= crate::queue_body::MAX_VARIANTS,
             "invalid queue batch"
         );
+        let epoch = variants[0].scan.activation_epoch.as_ref();
+        ensure!(
+            variants
+                .iter()
+                .all(|v| v.scan.activation_epoch.as_ref() == epoch),
+            "Mixed policy epochs in queue batch"
+        );
+        let acceptance = self.activation.enter(epoch)?;
         let mut budget = crate::queue_body::Budget::default();
         let mut recipients = 0usize;
         let mut required = minimum_free_bytes;
@@ -360,6 +400,9 @@ impl Store {
         let db = self.db.clone();
         // One owned blocking operation cannot be cancelled between persistence and commit.
         tokio::task::spawn_blocking(move || -> Result<()> {
+            // Ownership follows the uncancellable write, not the SMTP task. A
+            // disconnected/cancelled caller must not falsely drain this barrier.
+            let _acceptance = acceptance;
             let mut written=Vec::new();
             let result=(|| -> Result<()> {
                 ensure!(available_bytes(&root)? >= required,"insufficient space for complete queue batch");

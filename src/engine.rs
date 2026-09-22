@@ -72,6 +72,8 @@ pub struct SemanticResult {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_boundary: Option<crate::score_boundary::Boundary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_combination: Option<crate::fusion::combination::Accounting>,
@@ -612,11 +614,7 @@ impl Engine {
             config.rspamd.clone(),
             template.map(|t| &*t.rspamd),
         )?);
-        let cluster_models = if config
-            .cluster
-            .as_ref()
-            .is_some_and(|c| c.role == crate::cluster::Role::Coordinator)
-        {
+        let cluster_models = if config.cluster.is_some() {
             crate::cluster::artifacts::bindings(
                 &config,
                 template

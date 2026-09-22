@@ -12,6 +12,9 @@ pub const UNAVAILABLE_SCORE: f64 = -1.0;
 /// number alone is not an unavailable-score contract: require the producer's
 /// ledger, incomplete status and explicit reason. Never recalculate old scores.
 pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
+    if let Some(epoch) = &scan.activation_epoch {
+        epoch.validate()?;
+    }
     use crate::assessment::{Score, ScoreKind, ScoreSource, valid_score};
     use crate::fusion::runtime::{Decision, DecisionSource};
     use anyhow::ensure;

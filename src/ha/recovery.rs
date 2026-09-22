@@ -172,7 +172,7 @@ pub async fn restore_queue(
             )?;
             tx.execute("DELETE FROM ha_remote", [])?;
             tx.execute("DELETE FROM ha_blobs", [])?;
-            tx.execute_batch("PRAGMA user_version=5")?;
+            crate::store::require_format(&tx, 5)?;
             tx.commit()?;
             Ok(())
         })

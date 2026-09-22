@@ -243,6 +243,7 @@ async fn session(
     let mut extended = false;
     let mut encrypted = false;
     let mut from: Option<String> = None;
+    let mut activation_epoch = None;
     let mut recipients: Vec<Recipient> = Vec::new();
     let mut errors = 0;
     let mut admission_budget = crate::smtp_admission::DelayBudget::default();
@@ -267,6 +268,14 @@ async fn session(
             }
         };
         let (verb, arg) = command.split_once(' ').unwrap_or((command, ""));
+        if verb.eq_ignore_ascii_case("MAIL") && !state.store.activation.ready() {
+            reply(
+                &mut io,
+                "451 4.3.2 Policy activation in progress; retry later\r\n",
+            )
+            .await?;
+            continue;
+        }
         // Read the current revision when MAIL arrives, even on a connection that
         // was idle while an administrator applied new settings.
         if from.is_none()
@@ -282,6 +291,7 @@ async fn session(
                 continue;
             }
             let snapshot = control.snapshot();
+            activation_epoch = snapshot.activation_epoch.clone();
             state.config = snapshot.config.clone();
             state.engine = snapshot.engine.clone();
             rbl = snapshot.rbl.clone();
@@ -620,6 +630,7 @@ async fn session(
                 let result = match result {
                     Ok(mut variants) => {
                         for variant in &mut variants {
+                            variant.scan.activation_epoch = activation_epoch.clone();
                             early_rbl.attach(&mut variant.scan);
                             variant.scan.smtp_admission = admission_reports.clone();
                             if let Some(ticket) = &comparison {

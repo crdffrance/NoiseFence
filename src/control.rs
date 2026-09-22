@@ -1,4 +1,5 @@
 //! Validated, durable console configuration; one coherent snapshot per SMTP transaction.
+mod activation;
 use crate::{
     config::{Config, Domain, Mode},
     engine::Engine,
@@ -403,6 +404,7 @@ impl Settings {
 }
 
 pub struct Snapshot {
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
     pub rbl: Arc<crate::rbl::Runtime>,
     pub revision: i64,
     pub settings: Settings,
@@ -415,11 +417,12 @@ impl Controller {
         self.cluster_hash.read().unwrap().clone()
     }
     pub fn cluster_ready(&self) -> bool {
-        !crate::cluster::is_worker(&self.base)
-            || self
-                .cluster_until
-                .load(std::sync::atomic::Ordering::Acquire)
-                >= crate::now()
+        self.store.activation.ready()
+            && (!crate::cluster::is_worker(&self.base)
+                || self
+                    .cluster_until
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    >= crate::now())
     }
     pub async fn publication(&self) -> Result<Arc<crate::cluster::artifacts::Publication>> {
         ensure!(
@@ -457,10 +460,18 @@ impl Controller {
         server_time: i64,
     ) -> Result<()> {
         ensure!(crate::cluster::is_worker(&self.base), "Not a worker");
+        ensure!(
+            self.store.activation.epoch().is_none() && self.store.activation.ready(),
+            "Use the coordinated activation driver for this storage"
+        );
         bundle.validate()?;
         let this = self.clone();
         tokio::spawn(async move {
             let _permit = this.applying.clone().acquire_owned().await?;
+            ensure!(
+                this.store.activation.epoch().is_none() && this.store.activation.ready(),
+                "Use the coordinated activation driver for this storage"
+            );
             let current = this.snapshot();
             ensure!(
                 bundle.revision >= current.revision,
@@ -548,6 +559,7 @@ impl Controller {
                 }
                 *this.template.write().unwrap() = engine.clone();
                 *this.active.write().unwrap() = Arc::new(Snapshot {
+                    activation_epoch: None,
                     revision: bundle.revision,
                     settings: bundle.settings,
                     config,
@@ -574,6 +586,7 @@ fn cluster_model_identity(config: &Config) -> String {
     })).expect("model identity"))
 }
 pub struct Controller {
+    prepared_activation: std::sync::Mutex<Option<activation::Prepared>>,
     pub base: Arc<Config>,
     pub store: Store,
     template: RwLock<Arc<Engine>>,
@@ -587,6 +600,12 @@ pub struct Controller {
 }
 impl Controller {
     pub async fn load(base: Arc<Config>, store: Store) -> Result<Arc<Self>> {
+        let participant = store
+            .run(|db| {
+                let tx = db.transaction()?;
+                crate::cluster::activation::participant::Local::read(&tx)
+            })
+            .await?;
         let saved = store
             .run(|db| {
                 Ok(db
@@ -603,7 +622,9 @@ impl Controller {
             None => (0, Settings::from_config(&base)),
         };
         settings.hydrate(&base);
-        let clustered = if crate::cluster::is_worker(&base) {
+        let clustered = if let Some(local) = &participant {
+            Some(local.installed().clone())
+        } else if crate::cluster::is_worker(&base) {
             store
                 .read(|db| {
                     Ok(db
@@ -659,7 +680,7 @@ impl Controller {
             0
         };
         let config = Arc::new(effective);
-        let seed = if crate::cluster::is_worker(&base) {
+        let seed = if participant.is_some() || crate::cluster::is_worker(&base) {
             config.clone()
         } else {
             let mut seed = (*base).clone();
@@ -712,6 +733,7 @@ impl Controller {
             .archive
             .configure(config.research_archive.clone().unwrap_or_default());
         Ok(Arc::new(Self {
+            prepared_activation: std::sync::Mutex::new(None),
             base,
             store,
             template: RwLock::new(template),
@@ -726,6 +748,7 @@ impl Controller {
             cluster_keys: RwLock::new(key_hash),
             retired: std::sync::Mutex::new(None),
             active: RwLock::new(Arc::new(Snapshot {
+                activation_epoch: participant.as_ref().map(|p| p.installed_epoch().clone()),
                 rbl,
                 revision,
                 settings,
@@ -795,10 +818,16 @@ impl Controller {
             !crate::cluster::is_worker(&self.base),
             "Change the settings from the center console."
         );
+        ensure!(
+            self.store.activation.epoch().is_none() && self.store.activation.ready(),
+            "Use the coordinated activation driver for this storage"
+        );
         settings.hydrate(&self.base);
         let this = self.clone();
         tokio::spawn(async move {
             let _permit=this.applying.clone().try_acquire_owned().context("An amendment is already under way.")?;
+            ensure!(this.store.activation.epoch().is_none() && this.store.activation.ready(),
+                "Use the coordinated activation driver for this storage");
             ensure!(revision==this.snapshot().revision,"Modified configuration in another session. Reload before saving.");
             let config=Arc::new(settings.effective(&this.base)?);
             let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
@@ -844,7 +873,7 @@ impl Controller {
                 tx.commit()?;Ok(id)
             }).await?;
             engine.activate_limits();rbl.activate();this.store.admission.activate(config.smtp_admission.as_ref());this.store.archive.configure(config.research_archive.clone().unwrap_or_default());
-            *this.active.write().unwrap()=Arc::new(Snapshot{revision:id,settings,config,engine,rbl});
+            *this.active.write().unwrap()=Arc::new(Snapshot{activation_epoch:None,revision:id,settings,config,engine,rbl});
             Ok(id)
         }).await?
     }
