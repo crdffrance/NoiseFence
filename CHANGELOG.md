@@ -2,6 +2,15 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Share frozen CRDF/VirusTotal target eligibility between diagnostics, native
+  comparison and calibration features. Count duplicates once, exclude contradictory
+  or unavailable targets, and require distinct providers for scoped overlap.
+  Reuse retained content contributions in native comparison so raw SPF/DMARC or
+  unsupported LLM weights cannot reappear. Explain exclusions in English, version
+  the normalization and quality contracts, and preserve original history. Existing
+  quality candidates require compatible observations and requalification; no
+  production activation or detection-quality claim is included.
+
 - Add an administrator Web catalog for explicitly retained model sets, independent
   of rollout-cache pruning. Preview and select their exact files in a coordinated
   settings save while preserving current policy and credentials; include the

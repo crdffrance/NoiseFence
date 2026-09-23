@@ -86,11 +86,13 @@ fn provider_scopes_and_overlap_remain_separate_features() {
     scan.protection = Some(Report {
         crdf: ProviderReport {
             status: Status::Complete,
+            captured_at: Some(noisefence::now()),
             observations: vec![observation.clone()],
             ..Default::default()
         },
         virustotal: ProviderReport {
             status: Status::Complete,
+            captured_at: Some(noisefence::now()),
             observations: vec![ProviderObservation {
                 scope: "domain".into(),
                 ..observation
@@ -1126,4 +1128,76 @@ async fn release_and_sample_readiness_share_eligibility_and_preserve_every_label
         .unwrap();
     assert_eq!(revoked_sample["available"], 0);
     assert_eq!(revoked_sample["risk_with_observations"], 0);
+}
+
+#[test]
+fn provider_features_and_native_context_share_frozen_eligibility_without_false_votes() {
+    use noisefence::{
+        native_filter::rules,
+        observations,
+        protection::{ProviderObservation, ProviderReport, Report, Status},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut scan = observed(&common::config(root.path()));
+    let target = ProviderObservation {
+        indicator_sha256: digest(b"host"),
+        scope: "host_lookup".into(),
+        verdict: "malicious".into(),
+        queried_at: 1234,
+        cached: false,
+        cache_max_age_seconds: 0,
+        analysis_max_age_seconds: None,
+    };
+    let mut protection = Report {
+        crdf: ProviderReport {
+            status: Status::Complete,
+            captured_at: Some(1234),
+            observations: vec![target.clone(), target],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    protection.add(
+        "known_malicious_indicator",
+        "link_reputation",
+        "host",
+        "crdf",
+        "private response",
+    );
+    scan.protection = Some(protection);
+    let value = |scan: &Scan, name: &str| {
+        quality::snapshot(scan, None).values[quality::specs()
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap()]
+    };
+    let before = serde_json::to_value(&scan).unwrap();
+    assert_eq!(value(&scan, "provider.crdf.host_lookup.malicious"), 1.);
+    assert_eq!(value(&scan, "provider.shared_indicator_hits"), 0.);
+    assert_eq!(
+        rules::context(&scan)
+            .iter()
+            .filter(|s| s.id == "NF_MALICIOUS_INDICATOR")
+            .count(),
+        1
+    );
+    assert_eq!(serde_json::to_value(&scan).unwrap(), before);
+    for invalid in [false, true] {
+        let p = &mut scan.protection.as_mut().unwrap().crdf;
+        if invalid {
+            p.captured_at = None;
+        } else {
+            p.observations[1].verdict = "no_hit".into();
+        }
+        assert_eq!(value(&scan, "provider.crdf.host_lookup.malicious"), 0.);
+        assert_eq!(value(&scan, "provider.shared_indicator_hits"), 0.);
+        assert!(rules::context(&scan).is_empty());
+        assert!(
+            observations::capture(&scan)
+                .observations
+                .iter()
+                .filter(|o| o.id.starts_with("crdf."))
+                .all(|o| o.exclusion.is_some())
+        );
+    }
 }

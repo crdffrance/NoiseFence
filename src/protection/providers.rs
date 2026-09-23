@@ -897,6 +897,7 @@ impl Client {
                 .then(a.scope.cmp(&b.scope))
         });
         hits.sort();
+        report.captured_at = Some(crate::now());
         (report, hits)
     }
 }
@@ -1743,6 +1744,11 @@ mod transport_tests {
         let (report, hits) = client
             .inspect(Provider::Crdf, true, &targets, &Policy::default())
             .await;
+        let evidence = crate::protection::evidence::evaluate(Provider::Crdf, &report);
+        assert!(report.captured_at.is_some());
+        assert_eq!(evidence.targets.len(), 12);
+        assert!(evidence.targets.iter().all(|t| t.usable()));
+        assert!(evidence.targets.iter().all(|t| !t.malicious()));
         assert_eq!(report.checked, 12, "{report:?}");
         assert_eq!(report.omitted, 2);
         assert_eq!(report.status, Status::Limited);

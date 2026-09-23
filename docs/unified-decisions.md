@@ -170,7 +170,7 @@ See [scoped policies and simulation](scoped-policies.md),
 
 ## Normalized detector observations
 
-New receipt snapshots include `analysis_result.observations` (schema 1). Older
+New receipt snapshots include `analysis_result.observations` (schema 2; schema 1 remains readable). Older
 snapshots remain readable and have no normalized report: API reads never infer
 missing historical observations using current settings. Reports are captured
 before recipient rules, replicated with the existing scan and preserved on retry.
@@ -367,3 +367,38 @@ some repeated evidence, but normalized target groups across additional providers
 still require a qualified combination adapter. Fusion's existing supported-profile
 and tag-eligibility restrictions remain in force. Broader partial-coverage
 classification needs its own qualification; this change does not bypass it.
+
+## Shared provider eligibility and native accounting
+
+New analyses use `provider-target-evidence-1` for CRDF/VirusTotal target eligibility
+in normalized observations, native comparison and quality vectors. Completed
+lookups require a recorded provider completion time and a lookup timestamp within
+its bounded window (300 seconds before, 60 seconds after). These bounds validate
+the captured request, not the provider's underlying intelligence freshness.
+History reads do not use today's clock to expire or reinterpret original evidence.
+A missing capture time in older raw reports remains unknown; it is never invented.
+
+A repeated provider/scope/target is retained once. Contradictory verdicts for that
+same target are excluded without choosing the more accusatory result. Distinct
+providers may share one host group; file hashes form a different group. Shared
+malicious-target counts require two distinct providers with eligible results.
+This records agreement, not source independence. A provider timeout or quota can
+coexist with independently completed target observations. Disabled, unknown,
+stale, malformed and out-of-window targets cannot produce malicious evidence;
+`no_hit` remains not listed, never clean. Evaluation is bounded to 48 recorded
+targets per provider and reports omissions. English diagnostics explain exclusions.
+
+Native comparison now consumes the current content ledger's retained weights,
+including reconciled SPF/DMARC dependencies and LLM policy limits. It cannot
+revive raw reasons that the central calculation excluded. Zero/excluded symbols
+are absent from presence-based composites. Missing or older ledgers are not
+reconstructed. Provider findings are checked through the same eligibility reducer;
+a bare summary finding cannot substitute for completed target evidence. Native
+comparison remains advisory and does not add provider points to the content score.
+
+The quality protocol hash changes, even though feature order and length do not.
+Older vectors, fitted quality models and stored native reports are not silently
+upgraded. Keep their original diagnostics; generate compatible observations and
+refit/requalify candidates before selection. Upgrade receipt readers on all nodes
+before enabling these schema-2 exclusions. These checks prove software consistency,
+not capture rate, provider independence or a production-quality calibration.

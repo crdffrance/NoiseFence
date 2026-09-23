@@ -36,3 +36,11 @@ test('authentication absence and shared observations retain their specific meani
   assert.equal(observationName('dqs.domain.2'),'Spamhaus · domain 3');
   assert.equal(observationName('private-zone-canary'),'Other recorded detector');
 });
+
+test('provider exclusions explain deduplication, conflict and frozen-time eligibility', () => {
+  for (const [exclusion, expected] of [
+    ['duplicate_target', /counted once/], ['conflicting_target', /same provider/],
+    ['missing_capture_time', /completion time not recorded/], ['invalid_observation_time', /captured analysis window/],
+    ['stale_result', /Stale/],
+  ]) assert.match(observationResult({...record, exclusion}), expected);
+});

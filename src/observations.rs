@@ -4,9 +4,8 @@ use crate::{antivirus, engine, evidence, llm, protection, smtp_policy, vision};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 const MAX_OBSERVATIONS: usize = 160;
-const MAX_PROVIDER_TARGETS: usize = 48;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -80,6 +79,11 @@ pub enum Exclusion {
     InconsistentOpinion,
     InvalidResult,
     UnavailableResult,
+    MissingCaptureTime,
+    InvalidObservationTime,
+    StaleResult,
+    DuplicateTarget,
+    ConflictingTarget,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -232,14 +236,14 @@ fn av_state(status: &antivirus::AntivirusStatus, original: Option<evidence::Stat
         Disabled => disabled_state(original),
     }
 }
-fn provider_state(report: &protection::ProviderReport) -> State {
+fn provider_state(report: &protection::ProviderReport, status: &protection::Status) -> State {
     use protection::Status::*;
-    match report.status {
+    match status {
         Disabled => State::Disabled,
         NotConfigured => State::NotApplicable,
         Quota => State::BudgetExceeded,
         Complete if report.omitted > 0 => State::Partial,
-        Complete if report.checked == 0 => State::NotApplicable,
+        Complete if report.checked == 0 && report.observations.is_empty() => State::NotApplicable,
         Complete => State::Complete,
         Limited => State::Partial,
         _ if report.failure == Some(protection::providers::Failure::Timeout) => State::Timeout,
@@ -390,12 +394,20 @@ impl Report {
         }
     }
     fn providers(&mut self, report: &protection::Report) {
-        for (name, provider) in [("crdf", &report.crdf), ("virustotal", &report.virustotal)] {
+        for (name, kind, provider) in [
+            ("crdf", protection::Provider::Crdf, &report.crdf),
+            (
+                "virustotal",
+                protection::Provider::Virustotal,
+                &report.virustotal,
+            ),
+        ] {
+            let evaluated = protection::evidence::evaluate(kind, provider);
             let mut parent = Observation::new(
                 name,
                 Family::UrlThreat,
                 Role::Advisory,
-                provider_state(provider),
+                provider_state(provider, &evaluated.status),
                 "provider_request",
                 name,
                 &format!("/protection/{name}"),
@@ -404,16 +416,10 @@ impl Report {
             parent.version = token(&report.version);
             parent.measured("checked", Some(provider.checked as f64), Unit::Count);
             self.push(parent);
-            self.omitted += provider
-                .observations
-                .len()
-                .saturating_sub(MAX_PROVIDER_TARGETS);
-            for (index, target) in provider
-                .observations
-                .iter()
-                .take(MAX_PROVIDER_TARGETS)
-                .enumerate()
-            {
+            self.omitted += evaluated.omitted;
+            for entry in evaluated.targets {
+                let index = entry.index;
+                let target = entry.value;
                 let (family, scope, group_scope) = match target.scope.as_str() {
                     "file" => (Family::FileThreat, "file", "file"),
                     "host_lookup" => (Family::UrlThreat, "host_lookup", "host"),
@@ -436,15 +442,6 @@ impl Report {
                     &format!("{group_scope}:{hash}"),
                     &format!("/protection/{name}/observations/{index}"),
                 );
-                // apply_lookup persists only completed per-target lookups. Other
-                // targets may subsequently time out, exhaust capacity or quota.
-                // Preserve these independent target facts, including cache hits.
-                let target_allowed = !matches!(
-                    provider.status,
-                    protection::Status::Disabled
-                        | protection::Status::NotConfigured
-                        | protection::Status::NotRun
-                ) && target.queried_at > 0;
                 let result = match target.verdict.as_str() {
                     "malicious" => Some(ReputationResult::Malicious),
                     "suspicious" => Some(ReputationResult::Suspicious),
@@ -454,21 +451,23 @@ impl Report {
                     "stale" => Some(ReputationResult::Stale),
                     _ => None,
                 };
-                if target_allowed && let Some(result) = result {
-                    observation.state = if result == ReputationResult::Stale {
-                        State::Unavailable
-                    } else {
-                        State::Complete
-                    };
-                    observation.result = Some(ResultValue::Reputation(result));
-                    observation.queried_at = Some(target.queried_at);
-                    observation.cache_max_age_seconds = Some(target.cache_max_age_seconds);
-                    observation.analysis_max_age_seconds = target.analysis_max_age_seconds;
+                observation.version = Some(protection::evidence::VERSION.into());
+                observation.queried_at = (target.queried_at > 0).then_some(target.queried_at);
+                observation.cache_max_age_seconds = Some(target.cache_max_age_seconds);
+                observation.analysis_max_age_seconds = target.analysis_max_age_seconds;
+                if entry.usable() {
+                    observation.state = State::Complete;
+                    observation.result = result.map(ResultValue::Reputation);
                 } else {
-                    observation.exclusion = Some(if result.is_none() {
-                        Exclusion::InvalidResult
-                    } else {
-                        Exclusion::UnavailableResult
+                    use protection::evidence::Exclusion as E;
+                    observation.exclusion = entry.exclusion.map(|reason| match reason {
+                        E::InvalidTarget | E::InvalidResult => Exclusion::InvalidResult,
+                        E::UnavailableProvider => Exclusion::UnavailableResult,
+                        E::MissingCaptureTime => Exclusion::MissingCaptureTime,
+                        E::InvalidObservationTime => Exclusion::InvalidObservationTime,
+                        E::StaleResult => Exclusion::StaleResult,
+                        E::DuplicateTarget => Exclusion::DuplicateTarget,
+                        E::ConflictingTarget => Exclusion::ConflictingTarget,
                     });
                 }
                 self.push(observation);

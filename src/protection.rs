@@ -1,6 +1,7 @@
 //! Additional detectors are observations, never an uncalibrated change to delivery.
 mod campaign;
 mod context;
+pub mod evidence;
 mod local;
 pub(crate) mod providers;
 pub use providers::Failure as ProviderFailure;
@@ -180,6 +181,9 @@ pub struct Finding {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProviderReport {
     pub status: Status,
+    /// Frozen completion time for target eligibility, never the history-read time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<i64>,
     pub checked: usize,
     pub malicious: usize,
     pub suspicious: usize,

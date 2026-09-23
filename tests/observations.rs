@@ -170,6 +170,7 @@ fn provider(verdict: &str, scope: &str) -> ProviderReport {
     ProviderReport {
         status: protection::Status::Complete,
         checked: 1,
+        captured_at: Some(1234),
         observations: vec![target(verdict, scope)],
         ..Default::default()
     }
@@ -449,5 +450,39 @@ fn normalization_is_bounded_and_preserved_at_receipt_not_rebuilt_on_read() {
             .observations
             .is_none(),
         "legacy read is never a retrospective reanalysis"
+    );
+}
+
+#[test]
+fn provider_duplicates_conflicts_and_missing_time_have_explicit_exclusions() {
+    let mut s = scan();
+    let mut p = provider("malicious", "host_lookup");
+    p.observations.push(target("malicious", "host_lookup"));
+    s.protection = Some(protection::Report {
+        crdf: p,
+        ..Default::default()
+    });
+    let r = observations::capture(&s);
+    assert_eq!(r.version, observations::VERSION);
+    assert_eq!(observation(&r, "crdf.0").state, State::Complete);
+    assert_eq!(
+        observation(&r, "crdf.1").exclusion,
+        Some(Exclusion::DuplicateTarget)
+    );
+    s.protection.as_mut().unwrap().crdf.observations[1].verdict = "no_hit".into();
+    let r = observations::capture(&s);
+    assert_eq!(observation(&r, "crdf").state, State::Partial);
+    for id in ["crdf.0", "crdf.1"] {
+        assert_eq!(
+            observation(&r, id).exclusion,
+            Some(Exclusion::ConflictingTarget)
+        );
+        assert!(observation(&r, id).result.is_none());
+    }
+    s.protection.as_mut().unwrap().crdf.captured_at = None;
+    let r = observations::capture(&s);
+    assert_eq!(
+        observation(&r, "crdf.0").exclusion,
+        Some(Exclusion::MissingCaptureTime)
     );
 }

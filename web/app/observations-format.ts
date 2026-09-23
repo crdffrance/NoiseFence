@@ -34,6 +34,8 @@ export function observationRole(role: string) {
 export function observationExclusion(reason: string | null) {
   return ({ not_observed: 'Not observed', missing_envelope_context: 'Original SMTP context unavailable',
     unsupported_claims: 'Claims not supported by recorded evidence', inconsistent_opinion: 'Inconsistent opinion',
+    missing_capture_time: 'Provider completion time not recorded', invalid_observation_time: 'Lookup time outside the captured analysis window',
+    stale_result: 'Stale provider result', duplicate_target: 'Repeated target — counted once', conflicting_target: 'Conflicting results from the same provider',
     invalid_result: 'Missing or invalid result', unavailable_result: 'Result unavailable for this observation' } as Record<string, string>)[reason ?? ''] ?? (reason ? 'Excluded result' : '');
 }
 export function observationScope(scope: string) {

@@ -517,3 +517,54 @@ fn modern_threshold_precision_and_conflicting_order_are_preserved() {
     scan.reasons.reverse();
     assert_eq!(report, scoring::combine(&scan, Some(-2.), false));
 }
+
+#[test]
+fn native_context_reuses_retained_weights_and_cannot_revive_excluded_symbols() {
+    use noisefence::{
+        evidence::{AuthResult as A, State},
+        native_filter::rules,
+    };
+    let mut scan = sample();
+    scan.reasons.extend([
+        signal("dmarc_fail", 2.),
+        signal("llm_advisory", 100.),
+        signal("caps_subject", 0.),
+    ]);
+    let a = &mut scan.evidence.as_mut().unwrap().authentication;
+    a.dmarc_state = State::Complete;
+    a.dmarc_spf = Some(A::Fail);
+    a.dmarc_dkim = Some(A::Fail);
+    scan.scoring = Some(scoring::combine(&scan, Some(-2.), false));
+    let before = serde_json::to_value(&scan).unwrap();
+    let symbols = rules::context(&scan);
+    assert_eq!(
+        symbols
+            .iter()
+            .find(|s| s.id == "dmarc_fail")
+            .unwrap()
+            .weight,
+        2.
+    );
+    assert_eq!(
+        symbols
+            .iter()
+            .find(|s| s.id == "NF_LEXICAL")
+            .unwrap()
+            .weight,
+        -2.
+    );
+    assert!(
+        !symbols
+            .iter()
+            .any(|s| matches!(s.id.as_str(), "spf_fail" | "NF_LLM" | "caps_subject"))
+    );
+    assert_eq!(serde_json::to_value(&scan).unwrap(), before);
+    // Raw reasons added after accounting cannot contaminate the observer.
+    scan.reasons.push(signal("ip_url", 100.));
+    assert!(!rules::context(&scan).iter().any(|s| s.id == "ip_url"));
+    // Unsupported historical accounting is not reinterpreted on a read.
+    scan.scoring.as_mut().unwrap().version = scoring::LEGACY_VERSION.into();
+    assert!(rules::context(&scan).is_empty());
+    scan.scoring = None;
+    assert!(rules::context(&scan).is_empty());
+}
