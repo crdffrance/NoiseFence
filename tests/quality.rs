@@ -271,6 +271,19 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
     assert!(!raw.contains("private-correspondent"));
     assert!(!raw.contains(&first));
     assert!(raw.contains("newsletter"));
+    let exported: Vec<serde_json::Value> = raw
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(exported[0]["decision_contract"], quality::recorded::SCHEMA);
+    for row in &exported[1..exported.len() - 1] {
+        assert_eq!(
+            row["decision_snapshot"]["schema"],
+            quality::recorded::SCHEMA
+        );
+        assert_eq!(row["legacy_decision"], row["decision_snapshot"]["engine"]);
+    }
+
     assert!(
         evaluation::export(&store, "alice".into(), batch.clone(), &output)
             .await

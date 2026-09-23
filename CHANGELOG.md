@@ -2,6 +2,14 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Export immutable, whitelisted engine and recipient decisions for private quality
+  evaluation. Keep explicit partial-analysis verdicts, recipient overrides and
+  requested/effective actions separate; reject malformed contracts and preserve
+  missing results. Align population and paired engine comparisons, canonical score
+  diagnostics and candidate baselines. The English workbench distinguishes old
+  mixed reports, engine metrics and receipt action intentions. No model training,
+  production change or independent quality claim is included.
+
 - Unify captured SMTP authentication and DQS eligibility across scoring,
   confirmation, LLM facts, context safeguards and diagnostics. Version 8 SMTP
   authentication headers expose only eligible facts. Reject incompatible or

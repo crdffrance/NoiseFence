@@ -237,7 +237,7 @@ class QualityTests(unittest.TestCase):
         _,counts=self.q.partition(risk,'risk')
         self.assertEqual(counts['conflicting_campaigns'],1)
 
-    def test_runtime_rejects_malformed_models_and_incomplete_baselines(self):
+    def test_runtime_rejects_malformed_models_and_preserves_explicit_partial_verdicts(self):
         from quality_runtime import load_model
         from evaluate_quality import baseline
         original=json.loads((self.root/'candidate/model.json').read_text())
@@ -249,7 +249,7 @@ class QualityTests(unittest.TestCase):
             with self.subTest(key=key),self.assertRaises(ValueError):load_model(path)
         row={'legacy_decision':{'source':'legacy','outcome':'unwanted'},
              'baseline_complete':False,'delivery_classification':'spam'}
-        self.assertEqual(baseline(row),'review')
+        self.assertEqual(baseline(row),'spam')
         row['legacy_decision']['source']='antivirus'
         self.assertEqual(baseline(row),'spam')
 
@@ -316,6 +316,8 @@ class QualityTests(unittest.TestCase):
         self.assertTrue(report['acceptance']['passes_pilot'])
         self.assertFalse(report['acceptance']['meets_final_confidence_bounds'])
         self.assertEqual(report['candidate']['fp'],0)
+        self.assertEqual(report['recorded_policy']['records'],1020)
+        self.assertEqual(report['evaluation_scope'],'shadow_engine_with_antivirus_guard_not_recipient_policy_replay')
         self.assertEqual(report['candidate']['tp'],report['baseline']['tp'])
         self.assertNotIn('separate-evaluation',json.dumps(report))
         fresh[1]['quality']=None
@@ -359,6 +361,29 @@ class QualityTests(unittest.TestCase):
         self.assertIsNone(result['pipeline_latency']['native_p95_ms'])
         self.assertFalse(result['may_activate'])
         self.assertNotIn(data[1]['id'],json.dumps(result))
+        from test_recorded_decisions import receipt
+        for r in data[1:-1]:r['decision_snapshot']=receipt()
+        self.write(path,data)
+        separated=compare(path)
+        self.assertEqual(separated['baseline']['fp'],510)
+        self.assertEqual(separated['recorded_policy']['classification']['fp'],0)
+        self.assertEqual(separated['recorded_policy']['effective_actions']['legitimate'],{'deliver':510})
+        self.assertEqual(separated['paired']['baseline']['fp'],separated['baseline']['fp'])
+
+
+    def test_recorded_contract_is_validated_before_missing_features_and_does_not_feed_training(self):
+        from test_recorded_decisions import receipt
+        from recorded_decisions import SCHEMA
+        data=copy.deepcopy(self.data)
+        data[0]['decision_contract']=SCHEMA
+        for row in data[1:-1]:row['decision_snapshot']=receipt()
+        path=self.root/'receipts.jsonl';self.write(path,data)
+        _,rows,_,_,_=self.q.load_dataset(path)
+        self.assertEqual([r['values'] for r in rows], [r['quality']['values'] for r in self.data[1:-1]])
+        data[1]['quality']=None
+        del data[1]['decision_snapshot']
+        self.write(path,data)
+        with self.assertRaisesRegex(ValueError,'Missing recorded'):self.q.load_dataset(path)
 
     def test_training_never_uses_protected_or_near_campaigns(self):
         data=copy.deepcopy(self.data)

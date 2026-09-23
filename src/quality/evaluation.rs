@@ -217,6 +217,7 @@ pub async fn export(
         let db=&tx;
         let header:Option<Value>=db.query_row("SELECT since,until,population,selected,seed FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3",params![batch,username,now()-30*86400],|r| Ok(json!({"type":"header","schema":"noisefence-quality-dataset-1","batch":batch,"since":r.get::<_,i64>(0)?,"until":r.get::<_,i64>(1)?,"population":r.get::<_,usize>(2)?,"selected":r.get::<_,usize>(3)?,"seed_sha256":crate::message::digest(r.get::<_,String>(4)?.as_bytes()),"sampling":"uniform_message","protocol_sha256":super::protocol_hash(),"captured_at":now()}))).optional()?;
         let mut header=header.ok_or_else(||anyhow::anyhow!("sample not found"))?;
+        header["decision_contract"]=json!(super::recorded::SCHEMA);
         let purpose: Option<(String,String)>=db.query_row("SELECT purpose,cohort FROM quality_purposes WHERE batch_id=?1",[&batch],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let (purpose,cohort)=purpose.unwrap_or(("regression".into(),String::new()));
         header["purpose"]=json!(purpose);header["cohort"]=json!(cohort);
@@ -234,8 +235,10 @@ pub async fn export(
         let mut rows=q.query(params![username,batch,now()-30*86400])?;
         while let Some(row)=rows.next()? {
             let scan:crate::engine::Scan=serde_json::from_str(&row.get::<_,String>(2)?)?;
+            let decisions=super::recorded::snapshot(&scan);
+            let engine=decisions["engine"].clone();
             let quality=scan.quality.map(|mut q| {q.sender.key=None;if let Some(b)=&mut q.sender.behavior { b.sample=None; }q});
-            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":scan.decision,"baseline_complete":scan.complete,"delivery_classification":scan.delivery_classification,"quality":quality,"rspamd":scan.rspamd.map(|r|json!({"status":r.status,"action":r.action,"score":r.score,"profile":r.profile,"settings_sha256":r.settings_sha256})),"legacy_score":scan.score,"pipeline_elapsed_ms":scan.elapsed_ms}));
+            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":engine,"baseline_complete":decisions["engine"]["complete"],"delivery_classification":decisions["final"]["category"],"decision_snapshot":decisions,"quality":quality,"rspamd":scan.rspamd.map(|r|json!({"status":r.status,"action":r.action,"score":r.score,"profile":r.profile,"settings_sha256":r.settings_sha256})),"legacy_score":engine["raw_score"],"pipeline_elapsed_ms":scan.elapsed_ms}));
         }
         out.push(json!({"type":"footer","rows":out.len()-1}));Ok(out)
     }).await?;

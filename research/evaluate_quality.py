@@ -18,14 +18,10 @@ from quality_runtime import load_model, predict
 from quality_metrics import outcomes, acceptance, metrics, interval
 
 
-def baseline(row):
-    decision=row.get('legacy_decision') or {}
-    value=decision.get('outcome')
-    if decision.get('source')!='antivirus':
-        value={'publicity':'legitimate','spam':'unwanted','legitimate':'legitimate','undetermined':'undetermined'}.get(row.get('delivery_classification'),value)
-        if row.get('baseline_complete') is False:
-            value='undetermined'
-    return {'unwanted':'spam','legitimate':'legitimate'}.get(value,'review')
+# Candidate fitting evaluates engine outputs. Recorded recipient policies/actions
+# are reported separately and are not a replay of the candidate through policies.
+from recorded_decisions import engine_decision, engine_outcome, policy_report
+baseline = engine_outcome
 
 
 def evaluate(dataset, model_path, manifest_path):
@@ -70,9 +66,9 @@ def evaluate(dataset, model_path, manifest_path):
             coverage['unsupported_observations']+=1
         candidate=result['risk'] if result else 'review'
         guarded=candidate
-        if (row.get('legacy_decision') or {}).get('source')=='antivirus' and old=='spam':
+        if (engine_decision(row) or {}).get('source')=='antivirus' and old=='spam':
             guarded='spam';coverage['antivirus_priority']+=1
-        if (row.get('legacy_decision') or {}).get('outcome') not in ('unwanted','legitimate','undetermined'):
+        if (engine_decision(row) or {}).get('outcome') not in ('unwanted','legitimate','undetermined'):
             coverage['missing_baseline']+=1
         y.append(label);before.append(old);after.append(guarded);detector.append(candidate)
         probabilities.append(result['risk_probability'] if result else 0.)
@@ -95,17 +91,20 @@ def evaluate(dataset, model_path, manifest_path):
     independent=(header.get('purpose')=='holdout' and not header.get('previously_examined',False) and base_provenance and prospective and not overlap and not coverage['unverifiable_campaigns'] and not coverage['duplicate_campaign_messages'] and not coverage['conflicting_campaigns'])
     complete=(coverage['retained']==header['selected'] and len(y)==len(rows) and not coverage['unsupported_observations'] and not coverage['missing_baseline'])
     b,a=outcomes(y,before),outcomes(y,after)
-    report={'schema':'noisefence-quality-evaluation-1','model_sha256':hashlib.sha256(model_bytes).hexdigest(),'model_version':model['version'],
+    report={'schema':'noisefence-quality-evaluation-2','model_sha256':hashlib.sha256(model_bytes).hexdigest(),'model_version':model['version'],
             'dataset_sha256':digest,'training_manifest_sha256':model['training_manifest_sha256'],
             'sampling':header['sampling'],'coverage':dict(coverage),'prospective':prospective,'base_training_provenance_verified':base_provenance,
-            'baseline':b,'candidate':a,'rspamd':outcomes(y,[rspamd_outcome(r) for r in rows if r['risk'] in ('legitimate','spam')]),'detector_without_antivirus_guard':outcomes(y,detector),
+            'baseline':b,'candidate':a,'recorded_policy':policy_report(rows),
+            'evaluation_scope':'shadow_engine_with_antivirus_guard_not_recipient_policy_replay','rspamd':outcomes(y,[rspamd_outcome(r) for r in rows if r['risk'] in ('legitimate','spam')]),'detector_without_antivirus_guard':outcomes(y,detector),
             'risk_calibration':metrics(y,probabilities,*model['thresholds'],available),
             'campaigns':{'baseline':outcomes(cy,cb),'candidate':outcomes(cy,ca)},
             'acceptance':acceptance(a,b,independent,complete),
             'mail_kind':{'classes':KINDS,'prediction_classes':KINDS+['unavailable'],'confusion':kind_confusion,
                          'recall_ci95':{kind:interval(kind_confusion[i][i],sum(kind_confusion[i])) for i,kind in enumerate(KINDS)}},
             'slices':{},'observation_only':True,'may_activate':False,
-            'limitations':['Recorded controls only: a different provider/LLM selection, recipient rules and Proton placement are not replayed.',
+            'limitations':['Baseline and candidate compare engine outcomes; recipient classifications and action intentions are reported separately.',
+                           'Receipt actions do not establish delivery completion. Policy variants are not independent arrivals.',
+                           'Recorded controls only: a different provider/LLM selection, recipient rules and Proton placement are not replayed.',
                            'Message confidence intervals assume independent messages; repeated campaigns block the final gate.',
                            'No automatic activation; independent report review and operational validation remain required.']}
     # Consented newsletters and promotions are a mail type, not a spam label.

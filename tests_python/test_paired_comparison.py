@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'research'))
 try:
     from compare_quality import paired_comparison
     from evaluate_quality import baseline
+    from recorded_decisions import policy_outcome
 except ImportError:
     paired_comparison = None
 
@@ -42,13 +43,14 @@ class PairedComparisonTests(unittest.TestCase):
     def test_observed_threat_survives_incomplete_coverage_and_policy_is_separate(self):
         row=self.row('observed-threat','spam','unwanted','reject')
         row['baseline_complete']=False
-        self.assertEqual(baseline(row),'review')  # Enforcement baseline stays conservative.
+        self.assertEqual(baseline(row),'spam')  # Coverage cannot erase a recorded verdict.
         report=paired_comparison([row])
         self.assertEqual(report['baseline']['tp'],1)
         self.assertEqual(report['coverage']['paired_core_incomplete'],1)
         row['delivery_classification']='legitimate'
         row['baseline_complete']=True
-        self.assertEqual(baseline(row),'legitimate')
+        self.assertEqual(baseline(row),'spam')
+        self.assertEqual(policy_outcome(row),'legitimate')
         self.assertEqual(paired_comparison([row])['baseline']['tp'],1)
 
     def test_missing_is_not_zero_false_positive_evidence(self):

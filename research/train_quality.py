@@ -19,6 +19,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import expit, softmax
 from quality_metrics import interval, metrics, kind_argmax
+from recorded_decisions import SCHEMA as DECISION_SCHEMA, validate_snapshot, engine_decision
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
@@ -63,6 +64,7 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
             and type(header.get('captured_at')) is int
             and 0 < header['since'] < header['until'] <= header['captured_at'] <= time.time() + 60
             and is_hex(header.get('seed_sha256')), 'Invalid sampling provenance')
+    require(header.get('decision_contract') in (None, DECISION_SCHEMA), 'Unsupported recorded decision contract')
     minimum = np.array([f['minimum'] for f in PROTOCOL['features']])
     maximum = np.array([f['maximum'] for f in PROTOCOL['features']])
     ids, artifacts, counts = set(), set(), Counter()
@@ -72,6 +74,7 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
                 and type(row.get('observed_at')) is int and header['since'] <= row['observed_at'] < header['until']
                 and row.get('risk') in (None, 'legitimate', 'spam', 'uncertain')
                 and row.get('kind') in (None, *KINDS), 'Invalid human quality row')
+        validate_snapshot(row, required=header.get('decision_contract') is not None)
         ids.add(row['id'])
         if row['risk'] is not None or row['kind'] is not None:
             require(type(row.get('labelled_at')) is int and row['observed_at'] <= row['labelled_at'] <= header['captured_at'], 'Invalid annotation time')
@@ -318,7 +321,7 @@ def train(dataset, destination, version, base_history=None):
             report['ablations'][name]=fit_risk(parts,selected)[4]
         except NoFeasibleThreshold:
             report['ablations'][name]={'status':'no_feasible_threshold','test':None}
-    report['baseline']=dict(Counter((r.get('legacy_decision') or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
+    report['baseline']=dict(Counter((engine_decision(r) or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
     report['slices']={}
     y=matrix(parts['test'])[1]
     supported={r['quality']['availability_profile'] for r in parts['train']}

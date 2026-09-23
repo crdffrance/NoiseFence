@@ -5,6 +5,7 @@ import math
 from train_quality import load_dataset, read_jsonl, components, readiness, partition
 from quality_metrics import outcomes, metrics
 from evaluate_quality import baseline
+from recorded_decisions import engine_decision, engine_outcome, policy_report, raw_score
 
 
 def rspamd_outcome(row):
@@ -14,16 +15,10 @@ def rspamd_outcome(row):
             'add header':'spam','rewrite subject':'spam'}.get(report.get('action'),'review')
 
 
-def engine_outcome(row):
-    """Recorded engine verdict, without recipient overrides or score reinterpretation."""
-    return {'unwanted':'spam','legitimate':'legitimate'}.get(
-        (row.get('legacy_decision') or {}).get('outcome'),'review')
-
-
 def paired_comparison(rows):
     """Compare identical human-labelled observations; missing is not a prediction."""
     labelled=[r for r in rows if r.get('risk') in ('legitimate','spam')]
-    native_present=lambda r:(r.get('legacy_decision') or {}).get('outcome') in ('unwanted','legitimate','undetermined')
+    native_present=lambda r:engine_decision(r) is not None
     other_present=lambda r:(r.get('rspamd') or {}).get('status')=='complete'
     paired=[r for r in labelled if native_present(r) and other_present(r)]
     def measure(group):
@@ -46,7 +41,7 @@ def paired_comparison(rows):
         'rspamd_missing':sum(not other_present(r) for r in labelled),
         'paired_legitimate':sum(r['risk']=='legitimate' for r in paired),
         'paired_spam':sum(r['risk']=='spam' for r in paired),
-        'paired_core_incomplete':sum(r.get('baseline_complete') is False for r in paired),
+        'paired_core_incomplete':sum((engine_decision(r) or {}).get('complete',r.get('baseline_complete')) is False for r in paired),
         'campaign_identity_missing':sum(not r.get('fingerprint') or not r.get('simhash') for r in paired)}
     result['campaigns']={**measure(representatives),'count':len(representatives),'conflicting':conflicts}
     result['outcome_pairs']=[{'noisefence':a,'rspamd':b,'messages':n} for (a,b),n in sorted(
@@ -71,8 +66,8 @@ def compare(dataset):
     labelled=[r for r in rows if r.get('risk') in ('legitimate','spam')]
     y=[int(r['risk']=='spam') for r in labelled]
     native=[baseline(r) for r in labelled];other=[rspamd_outcome(r) for r in labelled]
-    scored=[r for r in labelled if type(r.get('legacy_score')) in (int,float) and math.isfinite(r['legacy_score']) and 0<=r['legacy_score']<=100]
-    lexical=metrics([int(r['risk']=='spam') for r in scored],[r['legacy_score']/100 for r in scored],.05,.95)
+    scored=[r for r in labelled if raw_score(r) is not None]
+    lexical=metrics([int(r['risk']=='spam') for r in scored],[raw_score(r)/100 for r in scored],.05,.95)
     # This is reliability of the *historical index*, never proof it is a probability.
     lexical['interpretation']='historical_index_not_calibrated_probability'
     cohorts=Counter(r['quality']['artifacts_sha256'] for r in usable)
@@ -89,8 +84,8 @@ def compare(dataset):
         representatives.append(min(group,key=lambda r:r['id']))
     cy=[int(r['risk']=='spam') for r in representatives]
     latency=sorted(r['pipeline_elapsed_ms'] for r in rows if type(r.get('pipeline_elapsed_ms')) in (int,float) and 0<=r['pipeline_elapsed_ms']<=3600000)
-    report={'schema':'noisefence-quality-comparison-2','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
-      'paired':paired_comparison(rows),
+    report={'schema':'noisefence-quality-comparison-3','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
+      'paired':paired_comparison(rows),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
       'coverage':{**coverage,'labelled':len(labelled),'unlabelled_or_uncertain':len(rows)-len(labelled)},
       'baseline':outcomes(y,native),'rspamd':outcomes(y,other),'legacy_score_calibration':lexical,
       'campaigns':{'count':len(representatives),'conflicting':conflicts,
@@ -103,6 +98,8 @@ def compare(dataset):
       'limitations':['Human labels are the reference; Rspamd actions are predictions.',
         'Paired results use recorded engine verdicts on the same labelled messages; recipient overrides are excluded.',
         'Population totals retain missing analyses as review for coverage accounting, not a head-to-head accuracy claim.',
+        'Recorded policy actions are receipt-time intentions, not delivery confirmations; observation can suppress requested actions.',
+        'Rows are stored records and may include recipient-policy variants; campaign grouping does not certify independent arrivals.',
         'Greylisting and custom Rspamd actions are non-final decisions, not spam detections.',
         'Incomplete core coverage does not erase a recorded threat verdict; enforcement remains a separate policy.',
         'Fewer than 20 paired human-labelled spams cannot support a useful capture comparison; more data and confidence bounds remain necessary.',

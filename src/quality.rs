@@ -4,6 +4,7 @@ mod eligibility;
 pub mod evaluation;
 pub mod history;
 pub mod qualification;
+pub mod recorded;
 pub mod reservations;
 pub mod workflow;
 use crate::{engine::Scan, fusion, message, protection::Status};

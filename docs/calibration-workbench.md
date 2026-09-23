@@ -2,9 +2,9 @@
 
 ## Paired engine comparisons
 
-Comparison schema `noisefence-quality-comparison-2` adds a `paired` section. The console presents this section first: both engines are measured on exactly the same human-labelled messages, with a recorded NoiseFence verdict and a completed Rspamd analysis. Missing or interrupted analyses are counted separately by human class and excluded from paired rates. A completed `greylist`, `soft reject` or custom Rspamd action remains a non-final decision, counted as review rather than a spam detection.
+Comparison schema `noisefence-quality-comparison-3` preserves the `paired` section introduced in schema 2. The console presents this section first: both engines are measured on exactly the same human-labelled messages, with a recorded NoiseFence verdict and a completed Rspamd analysis. Missing or interrupted analyses are counted separately by human class and excluded from paired rates. A completed `greylist`, `soft reject` or custom Rspamd action remains a non-final decision, counted as review rather than a spam detection.
 
-Paired metrics use the recorded NoiseFence engine verdict, without recipient overrides. A positively observed threat can remain unwanted despite incomplete optional coverage; the paired comparator preserves that verdict. The separate full-sample conservative baseline retains the existing incomplete-analysis safeguard and recipient policies. Neither report changes delivery or makes an incomplete scan eligible for enforcement.
+Paired metrics use the recorded NoiseFence engine verdict, without recipient overrides. A positively observed threat can remain unwanted despite incomplete optional coverage; the paired comparator preserves that verdict. The full-sample baseline now uses the same engine semantics, retaining missing decisions in its denominator. Recipient classifications and requested/effective actions appear in a separate section. Older saved schema-2 reports retain their mixed baseline and are explicitly identified in the console. No report changes delivery or makes an incomplete scan eligible for enforcement.
 
 Each paired campaign uses the same earliest eligible representative for both engines. Campaign conflicts are checked before pairing, including labelled members without a Rspamd result. Missing campaign identities and detector-profile pairs are reported. Inspect campaign metrics alongside message counts: repeated messages are not independent trials, and mixed historical versions are not a replay of the current engines.
 
@@ -93,3 +93,49 @@ docker build --target calibration -t noisefence-calibration:0.25.0 .
 Run it alongside the coordinator with `--network none`, `--read-only`, `--memory 4g`, `--cpus 2`, a writable `/tmp` tmpfs and the same private data volume at `/var/lib/noisefence`. Mount the coordinator configuration read-only at `/etc/noisefence/config.toml`; keep UID/GID 10001 consistent. The gateway must initialize its database first. This worker image loops over user-requested jobs once per minute. It does not need published ports. The default final Docker target remains the smaller SMTP runtime.
 
 Keep datasets, labels, campaign manifests, model weights derived from private traffic and archived messages out of GitHub. Publish only reviewed aggregate results and reproducible software tests.
+
+## Recorded engines, recipient decisions and action intentions
+
+New private exports declare `decision_contract: noisefence-quality-decisions-1`.
+Each row contains a small, explicit `decision_snapshot` whitelist. It reads the
+immutable analysis and recipient receipts first, rather than mutable legacy
+fields. Engine outcome, core coverage, raw content index, recipient category,
+detailed classification, selected index and requested/effective actions remain
+separate. No rule values, traces, recipient identities, free-form explanations,
+provider excerpts or message content are added. Existing access grants, retention,
+private file permissions and no-overwrite export rules still apply.
+
+Comparison schema 3 and candidate evaluation schema 2 use engine verdicts for the
+baseline. An explicit unwanted verdict survives unrelated incomplete coverage.
+Recipient overrides do not change engine metrics. Population totals retain missing
+engine results in the review denominator; the paired Rspamd table excludes missing
+results from either engine and uses the same labelled records for both. Human
+annotations remain the reference, never Rspamd predictions.
+
+The separate `recorded_policy` section reports final recipient classifications
+against the same labels and counts requested/effective actions by human label.
+For example, an engine unwanted verdict, a recipient legitimate override and a
+requested tag suppressed to deliver in observation are three distinct facts.
+A deliver intention does not prove downstream delivery, and a tag intention does
+not prove that the subject was rewritten. These tables are not action-level
+false-positive rates: wanted publicity may legitimately be tagged by preference.
+Actual delivery and tag outcomes require separate operational evidence.
+
+Legacy exports without the contract remain readable using explicitly recorded
+legacy decisions. No current threshold is borrowed and no score is invented.
+Present malformed or unknown contracts are rejected. A validated `invalid`
+snapshot retains its row and labels but supplies no verdict, score or action;
+legacy fields cannot restore a rejected result. Missing actions are reported as
+`not_recorded`. Old saved reports keep their historical mixed-baseline explanation
+in the console; they are not relabelled as engine-only results.
+
+Training views display the candidate test-fold metrics from the development
+sample, never reinterpret engine/label counters as accuracy measurements. This
+internal partition is not a prospective independent evaluation.
+
+Candidate evaluation remains an offline shadow-engine experiment with its
+existing antivirus guard. It does not replay recipient policy, provider selection,
+SMTP handling, subject modification or downstream delivery. Recorded decisions
+are comparison outputs, never added training features. Multiple policy variants
+and repeated campaigns must not be treated as independent arrivals. None of these
+changes fits/promotes a model, grants activation or establishes production quality.
