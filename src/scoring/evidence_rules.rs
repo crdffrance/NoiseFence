@@ -3,7 +3,10 @@
 use super::{Adjustment, Contribution};
 use crate::{
     engine::Scan,
-    evidence::{self, AuthResult as A, Dataset, Source, State},
+    evidence::{
+        self, AuthResult as A, Dataset,
+        eligibility::{self, AuthCheck},
+    },
     smtp_policy::{self, PolicyStatus},
 };
 
@@ -16,7 +19,7 @@ enum Weight {
 fn transport(scan: &Scan) -> Option<&evidence::Evidence> {
     scan.evidence
         .as_ref()
-        .filter(|e| e.schema == evidence::SCHEMA && e.source != Source::ContentOnly)
+        .filter(|e| eligibility::context(e).is_ok())
 }
 
 fn weight(scan: &Scan, id: &str) -> Weight {
@@ -34,22 +37,16 @@ fn weight(scan: &Scan, id: &str) -> Weight {
         return Weight::Unavailable;
     };
     let a = &e.authentication;
-    if matches!(id, "spf_fail" | "dmarc_fail")
-        && !matches!(
-            a.state,
-            State::Complete | State::Limited | State::Unavailable
-        )
-    {
-        return Weight::Unavailable;
-    }
     let result = match id {
-        "spf_fail" => (a.spf_state == State::Complete && a.spf == Some(A::Fail)).then_some(1.),
+        "spf_fail" => (eligibility::authentication(e, AuthCheck::Spf).is_ok()
+            && a.spf == Some(A::Fail))
+        .then_some(1.),
         "dmarc_fail" => {
             // Both alignment branches must be recorded, with no successful or
             // temporarily failed branch. A signature-only or missing result is
             // not a completed DMARC failure.
             let failed = [a.dmarc_spf, a.dmarc_dkim];
-            (a.dmarc_state == State::Complete
+            (eligibility::authentication(e, AuthCheck::Dmarc).is_ok()
                 && failed
                     .iter()
                     .all(|v| matches!(v, Some(A::Fail | A::None | A::PermError)))
@@ -58,31 +55,15 @@ fn weight(scan: &Scan, id: &str) -> Weight {
         }
         "ip_reputation" | "domain_reputation" => {
             let r = &e.reputation;
-            if r.version != evidence::REPUTATION_VERSION
-                || !matches!(
-                    r.state,
-                    State::Complete | State::Limited | State::Unavailable
-                )
-            {
-                return Weight::Unavailable;
-            }
-            let observed = |q: &evidence::Query, dataset| {
-                q.state == State::Complete
-                    && evidence::dqs_codes(&q.codes, dataset).is_ok()
-                    && match dataset {
-                        Dataset::Zen => evidence::malicious_ip(&q.codes),
-                        Dataset::Dbl => evidence::malicious_domain(&q.codes),
-                    }
-            };
             // A later failed target does not erase an independently completed
             // positive query; a no-hit or policy-only listing is not malicious.
             let positive = if id == "ip_reputation" {
-                observed(&r.ip, Dataset::Zen)
+                eligibility::malicious_query(e, &r.ip, Dataset::Zen)
             } else {
                 r.domains
                     .iter()
                     .take(12)
-                    .any(|q| observed(&q.result, Dataset::Dbl))
+                    .any(|q| eligibility::malicious_query(e, &q.result, Dataset::Dbl))
             };
             positive.then_some(4.)
         }

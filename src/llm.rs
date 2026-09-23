@@ -691,17 +691,25 @@ impl Client {
 /// Only gateway observations, never Authentication-Results from the message.
 /// No sender address, recipient, IP or new content is exported here.
 pub(crate) fn gateway_facts(scan: Option<&crate::engine::Scan>) -> Value {
-    use crate::evidence::{Source, State};
-    let auth = scan
+    use crate::evidence::{
+        Source,
+        eligibility::{self, AuthCheck},
+    };
+    let evidence = scan
         .and_then(|s| s.evidence.as_ref())
-        .filter(|e| e.source == Source::SmtpSession)
-        .map(|e| &e.authentication);
-    let authentication = auth.map(|a| json!({
-        "spf": (a.spf_state == State::Complete).then_some(a.spf).flatten(),
-        "dkim": if a.dkim_state == State::Complete { a.dkim.as_deref().map(|v| &v[..v.len().min(32)]) } else { None },
-        "dmarc_spf_alignment": (a.dmarc_state == State::Complete).then_some(a.dmarc_spf).flatten(),
-        "dmarc_dkim_alignment": (a.dmarc_state == State::Complete).then_some(a.dmarc_dkim).flatten(),
-    }));
+        .filter(|e| e.source == Source::SmtpSession && eligibility::context(e).is_ok());
+    let authentication = evidence.map(|e| {
+        let a = &e.authentication;
+        let spf = eligibility::authentication(e, AuthCheck::Spf).is_ok();
+        let dkim = eligibility::authentication(e, AuthCheck::Dkim).is_ok();
+        let dmarc = eligibility::authentication(e, AuthCheck::Dmarc).is_ok();
+        json!({
+            "spf": spf.then_some(a.spf).flatten(),
+            "dkim": if dkim { a.dkim.as_deref() } else { None },
+            "dmarc_spf_alignment": dmarc.then_some(a.dmarc_spf).flatten(),
+            "dmarc_dkim_alignment": dmarc.then_some(a.dmarc_dkim).flatten(),
+        })
+    });
     let authentication_evidence = ["spf", "dmarc_spf_alignment", "dmarc_dkim_alignment"]
         .into_iter()
         .filter(|key| authentication.as_ref().is_some_and(|a| a[key] == "fail"))
@@ -1096,11 +1104,51 @@ mod tests {
     }
 
     #[test]
+    fn gateway_authentication_references_exclude_invalid_and_inactive_facts() {
+        use crate::evidence::{Artifacts, AuthResult as A, Evidence, Source, State};
+        let cfg = crate::config::Config::load(Path::new("config/development.toml")).unwrap();
+        let mut e = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+        e.source = Source::SmtpSession;
+        e.authentication.state = State::Unavailable;
+        e.authentication.spf_state = State::Complete;
+        e.authentication.spf = Some(A::Fail);
+        let mut scan = crate::engine::Scan {
+            evidence: Some(e),
+            ..Default::default()
+        };
+        let refs = |scan: &crate::engine::Scan| {
+            gateway_facts(Some(scan))["gateway_observations"]["authentication_evidence"].clone()
+        };
+        assert_eq!(refs(&scan), json!(["authentication:spf"]));
+        for parent in [State::Disabled, State::NotRun, State::Busy, State::Skipped] {
+            scan.evidence.as_mut().unwrap().authentication.state = parent;
+            assert_eq!(refs(&scan), json!([]));
+        }
+        let e = scan.evidence.as_mut().unwrap();
+        e.authentication.state = State::Complete;
+        e.authentication.spf = Some(A::TempError);
+        e.authentication.dkim_state = State::Complete;
+        e.authentication.dkim = Some(vec![A::Pass; 17]);
+        e.authentication.dmarc_state = State::Complete;
+        e.authentication.dmarc_spf = Some(A::Fail);
+        e.authentication.dmarc_dkim = None;
+        let facts = gateway_facts(Some(&scan));
+        assert_eq!(refs(&scan), json!([]));
+        for key in ["spf", "dkim", "dmarc_spf_alignment", "dmarc_dkim_alignment"] {
+            assert!(facts["gateway_observations"]["authentication"][key].is_null());
+        }
+        scan.evidence.as_mut().unwrap().schema = "unsupported".into();
+        assert!(gateway_facts(Some(&scan))["gateway_observations"]["authentication"].is_null());
+    }
+
+    #[test]
     fn trusted_facts_use_observations_and_never_header_claims_or_unavailable_results() {
         use crate::evidence::{Artifacts, AuthResult, Evidence, Source, State};
         let cfg = crate::config::Config::load(Path::new("config/development.toml")).unwrap();
         let mut e = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+        e.authentication.state = State::Complete;
         e.authentication.dmarc_state = State::Complete;
+        e.authentication.dmarc_spf = Some(AuthResult::None);
         e.authentication.dmarc_dkim = Some(AuthResult::Pass);
         let mut scan = crate::engine::Scan {
             evidence: Some(e),
@@ -1305,6 +1353,7 @@ mod tests {
         );
         evidence.source = Source::SmtpSession;
         let mut config = test_config();
+        evidence.reputation.state = State::Complete;
         config.review_unconfirmed_high = true;
         for (codes, state, expected) in [
             (vec!["127.0.0.2"], State::Complete, Selection::NotSelected),

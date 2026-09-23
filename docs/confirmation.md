@@ -1,29 +1,78 @@
 <a id="limiter-les-classements-spam-insuffisamment-étayés"></a>
-# Corroboration and review decisions
+# Corroboration and automatic decisions
 
-The `filter.require_corroboration = true` option, also available in console settings, adds abstention to the historical score. When this score exceeds the threshold but has no confirmation below, the decision becomes **Needs review** (`undetermined`). The message is transmitted without prefix. Its score, characteristics and analysis status remain retained. This is neither proof of legitimacy nor a PUB category.
+`filter.require_corroboration = true`, also available in the Web console, requires
+additional evidence before a high legacy content score is accepted as an engine
+verdict. Without that evidence, the internal verdict is `undetermined`; the score
+and analysis coverage remain recorded. This is not proof of legitimacy.
 
-The confirmations taken into account by `confirmation-3` are:
+If **Resolve uncertain results using the score** is enabled, the
+[automatic classification policy](automatic-classification.md) then resolves that
+verdict using the configured content threshold. This creates no new evidence.
+Delivery actions remain subject to observation mode, partial-analysis policy and
+Proton marking guards. Existing accepted messages keep their receipt-time decisions.
 
-- malware detection by the main antivirus;
-- a verified DMARC failure on both alignment possibilities;
-- a verified DQS response indicating an unfavourable reputation for an IP (ZEN 2, 3, 4, 9) or a domain (DBL 2, 4, 5, 6).
+## Eligible evidence
 
-Unavailable responses, error codes, IP policy lists (PBL), legitimate compromised domains, SPF alone, SMTP inconsistencies, Advisory signatures and HTML/OCR indices are not enough. Lexical and semantic are already the content score: they are not counted as two confirmations. Since 0.4.8, the LLM remains a limited contributor to the content score and no longer constitutes an independent confirmation, even with high confidence declared. A SPF/DKIM/DMARC success does not exempt controls: malicious messages can be properly authenticated. Message headers cannot provide these internal results.
+`confirmation-4` recognizes:
 
-Sources can be correlated. The numbers reported by LLM are not validated probabilities. This caution rule **can reduce the recall**, especially for spams recognized only by the model. Measure the spams placed "Needs review", as well as the false positives, before enabling the marking. The false positives counter must be accompanied by the abstentions: move an error to "Needs review" does not amount to properly classifying this message.
+- Malware detected by the primary antivirus.
+- Verified DMARC failure on both alignment branches.
+- An observed injected-reward lure with a positive retained content contribution.
+- A verified DQS malicious-IP or domain response: ZEN 2/3/4/9 or DBL 2/4/5/6.
 
-The fusion learned, when activated with its own validation report, retains its confirmation policy. The [antivirus priority](filter-policy.md) applies after the fusion as well as after the historical score. An incomplete analysis remains incomplete. No additional control or network call is triggered by this option, which does not change the thresholds or weights of the loaded model. Its status and version are part of the policy footprint; the fusion artifacts must match.
+SPF alone, policy IP listings, compromised-domain categories, SMTP anomalies,
+advisory signatures, HTML/OCR features and unavailable checks do not independently
+confirm a verdict. The lexical and semantic models already contribute to the
+content score. The LLM is also a bounded contributor, not an independent vote;
+its reported confidence is not a validated probability. Successful authentication
+does not establish benign intent, and imported email headers cannot supply these
+internal observations.
 
-The old files and revisions keep the default `false` value. The production configuration model offers `true`. The administrator can explicitly activate with a new revision. Historical decisions and already delivered messages are not rewritten. The **Needs review** filter selects new complete analyses whose decision is not known; **Incomplete analysis** retains its operational meaning.
+Scoring, confirmation, context safeguards and normalized diagnostics share
+`transport-evidence-1`. Schema and parent status must permit completed results.
+A partial request can retain individually completed checks, while a disabled or
+unexecuted parent cannot supply results. ARC has its own switch. Provider errors,
+mixed-zone answers, missing authentication pairs, temporary failures and oversized
+signature lists are excluded. Every consumer examines at most twelve DQS domains.
+An empty completed DNS answer means not listed, not safe.
 
-The LLM prompt `noisefence-classify-4` specifies that brevity, free providers, forwarding and service notifications are not spam proofs. It also distinguishes reported threats from attacks and ordinary shipment timing from coercive requests. A forwarding prefix does not guarantee content safety. See [context-aware review](context-review.md). These instructions alone do not establish a measured quality gain.
+Eligibility and decision strength are separate: a completed DMARC failure branch
+may affect the score, while confirmation still requires both branches to fail.
+Injected-reward confirmation requires the current ledger's retained contribution;
+missing/incompatible accounting, zero weights and conflicting inputs cannot be
+replaced by raw reason text.
+
+The LLM receives authentication facts and citation IDs only for eligible checks,
+with the additional requirement of an original SMTP session. Invalid or missing
+facts are null and cannot support an `authentication_failure` citation. When the
+existing `review_unconfirmed_high` selection option is enabled, absence of
+corroboration can make a high-score message eligible for LLM review under the
+existing disclosure, quota and budget settings. Eligibility validation itself
+performs no network request and adds no message content to the provider payload.
+
+A validated fusion retains its own decision policy; primary antivirus evidence
+keeps priority. See [filter policy](filter-policy.md) and
+[shared receipt decisions](unified-decisions.md). This correction changes no
+configured threshold and does not activate enforcement.
 
 <a id="vérification"></a>
-## Verification
+## Verification and limits
 
-`cargo test --test confirmation --test console` covers decisions without confirmation, weak/strong reviews, malware, unavailable controls, reputation, SPF/DMARC, falsified headers, retained body, filters and rights per recipient. Fixtures are synthetic and do not publish any production message. Actual corrections must remain private and be evaluated without changing the labels or the weights on the lot used to measure the result.
+`cargo test --test transport_evidence --test confirmation --test decision --test observations`
+checks shared availability, malformed facts, domain bounds, ARC independence,
+retained contributions and decision-specific requirements. Additional LLM tests
+verify that invalid authentication cannot become a trusted citation. Fixtures are
+synthetic; no production message is published.
 
-`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` compares historical decisions to this rule by re-using recorded observations. It opens SQLite read-only, does not access bodies, loads no models and makes no external calls. The output contains only meters, including omissions on legitimate and spam. The rights of the annotators, their deactivation, conflicts and 30-day retention are verified. Decisions that are absent, incomplete or resulting from a fusion model are counted separately. A set of corrections is biased; this balance does not measure the rate of false positives on all traffic. It does not replay the new prompt LLM. Since dev.21, `with_decision_policy` also measures the effect of the antivirus priority on these same observations, without re-calculating the score or DQS searches.
+`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` compares recorded
+decisions with explicit current-policy projections. It opens SQLite read-only,
+loads no model, reads no message bodies and makes no external request. It checks
+annotation access, account status, conflicts and retention, and reports exclusions.
+It neither rewrites history nor evaluates a different LLM prompt.
 
-The distinction of DQS codes follows the [Table of Spamhaus Zones](https://docs.spamhaus.com/datasets/docs/source/10-data-type-documentation/datasets/040-zones.html).
+Correlated sources are not independent votes. Corroboration can reduce capture of
+spam recognized only by content models. Report abstentions and final automatic
+actions alongside false positives: moving an error into an unresolved state does
+not make it correct. Feedback samples and regression fixtures do not establish
+population accuracy; qualify the full pipeline on independent human-labelled mail.

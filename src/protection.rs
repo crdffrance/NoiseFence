@@ -447,10 +447,10 @@ impl Runtime {
                 "Similar to a campaign confirmed by an administrator in this field",
             );
         }
-        report.authenticated_sender = scan.evidence.as_ref().is_some_and(|e| {
-            e.authentication.dmarc_spf == Some(crate::evidence::AuthResult::Pass)
-                || e.authentication.dmarc_dkim == Some(crate::evidence::AuthResult::Pass)
-        });
+        report.authenticated_sender = scan
+            .evidence
+            .as_ref()
+            .is_some_and(crate::evidence::eligibility::dmarc_pass);
         report.elapsed_ms += started.elapsed().as_millis() as u64;
     }
 }

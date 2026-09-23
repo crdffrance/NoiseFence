@@ -4,7 +4,7 @@ use crate::{antivirus, engine, evidence, llm, protection, smtp_policy, vision};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 const MAX_OBSERVATIONS: usize = 160;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -205,19 +205,23 @@ fn digest(value: Option<&str>) -> Option<String> {
         .filter(|v| crate::compatibility::valid_hash(v))
         .map(str::to_owned)
 }
-fn transport(scan: &engine::Scan) -> bool {
-    scan.evidence
-        .as_ref()
-        .is_some_and(|e| e.source != evidence::Source::ContentOnly)
+fn missing_transport(scan: &engine::Scan) -> Option<Exclusion> {
+    match &scan.evidence {
+        Some(e) => evidence::eligibility::context(e)
+            .err()
+            .map(transport_exclusion),
+        None => Some(Exclusion::MissingEnvelopeContext),
+    }
 }
-fn auth_result(state: &mut State, values: Vec<evidence::AuthResult>) -> Option<ResultValue> {
-    if *state != State::Complete {
-        return None;
+fn transport_exclusion(reason: evidence::eligibility::Exclusion) -> Exclusion {
+    use evidence::eligibility::Exclusion as E;
+    match reason {
+        E::MissingEnvelopeContext => Exclusion::MissingEnvelopeContext,
+        E::UnsupportedSchema | E::InvalidResult => Exclusion::InvalidResult,
+        E::InactiveParent | E::IncompleteCheck | E::TemporaryFailure => {
+            Exclusion::UnavailableResult
+        }
     }
-    if values.contains(&evidence::AuthResult::TempError) {
-        *state = State::Unavailable;
-    }
-    Some(ResultValue::Authentication(values))
 }
 fn disabled_state(original: Option<evidence::State>) -> State {
     match original {
@@ -284,9 +288,9 @@ impl Report {
                 &format!("/early_rbl/checks/{i}"),
             );
             observation.version = token(&rbl.version);
-            if !transport(scan) {
+            if let Some(reason) = missing_transport(scan) {
                 observation.state = State::Unavailable;
-                observation.exclusion = Some(Exclusion::MissingEnvelopeContext);
+                observation.exclusion = Some(reason);
             } else if state == State::Complete && check.incident.is_none() {
                 observation.result = Some(ResultValue::Reputation(match check.status {
                     Status::Listed => ReputationResult::Listed,
@@ -632,23 +636,22 @@ pub fn capture(scan: &engine::Scan) -> Report {
             &format!("authentication.{id}"),
             &format!("/evidence/authentication/{id}"),
         );
-        if transport(scan) {
-            let recorded = e.is_some_and(|e| match id {
-                "dkim" => e.authentication.dkim.is_some(),
-                "dmarc" => {
-                    e.authentication.dmarc_spf.is_some() && e.authentication.dmarc_dkim.is_some()
+        observation.version = Some(evidence::eligibility::VERSION.into());
+        let check = match id {
+            "spf" => evidence::eligibility::AuthCheck::Spf,
+            "dkim" => evidence::eligibility::AuthCheck::Dkim,
+            "dmarc" => evidence::eligibility::AuthCheck::Dmarc,
+            _ => evidence::eligibility::AuthCheck::Arc,
+        };
+        if let Some(e) = e {
+            match evidence::eligibility::authentication(e, check) {
+                Ok(()) => observation.result = Some(ResultValue::Authentication(values)),
+                Err(reason) if observation.state != State::Disabled => {
+                    observation.state = State::Unavailable;
+                    observation.exclusion = Some(transport_exclusion(reason));
                 }
-                _ => !values.is_empty(),
-            });
-            if observation.state == State::Complete && (!recorded || values.len() > 16) {
-                observation.state = State::Unavailable;
-                observation.exclusion = Some(Exclusion::InvalidResult);
-            } else {
-                observation.result = auth_result(&mut observation.state, values);
+                Err(_) => (),
             }
-        } else if observation.state != State::Disabled {
-            observation.state = State::Unavailable;
-            observation.exclusion = Some(Exclusion::MissingEnvelopeContext);
         }
         report.push(observation);
     }
@@ -689,32 +692,26 @@ pub fn capture(scan: &engine::Scan) -> Report {
                 "/evidence/reputation",
             );
             observation.version = token(&e.reputation.version);
-            if !transport(scan) && observation.state != State::Disabled {
-                observation.state = State::Unavailable;
-                observation.exclusion = Some(Exclusion::MissingEnvelopeContext);
-            }
-            if observation.state == State::Complete {
-                let dataset = if id == "dqs.ip" {
-                    evidence::Dataset::Zen
-                } else {
-                    evidence::Dataset::Dbl
-                };
-                if query.codes.is_empty() {
-                    observation.result = Some(ResultValue::Reputation(ReputationResult::NotListed));
-                } else if evidence::dqs_codes(&query.codes, dataset).is_err() {
-                    observation.state = State::Unavailable;
-                    observation.exclusion = Some(Exclusion::InvalidResult);
-                } else {
-                    observation.result = Some(ResultValue::Reputation(
-                        if evidence::malicious_ip(&query.codes)
-                            || evidence::malicious_domain(&query.codes)
-                        {
-                            ReputationResult::Listed
-                        } else {
-                            ReputationResult::Policy
-                        },
-                    ));
+            let dataset = if id == "dqs.ip" {
+                evidence::Dataset::Zen
+            } else {
+                evidence::Dataset::Dbl
+            };
+            match evidence::eligibility::query(e, query, dataset) {
+                Ok(()) => {
+                    observation.result = Some(ResultValue::Reputation(if query.codes.is_empty() {
+                        ReputationResult::NotListed
+                    } else if evidence::eligibility::malicious_query(e, query, dataset) {
+                        ReputationResult::Listed
+                    } else {
+                        ReputationResult::Policy
+                    }))
                 }
+                Err(reason) if observation.state != State::Disabled => {
+                    observation.state = State::Unavailable;
+                    observation.exclusion = Some(transport_exclusion(reason));
+                }
+                Err(_) => (),
             }
             report.push(observation);
         }
@@ -769,10 +766,12 @@ pub fn capture(scan: &engine::Scan) -> Report {
         Some(scan.smtp_policy.applied_weight),
         Unit::LogOdds,
     );
-    if !transport(scan) && smtp.state != State::Disabled {
+    if let Some(reason) = missing_transport(scan)
+        && smtp.state != State::Disabled
+    {
         smtp.state = State::Unavailable;
         smtp.measurements.clear();
-        smtp.exclusion = Some(Exclusion::MissingEnvelopeContext);
+        smtp.exclusion = Some(reason);
     }
     report.push(smtp);
 

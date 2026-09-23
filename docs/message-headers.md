@@ -1,13 +1,13 @@
 # Message diagnostic headers
 
-Newly prepared messages use **`X-NoiseFence-Header-Version: 7`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
+Newly prepared messages use **`X-NoiseFence-Header-Version: 8`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
 
 ## Risk, classification and delivery
 
 | Header | Meaning |
 | --- | --- |
 | `X-NoiseFence-Id` | Queue identifier; not an authorization token |
-| `X-NoiseFence-Header-Version` | Wire contract version, currently `7` |
+| `X-NoiseFence-Header-Version` | Wire contract version, currently `8` |
 | `X-NoiseFence-Activation` | Recorded activation sequence, configuration revision and policy/model bundle SHA-256, or `not_recorded` |
 | `X-NoiseFence-Assessment-Version` | Shared API/header assessment contract, currently `1` |
 | `X-NoiseFence-Record-Version` | Receipt decision schema version, currently `2`, or `not_recorded` |
@@ -103,7 +103,7 @@ The risk index is not generally a spam probability. A missing decision score doe
 A shortened synthetic example:
 
 ```text
-X-NoiseFence-Header-Version: 7
+X-NoiseFence-Header-Version: 8
 X-NoiseFence-Assessment-Version: 1
 X-NoiseFence-Mode: observe
 X-NoiseFence-Score: 87.4
@@ -153,3 +153,19 @@ records, rather than asking the provider to reproduce quotes. The indexed record
 contain each bounded source field exactly once; indexing does not increase the
 12,000-byte content allowance. A model can still misunderstand a valid referenced
 passage. Reference validity must not be presented as calibrated accuracy.
+
+## Version 8 authentication eligibility
+
+When captured evidence is present, `X-NoiseFence-Authentication` starts with
+`eligibility=transport-evidence-1`; otherwise it remains `not_recorded`.
+It exposes only captured results accepted by the same eligibility checks used by
+scoring, confirmation and LLM context. Incompatible schemas, inactive parents,
+missing result pairs, temporary errors and oversized DKIM result lists produce
+`not_recorded` rather than a misleading pass/fail. ARC remains independently
+eligible when the SPF/DKIM/DMARC group is disabled.
+
+`X-NoiseFence-Checks` remains the captured execution-state summary; completing a
+check is distinct from obtaining usable evidence. Normalized diagnostic exclusions
+explain the distinction. Existing queued bytes and historical receipts keep their
+original header version. No original Authentication-Results header supplies these
+internal facts, and this change does not modify score thresholds or delivery policy.

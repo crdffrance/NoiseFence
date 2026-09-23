@@ -2,6 +2,15 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Unify captured SMTP authentication and DQS eligibility across scoring,
+  confirmation, LLM facts, context safeguards and diagnostics. Version 8 SMTP
+  authentication headers expose only eligible facts. Reject incompatible or
+  inactive evidence without erasing independently completed checks during partial
+  failures; keep ARC independent and apply the same domain bound everywhere.
+  Require retained positive content contributions for injected-lure confirmation.
+  Version new confirmation/decision policies and normalized reports; preserve
+  historical receipts, existing thresholds and production observation.
+
 - Share frozen CRDF/VirusTotal target eligibility between diagnostics, native
   comparison and calibration features. Count duplicates once, exclude contradictory
   or unavailable targets, and require distinct providers for scoped overlap.

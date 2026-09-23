@@ -211,6 +211,7 @@ fn ip_policy_lists_and_errors_never_receive_malicious_reputation_weight() {
             false,
         );
         e.source = Source::SmtpSession;
+        e.reputation.state = State::Complete;
         e.reputation.ip = Query {
             state: State::Complete,
             codes,
@@ -360,6 +361,7 @@ fn corroboration_resolves_ambiguity_but_never_erases_a_definite_contradiction() 
         let mut scan = advice_scan(99., advice);
         let mut e = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
         e.source = Source::SmtpSession;
+        e.reputation.state = State::Complete;
         e.reputation.ip = Query {
             state: State::Complete,
             codes: vec!["127.0.0.2".parse().unwrap()],
@@ -628,6 +630,7 @@ fn injected_lure_corroborates_only_an_enabled_rule_and_respects_contradiction() 
             },
             ..Default::default()
         };
+        scan.scoring = Some(noisefence::scoring::combine(&scan, Some(4.), false));
         scan.decision = Some(Decision::legacy(&scan, 95.));
         decision::apply(&mut scan, true);
         assert_eq!(scan.decision.as_ref().unwrap().outcome, expected);

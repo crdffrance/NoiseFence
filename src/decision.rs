@@ -5,7 +5,7 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-6";
+pub const VERSION: &str = "decision-policy-7";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -143,6 +143,18 @@ pub(crate) fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
     let Some(e) = &scan.evidence else {
         return false;
     };
+    use crate::evidence::eligibility::{self, AuthCheck};
+    if [
+        AuthCheck::Spf,
+        AuthCheck::Dkim,
+        AuthCheck::Dmarc,
+        AuthCheck::Arc,
+    ]
+    .into_iter()
+    .any(|check| eligibility::authentication(e, check).is_err())
+    {
+        return false;
+    }
     let a = &e.authentication;
     e.source == Source::SmtpSession
         && a.state == State::Complete

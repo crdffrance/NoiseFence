@@ -64,6 +64,7 @@ fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
     let recipient = cfg.recipient("alice@example.test").unwrap();
     let mut evidence = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
     evidence.source = Source::SmtpSession;
+    evidence.authentication.state = State::Complete;
     evidence.authentication.dmarc_state = State::Complete;
     evidence.authentication.dmarc_spf = Some(AuthResult::Fail);
     evidence.authentication.dmarc_dkim = Some(AuthResult::Fail);

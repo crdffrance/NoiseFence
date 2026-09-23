@@ -305,7 +305,7 @@ pub(crate) fn render(
     );
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "7");
+    h.field("X-NoiseFence-Header-Version", "8");
     h.field(
         "X-NoiseFence-Activation",
         crate::decision_record::recorded_activation(scan).map_or_else(
@@ -418,13 +418,14 @@ pub(crate) fn render(
     h.field(
         "X-NoiseFence-Authentication",
         e.map(|e| {
+            use crate::evidence::eligibility::{self, AuthCheck};
+            let eligible = |check| eligibility::authentication(e, check).is_ok();
             let result = |v: Option<crate::evidence::AuthResult>| {
                 v.map(|v| word(&v)).unwrap_or_else(|| "not_recorded".into())
             };
-            let dkim = e
-                .authentication
-                .dkim
-                .as_ref()
+            let dkim = eligible(AuthCheck::Dkim)
+                .then_some(e.authentication.dkim.as_ref())
+                .flatten()
                 .map(|results| {
                     if results.is_empty() {
                         "none".into()
@@ -439,11 +440,28 @@ pub(crate) fn render(
                 })
                 .unwrap_or_else(|| "not_recorded".into());
             format!(
-                "spf={}; dkim={dkim}; dmarc-spf={}; dmarc-dkim={}; arc={};",
-                result(e.authentication.spf),
-                result(e.authentication.dmarc_spf),
-                result(e.authentication.dmarc_dkim),
-                result(e.authentication.arc)
+                "eligibility={}; spf={}; dkim={dkim}; dmarc-spf={}; dmarc-dkim={}; arc={};",
+                eligibility::VERSION,
+                result(
+                    eligible(AuthCheck::Spf)
+                        .then_some(e.authentication.spf)
+                        .flatten()
+                ),
+                result(
+                    eligible(AuthCheck::Dmarc)
+                        .then_some(e.authentication.dmarc_spf)
+                        .flatten()
+                ),
+                result(
+                    eligible(AuthCheck::Dmarc)
+                        .then_some(e.authentication.dmarc_dkim)
+                        .flatten()
+                ),
+                result(
+                    eligible(AuthCheck::Arc)
+                        .then_some(e.authentication.arc)
+                        .flatten()
+                )
             )
         })
         .unwrap_or_else(|| "not_recorded".into()),
@@ -675,6 +693,38 @@ mod tests {
     }
 
     #[test]
+    fn authentication_headers_use_eligible_facts_and_preserve_scan_bytes() {
+        use crate::evidence::{Artifacts, AuthResult as A, Evidence, Source, State};
+        let c = config();
+        let mut s = scan();
+        let mut e = Evidence::new(&c, Artifacts::new(&c, None, None, false), false);
+        e.source = Source::SmtpSession;
+        e.authentication.state = State::Unavailable;
+        e.authentication.spf_state = State::Complete;
+        e.authentication.spf = Some(A::Fail);
+        e.authentication.arc_state = State::Complete;
+        e.authentication.arc = Some(A::Pass);
+        e.authentication.arc_can_seal = Some(false);
+        s.evidence = Some(e);
+        let before = serde_json::to_value(&s).unwrap();
+        let h = headers(&s);
+        assert!(
+            h["x-noisefence-authentication"]
+                .contains("eligibility=transport-evidence-1; spf=fail;")
+        );
+        assert!(h["x-noisefence-authentication"].contains("arc=pass;"));
+        assert_eq!(serde_json::to_value(&s).unwrap(), before);
+        s.evidence.as_mut().unwrap().authentication.state = State::Disabled;
+        let h = headers(&s);
+        assert!(h["x-noisefence-authentication"].contains("spf=not_recorded;"));
+        assert!(h["x-noisefence-authentication"].contains("arc=pass;"));
+        s.evidence.as_mut().unwrap().schema = "unsupported".into();
+        let h = headers(&s);
+        assert!(!h["x-noisefence-authentication"].contains("=pass"));
+        assert!(!h["x-noisefence-authentication"].contains("=fail"));
+    }
+
+    #[test]
     fn recorded_rule_weights_and_dependencies_are_signed_and_never_rebuilt_from_signals() {
         use crate::{
             evidence::{AuthResult as A, Source, State},
@@ -720,7 +770,7 @@ mod tests {
             detail: "private body".into(),
         }];
         let h = headers(&s);
-        assert_eq!(h["x-noisefence-header-version"], "7");
+        assert_eq!(h["x-noisefence-header-version"], "8");
         assert_eq!(h["x-noisefence-score"], number(Some(s.score)));
         assert!(
             h["x-noisefence-score-combination"].contains("rules-retained=2.5; total-logit=-2.5;")
@@ -1049,7 +1099,7 @@ mod contract_tests {
                 ("X-NoiseFence-Score-Type", word(&report.score.kind)),
                 ("X-NoiseFence-Category", report.category.as_str().into()),
                 ("X-NoiseFence-Subject-Tag", "none".into()),
-                ("X-NoiseFence-Header-Version", "7".into()),
+                ("X-NoiseFence-Header-Version", "8".into()),
                 (
                     "X-NoiseFence-Status",
                     if s.complete { "complete" } else { "incomplete" }.into(),

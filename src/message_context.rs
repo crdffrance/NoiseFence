@@ -206,7 +206,6 @@ pub fn attach(scan: &mut Scan, raw: &[u8], max_bytes: usize) {
 /// Only gateway-observed aligned authentication is eligible; header claims,
 /// content-only scans and missing authentication do not qualify.
 pub fn needs_review(scan: &Scan) -> bool {
-    use crate::evidence::{AuthResult, Source, State};
     let Some(context) = &scan.message_context else {
         return false;
     };
@@ -219,10 +218,7 @@ pub fn needs_review(scan: &Scan) -> bool {
     let Some(evidence) = &scan.evidence else {
         return false;
     };
-    evidence.source != Source::ContentOnly
-        && evidence.authentication.dmarc_state == State::Complete
-        && (evidence.authentication.dmarc_spf == Some(AuthResult::Pass)
-            || evidence.authentication.dmarc_dkim == Some(AuthResult::Pass))
+    crate::evidence::eligibility::dmarc_pass(evidence)
 }
 
 #[cfg(test)]

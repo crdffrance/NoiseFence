@@ -19,6 +19,8 @@ fn scan() -> Scan {
         true,
     );
     e.source = Source::SmtpSession;
+    e.authentication.state = evidence::State::Complete;
+    e.reputation.state = evidence::State::Complete;
     Scan {
         raw_sha256: Some(noisefence::message::digest(common::MESSAGE)),
         features_complete: Some(true),

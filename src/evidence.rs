@@ -6,6 +6,8 @@ use mail_auth::{DkimResult, DmarcResult, SpfResult};
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
+pub mod eligibility;
+
 pub const SCHEMA: &str = "noisefence-evidence-1";
 pub const REPUTATION_VERSION: &str = "spamhaus-context-1";
 

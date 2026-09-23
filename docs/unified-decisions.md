@@ -32,7 +32,7 @@ policy can evaluate partial actions against decision-specific evidence instead.
 Proton marking guards remain independent.
 Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
-copy. Each copy exposes only its own decision in version 7 diagnostic headers.
+copy. Each copy exposes only its own decision in version 8 diagnostic headers.
 
 Recipient variants share one immutable body allocation and retain their own
 headers. Disk writes and replica uploads stream both chunks. The configured SMTP
@@ -170,7 +170,7 @@ See [scoped policies and simulation](scoped-policies.md),
 
 ## Normalized detector observations
 
-New receipt snapshots include `analysis_result.observations` (schema 2; schema 1 remains readable). Older
+New receipt snapshots include `analysis_result.observations` (schema 3; schemas 1 and 2 remain readable). Older
 snapshots remain readable and have no normalized report: API reads never infer
 missing historical observations using current settings. Reports are captured
 before recipient rules, replicated with the existing scan and preserved on retry.
@@ -400,5 +400,37 @@ The quality protocol hash changes, even though feature order and length do not.
 Older vectors, fitted quality models and stored native reports are not silently
 upgraded. Keep their original diagnostics; generate compatible observations and
 refit/requalify candidates before selection. Upgrade receipt readers on all nodes
-before enabling these schema-2 exclusions. These checks prove software consistency,
+before enabling the new exclusions. These checks prove software consistency,
 not capture rate, provider independence or a production-quality calibration.
+
+## Shared SMTP evidence eligibility
+
+`transport-evidence-1` validates context/schema, parent availability and completed
+bounded results before content scoring, confirmation or diagnostics use SPF, DKIM,
+DMARC, ARC or DQS facts. A completed check survives a different check failing,
+but a disabled/not-run parent cannot supply an observed result. ARC remains
+independent of the SPF/DKIM/DMARC parent switch. Unsupported schemas, mixed DQS
+zones/provider error codes, temporary errors, missing results and out-of-bound
+signature lists cannot supply confirmation. All consumers inspect at most twelve
+DQS domain targets, and preserve policy/negative answers without calling them safe.
+
+`confirmation-4` retains its stronger requirement that both DMARC branches fail;
+this is a decision-specific evidence requirement, not another scoring weight.
+An injected-reward lure can corroborate only through its positive retained content
+contribution. Missing or incompatible ledgers, zero and conflicting weights do
+not revive a raw reason. `decision-policy-7` also checks the shared eligibility
+before its existing narrow partial-coverage threat exception. Receipt/report
+context and the advisory authenticated-sender flag require the same completed
+aligned authentication, never a bare stored `pass` value. LLM authentication facts
+and citation IDs also use shared eligibility, and still require an original SMTP
+session; malformed/inactive results cannot become trusted prompt context.
+
+Fresh normalized observations use schema 3. Original receipts and archived
+reports retain their captured decisions and versions; an explicit offline audit
+may project current policy but does not rewrite them. These corrections do not
+change configured thresholds, enable enforcement or establish a measured gain.
+
+Version 8 SMTP authentication diagnostics use this eligibility contract too;
+raw pass/fail values rejected by the engine cannot reappear on newly rendered
+messages. Captured check execution states remain separate from usable results.
+Queued messages keep their original immutable bytes.

@@ -32,7 +32,9 @@ fn candidate(raw: &[u8]) -> Scan {
 fn aligned(scan: &mut Scan) {
     let e = scan.evidence.as_mut().unwrap();
     e.source = Source::SmtpSession;
+    e.authentication.state = State::Complete;
     e.authentication.dmarc_state = State::Complete;
+    e.authentication.dmarc_dkim = Some(AuthResult::None);
     e.authentication.dmarc_spf = Some(AuthResult::Pass);
 }
 #[test]

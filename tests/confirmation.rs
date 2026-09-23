@@ -15,7 +15,10 @@ fn candidate() -> Scan {
         .offline(common::MESSAGE);
     scan.score = 99.5;
     scan.decision = Some(Decision::legacy(&scan, 95.));
-    scan.evidence.as_mut().unwrap().source = Source::SmtpSession;
+    let e = scan.evidence.as_mut().unwrap();
+    e.source = Source::SmtpSession;
+    e.authentication.state = State::Complete;
+    e.reputation.state = State::Complete;
     scan
 }
 fn apply(mut scan: Scan) -> Scan {
