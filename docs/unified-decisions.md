@@ -116,8 +116,10 @@ mixed-version rollout. This does not implement coordinated bundle activation.
 The [coordinated activation implementation](coordinated-activation.md) now provides
 durable journals, runtime preparation, SMTP fences, authenticated v2 transport and
 an authority loop that commits the console revision atomically. Explicit admin APIs
-stage, abort and recover rollouts. Web forms, scoped user changes, membership and
-full deployment qualification remain required before production enrollment.
+stage, abort and recover rollouts. English Web forms now show progress and use
+coordinated saves after enrollment; personal proposals are checked against their
+exact authorized delta. Managed artifacts/credentials, membership and full
+deployment qualification remain required before production enrollment.
 
 1. Complete controlled score combination using normalized detector observations.
    Grouping records correlations; it is not a new weighting policy. Preserve the

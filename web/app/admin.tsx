@@ -52,6 +52,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
+import { ActivationPanel, useActivation } from './activation-view';
+import { saveNotice, savesBlocked, type SaveResult } from './activation';
 
 export const navigation = [
   { id: 'messages', label: 'Messages', icon: Activity },
@@ -437,6 +439,8 @@ export function AdminConsole({
   onApplied: () => Promise<void>;
   onDomain: (name: string) => void;
 }) {
+  const activation = useActivation(user, true);
+  const blocked = savesBlocked(activation.view, activation.error);
   const [config, setConfig] = useState<Configuration | null>(null),
     [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''),
@@ -535,18 +539,26 @@ export function AdminConsole({
     setEpoch((e) => e + 1);
   }
   async function save() {
-    if (!config || !draft) return;
-    await api(
+    if (!config || !draft || blocked) return;
+    const result = await api<SaveResult>(
       '/admin/config',
       { revision: config.revision, settings: normalize(draft) },
       user.csrf,
     );
     await reload();
-    setNotice(
-      "Applied settings. They will be used as soon as the next message is received.",
-    );
-    await onApplied();
+    await activation.refresh();
+    setNotice(saveNotice(result));
+    if (!result.staged) await onApplied();
   }
+  useEffect(() => {
+    if (!config || dirty || busy || !activation.view || activation.view.pending ||
+        activation.view.installed_revision === config.revision) return;
+    let active = true;
+    api<Configuration>('/admin/config').then(c => {
+      if (active) { setConfig(c); setDraft(c.settings); setReview(false); setNotice('Installed configuration refreshed.'); void onApplied().catch(e => setError(e.message)); }
+    }).catch(e => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [activation.view, config, dirty, busy, onApplied]);
   if (!config || !draft)
     return (
       <div className="panel">
@@ -602,6 +614,7 @@ export function AdminConsole({
   );
   return (
     <div className="admin-console">
+      <ActivationPanel state={activation} user={user} administrator />
       <div className="page-heading">
         <div>
           <p className="eyebrow">
@@ -957,7 +970,7 @@ export function AdminConsole({
         <>
           <section className="filter-guide" aria-label="Filtering overview">
             <div><span className="eyebrow">ONE POLICY, CLEAR OUTCOMES</span><h2>Control how mail is assessed and delivered</h2><p>Set the organization policy, then refine it for domains and recipients. The risk index, classification and delivery action remain separate.</p></div>
-            <div className="filter-guide-state"><span className="small">Currently applied</span><strong>{config.settings.filters.mode === 'observe' ? 'Observation' : 'Actions enabled'}</strong><span>{config.settings.filters.mode === 'observe' ? 'Decisions recorded · mail delivered unchanged' : 'Configured actions apply to new mail'}</span></div>
+            <div className="filter-guide-state"><span className="small">{!activation.view || activation.error ? 'Installed policy · readiness unavailable' : activation.view.smtp_ready ? 'Installed policy' : 'Installed policy · SMTP paused'}</span><strong>{config.settings.filters.mode === 'observe' ? 'Observation' : 'Actions enabled'}</strong><span>{config.settings.filters.mode === 'observe' ? 'Decisions recorded · mail delivered unchanged' : 'Configured actions apply to new mail'}</span></div>
           </section>
           <div className="policy-summary">
             <span>
@@ -984,7 +997,7 @@ export function AdminConsole({
             <span className={`status ${dirty ? 'review' : 'good'}`}>
               {dirty
                 ? "Unsaved changes"
-                : "Saved configuration"}
+                : activation.view?.pending ? "Activation pending" : "Installed configuration"}
             </span>
           </div>
           <label className="filter-search"><Search size={18} aria-hidden="true"/><span className="sr-only">Find a filter setting</span><Input type="search" placeholder="Find settings: RBL, quarantine, LLM, OCR, budgets…" value={filterQuery} onChange={e => setFilterQuery(e.target.value)}/>{filterQuery && <button type="button" onClick={() => setFilterQuery('')} aria-label="Clear settings search">Clear</button>}</label>
@@ -2025,7 +2038,7 @@ export function AdminConsole({
                   ))}
               </ul>
               <p className="small muted">
-                Immediate application to future messages. Already accepted deliveries are kept.
+                {activation.view?.coordinated ? 'Activation waits for every MX. New SMTP acceptance may be temporarily deferred.' : 'Applies to future messages.'} Already accepted deliveries keep their decisions.
               </p>
             </section>
           )}
@@ -2051,7 +2064,7 @@ export function AdminConsole({
                 Cancel
               </Button>
               <Button
-                disabled={busy}
+                disabled={busy || blocked}
                 onClick={() => {
                   if (review) void action(save);
                   else setReview(true);
@@ -2059,9 +2072,9 @@ export function AdminConsole({
               >
                 <Save size={16} />
                 {busy
-                  ? "Applying…"
+                  ? "Submitting…"
                   : review
-                    ? "Apply settings"
+                    ? activation.view?.coordinated ? "Stage settings" : "Apply settings"
                     : "Review and apply"}
               </Button>
             </div>

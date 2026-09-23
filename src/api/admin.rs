@@ -11,6 +11,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/config/validate", post(validate_configuration))
         .route("/admin/keys", get(managed_keys).post(save_managed_key))
         .route("/preferences", get(preferences).post(save_preferences))
+        .route("/preferences/activation", get(preference_activation))
         .route("/admin/revisions", get(revisions))
         .route("/admin/revisions/{id}", get(revision))
         .route("/admin/users", get(users).post(save_user))
@@ -121,6 +122,26 @@ async fn apply(
             "Configuration modified in another session. Reload settings.".into(),
         ));
     }
+    if control.activation_journal().await?.is_some() {
+        let journal = control
+            .stage_activation_session(
+                body.revision,
+                body.settings,
+                user.username,
+                message::digest(token(&h).unwrap().as_bytes()),
+            )
+            .await
+            .map_err(|e| {
+                Error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("Staging refused: {e}"),
+                )
+            })?;
+        let epoch = journal.rollout().unwrap().epoch();
+        return Ok(Json(
+            json!({"revision":epoch.revision,"staged":true,"epoch":epoch}),
+        ));
+    }
     let id = control
         .apply_session(
             body.revision,
@@ -136,7 +157,7 @@ async fn apply(
                 format!("Setup refused: {e}"),
             )
         })?;
-    Ok(Json(json!({"revision":id})))
+    Ok(Json(json!({"revision":id,"staged":false})))
 }
 async fn revisions(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
@@ -468,6 +489,14 @@ async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Val
         json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
     ))
 }
+async fn preference_activation(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &h).await?;
+    Ok(Json(
+        controller(&app)?
+            .activation_view(user.username, false)
+            .await?,
+    ))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PreferenceEdit {
@@ -496,6 +525,21 @@ async fn save_preferences(
             "Modified configuration. Reload preferences.".into(),
         ));
     }
+    if c.activation_journal().await?.is_some() {
+        let journal = c
+            .stage_preferences_session(
+                body.revision,
+                body.scope,
+                body.preference,
+                user.username,
+                message::digest(token(&h).unwrap().as_bytes()),
+            )
+            .await
+            .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+        let epoch = journal.rollout().unwrap().epoch();
+        // No global settings, participant IDs, model fingerprints or other scopes.
+        return Ok(Json(json!({"revision":epoch.revision,"staged":true})));
+    }
     let id = c
         .apply_preferences(
             body.revision,
@@ -506,7 +550,7 @@ async fn save_preferences(
         )
         .await
         .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
-    Ok(Json(json!({"revision":id})))
+    Ok(Json(json!({"revision":id,"staged":false})))
 }
 
 #[derive(Deserialize)]

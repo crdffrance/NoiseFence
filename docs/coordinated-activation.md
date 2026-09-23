@@ -3,8 +3,9 @@
 Implementation in progress; production rollout is not yet qualified. Durable
 authority/participant journals, runtime preparation, SMTP fences, authenticated
 cluster-v2 exchange and the authority loop are implemented. Administrator APIs
-stage, inspect, abort and recover rollouts. The Web interface and personal-policy
-workflow still need integration before this replaces normal console saves.
+stage, inspect, abort and recover rollouts. The English Web console now exposes
+these operations and routes normal settings/personal-preference saves through
+coordination after enrollment. Full deployment qualification remains open.
 Legacy Web configuration and cluster-v1 synchronization remain unchanged on
 unenrolled storage. Enrollment is explicit, never triggered by an ordinary save.
 Do not manually enroll production databases before the remaining gates pass.
@@ -70,7 +71,7 @@ verified unchanged base and never claims to have prepared the cancelled candidat
 ## Administrator API
 
 All browser operations use the existing administrator session and CSRF checks.
-Node credentials cannot invoke them. These routes are not yet wired to Web forms:
+Node credentials cannot invoke them. The MX servers and settings pages expose:
 
 - `GET /api/v1/admin/cluster/activation`: authority state, `installed_revision`,
   `committed_revision` and SMTP readiness. An installed runtime may still be fenced
@@ -87,6 +88,47 @@ it does not silently remove a missing participant from the barrier. Adding or
 removing participants from an enrolled cluster needs the remaining membership
 workflow. Existing staged rollouts are never automatically promoted by old-style
 configuration saves.
+
+## Web saves and scoped preferences
+
+The MX servers page offers explicit enrollment with the current settings. Before
+that action, ordinary saves retain their existing behavior. Once enrolled,
+`POST /admin/config` and `POST /preferences` return `{revision, staged: true}`;
+the revision is proposed, not yet active. Immediate legacy saves return
+`staged: false`. Concurrent or stale proposals are refused, not silently merged.
+The frontend preserves unsaved drafts and refreshes installed settings after a
+completed change. Preparation, central commit, local installation and permission
+to resume SMTP are distinct states. An `applied` participant acknowledgement is
+not proof that it has already received the release directive.
+
+`GET /admin/cluster/activation/view` is a compact administrator projection with
+participant progress, installed/committed/proposed revisions, local SMTP readiness,
+and available abort/recovery actions. It remains readable while preparation waits
+for an ongoing durable SMTP write. The UI polls without overlapping background
+requests, rejects superseded responses and disables saves on unknown/stale status.
+The legacy detailed journal endpoint remains available to administrators only.
+
+`GET /preferences/activation` returns progress without bundles, model hashes,
+participant identities, other recipients or approving-account names. It includes
+one personal change only when the viewer submitted it and still has access to
+that scope. Scope visibility is rechecked in the database. HTTP session and CSRF
+checks apply to preference mutations, followed by another session/grant check
+inside the staging transaction.
+
+A delegated proposal can modify exactly one mailbox/domain preference entry.
+It cannot change administrator rules, global limits, models or other recipients.
+Before commit, the authority verifies the exact delta against the immutable base,
+checks the account is enabled, checks its privilege version, and rechecks the
+current grants. Natural session expiry after approval does not cancel a durable
+job; account/privilege revocation prevents commit. Another administrator can
+cancel it before commit or restore the previous policy after partial commit.
+
+Authority-step failures persist a bounded incident tied to its epoch. Safe codes
+identify approval, membership or runtime-preparation failures; unclassified errors
+use a generic code. Private provider/model error strings remain in server logs.
+Successful progress clears the incident; a newer epoch does not display an older
+failure. A user can see the generic incident only for their still-authorized own
+proposal. Browser rendering is separately tested for escaping and scoped display.
 
 ## SMTP and queue behavior
 
@@ -125,9 +167,8 @@ journals fail startup. Downgrading `user_version` is not a rollback procedure.
 
 ## Remaining integration and qualification
 
-- Integrate installed/committed/released state, progress, staging, abort/recovery
-  and error handling into the English Web interface, including scoped user changes
-  and managed model selection. New proposals currently resolve models from the
+- Finish managed model selection and credential-update workflows. New policy
+  proposals currently resolve models from the
   installation configuration; frozen publication and restart no longer need the
   original files, but this is not yet a Web-managed artifact catalog.
 - Bound resident model generations retained by old SMTP analyses, not just disk
@@ -139,7 +180,8 @@ journals fail startup. Downgrading `user_version` is not a rollback procedure.
   upgrades and console failover together, then measure throughput and latency.
 
 Local network tests run real HTTP authority/worker loops, immutable model transfer,
-revoked admin permissions, partition after partial application, lost responses,
+revoked admin and personal-scope permissions, normal Web saves, scoped status,
+nonblocking progress during durable-write draining, partition after partial application, lost responses,
 early abort, missing release and higher-revision recovery. They also verify cached
 runtime/CLI restart when original model files have disappeared. Earlier tests
 cover real SMTP epoch crossing and uncancellable durable disk acceptance. These

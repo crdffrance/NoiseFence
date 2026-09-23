@@ -734,3 +734,262 @@ async fn older_router_fallback_is_allowed_only_before_enrollment() {
     assert_eq!(h.worker.snapshot().revision, 1);
     h.close().await;
 }
+
+async fn view(h: &Harness, token: &str, path: &str) -> Value {
+    let response = h
+        .client
+        .get(format!("{}/api/v1{path}", h.url))
+        .header("cookie", format!("noisefence_session={token}"))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    response.json().await.unwrap()
+}
+async fn grant(h: &Harness, name: &str) -> String {
+    let token = account(&h.central.store, name, false).await;
+    let name = name.to_owned();
+    h.central
+        .store
+        .run(move |db| {
+            db.execute(
+                "INSERT INTO grants(username,address) VALUES(?1,'alice@example.test')",
+                [name],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    token
+}
+#[tokio::test]
+async fn web_saves_stage_scoped_preferences_and_never_expose_global_proposals() {
+    let h = Harness::new(false, true).await;
+    let alice = grant(&h, "alice").await;
+    let bob = account(&h.central.store, "bob", false).await;
+    h.stage(97.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    h.outage.store(true, Ordering::SeqCst);
+    let before = h.central.snapshot();
+    let edit = json!({"revision":before.revision,"scope":"alice@example.test","preference":{"profile":null,"rules":[]}});
+    assert_eq!(
+        h.browser(&alice, "/preferences", edit.clone(), false)
+            .await
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        h.browser(&bob, "/preferences", edit.clone(), true)
+            .await
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    let mut injected = edit.clone();
+    injected["settings"] = json!({"filters":{"threshold":0}});
+    assert!(
+        !h.browser(&alice, "/preferences", injected, true)
+            .await
+            .status()
+            .is_success()
+    );
+    let response = h.browser(&alice, "/preferences", edit, true).await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["staged"], true);
+    assert_eq!(body.as_object().unwrap().len(), 2);
+    assert_eq!(h.central.snapshot().revision, before.revision);
+    let pending = view(&h, &alice, "/preferences/activation").await;
+    assert_eq!(pending["pending"], true);
+    assert_eq!(pending["personal_change"]["scope"], "alice@example.test");
+    for hidden in ["participants", "epoch", "committed_revision"] {
+        assert!(pending[hidden].is_null());
+    }
+    let other = view(&h, &bob, "/preferences/activation").await;
+    assert!(other["personal_change"].is_null());
+    assert!(!other.to_string().contains("alice"));
+    assert!(!other.to_string().contains("example.test"));
+    // Ordinary account cannot stage a whole settings object or read admin status.
+    assert_eq!(
+        h.browser(
+            &alice,
+            "/admin/config",
+            json!({"revision":before.revision,"settings":before.settings}),
+            true
+        )
+        .await
+        .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    assert_eq!(
+        h.central
+            .snapshot()
+            .settings
+            .preferences
+            .mailboxes
+            .get("alice@example.test"),
+        Some(&noisefence::preferences::Preference {
+            profile: None,
+            rules: vec![]
+        })
+    );
+    assert_eq!(h.central.snapshot().settings, h.worker.snapshot().settings);
+    assert_eq!(
+        h.central.snapshot().settings.filters,
+        before.settings.filters
+    );
+    let done = view(&h, &alice, "/preferences/activation").await;
+    assert_eq!(done["phase"], "released");
+    assert_eq!(done["pending"], false);
+    h.ready_peer().await;
+    h.outage.store(true, Ordering::SeqCst);
+    let current = h.central.snapshot();
+    let mut settings = current.settings.clone();
+    settings.filters.threshold = 98.;
+    let response = h
+        .browser(
+            &h.admin,
+            "/admin/config",
+            json!({"revision":current.revision,"settings":settings}),
+            true,
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["staged"], true);
+    assert_eq!(h.central.snapshot().config.filter.threshold, 97.);
+    h.all_prepared().await;
+    h.finish().await;
+    assert_eq!(h.worker.snapshot().config.filter.threshold, 98.);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn preference_grant_revocation_blocks_commit_and_incident_is_scoped() {
+    let h = Harness::new(false, true).await;
+    let alice = grant(&h, "alice").await;
+    let bob = account(&h.central.store, "bob", false).await;
+    h.stage(97.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    h.outage.store(true, Ordering::SeqCst);
+    let revision = h.central.snapshot().revision;
+    let response = h.browser(&alice,"/preferences",json!({"revision":revision,"scope":"alice@example.test","preference":{"profile":null,"rules":[]}}),true).await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    h.all_prepared().await;
+    // Check the actual grant again, even if an out-of-band edit did not bump the version.
+    h.central
+        .store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(h.central.advance_activation().await.is_err());
+    assert_eq!(h.central.snapshot().revision, revision);
+    let admin = view(&h, &h.admin, "/admin/cluster/activation/view").await;
+    assert_eq!(admin["incident"]["code"], "approval_changed");
+    assert_eq!(admin["abortable"], true);
+    assert_eq!(admin["smtp_ready"], false);
+    for token in [&alice, &bob] {
+        let personal = view(&h, token, "/preferences/activation").await;
+        assert!(personal["personal_change"].is_null());
+        assert!(personal["incident"].is_null());
+    }
+    // Restoring the address alone cannot restore an approval invalidated by an
+    // account-version change. Its owner may see the incident, never its bundle hash.
+    h.central
+        .store
+        .run(|db| {
+            db.execute(
+                "INSERT INTO grants(username,address) VALUES('alice','alice@example.test')",
+                [],
+            )?;
+            db.execute(
+                "INSERT INTO console_user_versions(username,version) VALUES('alice',1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(h.central.advance_activation().await.is_err());
+    let own = view(&h, &alice, "/preferences/activation").await;
+    assert_eq!(own["incident"]["code"], "approval_changed");
+    assert_eq!(own["incident"].as_object().unwrap().len(), 2);
+    assert!(
+        !own.to_string()
+            .contains(admin["epoch"]["digest"].as_str().unwrap())
+    );
+    let abort = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/activation/abort",
+            json!({"epoch":admin["epoch"]}),
+            true,
+        )
+        .await;
+    assert!(
+        abort.status().is_success(),
+        "{}",
+        abort.text().await.unwrap()
+    );
+    h.central.advance_activation().await.unwrap();
+    let restored = view(&h, &h.admin, "/admin/cluster/activation/view").await;
+    assert!(restored["incident"].is_null());
+    assert_eq!(restored["phase"], "aborted");
+    assert_eq!(h.central.snapshot().revision, revision);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn web_progress_remains_readable_while_activation_waits_for_a_durable_write() {
+    let h = Harness::new(false, true).await;
+    let lease = h.central.store.activation.enter(None).unwrap();
+    h.stage(97.).await;
+    let c = h.central.clone();
+    let preparing = tokio::spawn(async move { c.advance_activation().await });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while h.central.cluster_ready() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!preparing.is_finished());
+    let status = tokio::time::timeout(
+        Duration::from_secs(2),
+        view(&h, &h.admin, "/admin/cluster/activation/view"),
+    )
+    .await
+    .expect("Status must not wait for the serialized activation job");
+    assert_eq!(status["pending"], true);
+    assert_eq!(status["smtp_ready"], false);
+    assert_eq!(status["phase"], "preparing");
+    drop(lease);
+    preparing.await.unwrap().unwrap();
+    h.all_prepared().await;
+    h.finish().await;
+    h.close().await;
+}

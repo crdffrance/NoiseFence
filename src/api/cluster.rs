@@ -23,11 +23,20 @@ pub(super) fn routes(app: App) -> Router<App> {
             get(activation_status).post(stage_activation),
         )
         .route("/admin/cluster/activation/abort", post(abort_activation))
+        .route("/admin/cluster/activation/view", get(activation_view))
         .route(
             "/admin/cluster/activation/recover",
             post(recover_activation),
         )
         .merge(nodes)
+}
+async fn activation_view(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    let user = super::admin::administrator(&app, &h, false).await?;
+    let c = app.control.as_ref().ok_or(Error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Configuration unavailable".into(),
+    ))?;
+    Ok(Json(c.activation_view(user.username, true).await?))
 }
 async fn activation_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     super::admin::administrator(&app, &h, false).await?;

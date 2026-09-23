@@ -11,6 +11,26 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ActivationProblem {
+    ApprovalChanged,
+    MembershipChanged,
+    RuntimePreparationFailed,
+}
+impl std::fmt::Display for ActivationProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ApprovalChanged => "Activation approval is no longer valid",
+            Self::MembershipChanged => "Activation membership changed",
+            Self::RuntimePreparationFailed => {
+                "The local runtime could not prepare or install the policy"
+            }
+        })
+    }
+}
+impl std::error::Error for ActivationProblem {}
+
 const PROPOSAL: &str = "activation_proposal";
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,15 +38,68 @@ struct Proposal {
     epoch: Epoch,
     actor: String,
     actor_version: i64,
+    #[serde(default)]
+    scope: Option<String>,
+}
+fn approval(
+    tx: &Transaction<'_>,
+    actor: &str,
+    token: Option<&str>,
+    scope: Option<&str>,
+) -> Result<i64> {
+    let (is_admin, version): (bool, i64) = tx.query_row(
+        "SELECT u.admin,COALESCE(v.version,0) FROM users u LEFT JOIN console_user_versions v ON v.username=u.username WHERE u.username=?1 AND u.disabled=0",
+        [actor], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional()?.context("Approving account disabled or removed")?;
+    if let Some(token) = token {
+        let valid: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sessions WHERE username=?1 AND token_hash=?2 AND expires>?3)", params![actor, token, crate::now()], |r| r.get(0))?;
+        ensure!(valid, "Approving session expired or revoked");
+    }
+    if let Some(scope) = scope {
+        let grants = tx
+            .prepare("SELECT address FROM grants WHERE username=?1")?
+            .query_map([actor], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        ensure!(
+            crate::preferences::permitted(scope, is_admin, &grants),
+            "Preference address is no longer authorized"
+        );
+    } else {
+        ensure!(is_admin, "Administrator rights required");
+    }
+    Ok(version)
 }
 fn admin(tx: &Transaction<'_>, actor: &str, token: &str) -> Result<i64> {
-    tx.query_row("SELECT COALESCE(v.version,0) FROM users u JOIN sessions s ON s.username=u.username LEFT JOIN console_user_versions v ON v.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3", params![actor,token,crate::now()], |r|r.get(0)).optional()?.context("Administrator session expired or revoked")
+    approval(tx, actor, Some(token), None)
+}
+/// A delegated proposal can change exactly one mailbox entry, never its limits,
+/// global settings, other recipients, model bindings or administrator rules.
+fn scoped_delta(base: &Settings, next: &Settings, scope: &str) -> Result<()> {
+    ensure!(
+        base.preferences.enabled,
+        "Customization disabled by the administrator"
+    );
+    let mut expected = base.clone();
+    if let Some(p) = next.preferences.mailboxes.get(scope) {
+        expected
+            .preferences
+            .mailboxes
+            .insert(scope.to_owned(), p.clone());
+    } else {
+        expected.preferences.mailboxes.remove(scope);
+    }
+    ensure!(
+        &expected == next,
+        "Preference proposal changes settings outside its authorized scope"
+    );
+    Ok(())
 }
 fn save_proposal(
     tx: &Transaction<'_>,
     journal: &Journal,
     actor: String,
     actor_version: i64,
+    scope: Option<String>,
 ) -> Result<()> {
     let epoch = journal
         .rollout()
@@ -40,7 +113,8 @@ fn save_proposal(
             serde_json::to_string(&Proposal {
                 epoch: epoch.clone(),
                 actor: actor.clone(),
-                actor_version
+                actor_version,
+                scope,
             })?
         ],
     )?;
@@ -79,6 +153,51 @@ impl Controller {
             })
             .await
     }
+    /// Projection for the Web console. Personal viewers never receive bundles,
+    /// other recipients, actor identities, topology or model fingerprints.
+    pub async fn activation_view(
+        &self,
+        actor: String,
+        administrator: bool,
+    ) -> Result<serde_json::Value> {
+        // Status must remain readable while a preparation drains SMTP writes.
+        // This is observed progress, never an authorization to mutate state.
+        let installed = self.snapshot().revision;
+        let ready = self.cluster_ready();
+        let coordinator = self
+            .base
+            .cluster
+            .as_ref()
+            .is_some_and(|c| c.role == Role::Coordinator);
+        self.store.run(move |db| {
+            let tx = db.transaction()?;
+            let live: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND disabled=0 AND (?2=0 OR admin=1))", params![actor, administrator], |r|r.get(0))?;
+            ensure!(live, "Account privileges changed; reload the console");
+            let journal = Journal::read(&tx)?;
+            let rollout = journal.as_ref().and_then(|j| j.rollout());
+            let pending = journal.as_ref().is_some_and(|j| !j.released() || !ready);
+            let proposal: Option<String> = tx.query_row("SELECT value FROM cluster_state WHERE key=?1",[PROPOSAL],|r|r.get(0)).optional()?;
+            let proposal = proposal.filter(|p|p.len()<=4096).map(|p|serde_json::from_str::<Proposal>(&p)).transpose()?;
+            let own = proposal.as_ref().filter(|p| p.actor==actor && rollout.is_some_and(|r| *r.epoch()==p.epoch))
+                .filter(|p| p.scope.as_ref().is_some_and(|scope| approval(&tx,&actor,None,Some(scope)).is_ok()));
+            let incident: Option<String> = tx.query_row("SELECT value FROM cluster_state WHERE key='activation_incident'",[],|r|r.get(0)).optional()?;
+            let incident = incident.filter(|s|s.len()<=4096).map(|s|serde_json::from_str::<serde_json::Value>(&s)).transpose()?
+                .filter(|v| rollout.is_some_and(|r| serde_json::to_value(r.epoch()).ok().as_ref()==v.get("epoch")))
+                .map(|v| serde_json::json!({"at":v["at"],"code":v["code"]}));
+            Ok(serde_json::json!({
+                "coordinator":coordinator, "coordinated":journal.is_some(), "pending":pending,
+                "installed_revision":installed, "smtp_ready":ready,
+                "phase":rollout.map(|r|r.phase()),
+                "committed_revision":if administrator {journal.as_ref().map(|j|j.current().revision)} else {None},
+                "epoch":if administrator {rollout.map(|r|r.epoch())} else {None},
+                "participants":if administrator {rollout.map(|r|r.participants())} else {None},
+                "abortable":administrator && rollout.is_some_and(|r|r.abortable()),
+                "recoverable":administrator && rollout.is_some_and(|r|r.phase()==Phase::Committed && r.recovery_of().is_none()),
+                "personal_change":own.map(|p|serde_json::json!({"scope":p.scope,"revision":p.epoch.revision,"phase":rollout.unwrap().phase()})),
+                "incident":if administrator || own.is_some() {incident} else {None},
+            }))
+        }).await
+    }
     fn authority_id(&self) -> Result<String> {
         let c = self
             .base
@@ -93,20 +212,49 @@ impl Controller {
     pub async fn stage_activation_session(
         self: &Arc<Self>,
         revision: i64,
+        settings: Settings,
+        actor: String,
+        token_hash: String,
+    ) -> Result<Journal> {
+        self.stage_authorized(revision, settings, actor, token_hash, None)
+            .await
+    }
+    pub async fn stage_preferences_session(
+        self: &Arc<Self>,
+        revision: i64,
+        scope: String,
+        preference: Option<crate::preferences::Preference>,
+        actor: String,
+        token_hash: String,
+    ) -> Result<Journal> {
+        let mut settings = self.snapshot().settings.clone();
+        if let Some(p) = preference {
+            settings.preferences.mailboxes.insert(scope.clone(), p);
+        } else {
+            settings.preferences.mailboxes.remove(&scope);
+        }
+        self.stage_authorized(revision, settings, actor, token_hash, Some(scope))
+            .await
+    }
+    async fn stage_authorized(
+        self: &Arc<Self>,
+        revision: i64,
         mut settings: Settings,
         actor: String,
         token_hash: String,
+        scope: Option<String>,
     ) -> Result<Journal> {
         let owner = self.authority_id()?;
         let this = self.clone();
         tokio::spawn(async move {
             let _serial=this.activation_serial.clone().lock_owned().await;
             let _applying=this.applying.clone().acquire_owned().await?;
-            let a=actor.clone();let t=token_hash.clone();
-            this.store.run(move|db| {let tx=db.transaction()?;admin(&tx,&a,&t)}).await?;
+            let a=actor.clone();let t=token_hash.clone();let grant=scope.clone();
+            this.store.run(move|db| {let tx=db.transaction()?;approval(&tx,&a,Some(&t),grant.as_deref())}).await?;
             let current=this.snapshot();
             ensure!(current.revision==revision, "Configuration changed; reload before staging");
             settings.hydrate(&this.base);
+            if let Some(scope)=&scope { scoped_delta(&current.settings, &settings, scope)?; }
             ensure!(serde_json::to_vec(&settings)?.len()<=128*1024, "Configuration exceeds its size limit");
             let config=settings.effective(&this.base)?;
             let publication=this.publication().await?;
@@ -122,7 +270,7 @@ impl Controller {
             let stale=crate::now()-this.base.cluster.as_ref().unwrap().max_stale_seconds;
             this.store.run(move|db| {
                 let tx=db.transaction()?;
-                let actor_version=admin(&tx,&actor,&token_hash)?;
+                let actor_version=approval(&tx,&actor,Some(&token_hash),scope.as_deref())?;
                 let latest:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
                 ensure!(latest==revision, "Configuration changed while staging");
                 let existing=Journal::read(&tx)?;
@@ -140,7 +288,7 @@ impl Controller {
                 }
                 if existing.is_none() {Journal::initialize(&tx,&owner,publication.bundle.clone())?;}
                 let journal=Journal::begin(&tx,candidate,participants,crate::now())?;
-                save_proposal(&tx,&journal,actor,actor_version)?;
+                save_proposal(&tx,&journal,actor,actor_version,scope)?;
                 tx.commit()?;Ok(journal)
             }).await
         }).await?
@@ -191,7 +339,7 @@ impl Controller {
                         .context("Revision exhausted")?;
                     rollback.digest = rollback.hash()?;
                     let journal = Journal::recover_previous(&tx, &epoch, rollback, crate::now())?;
-                    save_proposal(&tx, &journal, actor, version)?;
+                    save_proposal(&tx, &journal, actor, version, None)?;
                     tx.commit()?;
                     Ok(journal)
                 })
@@ -202,10 +350,33 @@ impl Controller {
     /// One owned authority step. The next poll repeats it after a lost response or
     /// restart. Network receipts only advance the journal, never the live engine.
     pub async fn advance_activation(self: &Arc<Self>) -> Result<Option<Journal>> {
+        self.authority_id()?;
+        let this = self.clone();
+        tokio::spawn(async move {
+            let _serial = this.activation_serial.clone().lock_owned().await;
+            let result = this.advance_activation_step().await;
+            let failed = result.is_err();
+            let code = result.as_ref().err().and_then(|e| e.downcast_ref::<ActivationProblem>()).copied()
+                .map(serde_json::to_value).transpose()?.unwrap_or(serde_json::json!("activation_step_failed"));
+            // Persist a bounded, non-sensitive incident. Detailed errors remain
+            // in server logs; model/provider errors can contain private data.
+            this.store.run(move |db| {
+                let tx = db.transaction()?;
+                if failed {
+                    if let Some(j) = Journal::read(&tx)? && let Some(r) = j.rollout() {
+                        let incident = serde_json::json!({"epoch":r.epoch(),"at":crate::now(),"code":code});
+                        tx.execute("INSERT OR REPLACE INTO cluster_state VALUES('activation_incident',?1)",[incident.to_string()])?;
+                    }
+                } else { tx.execute("DELETE FROM cluster_state WHERE key='activation_incident'",[])?; }
+                tx.commit()?; Ok(())
+            }).await?;
+            result
+        }).await?
+    }
+    async fn advance_activation_step(self: &Arc<Self>) -> Result<Option<Journal>> {
         let owner = self.authority_id()?;
         let this = self.clone();
         tokio::spawn(async move {
-            let _serial=this.activation_serial.clone().lock_owned().await;
             let Some(journal)=this.activation_journal().await? else {return Ok(None)};
             let rollout=journal.rollout().context("Missing activation rollout")?;
             let selected=if rollout.phase()==Phase::Aborted {rollout.base()} else {rollout.candidate()};
@@ -214,11 +385,11 @@ impl Controller {
                 let config=artifacts::materialize(&base,&selected,false)?;
                 Ok(crate::message::digest(&serde_json::to_vec(&protocol::secrets(&config)?)?))
             }).await??;
-            let acknowledgement=this.synchronize_activation(journal,keys,crate::now()).await?;
+            let acknowledgement=this.synchronize_activation(journal,keys,crate::now()).await.context(ActivationProblem::RuntimePreparationFailed)?;
             let updated=this.store.run(move|db| {
                 let tx=db.transaction()?;
                 let mut j=Journal::read(&tx)?.context("Missing activation state")?;
-                membership(&tx,&j)?;
+                membership(&tx,&j).context(ActivationProblem::MembershipChanged)?;
                 if let Some(ack)=acknowledgement {j=Journal::acknowledge(&tx,&owner,&ack,crate::now())?;}
                 let r=j.rollout().unwrap();
                 let epoch=r.epoch().clone();
@@ -227,8 +398,9 @@ impl Controller {
                     ensure!(raw.len()<=4096,"Oversized activation proposal");
                     let proposal:Proposal=serde_json::from_str(&raw)?;
                     ensure!(proposal.epoch==epoch,"Proposal epoch mismatch");
-                    let version:Option<i64>=tx.query_row("SELECT COALESCE(v.version,0) FROM users u LEFT JOIN console_user_versions v ON v.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0",[&proposal.actor],|r|r.get(0)).optional()?;
-                    ensure!(version==Some(proposal.actor_version),"Staging administrator privileges changed; abort or reauthorize the proposal");
+                    let version=approval(&tx,&proposal.actor,None,proposal.scope.as_deref()).context(ActivationProblem::ApprovalChanged)?;
+                    ensure!(version==proposal.actor_version,ActivationProblem::ApprovalChanged);
+                    if let Some(scope)=&proposal.scope { scoped_delta(&r.base().settings,&r.candidate().settings,scope)?; }
                     let latest:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
                     ensure!(latest==r.base().revision,"Console revision changed outside activation");
                     tx.execute("INSERT INTO console_revisions(id,created,username,settings) VALUES(?1,?2,?3,?4)",params![r.candidate().revision,crate::now(),proposal.actor,serde_json::to_string(&r.candidate().settings)?])?;
