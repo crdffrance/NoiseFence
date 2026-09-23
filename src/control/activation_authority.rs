@@ -17,6 +17,7 @@ enum ActivationProblem {
     ApprovalChanged,
     MembershipChanged,
     RuntimePreparationFailed,
+    RuntimeGenerationBusy,
 }
 impl std::fmt::Display for ActivationProblem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -25,6 +26,9 @@ impl std::fmt::Display for ActivationProblem {
             Self::MembershipChanged => "Activation membership changed",
             Self::RuntimePreparationFailed => {
                 "The local runtime could not prepare or install the policy"
+            }
+            Self::RuntimeGenerationBusy => {
+                "Waiting for previous analyses to release runtime generations"
             }
         })
     }
@@ -514,7 +518,12 @@ impl Controller {
                 let config=artifacts::materialize(&base,&selected,false)?;
                 crate::credentials::Snapshot::capture(&config)
             }).await??;
-            let acknowledgement=this.synchronize_activation(journal,keys,crate::now()).await.context(ActivationProblem::RuntimePreparationFailed)?;
+            let acknowledgement=this.synchronize_activation(journal,keys,crate::now()).await.map_err(|error| {
+                let problem=if error.downcast_ref::<crate::engine::RuntimeGenerationBusy>().is_some() {
+                    ActivationProblem::RuntimeGenerationBusy
+                } else { ActivationProblem::RuntimePreparationFailed };
+                error.context(problem)
+            })?;
             let updated=this.store.run(move|db| {
                 let tx=db.transaction()?;
                 let mut j=Journal::read(&tx)?.context("Missing activation state")?;

@@ -32,24 +32,34 @@ impl Controller {
             credentials.clone()
         };
         let keys = credentials.fingerprint();
-        if let Some(staged) = self.prepared_activation.lock().unwrap().as_ref()
-            && staged.epoch == *epoch
-            && staged.keys == keys
         {
-            return Ok(staged.snapshot.clone());
+            let mut prepared = self.prepared_activation.lock().unwrap();
+            if let Some(staged) = prepared.as_ref()
+                && staged.epoch == *epoch
+                && staged.keys == keys
+            {
+                return Ok(staged.snapshot.clone());
+            }
+            // A superseded/aborted candidate is not an installed runtime. Free
+            // that private cache before reserving capacity for its replacement.
+            // Any installed snapshot or owned worker still retains its lease.
+            *prepared = None;
         }
         let base = self.base.clone();
         let bundle = bundle.clone();
         let epoch = epoch.clone();
         let current = self.snapshot();
+        let reuse_installed = current.activation_epoch.as_ref() == Some(&epoch)
+            && current.revision == bundle.revision
+            && self.cluster_digest() == bundle.digest
+            && *self.cluster_keys.read().unwrap() == keys;
         let credentials = Arc::new(credentials.clone());
         let next = tokio::task::spawn_blocking(move || -> Result<_> {
-            // Re-verify every byte after download and on recovery, and force a
-            // model reload: a matching path alone cannot prove the resident model.
+            // Re-verify every byte, including an aborted preparation restoring
+            // the exact installed epoch. A matching path alone is not proof.
             let mut config = artifacts::materialize(&base, &bundle, true)?;
             config.provider_credentials = Some(credentials);
             let config = Arc::new(config);
-            let engine = Arc::new(current.engine.reload_cluster_models(config.clone())?);
             let publication =
                 artifacts::capture(&config, bundle.settings.clone(), bundle.revision)?;
             ensure!(
@@ -57,6 +67,14 @@ impl Controller {
                     == serde_json::to_value(&bundle.files)?,
                 "Prepared models differ from the authority manifest"
             );
+            if reuse_installed {
+                // No additional generation is needed to resume an unchanged
+                // resident runtime. Recheck its model bindings before readiness;
+                // bootstrap and different epochs still require a fresh runtime.
+                current.engine.validate_cluster_publication(&publication)?;
+                return Ok(current);
+            }
+            let engine = Arc::new(current.engine.reload_cluster_models(config.clone())?);
             engine.validate_cluster_publication(&publication)?;
             let rbl = Arc::new(current.rbl.reconfigure(
                 config.rbl.as_ref(),

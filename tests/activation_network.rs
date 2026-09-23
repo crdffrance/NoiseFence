@@ -1003,6 +1003,57 @@ async fn web_progress_remains_readable_while_activation_waits_for_a_durable_writ
 }
 
 #[tokio::test]
+async fn runtime_generation_pressure_is_visible_and_retries_after_analyses_finish() {
+    let h = Harness::new(false, true).await;
+    let mut retained = Vec::new();
+    for threshold in [96., 97., 98.] {
+        h.ready_peer().await;
+        h.stage(threshold).await;
+        h.all_prepared().await;
+        h.finish().await;
+        if threshold < 98. {
+            retained.push(h.central.snapshot().engine.clone());
+        }
+    }
+    h.ready_peer().await;
+    let staged = h.stage(99.).await;
+    assert!(h.central.advance_activation().await.is_err());
+    let status = view(&h, &h.admin, "/admin/cluster/activation/view").await;
+    assert_eq!(status["incident"]["code"], "runtime_generation_busy");
+    assert_eq!(status["phase"], "preparing");
+    assert_eq!(status["smtp_ready"], false);
+    assert_eq!(h.central.snapshot().config.filter.threshold, 98.);
+    assert_eq!(
+        h.central
+            .activation_journal()
+            .await
+            .unwrap()
+            .unwrap()
+            .rollout()
+            .unwrap()
+            .epoch(),
+        staged.rollout().unwrap().epoch()
+    );
+    // Releasing a completed old analysis permits the same durable proposal.
+    // No restaging, fabricated readiness receipt or threshold change is needed.
+    retained.remove(0);
+    h.all_prepared().await;
+    h.finish().await;
+    let status = view(&h, &h.admin, "/admin/cluster/activation/view").await;
+    assert!(status["incident"].is_null());
+    assert_eq!(status["smtp_ready"], true);
+    for node in [&h.central, &h.worker] {
+        assert_eq!(node.snapshot().config.filter.threshold, 99.);
+        assert_eq!(
+            node.snapshot().activation_epoch.as_ref(),
+            Some(staged.rollout().unwrap().epoch())
+        );
+    }
+    drop(retained);
+    h.close().await;
+}
+
+#[tokio::test]
 async fn settings_keep_installed_models_until_an_explicit_digest_bound_selection() {
     let h = Harness::new(true, true).await;
     let alice = grant(&h, "alice").await;

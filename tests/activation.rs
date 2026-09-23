@@ -332,6 +332,31 @@ async fn participant_verifies_real_model_bytes_before_readiness_and_after_restar
         synchronize(&stranger, f.read()).await.is_err(),
         "commit cannot enroll an unprepared node"
     );
+    // Resume the installed runtime, then abort another preparation while its
+    // retained model file is corrupt. Reusing memory must not bypass validation.
+    synchronize(&worker, f.read()).await.unwrap();
+    f.ack(&epoch, "mx1", Progress::Applied);
+    f.ack(&epoch, "mx2", Progress::Applied);
+    let tx = f.db.transaction().unwrap();
+    let released = Journal::release(&tx, &epoch, 100).unwrap();
+    tx.commit().unwrap();
+    synchronize(&worker, released).await.unwrap();
+    let installed = worker.snapshot().engine.clone();
+    let second = f.stage(2, 98.);
+    std::fs::write(&path, b"corrupt installed cache before abort").unwrap();
+    assert!(synchronize(&worker, f.read()).await.is_err());
+    let tx = f.db.transaction().unwrap();
+    let aborted = Journal::abort(&tx, &second, 100).unwrap();
+    tx.commit().unwrap();
+    assert!(synchronize(&worker, aborted.clone()).await.is_err());
+    assert!(!worker.cluster_ready());
+    std::fs::write(&path, &bytes).unwrap();
+    synchronize(&worker, aborted).await.unwrap();
+    assert!(worker.cluster_ready());
+    assert!(std::sync::Arc::ptr_eq(
+        &installed,
+        &worker.snapshot().engine
+    ));
 }
 
 struct Fixture {
@@ -618,7 +643,7 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
         worker: &Arc<noisefence::control::Controller>,
         revision: i64,
     ) -> Epoch {
-        let epoch = f.stage(revision, 95. + revision as f64);
+        let epoch = f.stage(revision, 95. + (revision % 5) as f64);
         synchronize(worker, f.read()).await.unwrap();
         for id in ["mx1", "mx2"] {
             f.ack(&epoch, id, Progress::Prepared);
@@ -651,6 +676,8 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
         store: worker.store.clone(),
         processing: Arc::new(tokio::sync::Semaphore::new(2)),
     };
+    let first_engine = Arc::downgrade(&snapshot.engine);
+    drop(snapshot);
     let server = tokio::spawn(noisefence::smtp::serve_controlled(
         listener,
         state,
@@ -669,6 +696,7 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
     }
     let current = activate(&mut f, &worker, 2).await;
     assert!(worker.cluster_ready());
+    assert!(first_engine.upgrade().is_some(), "MAIL pins its engine");
     for expected in ["451", "250"] {
         io.write_all(b"DATA\r\n").await.unwrap();
         assert!(response(&mut io).await.starts_with("354"));
@@ -687,6 +715,7 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
                 io.write_all(command.as_bytes()).await.unwrap();
                 assert!(response(&mut io).await.starts_with("250"));
             }
+            assert!(first_engine.upgrade().is_none());
         }
     }
     let records = worker
@@ -747,6 +776,37 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
             .iter()
             .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 7\r\n"))
     );
+
+    // Keep the same live socket across more updates than the runtime bound.
+    // Idle sockets and reset transactions release old engines; active MAIL
+    // transactions retain exactly the generation selected at their beginning.
+    for revision in [3, 5, 7, 9] {
+        let idle = Arc::downgrade(&worker.snapshot().engine);
+        activate(&mut f, &worker, revision).await;
+        io.write_all(b"NOOP\r\n").await.unwrap();
+        assert!(response(&mut io).await.starts_with("250"));
+        assert!(idle.upgrade().is_none(), "idle connection pins no engine");
+        io.write_all(b"MAIL FROM:<sender@example.org>\r\n")
+            .await
+            .unwrap();
+        assert!(response(&mut io).await.starts_with("250"));
+        let pinned = Arc::downgrade(&worker.snapshot().engine);
+        activate(&mut f, &worker, revision + 1).await;
+        io.write_all(b"NOOP\r\n").await.unwrap();
+        assert!(response(&mut io).await.starts_with("250"));
+        assert!(pinned.upgrade().is_some());
+        let reset = if revision % 4 == 3 {
+            "RSET\r\n"
+        } else {
+            "EHLO sender.example.test\r\n"
+        };
+        io.write_all(reset.as_bytes()).await.unwrap();
+        assert!(response(&mut io).await.starts_with("250"));
+        io.write_all(b"MAIL invalid\r\nNOOP\r\n").await.unwrap();
+        assert!(response(&mut io).await.starts_with("501"));
+        assert!(response(&mut io).await.starts_with("250"));
+        assert!(pinned.upgrade().is_none(), "reset releases the old engine");
+    }
 
     io.write_all(b"QUIT\r\n").await.unwrap();
     assert!(response(&mut io).await.starts_with("221"));
@@ -1031,4 +1091,84 @@ async fn participant_uses_exact_received_credentials_and_old_snapshots_stay_immu
         protocol::secrets(&worker.snapshot().config).unwrap()["crdf"],
         "synthetic-authority-key-56789"
     );
+}
+
+#[tokio::test]
+async fn retained_engines_defer_preparation_and_abort_releases_the_discarded_candidate() {
+    async fn finish(f: &mut Fixture, worker: &std::sync::Arc<noisefence::control::Controller>) {
+        let preparing = f.read();
+        let epoch = preparing.rollout().unwrap().epoch().clone();
+        let ack = synchronize(worker, preparing).await.unwrap().unwrap();
+        assert_eq!(ack.progress, Progress::Prepared);
+        f.ack(&epoch, "mx1", Progress::Prepared);
+        f.ack(&epoch, "mx2", ack.progress);
+        let tx = f.db.transaction().unwrap();
+        let committed = Journal::commit(&tx, &epoch, 100).unwrap();
+        tx.commit().unwrap();
+        let ack = synchronize(worker, committed).await.unwrap().unwrap();
+        f.ack(&epoch, "mx1", Progress::Applied);
+        f.ack(&epoch, "mx2", ack.progress);
+        let tx = f.db.transaction().unwrap();
+        let released = Journal::release(&tx, &epoch, 100).unwrap();
+        tx.commit().unwrap();
+        synchronize(worker, released).await.unwrap();
+        assert!(worker.cluster_ready());
+    }
+    let mut f = Fixture::new();
+    let root = tempfile::tempdir().unwrap();
+    let worker = participant(root.path(), true).await;
+    f.initialize();
+    let mut old = Vec::new();
+    for revision in 1..=3 {
+        f.stage(revision, 95. + revision as f64);
+        finish(&mut f, &worker).await;
+        // Keep just an Engine Arc, not a Snapshot. It still owns model memory.
+        if revision < 3 {
+            old.push(worker.snapshot().engine.clone());
+        }
+    }
+    let installed = worker.store.activation.epoch().unwrap();
+    let original_score = old[0].offline(common::MESSAGE).score;
+    let fourth = f.stage(4, 99.);
+    let error = synchronize(&worker, f.read()).await.err().unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("Runtime generation capacity exhausted")
+    );
+    assert_eq!(worker.snapshot().revision, 3);
+    assert_eq!(worker.snapshot().config.filter.threshold, 98.);
+    assert!(!worker.cluster_ready());
+    assert!(worker.store.activation.enter(Some(&installed)).is_err());
+    assert_ne!(worker.activation_receipt().unwrap().epoch, fourth);
+    assert_eq!(old[0].offline(common::MESSAGE).score, original_score);
+    // All three slots remain occupied. Restoring the verified installed epoch
+    // must not require a fourth generation after a failed preparation.
+    let current = worker.snapshot().engine.clone();
+    let tx = f.db.transaction().unwrap();
+    let aborted = Journal::abort(&tx, &fourth, 100).unwrap();
+    tx.commit().unwrap();
+    synchronize(&worker, aborted).await.unwrap();
+    assert!(worker.cluster_ready());
+    assert!(std::sync::Arc::ptr_eq(&current, &worker.snapshot().engine));
+    drop(current);
+    let fifth = f.stage(5, 99.);
+    assert!(synchronize(&worker, f.read()).await.is_err());
+    old.remove(0);
+    let ready = synchronize(&worker, f.read()).await.unwrap().unwrap();
+    assert_eq!(ready.epoch, fifth);
+    assert_eq!(ready.progress, Progress::Prepared);
+    // Old engine + installed engine + prepared candidate exhaust the bound.
+    // Aborting discards the uninstalled candidate and reuses the verified base.
+    let tx = f.db.transaction().unwrap();
+    let aborted = Journal::abort(&tx, &fifth, 100).unwrap();
+    tx.commit().unwrap();
+    synchronize(&worker, aborted).await.unwrap();
+    assert!(worker.cluster_ready());
+    assert_eq!(worker.snapshot().revision, 3);
+    assert_eq!(worker.snapshot().config.filter.threshold, 98.);
+    old.clear();
+    f.stage(6, 99.);
+    finish(&mut f, &worker).await;
+    assert_eq!(worker.snapshot().revision, 6);
 }

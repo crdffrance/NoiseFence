@@ -1,5 +1,15 @@
 /// Fixed diagnostic baseline when no content model is applied; not a learned prior.
 pub const RULES_BASELINE_LOGIT: f64 = -5.0;
+/// Includes active, prepared and retired runtimes, including detached inference.
+pub const MAX_RUNTIME_GENERATIONS: usize = 3;
+#[derive(Debug)]
+pub(crate) struct RuntimeGenerationBusy;
+impl std::fmt::Display for RuntimeGenerationBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Runtime generation capacity exhausted; previous analyses must finish before another engine can load")
+    }
+}
+impl std::error::Error for RuntimeGenerationBusy {}
 use crate::{config::Config, message};
 use anyhow::{Context, Result, ensure};
 use mail_auth::{
@@ -554,6 +564,9 @@ pub struct Engine {
     native_filter: Option<Arc<crate::native_filter::Runtime>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
+    generations: Arc<crate::capacity::Capacity>,
+    // Declared last: model resources are dropped before their generation lease.
+    _generation: Arc<crate::capacity::Permit>,
 }
 impl Engine {
     pub fn quality_artifacts_sha256(&self) -> String {
@@ -610,6 +623,16 @@ impl Engine {
         Self::build(config, Some(self), true)
     }
     fn build(config: Arc<Config>, template: Option<&Self>, reload_models: bool) -> Result<Self> {
+        // Reserve before reading/loading any models. Reconfiguration may copy
+        // weights too, so every engine is counted, not only changed paths.
+        let generations = template
+            .map(|t| t.generations.clone())
+            .unwrap_or_else(|| crate::capacity::Capacity::new(MAX_RUNTIME_GENERATIONS));
+        let generation = Arc::new(
+            generations
+                .try_acquire()
+                .map_err(|_| RuntimeGenerationBusy)?,
+        );
         let config = crate::credentials::pin(config)?;
         let credentials = config.provider_credentials.as_ref().unwrap();
         let rspamd = Arc::new(crate::rspamd::Runtime::new(
@@ -626,7 +649,7 @@ impl Engine {
         } else {
             Default::default()
         };
-        let native_filter = config
+        let mut native_filter = config
             .native_filter
             .as_ref()
             .map(|settings| {
@@ -641,6 +664,11 @@ impl Engine {
                 }
             })
             .transpose()?;
+        if let Some(runtime) = &mut native_filter {
+            Arc::get_mut(runtime)
+                .expect("new native runtime")
+                .bind_generation(generation.clone());
+        }
         let quality = config
             .quality
             .as_ref()
@@ -689,7 +717,7 @@ impl Engine {
             )
         };
         #[cfg(feature = "semantic")]
-        let semantic = config
+        let mut semantic = config
             .filter
             .semantic
             .as_ref()
@@ -722,6 +750,12 @@ impl Engine {
                 })
             })
             .transpose()?;
+        #[cfg(feature = "semantic")]
+        if let Some(runtime) = &mut semantic {
+            Arc::get_mut(runtime)
+                .expect("new semantic runtime")
+                .bind_generation(generation.clone());
+        }
         #[cfg(not(feature = "semantic"))]
         ensure!(
             config.filter.semantic.is_none(),
@@ -822,6 +856,8 @@ impl Engine {
             protection,
             #[cfg(feature = "semantic")]
             semantic,
+            generations,
+            _generation: generation,
         })
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
@@ -1969,6 +2005,98 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn runtime_generations_reserve_before_loading_and_release_failed_builds() {
+        let cfg = Arc::new(Config::load(Path::new("config/development.toml")).unwrap());
+        let first = Engine::new(cfg.clone()).unwrap();
+        let second = first.reconfigure(cfg.clone()).unwrap();
+        let third = second.reload_cluster_models(cfg.clone()).unwrap();
+        assert_eq!(first.generations.available_permits(), 0);
+        let mut missing = (*cfg).clone();
+        missing.filter.model = Some(Path::new("/nonexistent/noisefence-generation-fixture").into());
+        let missing = Arc::new(missing);
+        let busy = third.reload_cluster_models(missing.clone()).err().unwrap();
+        assert!(busy.is::<RuntimeGenerationBusy>());
+        drop(second);
+        let failed = third.reload_cluster_models(missing).err().unwrap();
+        assert!(!failed.is::<RuntimeGenerationBusy>());
+        assert_eq!(third.generations.available_permits(), 1);
+        let replacement = third.reconfigure(cfg).unwrap();
+        assert_eq!(first.generations.available_permits(), 0);
+        drop((third, replacement));
+        assert_eq!(
+            first.generations.available_permits(),
+            MAX_RUNTIME_GENERATIONS - 1
+        );
+    }
+
+    #[test]
+    fn cancelled_native_worker_keeps_its_generation_after_the_engine_is_dropped() {
+        // Hold the only blocking thread so cancellation occurs after the real
+        // native worker is queued but before it can finish its owned runtime.
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap()
+            .block_on(async {
+                let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+                cfg.native_filter = Some(Default::default());
+                let cfg = Arc::new(cfg);
+                let engine = Engine::new(cfg.clone()).unwrap();
+                let second = engine.reconfigure(cfg.clone()).unwrap();
+                let third = second.reconfigure(cfg.clone()).unwrap();
+                let generation = Arc::downgrade(&engine._generation);
+                let native = engine.native_filter.as_ref().unwrap().clone();
+                let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+                let (release_tx, release_rx) = std::sync::mpsc::channel();
+                let blocked = tokio::task::spawn_blocking(move || {
+                    let _ = started_tx.send(());
+                    let _ = release_rx.recv();
+                });
+                started_rx.await.unwrap();
+                let worker = native.clone();
+                let job = tokio::spawn(async move {
+                    worker
+                        .inspect(
+                            b"From: a@example.test\r\nSubject: Fixture\r\n\r\nHello",
+                            &[],
+                        )
+                        .await
+                });
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while Arc::strong_count(&native) < 4 {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                job.abort();
+                assert!(job.await.unwrap_err().is_cancelled());
+                drop(native);
+                drop(engine);
+                assert!(generation.upgrade().is_some());
+                assert!(
+                    third
+                        .reconfigure(cfg.clone())
+                        .err()
+                        .unwrap()
+                        .is::<RuntimeGenerationBusy>()
+                );
+                release_tx.send(()).unwrap();
+                blocked.await.unwrap();
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while generation.upgrade().is_some() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let next = third.reconfigure(cfg).unwrap();
+                assert_eq!(next.generations.available_permits(), 0);
+            });
+    }
+
     #[test]
     fn more_than_six_distinct_policies_share_the_body_without_merging_receipts() {
         use crate::custom_filtering::{Binding, Ordering, Policy, Profile};

@@ -23,6 +23,8 @@ export function saveNotice(result: SaveResult): string {
 }
 export function activationLabel(value: Activation): string {
   if (!value.coordinated) return 'Local configuration saves';
+  if (value.incident?.code === 'runtime_generation_busy')
+    return 'Waiting for previous analyses';
   if (value.incident) return 'Activation needs attention';
   if (value.phase === 'preparing') return 'Preparing the policy on every MX';
   if (value.phase === 'committed')
@@ -48,6 +50,8 @@ export function incidentDescription(
   if (!administrator)
     return 'Contact your administrator. The change has not been confirmed as active.';
   switch (code) {
+    case 'runtime_generation_busy':
+      return 'The runtime generation limit is reached. Earlier analyses still retain their models. Preparation retries automatically when they finish; SMTP remains deferred until coordinated release.';
     case 'approval_changed':
       return 'The approving account or its permissions changed. Cancel the proposal and submit it with current permissions.';
     case 'membership_changed':

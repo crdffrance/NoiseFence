@@ -2,6 +2,14 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Bound each controller's active, prepared and retained engines to three runtime
+  generations, including detached native/semantic inference after cancellation.
+  Defer preparation under pressure, explain the coordinator's wait in English,
+  and allow abort to reuse the verified installed runtime without another load.
+  Idle SMTP sockets release retired models; in-flight transactions keep their
+  original engine and epoch. This is a generation bound, not a measured memory
+  budget, detection-quality improvement or production activation.
+
 - Correct calibration-readiness counts: use labelled, usable observations for
   class-count checks and share eligibility between global and sample views.
   Preserve all messages/annotations and explain incompatible or missing inputs

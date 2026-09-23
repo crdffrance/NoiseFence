@@ -172,6 +172,37 @@ matching digest; an unavailable new candidate never falls back to the old one.
 
 ## SMTP and queue behavior
 
+### Resident runtime limit
+
+One controller's engine lineage permits at most three simultaneous runtime
+generations, including the active engine, a prepared candidate, retired engines
+and a startup template when retained. Capacity is reserved before loading models
+and released on a failed build. Native and semantic blocking workers keep their
+generation lease until they finish, even after timeout or caller cancellation.
+The limit counts generations, not bytes; it does not replace per-model size
+limits or a reference-hardware memory benchmark. Independently constructed
+standalone engines have independent limits.
+
+If capacity is exhausted, preparation fails without loading another generation
+or acknowledging readiness. The coordinator records `runtime_generation_busy`;
+its English console explains that earlier analyses must finish. The existing
+authority/poll loop retries. Admission remains fenced until coordinated release
+or a successful abort; waiting alone cannot activate settings.
+
+An aborted or superseded private candidate is discarded before another build.
+Restoring the exact already-installed epoch can reuse its resident engine after
+rechecking immutable model bytes, resident model bindings and credential identity.
+It does not reserve a fourth generation just to resume the unchanged policy.
+Different epochs and bootstrap runtimes still require preparation; missing or
+corrupt files keep admission closed even when the old model remains in memory.
+
+Managed SMTP sockets retain a model generation only for an active transaction,
+from MAIL until completion or reset. Idle sockets and rejected MAIL commands on
+idle connections do not retain old engines. A transaction never changes its
+engine midway through analysis. Tests exercise repeated revisions on one open connection, cancellation
+of actual native workers, saturated preparation, abort and corrupt model caches.
+These tests do not establish tensor-memory consumption or process-crash recovery.
+
 MAIL receives `451 4.3.2` while admission is fenced. A transaction begun before
 the fence retains its engine and epoch; acceptance checks that epoch again after
 DATA. An old-policy transaction cannot enter the durable queue after a newer

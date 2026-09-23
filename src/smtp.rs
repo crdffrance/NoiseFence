@@ -236,6 +236,9 @@ async fn session(
     mut rbl: Arc<crate::rbl::Runtime>,
     verification: Arc<crate::recipient_verification::Runtime>,
 ) -> Result<()> {
+    // Managed connections own an engine only between MAIL and transaction reset.
+    // An idle socket must not keep retired models resident across policy saves.
+    let mut transaction_engine = control.is_none().then_some(state.engine);
     let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
     reply(&mut io, &format!("220 {} ESMTP\r\n", cfg.hostname)).await?;
@@ -251,6 +254,10 @@ async fn session(
     let mut admission_reports = Vec::new();
     let mut admission_reputation: Option<crate::rbl::Report> = None;
     for _ in 0..1000 {
+        if control.is_some() && from.is_none() {
+            transaction_engine = None;
+            activation_epoch = None;
+        }
         let cfg = state.config.clone();
         let bytes = match line(&mut io, 512, cfg.smtp.command_timeout_seconds).await {
             Ok(Some(b)) => b,
@@ -293,7 +300,7 @@ async fn session(
             let snapshot = control.snapshot();
             activation_epoch = snapshot.activation_epoch.clone();
             state.config = snapshot.config.clone();
-            state.engine = snapshot.engine.clone();
+            transaction_engine = Some(snapshot.engine.clone());
             rbl = snapshot.rbl.clone();
         }
         let cfg = state.config.clone();
@@ -605,7 +612,10 @@ async fn session(
                 let sender = from.take().unwrap();
                 let recipients = std::mem::take(&mut recipients);
                 let recipient_count = recipients.len();
-                let comparison = state.engine.rspamd.begin(
+                let engine = transaction_engine
+                    .as_ref()
+                    .context("Missing SMTP transaction engine")?;
+                let comparison = engine.rspamd.begin(
                     &raw,
                     crate::rspamd::Envelope {
                         ip: peer.ip(),
@@ -616,8 +626,7 @@ async fn session(
                     },
                     state.store.clone(),
                 );
-                let result = state
-                    .engine
+                let result = engine
                     .process_smtp(
                         &raw,
                         peer.ip(),

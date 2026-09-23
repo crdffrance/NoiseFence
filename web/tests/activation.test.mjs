@@ -4,6 +4,7 @@ import {
   activationLabel,
   savesBlocked,
   saveNotice,
+  incidentDescription,
 } from '../app/activation.ts';
 
 const prepared = {
@@ -16,6 +17,26 @@ const prepared = {
   epoch: { sequence: 2, revision: 5 },
   incident: null,
 };
+test('runtime generation pressure is an explicit wait, never an active change', () => {
+  const waiting = {
+    ...prepared,
+    incident: { at: 123, code: 'runtime_generation_busy' },
+  };
+  assert.equal(activationLabel(waiting), 'Waiting for previous analyses');
+  assert.equal(savesBlocked(waiting, ''), true);
+  assert.match(
+    incidentDescription('runtime_generation_busy', true),
+    /retries automatically/,
+  );
+  assert.match(
+    incidentDescription('runtime_generation_busy', true),
+    /SMTP remains deferred/,
+  );
+  assert.doesNotMatch(
+    incidentDescription('runtime_generation_busy', false),
+    /models|generation limit/,
+  );
+});
 test('staged saves never promise applied settings', () => {
   assert.match(
     saveNotice({ revision: 5, staged: true }),
