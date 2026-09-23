@@ -2,6 +2,12 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Add an offline `scoring-compare` command for bounded, private comparison of
+  frozen native SMTP observations. Separate historical scores from controlled
+  aggregation projections; preserve cohort identity and unavailable inputs, and
+  require explicit feature precision before reporting threshold crossings. No
+  provider calls, receipt changes, calibration or production activation.
+
 - Add evidence-aware content combination v2: require usable structured authentication, DQS and SMTP results for their retained rule weights; retain independently completed reputation hits during partial failures and exclude policy-only/error listings. Let a completed DMARC failure consume its failed SPF branch once, with an explicit receipt-time dependency. Preserve invalid-input rejection and historical v1 ledgers. Header version 7 and English diagnostics use retained contributions and adjustment codes instead of raw proposed weights. This scoring change needs fresh calibration and independent qualification; no accuracy claim or deployment.
 
 - Pin one redacted, non-serialized provider credential set per resident runtime. CRDF/VirusTotal stop rereading keys during analysis; LLM/DQS/admission consume the same snapshot. Preserve keys for in-flight work through file replacement/removal, retain shared quota/capacity state, and prepare v2 participants from the exact authenticated credential set. Bind private durable provider generations into activation bundles; stage Web key replacements across both MXs, retain exact base/candidate sets through source loss, cold startup, abort and partial-commit recovery. Validate complete sets before installation; keep secrets out of model downloads and Web projections. Require activation protocol 2. No production enrollment.

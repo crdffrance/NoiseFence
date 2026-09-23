@@ -155,6 +155,12 @@ Proton gates pass. The current research model has not established the targets of
 at least 95% capture and at most 0.1% false positives. No new provider or private
 message disclosure is required for this structural refactor.
 
+The [offline score comparison](score-comparison.md) measures the reconciliation
+step on frozen native observations without provider calls or historical changes.
+It separates the saved score from two controlled projections, excludes unknown
+precision from threshold counts and keeps original artifact cohorts distinct.
+It does not supply independent labels or qualify a calibrated model.
+
 See [scoped policies and simulation](scoped-policies.md),
 [automatic classification](automatic-classification.md),
 [message headers](message-headers.md) and

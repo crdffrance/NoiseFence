@@ -340,6 +340,15 @@ enum Command {
         #[arg(long)]
         until: Option<i64>,
     },
+    /// Compare scoring aggregation on frozen SMTP inputs; no provider calls or delivery.
+    ScoringCompare {
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        /// Explicit counterfactual operating point, not inferred from today's settings.
+        #[arg(long)]
+        threshold: f64,
+    },
     /// Encode trusted detector observations from a private learning export, offline.
     FusionExport {
         input: PathBuf,
@@ -733,6 +742,19 @@ async fn main() -> Result<()> {
                 "{}",
                 serde_json::to_string(&noisefence::fusion::population::predict(
                     input, model, output
+                )?)?
+            );
+            return Ok(());
+        }
+        Command::ScoringCompare {
+            input,
+            output,
+            threshold,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::scoring::comparison::compare(
+                    input, output, *threshold
                 )?)?
             );
             return Ok(());

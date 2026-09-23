@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 pub const VERSION: &str = "content-evidence-combination-2";
 pub const LEGACY_VERSION: &str = "content-logit-deduplicated-1";
+pub mod comparison;
 mod evidence_rules;
 /// Wire-compatible storage sentinel, never a displayed risk index.
 pub const UNAVAILABLE_SCORE: f64 = -1.0;
@@ -206,6 +207,12 @@ fn finite(value: f64) -> Option<f64> {
 /// Each message-level signal ID is counted once. Conflicting duplicates cannot
 /// be silently resolved by choosing the most accusatory weight.
 pub fn combine(scan: &Scan, lexical: Option<f64>, opaque: bool) -> Report {
+    combine_policy(scan, lexical, opaque, true)
+}
+
+// Only the offline comparison may bypass reconciliation. Both sides retain the
+// current input adapters; the reference is not a historical-engine replay.
+fn combine_policy(scan: &Scan, lexical: Option<f64>, opaque: bool, reconcile: bool) -> Report {
     let baseline = lexical
         .is_none()
         .then_some(crate::engine::RULES_BASELINE_LOGIT);
@@ -276,7 +283,9 @@ pub fn combine(scan: &Scan, lexical: Option<f64>, opaque: bool) -> Report {
             }
         })
         .collect();
-    evidence_rules::reconcile(scan, &mut contributions);
+    if reconcile {
+        evidence_rules::reconcile(scan, &mut contributions);
+    }
     let rules_total = contributions
         .iter()
         .try_fold(0., |sum, entry| finite(sum + entry.retained?));
@@ -294,7 +303,7 @@ pub fn combine(scan: &Scan, lexical: Option<f64>, opaque: bool) -> Report {
         }
     });
     Report {
-        version: VERSION.into(),
+        version: if reconcile { VERSION } else { LEGACY_VERSION }.into(),
         baseline,
         lexical,
         semantic,
