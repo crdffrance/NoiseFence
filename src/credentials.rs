@@ -35,6 +35,19 @@ impl Snapshot {
         }
         Ok(Self(keys))
     }
+    pub fn replacing(&self, provider: String, key: Option<String>) -> Result<Self> {
+        ensure!(
+            ["crdf", "virustotal", "scaleway", "spamhaus"].contains(&provider.as_str()),
+            "Unknown provider"
+        );
+        let mut next = self.export();
+        if let Some(key) = key {
+            next.insert(provider, key);
+        } else {
+            next.remove(&provider);
+        }
+        Self::from_map(next)
+    }
     pub fn fingerprint(&self) -> String {
         crate::message::digest(&serde_json::to_vec(&self.0).expect("provider key map"))
     }
@@ -67,4 +80,133 @@ pub fn pin(config: Arc<Config>) -> Result<Arc<Config>> {
     let mut config = (*config).clone();
     config.provider_credentials = Some(snapshot);
     Ok(Arc::new(config))
+}
+
+/// Immutable private generations, independent of mutable installation key files.
+/// Only the fingerprint may be referenced from a policy/model bundle.
+pub mod generations {
+    use super::*;
+    use anyhow::Context;
+    use std::{
+        fs,
+        io::{Read, Write},
+        os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+        path::{Path, PathBuf},
+    };
+    const LIMIT: u64 = 4096;
+    fn directory(root: &Path) -> PathBuf {
+        root.join("cluster/credentials")
+    }
+    fn path(root: &Path, digest: &str) -> Result<PathBuf> {
+        ensure!(
+            crate::compatibility::valid_hash(digest),
+            "Invalid credential generation"
+        );
+        Ok(directory(root).join(format!("{digest}.json")))
+    }
+    pub fn load(root: &Path, digest: &str) -> Result<Snapshot> {
+        let dir = directory(root);
+        let metadata = fs::symlink_metadata(&dir)?;
+        ensure!(
+            metadata.is_dir() && metadata.permissions().mode() & 0o077 == 0,
+            "Unsafe credential directory"
+        );
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path(root, digest)?)?;
+        let meta = file.metadata()?;
+        ensure!(
+            meta.is_file() && meta.len() <= LIMIT && meta.permissions().mode() & 0o077 == 0,
+            "Unsafe credential generation"
+        );
+        let mut raw = Vec::new();
+        file.take(LIMIT + 1).read_to_end(&mut raw)?;
+        ensure!(raw.len() as u64 <= LIMIT, "Oversized credential generation");
+        let values = serde_json::from_slice(&raw)
+            .map_err(|_| anyhow::anyhow!("Invalid credential generation data"))?;
+        let snapshot = Snapshot::from_map(values)?;
+        ensure!(
+            snapshot.fingerprint() == digest,
+            "Credential generation checksum mismatch"
+        );
+        Ok(snapshot)
+    }
+    pub fn freeze(root: &Path, keys: &Snapshot) -> Result<String> {
+        // Validate the entire map before any filesystem mutation.
+        Snapshot::from_map(keys.export())?;
+        let digest = keys.fingerprint();
+        let destination = path(root, &digest)?;
+        let dir = directory(root);
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)?;
+        let meta = fs::symlink_metadata(&dir)?;
+        ensure!(
+            meta.is_dir() && meta.permissions().mode() & 0o077 == 0,
+            "Unsafe credential directory"
+        );
+        if destination.try_exists()? {
+            load(root, &digest)?;
+            fs::File::open(&destination)?.sync_all()?;
+            fs::File::open(&dir)?.sync_all()?;
+            fs::File::open(dir.parent().context("Missing credential parent")?)?.sync_all()?;
+            fs::File::open(root)?.sync_all()?;
+            return Ok(digest);
+        }
+        let raw = serde_json::to_vec(&keys.export())?;
+        ensure!(raw.len() as u64 <= LIMIT, "Oversized credential generation");
+        let temp = dir.join(format!(".stage-{}", uuid::Uuid::new_v4()));
+        let result = (|| -> Result<()> {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp)?;
+            file.write_all(&raw)?;
+            file.sync_all()?;
+            // A concurrent writer cannot overwrite an existing immutable generation.
+            match fs::hard_link(&temp, &destination) {
+                Ok(()) => (),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    load(root, &digest)?;
+                }
+                Err(e) => return Err(e.into()),
+            }
+            fs::File::open(&dir)?.sync_all()?;
+            fs::File::open(dir.parent().context("Missing credential parent")?)?.sync_all()?;
+            fs::File::open(root)?.sync_all()?;
+            Ok(())
+        })();
+        let _ = fs::remove_file(temp);
+        result?;
+        Ok(digest)
+    }
+    pub fn retain(root: &Path, hashes: &std::collections::BTreeSet<String>) -> Result<()> {
+        // Do not collect when reading an old, unbound journal. Verify every
+        // retained generation before removing any unreachable one.
+        if hashes.is_empty() {
+            return Ok(());
+        }
+        for hash in hashes {
+            load(root, hash)?;
+        }
+        let dir = directory(root);
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(hash) = name.to_str().and_then(|s| s.strip_suffix(".json")) else {
+                continue;
+            };
+            if crate::compatibility::valid_hash(hash)
+                && entry.file_type()?.is_file()
+                && !hashes.contains(hash)
+            {
+                fs::remove_file(entry.path())?;
+            }
+        }
+        fs::File::open(dir)?.sync_all()?;
+        Ok(())
+    }
 }

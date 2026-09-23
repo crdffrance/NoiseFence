@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  keySaveNotice,
   providerCredentialLabel,
   providerToggleDisabled,
 } from '../app/provider-credentials.ts';
@@ -15,4 +16,13 @@ test('a source file removal never prevents disabling an enabled connector', () =
   assert.equal(providerToggleDisabled(false, false, true), false);
   assert.equal(providerToggleDisabled(false, true, false), false);
   assert.equal(providerToggleDisabled(false, false, false), true);
+});
+
+test('staged credential saves are never reported as an applied reload', () => {
+  assert.match(
+    keySaveNotice({ staged: true, active: true }),
+    /not applied until every MX/,
+  );
+  assert.match(keySaveNotice({ active: true }), /future analyses/);
+  assert.match(keySaveNotice({ active: false }), /Apply settings/);
 });

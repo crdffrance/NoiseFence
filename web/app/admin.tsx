@@ -1292,6 +1292,7 @@ export function AdminConsole({
           >
             <ProtectionSettings
               key={epoch}
+              revision={config.revision}
               policy={draft.protection}
               user={user}
               onChange={(protection) => setDraft({ ...draft, protection })}

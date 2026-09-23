@@ -5,7 +5,7 @@ use anyhow::{Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL: &str = "noisefence-activation-1";
+pub const PROTOCOL: &str = "noisefence-activation-2";
 pub const REPLY_LIMIT: usize = 6 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -18,6 +18,10 @@ pub struct Request {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reply {
+    /// Authenticated node channel only; never reuse this DTO for Web status.
+    #[serde(default)]
+    pub credential_generations:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     pub protocol: String,
     pub data: protocol::Reply,
     pub activation: Option<Journal>,
@@ -25,6 +29,8 @@ pub struct Reply {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Peer {
+    #[serde(default)]
+    pub protocol: String,
     pub seen: i64,
     pub build: String,
     pub revision: i64,

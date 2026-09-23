@@ -170,7 +170,13 @@ impl Settings {
     }
     pub fn available(base: &Config) -> Filters {
         let mut f = Self::from_config(base).filters;
-        f.reputation |= crate::management::key_present(&base.data_dir, "spamhaus");
+        f.reputation |= if base.credential_generation.is_some() {
+            base.provider_credentials
+                .as_ref()
+                .is_some_and(|k| k.get("spamhaus").is_some())
+        } else {
+            crate::management::key_present(&base.data_dir, "spamhaus")
+        };
         f.llm = base.llm.is_some();
         f
     }
@@ -457,6 +463,7 @@ impl Controller {
         let snapshot = self.snapshot();
         if let Some(value) = &*cache
             && value.bundle.revision == snapshot.revision
+            && value.bundle.credential_generation == snapshot.config.credential_generation
         {
             return Ok(value.clone());
         }

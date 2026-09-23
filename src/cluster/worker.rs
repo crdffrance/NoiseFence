@@ -205,7 +205,7 @@ async fn poll(
         .await?;
     // Older API routers delegate unknown POST paths to ServeDir, which returns
     // 405 rather than 404. Neither status permits an already enrolled downgrade.
-    let (reply, activation) = if matches!(
+    let (reply, activation, generations) = if matches!(
         response.status(),
         reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::METHOD_NOT_ALLOWED
     ) {
@@ -221,6 +221,7 @@ async fn poll(
         (
             bounded_json::<protocol::Reply>(response, 1024 * 1024).await?,
             None,
+            std::collections::BTreeMap::new(),
         )
     } else {
         let reply: transport::Reply = bounded_json(response, transport::REPLY_LIMIT).await?;
@@ -228,7 +229,7 @@ async fn poll(
             reply.protocol == transport::PROTOCOL,
             "Invalid activation protocol reply"
         );
-        (reply.data, reply.activation)
+        (reply.data, reply.activation, reply.credential_generations)
     };
     ensure!(
         activation.is_some()
@@ -256,6 +257,44 @@ async fn poll(
             && reply.server_time.abs_diff(crate::now()) <= 300,
         "Invalid authority reply or unsynchronized clocks"
     );
+    let expected_generations = activation
+        .as_ref()
+        .map(|j| {
+            j.bundles()
+                .iter()
+                .filter_map(|b| b.credential_generation.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    ensure!(
+        generations.len() <= 3
+            && generations
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                == expected_generations,
+        "Credential generations do not match the activation journal"
+    );
+    let generations = generations
+        .into_iter()
+        .map(|(hash, values)| {
+            let keys = crate::credentials::Snapshot::from_map(values)?;
+            ensure!(
+                keys.fingerprint() == hash,
+                "Received credential generation checksum mismatch"
+            );
+            Ok(keys)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if control.snapshot().config.credential_generation.is_some() {
+        ensure!(
+            activation.as_ref().is_some_and(|j| j
+                .bundles()
+                .iter()
+                .all(|b| b.credential_generation.is_some())),
+            "A credential-bound participant cannot downgrade to mutable source keys"
+        );
+    }
     // Acknowledge only generations this poll actually submitted, never a newer local update.
     ensure!(
         reply.receipts.iter().all(|a| request
@@ -270,9 +309,21 @@ async fn poll(
     let secrets = reply.secrets;
     let credentials = crate::credentials::Snapshot::from_map(secrets.clone())?;
     let credits = reply.credits;
+    let bound = !expected_generations.is_empty();
+    ensure!(
+        !bound || secrets.is_empty(),
+        "Unexpected mutable credentials in a bound activation"
+    );
     let key_hash = tokio::task::spawn_blocking(move || -> Result<String> {
+        for generation in generations {
+            crate::credentials::generations::freeze(&root, &generation)?;
+        }
         budget::install(&root, &credits, crate::now())?;
-        protocol::install_secrets(&root, &secrets)
+        if bound {
+            Ok(crate::credentials::Snapshot::default().fingerprint())
+        } else {
+            protocol::install_secrets(&root, &secrets)
+        }
     })
     .await??;
     if let Some(journal) = activation {

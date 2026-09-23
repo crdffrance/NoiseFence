@@ -172,11 +172,13 @@ impl Local {
                     "Invalid recovery transition"
                 );
             } else {
-                // A release/abort reply may be lost before the authority stages
-                // again. Only the exact durably installed base can be superseded;
-                // this never skips application of an uninstalled committed epoch.
+                // A prepare or release/abort reply may be lost. An already
+                // aborted proposal can be observed without preparing it, but
+                // only when its base is exactly the durably installed runtime.
+                // This never skips application of an uninstalled committed epoch.
                 ensure!(
-                    r.phase == Phase::Preparing && r.base_epoch == local.installed_epoch,
+                    matches!(r.phase, Phase::Preparing | Phase::Aborted)
+                        && r.base_epoch == local.installed_epoch,
                     "Previous activation not resolved locally"
                 );
             }

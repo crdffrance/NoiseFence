@@ -87,12 +87,20 @@ struct Harness {
 }
 impl Harness {
     async fn new(model: bool, start_worker: bool) -> Self {
+        Self::with_crdf(model, start_worker, None).await
+    }
+    async fn with_crdf(model: bool, start_worker: bool, key: Option<&str>) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let mut ca = (*config(a.path(), false, &url)).clone();
+        if let Some(key) = key {
+            ca.protection = Some(Default::default());
+            noisefence::protection::save_key(a.path(), noisefence::protection::Provider::Crdf, key)
+                .unwrap();
+        }
         if model {
             let path = a.path().join("source-model.json");
             let model = engine::Model {
@@ -1258,5 +1266,310 @@ async fn managed_shadow_selection_stages_and_survives_source_removal_then_disabl
             .candidate
             .is_none()
     );
+    h.close().await;
+}
+
+#[tokio::test]
+async fn credential_rotation_freezes_both_generations_and_survives_source_loss() {
+    use noisefence::{
+        credentials::generations,
+        protection::{Provider, save_key},
+    };
+    let old_key = "synthetic-original-crdf-key-123456";
+    let new_key = "synthetic-replacement-crdf-key-654321";
+    let h = Harness::with_crdf(false, true, Some(old_key)).await;
+    h.stage(95.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let original = h.central.snapshot();
+    let response = h
+        .browser(
+            &h.admin,
+            "/admin/protection/keys/crdf",
+            json!({"revision":1,"key":new_key}),
+            true,
+        )
+        .await;
+    let status = response.status();
+    let reply: Value = response.json().await.unwrap();
+    assert!(status.is_success(), "{reply}");
+    assert_eq!(reply["staged"], true);
+    assert_eq!(reply["active"], false);
+    assert!(!reply.to_string().contains(new_key));
+    assert_eq!(
+        std::fs::read_to_string(h.central.base.data_dir.join("protection/crdf.key"))
+            .unwrap()
+            .trim(),
+        old_key,
+        "Staging must not replace the installation key"
+    );
+    let staged = h.central.activation_journal().await.unwrap().unwrap();
+    let rollout = staged.rollout().unwrap();
+    assert_ne!(
+        rollout.base().credential_generation,
+        rollout.candidate().credential_generation
+    );
+    assert_eq!(
+        generations::load(
+            &h.central.base.data_dir,
+            rollout.base().credential_generation.as_ref().unwrap()
+        )
+        .unwrap()
+        .get("crdf"),
+        Some(old_key)
+    );
+    assert_eq!(
+        generations::load(
+            &h.central.base.data_dir,
+            rollout.candidate().credential_generation.as_ref().unwrap()
+        )
+        .unwrap()
+        .get("crdf"),
+        Some(new_key)
+    );
+    // Private generations never become downloadable model artifacts, even for
+    // a valid node credential. Browser projections expose no provider values.
+    for version in ["v1", "v2"] {
+        let response = h
+            .client
+            .get(format!(
+                "{}/api/v1/cluster/{version}/artifacts/{}",
+                h.url,
+                rollout.candidate().credential_generation.as_ref().unwrap()
+            ))
+            .bearer_auth(&h.identity)
+            .header("x-noisefence-node", "mx2")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        assert!(!response.text().await.unwrap().contains(new_key));
+    }
+    for endpoint in [
+        "/admin/config",
+        "/admin/cluster/activation",
+        "/admin/protection",
+    ] {
+        let response = view(&h, &h.admin, endpoint).await.to_string();
+        assert!(!response.contains(old_key) && !response.contains(new_key));
+    }
+    save_key(
+        &h.central.base.data_dir,
+        Provider::Crdf,
+        "synthetic-unrelated-source-key-98765",
+    )
+    .unwrap();
+    std::fs::remove_file(h.worker.base.data_dir.join("protection/crdf.key")).unwrap();
+    h.all_prepared().await;
+    h.outage.store(true, Ordering::SeqCst);
+    h.central.advance_activation().await.unwrap();
+    h.central.advance_activation().await.unwrap();
+    assert!(!h.central.cluster_ready() && !h.worker.cluster_ready());
+    assert_eq!(
+        h.central
+            .snapshot()
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("crdf"),
+        Some(new_key)
+    );
+    assert_eq!(
+        h.worker
+            .snapshot()
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("crdf"),
+        Some(old_key)
+    );
+    let restart = Controller::load(
+        h.central.base.clone(),
+        Store::open(&h.central.base.data_dir).unwrap(),
+    )
+    .await
+    .unwrap();
+    assert!(!restart.cluster_ready());
+    assert_eq!(
+        restart
+            .snapshot()
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("crdf"),
+        Some(new_key)
+    );
+    drop(restart);
+    h.outage.store(false, Ordering::SeqCst);
+    h.finish().await;
+    h.ready_peer().await;
+    for node in [&h.central, &h.worker] {
+        assert_eq!(
+            node.snapshot()
+                .config
+                .provider_credentials
+                .as_ref()
+                .unwrap()
+                .get("crdf"),
+            Some(new_key)
+        );
+    }
+    assert_eq!(
+        original
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("crdf"),
+        Some(old_key)
+    );
+    let view = view(&h, &h.admin, "/admin/protection").await;
+    assert_eq!(view["loaded_keys"]["crdf"], true);
+    assert_eq!(view["pending_keys"]["crdf"], false);
+    assert!(!view.to_string().contains(new_key));
+    // A settings-only save retains the installed generation despite changed sources.
+    let keep = h.stage(97.).await;
+    assert_eq!(
+        keep.rollout().unwrap().candidate().credential_generation,
+        rollout.candidate().credential_generation
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    h.close().await;
+}
+
+#[tokio::test]
+async fn credential_abort_and_partial_commit_recovery_restore_the_original_set() {
+    let old_key = "synthetic-recovery-crdf-original-12345";
+    let dqs = "syntheticStagedDqsKey123456789";
+    let h = Harness::with_crdf(false, true, Some(old_key)).await;
+    h.stage(95.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let stage_key = || {
+        h.browser(
+            &h.admin,
+            "/admin/keys",
+            json!({"revision":1,"provider":"spamhaus","key":dqs}),
+            true,
+        )
+    };
+    h.outage.store(true, Ordering::SeqCst);
+    let reply = stage_key().await;
+    assert!(reply.status().is_success());
+    let reply: Value = reply.json().await.unwrap();
+    assert_eq!(reply["staged"], true);
+    assert_eq!(reply["active"], false);
+    assert!(
+        !h.central
+            .base
+            .data_dir
+            .join("credentials/spamhaus.key")
+            .exists()
+    );
+    let aborted = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/activation/abort",
+            json!({"epoch":reply["epoch"]}),
+            true,
+        )
+        .await;
+    assert!(aborted.status().is_success());
+    h.central.advance_activation().await.unwrap();
+    h.outage.store(false, Ordering::SeqCst);
+    h.ready_peer().await;
+    assert!(h.central.cluster_ready() && h.worker.cluster_ready());
+    assert!(
+        h.central
+            .snapshot()
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("spamhaus")
+            .is_none()
+    );
+    let response = stage_key().await;
+    let status = response.status();
+    let staged: Value = response.json().await.unwrap();
+    assert!(status.is_success(), "{staged}");
+    h.all_prepared().await;
+    h.outage.store(true, Ordering::SeqCst);
+    h.central.advance_activation().await.unwrap();
+    h.central.advance_activation().await.unwrap();
+    assert_eq!(
+        h.central
+            .snapshot()
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("spamhaus"),
+        Some(dqs)
+    );
+    assert!(
+        h.worker
+            .snapshot()
+            .config
+            .provider_credentials
+            .as_ref()
+            .unwrap()
+            .get("spamhaus")
+            .is_none()
+    );
+    assert!(!h.central.cluster_ready() && !h.worker.cluster_ready());
+    for node in [&h.central, &h.worker] {
+        noisefence::management::save_key(
+            &node.base.data_dir,
+            "spamhaus",
+            "syntheticUnrelatedSourceDqs123456",
+        )
+        .unwrap();
+    }
+    let response = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/activation/recover",
+            json!({"epoch":staged["epoch"]}),
+            true,
+        )
+        .await;
+    let status = response.status();
+    let recovery: Value = response.json().await.unwrap();
+    assert!(status.is_success(), "{recovery}");
+    assert!(!recovery.to_string().contains(old_key));
+    assert!(!recovery.to_string().contains(dqs));
+    h.outage.store(false, Ordering::SeqCst);
+    let final_state = h.finish().await;
+    assert_eq!(final_state.current().revision, 3);
+    for node in [&h.central, &h.worker] {
+        let snapshot = node.snapshot();
+        let keys = snapshot.config.provider_credentials.as_ref().unwrap();
+        assert_eq!(keys.get("crdf"), Some(old_key));
+        assert!(keys.get("spamhaus").is_none());
+        let cold = Controller::load(node.base.clone(), Store::open(&node.base.data_dir).unwrap())
+            .await
+            .unwrap();
+        assert!(!cold.cluster_ready());
+        assert!(
+            cold.snapshot()
+                .config
+                .provider_credentials
+                .as_ref()
+                .unwrap()
+                .get("spamhaus")
+                .is_none()
+        );
+    }
+    let status = view(&h, &h.admin, "/admin/keys").await;
+    assert_eq!(status["spamhaus"], false);
+    let settings = view(&h, &h.admin, "/admin/config").await;
+    assert_eq!(settings["available"]["reputation"], false);
     h.close().await;
 }

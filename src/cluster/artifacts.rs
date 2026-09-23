@@ -18,6 +18,8 @@ pub struct Artifact {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Bundle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_generation: Option<String>,
     pub protocol: String,
     pub build: String,
     pub revision: i64,
@@ -26,6 +28,7 @@ pub struct Bundle {
     pub files: BTreeMap<String, Artifact>,
     pub digest: String,
 }
+#[derive(Clone)]
 pub struct Publication {
     pub bundle: Bundle,
     pub paths: BTreeMap<String, PathBuf>,
@@ -39,6 +42,14 @@ pub fn freeze(root: &Path, publication: &Publication, reserve: u64) -> Result<()
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     publication.bundle.validate()?;
+    if let Some(hash) = &publication.bundle.credential_generation {
+        let keys = crate::credentials::Snapshot::capture(&publication.config)?;
+        ensure!(
+            keys.fingerprint() == *hash,
+            "Publication credential binding mismatch"
+        );
+        crate::credentials::generations::freeze(root, &keys)?;
+    }
     let dir = directory(root, &publication.bundle);
     for (name, artifact) in &publication.bundle.files {
         let path = dir.join(name);
@@ -239,7 +250,9 @@ pub fn model_base(
         }
         value["quality"] = quality;
     }
-    Ok(serde_json::from_value(value)?)
+    let mut config = serde_json::from_value(value)?;
+    bind_installed_credentials(&mut config, installed)?;
+    Ok(config)
 }
 pub fn require_installed_models(
     config: &crate::config::Config,
@@ -321,6 +334,12 @@ pub fn capture(
     settings: crate::control::Settings,
     revision: i64,
 ) -> Result<Publication> {
+    if let Some(hash) = &config.credential_generation {
+        ensure!(
+            crate::credentials::Snapshot::capture(config)?.fingerprint() == *hash,
+            "Runtime credential binding mismatch"
+        );
+    }
     let mut shared = serde_json::to_value(config)?;
     shared
         .as_object_mut()
@@ -366,6 +385,7 @@ pub fn capture(
         *value = json!("encoder");
     }
     let mut bundle = Bundle {
+        credential_generation: config.credential_generation.clone(),
         protocol: "noisefence-cluster-1".into(),
         build: env!("CARGO_PKG_VERSION").into(),
         revision,
@@ -386,6 +406,10 @@ impl Bundle {
     /// Build participates in the digest; never rewrite it without recomputing it.
     pub fn for_build(&self, build: &str) -> Result<Self> {
         self.validate()?;
+        ensure!(
+            self.credential_generation.is_none() || build == env!("CARGO_PKG_VERSION"),
+            "Credential-bound policy requires a matching build"
+        );
         ensure!(
             super::protocol::compatible_build(build),
             "Unsupported worker build"
@@ -611,11 +635,19 @@ impl Bundle {
         Ok(bundle)
     }
     pub fn hash(&self) -> Result<String> {
-        Ok(crate::message::digest(&serde_json::to_vec(
-            &json!({"protocol":self.protocol,"build":self.build,"revision":self.revision,"settings":self.settings,"shared":self.shared,"files":self.files}),
-        )?))
+        let mut value = json!({"protocol":self.protocol,"build":self.build,"revision":self.revision,"settings":self.settings,"shared":self.shared,"files":self.files});
+        if let Some(hash) = &self.credential_generation {
+            value["credential_generation"] = json!(hash);
+        }
+        Ok(crate::message::digest(&serde_json::to_vec(&value)?))
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.credential_generation
+                .as_ref()
+                .is_none_or(|h| crate::compatibility::valid_hash(h)),
+            "Invalid credential generation binding"
+        );
         ensure!(
             self.protocol == "noisefence-cluster-1"
                 && super::protocol::compatible_build(&self.build)
@@ -741,12 +773,14 @@ pub fn materialize(
         full["llm"]["api_key_env"] = json!("NOISEFENCE_CLUSTER_LLM");
     }
     if bundle.settings.filters.reputation
-        && crate::management::key_present(&base.data_dir, "spamhaus")
+        && (bundle.credential_generation.is_some()
+            || crate::management::key_present(&base.data_dir, "spamhaus"))
     {
         full["filter"]["spamhaus_key_env"] = json!("NOISEFENCE_WEB_DQS");
     }
     let mut config: crate::config::Config = serde_json::from_value(full)?;
     config.preferences = bundle.settings.preferences.clone();
+    bind_installed_credentials(&mut config, bundle)?;
     if let Some(rbl) = &config.rbl {
         crate::management::validate_rbl(rbl, base)?;
     }
@@ -769,6 +803,11 @@ pub fn prune_retained(root: &Path, bundles: &[&Bundle]) -> Result<()> {
     for b in bundles {
         b.validate()?;
     }
+    let hashes = bundles
+        .iter()
+        .filter_map(|b| b.credential_generation.clone())
+        .collect();
+    crate::credentials::generations::retain(root, &hashes)?;
     let parent = root.join("cluster/models");
     if !parent.is_dir() {
         return Ok(());
@@ -790,4 +829,31 @@ pub fn prune_retained(root: &Path, bundles: &[&Bundle]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn bind_installed_credentials(config: &mut crate::config::Config, bundle: &Bundle) -> Result<()> {
+    config.credential_generation = bundle.credential_generation.clone();
+    if let Some(hash) = &bundle.credential_generation {
+        config.provider_credentials = Some(std::sync::Arc::new(
+            crate::credentials::generations::load(&config.data_dir, hash)?,
+        ));
+    }
+    Ok(())
+}
+/// Freeze the resident source set at enrollment, without consulting mutable files.
+pub fn bind_credentials(mut publication: Publication) -> Result<Publication> {
+    let keys = crate::credentials::Snapshot::capture(&publication.config)?;
+    let hash = keys.fingerprint();
+    publication.config.provider_credentials = Some(std::sync::Arc::new(keys));
+    publication.config.credential_generation = Some(hash.clone());
+    publication.bundle.credential_generation = Some(hash);
+    publication.bundle.digest = publication.bundle.hash()?;
+    Ok(publication)
+}
+/// Enrollment can add a binding to the unchanged legacy policy. A key mismatch
+/// is checked separately against the resident snapshot; this is not a downgrade.
+pub fn without_credential_binding(bundle: &Bundle) -> Result<String> {
+    let mut legacy = bundle.clone();
+    legacy.credential_generation = None;
+    legacy.hash()
 }

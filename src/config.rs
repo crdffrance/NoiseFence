@@ -9,6 +9,9 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Durable credential generation for an enrolled policy; values remain private.
+    #[serde(skip)]
+    pub credential_generation: Option<String>,
     /// Runtime-only provider key snapshot; never accepted from settings or serialized.
     #[serde(skip)]
     pub provider_credentials: Option<std::sync::Arc<crate::credentials::Snapshot>>,

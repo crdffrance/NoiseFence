@@ -16,3 +16,17 @@ export function providerToggleDisabled(
 ) {
   return !saved && !loaded && !enabled;
 }
+
+export function keySaveNotice(result: {
+  staged?: boolean;
+  active?: boolean;
+  message?: string;
+}) {
+  if (result.staged)
+    return 'Key change submitted for coordinated activation. It is not applied until every MX is ready.';
+  if (result.active)
+    return 'Key loaded into the configuration for future analyses.';
+  return (
+    result.message ?? 'Key saved on the server. Apply settings to load it.'
+  );
+}

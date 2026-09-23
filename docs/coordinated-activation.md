@@ -44,7 +44,7 @@ before commit or authorize the exact prior-policy recovery after partial commit.
 ## Authenticated exchange and immutable models
 
 `POST /api/v1/cluster/v2/sync` wraps the existing metadata/budget exchange and adds
-an explicit `noisefence-activation-1` protocol and an optional exact-epoch receipt.
+an explicit `noisefence-activation-2` protocol and an optional exact-epoch receipt.
 It authenticates node credentials again in the transaction that changes readiness.
 Fresh v2 capability reports and matching base revision/digest are required from
 every enabled worker before staging. A legacy successful synchronization is not
@@ -214,18 +214,48 @@ resetting shared quotas or concurrency gates. An explicitly empty snapshot canno
 fall back to disk or environment variables. Debug and configuration serialization
 omit secret values.
 
-The v2 participant consumes the exact credential set from the authenticated poll,
-not an independent reread of the installed files. Preparation caching uses its
-fingerprint; a released epoch rejects a changed credential fingerprint. These
-checks freeze a resident generation only. Durable credential generations are not
-yet part of the bundle identity. The authority still resolves its source keys at
-activation steps, and worker sync still updates source files. Staged key changes,
-base/candidate secret distribution, crash recovery and rollback must be bound to
-their respective epochs before this feature is production-ready.
+Enrolled bundles bind a `credential_generation` SHA-256 fingerprint to a private,
+immutable provider set. Enrollment freezes the resident base and proposed set
+separately. Ordinary policy/model saves retain the installed credentials, including
+explicit absence, even if installation files or environment variables change.
+Cold startup loads the installed generation; missing, corrupt, oversized, symlinked
+or non-private files prevent preparation instead of falling back to source keys.
+
+Generations live in `data_dir/cluster/credentials/<digest>.json`, with a private
+0700 directory and 0600 files. Each validated set contains at most four supported
+provider keys and is bounded to 4 KiB. Writes sync before the proposal is staged;
+existing generations are verified rather than overwritten. Values are not encrypted
+at rest by this feature: protect the data directory and its backups as secrets.
+The bundle, model manifests, browser projections, receipts and diagnostic headers
+contain no provider values. Model download endpoints do not serve these files.
+
+Only the authenticated TLS node exchange transfers base/candidate/recovery sets.
+The worker validates the exact referenced set, provider names, key format and all
+fingerprints before installing any generation. It does not replace mutable source
+files for bound epochs. The new protocol capability must be reported by every MX;
+old stored build reports alone cannot qualify enrollment. An enrolled, bound worker
+refuses downgrade to mutable credentials. Both endpoints need the new protocol
+before coordinated operation; this is not a rolling-upgrade compatibility claim.
+
+After enrollment, the existing provider-key forms stage a coordinated revision
+through `/admin/keys` or `/admin/protection/keys/{provider}`. Both require the
+current revision, administrator session and CSRF, and recheck authorization at
+commit. Their response is `staged: true, active: false`; every MX must prepare,
+apply and receive release before admission resumes. Adding a key does not enable
+its detector automatically. The console distinguishes saved, loaded and pending
+provider states without returning values. Before enrollment, legacy source-file
+management remains available; it cannot race an enrollment transaction.
+
+Abort preserves the exact previous generation, including when the node never saw
+the cancelled prepare. Partial-commit recovery restores the prior set at a higher
+revision. Retention verifies all referenced generations before removing unreachable
+final generation files; active, pending and recovery sets stay available. Crash-left
+`.stage-*` files are not collected automatically yet. Model/runtime memory bounds,
+process-crash testing and operational upgrade qualification remain separate work.
 
 ## Remaining integration and qualification
 
-- Finish the retained/qualified artifact catalog and credential-update workflows.
+- Finish the retained/qualified artifact catalog.
   Installed model retention and explicit digest-bound installation selection work
   as described above; inactive historical models are not a retained catalog.
 - Bound resident model generations retained by old SMTP analyses, not just disk

@@ -31,6 +31,12 @@ impl std::fmt::Display for ActivationProblem {
 }
 impl std::error::Error for ActivationProblem {}
 
+#[derive(Default)]
+struct Selection {
+    scope: Option<String>,
+    models_sha256: Option<String>,
+    credential: Option<(String, Option<String>)>,
+}
 const PROPOSAL: &str = "activation_proposal";
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -216,7 +222,7 @@ impl Controller {
         actor: String,
         token_hash: String,
     ) -> Result<Journal> {
-        self.stage_authorized(revision, settings, actor, token_hash, None, None)
+        self.stage_authorized(revision, settings, actor, token_hash, Selection::default())
             .await
     }
     /// Explicit selection requires the digest returned by a draft preview.
@@ -238,8 +244,35 @@ impl Controller {
             settings,
             actor,
             token_hash,
-            None,
-            Some(models_sha256),
+            Selection {
+                models_sha256: Some(models_sha256),
+                ..Default::default()
+            },
+        )
+        .await
+    }
+    pub async fn stage_credential_session(
+        self: &Arc<Self>,
+        revision: i64,
+        provider: String,
+        key: Option<String>,
+        actor: String,
+        token_hash: String,
+    ) -> Result<Journal> {
+        ensure!(
+            self.activation_journal().await?.is_some(),
+            "Enroll coordinated activation before staging provider keys"
+        );
+        let settings = self.snapshot().settings.clone();
+        self.stage_authorized(
+            revision,
+            settings,
+            actor,
+            token_hash,
+            Selection {
+                credential: Some((provider, key)),
+                ..Default::default()
+            },
         )
         .await
     }
@@ -270,7 +303,9 @@ impl Controller {
             );
             settings.hydrate(&this.base);
             let current = this.publication().await?;
-            let base = this.base.clone();
+            let mut base = (*this.base).clone();
+            base.provider_credentials = current.config.provider_credentials.clone();
+            base.credential_generation = current.config.credential_generation.clone();
             tokio::task::spawn_blocking(move || {
                 // Keep the expensive-preview slot until owned hashing finishes,
                 // including when the HTTP client disconnects.
@@ -302,8 +337,17 @@ impl Controller {
         } else {
             settings.preferences.mailboxes.remove(&scope);
         }
-        self.stage_authorized(revision, settings, actor, token_hash, Some(scope), None)
-            .await
+        self.stage_authorized(
+            revision,
+            settings,
+            actor,
+            token_hash,
+            Selection {
+                scope: Some(scope),
+                ..Default::default()
+            },
+        )
+        .await
     }
     async fn stage_authorized(
         self: &Arc<Self>,
@@ -311,9 +355,13 @@ impl Controller {
         mut settings: Settings,
         actor: String,
         token_hash: String,
-        scope: Option<String>,
-        models_sha256: Option<String>,
+        selection: Selection,
     ) -> Result<Journal> {
+        let Selection {
+            scope,
+            models_sha256,
+            credential,
+        } = selection;
         let owner = self.authority_id()?;
         let this = self.clone();
         tokio::spawn(async move {
@@ -329,18 +377,24 @@ impl Controller {
             let publication=this.publication().await?;
             let next_revision=revision.checked_add(1).context("Revision exhausted")?;
             let root=this.base.data_dir.clone(); let reserve=this.base.smtp.minimum_free_bytes;
-            let source=publication.clone();
-            let base=this.base.clone();
-            let candidate=tokio::task::spawn_blocking(move|| {
+            let source=artifacts::bind_credentials((*publication).clone())?;
+            let mut base=(*this.base).clone();
+            base.provider_credentials=source.config.provider_credentials.clone();
+            base.credential_generation=source.config.credential_generation.clone();
+            let (candidate, bound_source)=tokio::task::spawn_blocking(move|| {
                 artifacts::freeze(&root,&source,reserve)?;
-                let config=if models_sha256.is_some() {settings.effective(&base)?}
+                let mut config=if models_sha256.is_some() {settings.effective(&base)?}
                     else {settings.effective_installed(&base,&source.bundle)?};
+                let mut keys=crate::credentials::Snapshot::capture(&source.config)?;
+                if let Some((provider,key))=credential { keys=keys.replacing(provider,key)?; }
+                config.credential_generation=Some(keys.fingerprint());
+                config.provider_credentials=Some(Arc::new(keys));
                 let next=artifacts::capture(&config,settings,next_revision)?;
                 if let Some(expected)=models_sha256 {
                     ensure!(artifacts::model_digest(&next.bundle)?==expected, "Installation models changed after preview; review and select them again");
                 }
                 artifacts::freeze(&root,&next,reserve)?;
-                Ok::<_,anyhow::Error>(next.bundle)
+                Ok::<_,anyhow::Error>((next.bundle, source.bundle))
             }).await??;
             let stale=crate::now()-this.base.cluster.as_ref().unwrap().max_stale_seconds;
             this.store.run(move|db| {
@@ -357,11 +411,11 @@ impl Controller {
                 for id in participants.iter().filter(|id| *id!=&owner) {
                     let peer=Peer::read(&tx,id)?.context("Every enabled MX must report activation support first")?;
                     let credential:String=tx.query_row("SELECT token_hash FROM cluster_nodes WHERE id=?1",[id],|r|r.get(0))?;
-                    ensure!(peer.seen>=stale && peer.build==env!("CARGO_PKG_VERSION") && peer.credential==credential
+                    ensure!(peer.seen>=stale && peer.protocol==crate::cluster::activation::transport::PROTOCOL && peer.build==env!("CARGO_PKG_VERSION") && peer.credential==credential
                         && peer.revision==revision && peer.digest==publication.bundle.digest,
                         "Every enabled MX must freshly report the exact base policy and activation protocol");
                 }
-                if existing.is_none() {Journal::initialize(&tx,&owner,publication.bundle.clone())?;}
+                if existing.is_none() {Journal::initialize(&tx,&owner,bound_source)?;}
                 let journal=Journal::begin(&tx,candidate,participants,crate::now())?;
                 save_proposal(&tx,&journal,actor,actor_version,scope)?;
                 tx.commit()?;Ok(journal)

@@ -26,6 +26,11 @@ impl Controller {
         epoch: &Epoch,
         credentials: &crate::credentials::Snapshot,
     ) -> Result<Arc<Snapshot>> {
+        let credentials = if let Some(hash) = &bundle.credential_generation {
+            crate::credentials::generations::load(&self.base.data_dir, hash)?
+        } else {
+            credentials.clone()
+        };
         let keys = credentials.fingerprint();
         if let Some(staged) = self.prepared_activation.lock().unwrap().as_ref()
             && staged.epoch == *epoch
@@ -151,6 +156,12 @@ impl Controller {
                 .await?;
             let rollout = local.authority().rollout().unwrap().clone();
             let phase = rollout.phase();
+            let selected = if phase == Phase::Aborted {
+                rollout.base()
+            } else {
+                rollout.candidate()
+            };
+            let keys = selected.credential_generation.clone().unwrap_or(keys);
             let snapshot = this.snapshot();
             if enrolling {
                 if crate::cluster::is_worker(&this.base) {
@@ -160,13 +171,37 @@ impl Controller {
                     // silently rewound by an enrollment using an older base.
                     ensure!(
                         (installed.is_empty() && snapshot.revision == 0)
-                            || (installed == rollout.base_epoch().digest
+                            || ((installed == rollout.base_epoch().digest
+                                || (snapshot.config.credential_generation.is_none()
+                                    && installed
+                                        == artifacts::without_credential_binding(
+                                            rollout.base()
+                                        )?
+                                    && rollout.base().credential_generation.as_ref().is_none_or(
+                                        |h| snapshot
+                                            .config
+                                            .provider_credentials
+                                            .as_ref()
+                                            .is_some_and(|k| k.fingerprint() == *h)
+                                    )))
                                 && snapshot.revision == rollout.base_epoch().revision),
                         "Enrollment base differs from the installed worker policy"
                     );
                 } else {
                     ensure!(
-                        this.publication().await?.bundle.digest == rollout.base_epoch().digest,
+                        this.publication().await?.bundle.digest == rollout.base_epoch().digest
+                            || (snapshot.config.credential_generation.is_none()
+                                && this.publication().await?.bundle.digest
+                                    == artifacts::without_credential_binding(rollout.base())?
+                                && rollout
+                                    .base()
+                                    .credential_generation
+                                    .as_ref()
+                                    .is_none_or(|h| snapshot
+                                        .config
+                                        .provider_credentials
+                                        .as_ref()
+                                        .is_some_and(|k| k.fingerprint() == *h))),
                         "Enrollment base differs from the resident authority policy"
                     );
                 }
@@ -196,7 +231,9 @@ impl Controller {
                 let initial = this
                     .activation_runtime(local.installed(), local.installed_epoch(), &credentials)
                     .await?;
-                this.install_activation(initial, &keys, server_time);
+                let initial_keys =
+                    crate::credentials::Snapshot::capture(&initial.config)?.fingerprint();
+                this.install_activation(initial, &initial_keys, server_time);
                 this.store
                     .activation
                     .bind_initial(&proof, local.installed_epoch())?;

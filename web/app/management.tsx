@@ -1,4 +1,5 @@
 'use client';
+import { keySaveNotice } from './provider-credentials';
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, FlaskConical, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -940,17 +941,13 @@ export function ManagedKeys({
           setError('');
           setNotice('');
           try {
-            const result = await api<{ active: boolean; message?: string }>(
+            const result = await api<{ active: boolean; staged?: boolean; message?: string }>(
               '/admin/keys',
               { revision, provider, key },
               csrf,
             );
             setKey('');
-            setNotice(
-              result.active
-                ? "Saved key. Reloaded configuration for future analyses."
-                : (result.message ?? "Key saved."),
-            );
+            setNotice(keySaveNotice(result));
             await onSaved();
           } catch (e) {
             setError((e as Error).message);

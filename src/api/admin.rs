@@ -91,8 +91,11 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         quarantine_days: 14,
     });
     let pub_tag_ready = control.effective_settings(&pub_tag).await.is_ok();
+    let mut availability = (*control.base).clone();
+    availability.provider_credentials = s.config.provider_credentials.clone();
+    availability.credential_generation = s.config.credential_generation.clone();
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
-        "available":Settings::available(&control.base),
+        "available":Settings::available(&availability),
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
         "native_rules":crate::native_filter::content_rules::RULES,
         "threshold_locked":control.base.filter.semantic.is_some() || control.base.fusion.as_ref().is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision),"tag_ready":tag_ready,
@@ -376,30 +379,54 @@ async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Js
     let base = control.base.protection.as_ref();
     let root = app.store.root.clone();
     let resident_keys = snapshot.config.provider_credentials.clone();
-    let (keys, loaded_keys, pending_keys, usage) = tokio::task::spawn_blocking(move || {
-        use crate::protection::providers::{Provider, quota_usage_with_key, read_key};
-        let mut saved = json!({});
-        let mut loaded = json!({});
-        let mut pending = json!({});
-        let mut usage = json!({});
-        for provider in [Provider::Crdf, Provider::Virustotal] {
-            let name = provider.name();
-            let source = read_key(&root, provider).ok();
-            let current = resident_keys.as_ref().and_then(|keys| keys.get(name));
-            saved[name] = json!(source.is_some());
-            loaded[name] = json!(current.is_some());
-            pending[name] = json!(source.as_deref() != current);
-            usage[name] = json!(quota_usage_with_key(&root, provider, current).ok());
-        }
-        (saved, loaded, pending, usage)
-    })
-    .await
-    .map_err(|_| {
-        Error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Condition of the connectors not available.".into(),
-        )
-    })?;
+    let bound = snapshot.config.credential_generation.is_some();
+    let staged_generation = control.activation_journal().await?.and_then(|j| {
+        j.rollout()
+            .filter(|r| {
+                matches!(
+                    r.phase(),
+                    crate::cluster::activation::Phase::Preparing
+                        | crate::cluster::activation::Phase::Committed
+                )
+            })
+            .and_then(|r| r.candidate().credential_generation.clone())
+    });
+    let (keys, loaded_keys, pending_keys, usage) =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            use crate::protection::providers::{Provider, quota_usage_with_key, read_key};
+            let staged = staged_generation
+                .as_deref()
+                .map(|h| crate::credentials::generations::load(&root, h))
+                .transpose()?;
+            let mut saved = json!({});
+            let mut loaded = json!({});
+            let mut pending = json!({});
+            let mut usage = json!({});
+            for provider in [Provider::Crdf, Provider::Virustotal] {
+                let name = provider.name();
+                let current = resident_keys.as_ref().and_then(|keys| keys.get(name));
+                let source = if bound || staged.is_some() {
+                    staged
+                        .as_ref()
+                        .map_or(current, |s| s.get(name))
+                        .map(str::to_owned)
+                } else {
+                    read_key(&root, provider).ok()
+                };
+                saved[name] = json!(source.is_some());
+                loaded[name] = json!(current.is_some());
+                pending[name] = json!(source.as_deref() != current);
+                usage[name] = json!(quota_usage_with_key(&root, provider, current).ok());
+            }
+            Ok((saved, loaded, pending, usage))
+        })
+        .await
+        .map_err(|_| {
+            Error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Condition of the connectors not available.".into(),
+            )
+        })??;
     use crate::protection::Provider;
     Ok(Json(json!({
         "available":base.is_some(), "enabled":settings.is_some(), "revision":snapshot.revision,
@@ -412,6 +439,8 @@ async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Js
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProtectionKey {
+    #[serde(default)]
+    revision: Option<i64>,
     key: String,
 }
 async fn protection_key(
@@ -436,12 +465,28 @@ async fn protection_key(
             "Expected key: 16 to 256 characters without space.".into(),
         ));
     }
+    if control.activation_journal().await?.is_some() {
+        let revision = body.revision.ok_or_else(|| {
+            Error(
+                StatusCode::CONFLICT,
+                "Refresh settings before staging a provider key.".into(),
+            )
+        })?;
+        let journal = control.stage_credential_session(revision, provider.name().into(), Some(body.key),
+            user.username, message::digest(token(&h).unwrap().as_bytes())).await
+            .map_err(|_| Error(StatusCode::CONFLICT, "Unable to stage the provider key. Refresh settings and check activation status.".into()))?;
+        let epoch = journal.rollout().unwrap().epoch();
+        return Ok(Json(
+            json!({"saved":true,"staged":true,"active":false,"revision":epoch.revision,"epoch":epoch}),
+        ));
+    }
     let root = app.store.root.clone();
     let hash = message::digest(token(&h).unwrap().as_bytes());
     app.store.run(move|db|{
         let tx=db.transaction()?;
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![user.username,hash,now()],|r|r.get(0))?;
         anyhow::ensure!(allowed,"Administrative session expired");
+        anyhow::ensure!(crate::cluster::activation::Journal::read(&tx)?.is_none(), "Use coordinated credential staging");
         crate::protection::save_key(&root,provider,&body.key)?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),user.username,provider.name()])?;
         tx.commit()?;Ok(())
@@ -610,10 +655,28 @@ async fn validate_configuration(
 async fn managed_keys(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
     let c = controller(&app)?;
+    let snapshot = c.snapshot();
+    let present = |name: &str| {
+        if snapshot.config.credential_generation.is_some() {
+            snapshot
+                .config
+                .provider_credentials
+                .as_ref()
+                .is_some_and(|k| k.get(name).is_some())
+        } else {
+            crate::management::key_present(&c.base.data_dir, name)
+                || if name == "spamhaus" {
+                    c.base.filter.spamhaus_key_env.is_some()
+                } else {
+                    c.base.llm.is_some()
+                }
+        }
+    };
     Ok(Json(
-        json!({"spamhaus":crate::management::key_present(&c.base.data_dir,"spamhaus") || c.base.filter.spamhaus_key_env.is_some(),"scaleway":crate::management::key_present(&c.base.data_dir,"scaleway") || c.base.llm.is_some(),"scaleway_available":c.base.llm.is_some()}),
+        json!({"spamhaus":present("spamhaus"),"scaleway":present("scaleway"),"scaleway_available":c.base.llm.is_some()}),
     ))
 }
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ManagedKey {
@@ -653,6 +716,15 @@ async fn save_managed_key(
             "Scaleway connector not installed.".into(),
         ));
     }
+    if c.activation_journal().await?.is_some() {
+        let journal = c.stage_credential_session(body.revision, body.provider, Some(body.key),
+            user.username, message::digest(token(&h).unwrap().as_bytes())).await
+            .map_err(|_| Error(StatusCode::CONFLICT, "Unable to stage the provider key. Refresh settings and check activation status.".into()))?;
+        let epoch = journal.rollout().unwrap().epoch();
+        return Ok(Json(
+            json!({"saved":true,"staged":true,"active":false,"revision":epoch.revision,"epoch":epoch}),
+        ));
+    }
     let hash = message::digest(token(&h).unwrap().as_bytes());
     let root = c.base.data_dir.clone();
     let username = user.username.clone();
@@ -660,6 +732,7 @@ async fn save_managed_key(
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![username,hash,now()],|r|r.get(0))?;
         anyhow::ensure!(allowed,"Administrative session expired");
         let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;anyhow::ensure!(current==body.revision,"Configuration changed.");
+        anyhow::ensure!(crate::cluster::activation::Journal::read(&tx)?.is_none(), "Use coordinated credential staging");
         crate::management::save_key(&root,&body.provider,&body.key)?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),username,body.provider])?;tx.commit()?;Ok(())}).await?;
     let snapshot = c.snapshot();

@@ -222,9 +222,38 @@ async fn sync_v2(
             "Unsupported activation protocol or build".into(),
         ));
     }
-    let (data, activation) =
-        sync_exchange(app, h, request.poll, true, request.acknowledgement).await?;
+    let (data, activation) = sync_exchange(
+        app.clone(),
+        h.clone(),
+        request.poll,
+        true,
+        request.acknowledgement,
+    )
+    .await?;
+    let hashes = activation
+        .as_ref()
+        .map(|j| {
+            j.bundles()
+                .iter()
+                .filter_map(|b| b.credential_generation.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let root = app.store.root.clone();
+    let credential_generations = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        hashes
+            .into_iter()
+            .map(|hash| {
+                let values = crate::credentials::generations::load(&root, &hash)?.export();
+                Ok((hash, values))
+            })
+            .collect::<anyhow::Result<std::collections::BTreeMap<_, _>>>()
+    })
+    .await
+    .map_err(anyhow::Error::from)??;
+    node(&app, &h).await?;
     Ok(Json(transport::Reply {
+        credential_generations,
         protocol: transport::PROTOCOL.into(),
         data,
         activation,
@@ -281,6 +310,7 @@ async fn sync_exchange(
     let revision = request.revision;
     let digest = request.digest;
     let peer = coordinated.then(|| Peer {
+        protocol: crate::cluster::activation::transport::PROTOCOL.into(),
         seen: now(),
         build: request.build.clone(),
         revision,
@@ -335,7 +365,11 @@ async fn sync_exchange(
     let (credits, secrets) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
         Ok((
             crate::cluster::budget::grant(&config, &owner, &budget, now())?,
-            protocol::secrets(&key_config)?,
+            if key_config.credential_generation.is_some() {
+                Default::default()
+            } else {
+                protocol::secrets(&key_config)?
+            },
         ))
     })
     .await
