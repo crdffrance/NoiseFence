@@ -155,7 +155,7 @@ pub fn file_digest(path: &Path) -> Result<(u64, String)> {
     ensure!(count == size, "Model changed while hashing");
     Ok((size, hex::encode(digest.finalize())))
 }
-fn file_slots(value: &Value) -> Vec<String> {
+pub(crate) fn file_slots(value: &Value) -> Vec<String> {
     let mut paths = vec![
         "/filter/model",
         "/filter/semantic/combination",

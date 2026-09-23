@@ -26,10 +26,96 @@ pub(super) fn routes(app: App) -> Router<App> {
         .route("/admin/cluster/activation/view", get(activation_view))
         .route("/admin/cluster/models/preview", post(preview_models))
         .route(
+            "/admin/cluster/models/catalog",
+            get(catalog).post(retain_catalog),
+        )
+        .route(
+            "/admin/cluster/models/catalog/preview",
+            post(preview_catalog),
+        )
+        .route("/admin/cluster/models/catalog/remove", post(remove_catalog))
+        .route(
             "/admin/cluster/activation/recover",
             post(recover_activation),
         )
         .merge(nodes)
+}
+fn catalog_error(error: anyhow::Error) -> Error {
+    tracing::warn!(%error,"model catalog operation refused");
+    Error(StatusCode::UNPROCESSABLE_ENTITY,"Model catalog operation refused. Reload the draft and check model availability, capacity and server logs. Installed models remain unchanged.".into())
+}
+async fn catalog(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    super::admin::administrator(&app, &h, false).await?;
+    Ok(Json(
+        coordinator(&app)?
+            .catalog_list()
+            .await
+            .map_err(catalog_error)?,
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CatalogRetain {
+    revision: i64,
+    label: String,
+}
+async fn retain_catalog(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<CatalogRetain>,
+) -> ApiResult<Json<Value>> {
+    let user = super::admin::administrator(&app, &h, true).await?;
+    let entry = coordinator(&app)?
+        .retain_catalog_models(
+            body.revision,
+            body.label,
+            user.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(catalog_error)?;
+    Ok(Json(json!({"entry":entry})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CatalogPreview {
+    revision: i64,
+    settings: crate::control::Settings,
+    id: String,
+}
+async fn preview_catalog(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<CatalogPreview>,
+) -> ApiResult<Json<Value>> {
+    super::admin::administrator(&app, &h, true).await?;
+    Ok(Json(
+        coordinator(&app)?
+            .preview_catalog_models(body.revision, body.settings, body.id)
+            .await
+            .map_err(catalog_error)?,
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CatalogRemove {
+    id: String,
+}
+async fn remove_catalog(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<CatalogRemove>,
+) -> ApiResult<Json<Value>> {
+    let user = super::admin::administrator(&app, &h, true).await?;
+    coordinator(&app)?
+        .remove_catalog_models(
+            body.id,
+            user.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(catalog_error)?;
+    Ok(Json(json!({"removed":true})))
 }
 async fn preview_models(
     State(app): State<App>,

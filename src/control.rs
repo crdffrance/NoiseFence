@@ -206,6 +206,9 @@ impl Settings {
     pub fn effective(&self, base: &Config) -> Result<Config> {
         self.effective_inner(base, false)
     }
+    pub(crate) fn effective_catalog(&self, base: &Config) -> Result<Config> {
+        self.effective_inner(base, true)
+    }
     pub(crate) fn effective_installed(
         &self,
         base: &Config,

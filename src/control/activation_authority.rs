@@ -39,6 +39,7 @@ impl std::error::Error for ActivationProblem {}
 struct Selection {
     scope: Option<String>,
     models_sha256: Option<String>,
+    catalog: Option<crate::model_catalog::Selection>,
     credential: Option<(String, Option<String>)>,
 }
 const PROPOSAL: &str = "activation_proposal";
@@ -280,6 +281,122 @@ impl Controller {
         )
         .await
     }
+    pub async fn stage_catalog_models_session(
+        self: &Arc<Self>,
+        revision: i64,
+        settings: Settings,
+        actor: String,
+        token_hash: String,
+        catalog: crate::model_catalog::Selection,
+    ) -> Result<Journal> {
+        catalog.validate()?;
+        ensure!(
+            self.activation_journal().await?.is_some(),
+            "Enroll coordinated activation before selecting retained models"
+        );
+        self.stage_authorized(
+            revision,
+            settings,
+            actor,
+            token_hash,
+            Selection {
+                catalog: Some(catalog),
+                ..Default::default()
+            },
+        )
+        .await
+    }
+    pub async fn catalog_list(self: &Arc<Self>) -> Result<serde_json::Value> {
+        self.authority_id()?;
+        let permit = self
+            .applying
+            .clone()
+            .try_acquire_owned()
+            .context("A policy operation is already in progress")?;
+        let root = self.base.data_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit=permit;
+            Ok(serde_json::json!({"entries":crate::model_catalog::list(&root)?,"max_sets":crate::model_catalog::MAX_SETS,"max_bytes":crate::model_catalog::MAX_BYTES}))
+        }).await?
+    }
+    pub async fn retain_catalog_models(
+        self: &Arc<Self>,
+        revision: i64,
+        label: String,
+        actor: String,
+        token_hash: String,
+    ) -> Result<crate::model_catalog::Entry> {
+        self.authority_id()?;
+        let this = self.clone();
+        tokio::spawn(async move {
+            let _serial=this.activation_serial.clone().lock_owned().await;
+            let _applying=this.applying.clone().acquire_owned().await?;
+            let a=actor.clone();let t=token_hash.clone();
+            this.store.run(move|db|admin(&db.transaction()?,&a,&t)).await?;
+            ensure!(this.snapshot().revision==revision,"Configuration changed; reload before retaining models");
+            ensure!(this.activation_journal().await?.is_some_and(|j|j.released()) && this.cluster_ready(),"Retain models only after coordinated release");
+            let publication=this.publication().await?;
+            let root=this.base.data_dir.clone();let reserve=this.base.smtp.minimum_free_bytes;
+            let entry=tokio::task::spawn_blocking(move||crate::model_catalog::retain(&root,&publication,label,reserve)).await??;
+            let id=entry.id.clone();
+            this.store.run(move|db| {
+                let tx=db.transaction()?;admin(&tx,&actor,&token_hash)?;
+                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'model_set_retained',?3)",params![crate::now(),actor,id])?;
+                tx.commit()?;Ok(())
+            }).await?;
+            Ok(entry)
+        }).await?
+    }
+    pub async fn remove_catalog_models(
+        self: &Arc<Self>,
+        id: String,
+        actor: String,
+        token_hash: String,
+    ) -> Result<()> {
+        self.authority_id()?;
+        let this = self.clone();
+        tokio::spawn(async move {
+            let _serial=this.activation_serial.clone().lock_owned().await;
+            let _applying=this.applying.clone().acquire_owned().await?;
+            let a=actor.clone();let t=token_hash.clone();
+            this.store.run(move|db|admin(&db.transaction()?,&a,&t)).await?;
+            let root=this.base.data_dir.clone();let item=id.clone();
+            tokio::task::spawn_blocking(move||crate::model_catalog::remove(&root,&item)).await??;
+            this.store.run(move|db| {
+                db.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'model_set_removed',?3)",params![crate::now(),actor,id])?;Ok(())
+            }).await
+        }).await?
+    }
+    pub async fn preview_catalog_models(
+        self: &Arc<Self>,
+        revision: i64,
+        mut settings: Settings,
+        id: String,
+    ) -> Result<serde_json::Value> {
+        self.authority_id()?;
+        let permit = self
+            .applying
+            .clone()
+            .try_acquire_owned()
+            .context("A policy operation is already in progress")?;
+        let this = self.clone();
+        tokio::spawn(async move {
+            ensure!(this.snapshot().revision==revision,"Configuration changed; reload before selecting models");
+            settings.hydrate(&this.base);
+            let current=this.publication().await?;
+            let mut base=(*this.base).clone();
+            base.provider_credentials=current.config.provider_credentials.clone();
+            base.credential_generation=current.config.credential_generation.clone();
+            tokio::task::spawn_blocking(move|| {
+                let _permit=permit;
+                let entry=crate::model_catalog::load(&base.data_dir,&id)?;
+                settings.quality_candidate=entry.quality_candidate.clone();
+                let config=entry.effective(&base,&settings)?;
+                let candidate=artifacts::capture(&config,settings,revision)?;
+                Ok(serde_json::json!({"revision":revision,"id":entry.id,"installed":artifacts::model_manifest(&current.bundle)?,"installation":artifacts::model_manifest(&candidate.bundle)?,"installed_sha256":artifacts::model_digest(&current.bundle)?,"installation_sha256":artifacts::model_digest(&candidate.bundle)?,"quality_candidate":entry.quality_candidate,"qualification":entry.qualification(&base.data_dir)}))
+            }).await?
+        }).await?
+    }
     pub async fn effective_settings(&self, settings: &Settings) -> Result<crate::config::Config> {
         if self.activation_journal().await?.is_some() {
             let publication = self.publication().await?;
@@ -364,6 +481,7 @@ impl Controller {
         let Selection {
             scope,
             models_sha256,
+            catalog,
             credential,
         } = selection;
         let owner = self.authority_id()?;
@@ -387,7 +505,9 @@ impl Controller {
             base.credential_generation=source.config.credential_generation.clone();
             let (candidate, bound_source)=tokio::task::spawn_blocking(move|| {
                 artifacts::freeze(&root,&source,reserve)?;
-                let mut config=if models_sha256.is_some() {settings.effective(&base)?}
+                let mut config=if let Some(selection)=&catalog {
+                    crate::model_catalog::load(&root,&selection.id)?.effective(&base,&settings)?
+                } else if models_sha256.is_some() {settings.effective(&base)?}
                     else {settings.effective_installed(&base,&source.bundle)?};
                 let mut keys=crate::credentials::Snapshot::capture(&source.config)?;
                 if let Some((provider,key))=credential { keys=keys.replacing(provider,key)?; }
@@ -396,6 +516,9 @@ impl Controller {
                 let next=artifacts::capture(&config,settings,next_revision)?;
                 if let Some(expected)=models_sha256 {
                     ensure!(artifacts::model_digest(&next.bundle)?==expected, "Installation models changed after preview; review and select them again");
+                }
+                if let Some(selection)=catalog {
+                    ensure!(artifacts::model_digest(&next.bundle)?==selection.sha256,"Retained model selection changed; preview the draft again");
                 }
                 artifacts::freeze(&root,&next,reserve)?;
                 Ok::<_,anyhow::Error>((next.bundle, source.bundle))

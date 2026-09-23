@@ -113,6 +113,8 @@ struct Apply {
     settings: Settings,
     #[serde(default)]
     installation_models_sha256: Option<String>,
+    #[serde(default)]
+    catalog_models: Option<crate::model_catalog::Selection>,
 }
 async fn apply(
     State(app): State<App>,
@@ -121,6 +123,12 @@ async fn apply(
 ) -> ApiResult<Json<Value>> {
     let user = administrator(&app, &h, true).await?;
     let control = controller(&app)?;
+    if body.installation_models_sha256.is_some() && body.catalog_models.is_some() {
+        return Err(Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Choose one model source per save.".into(),
+        ));
+    }
     if body.revision != control.snapshot().revision {
         return Err(Error(
             StatusCode::CONFLICT,
@@ -129,7 +137,17 @@ async fn apply(
     }
     if control.activation_journal().await?.is_some() {
         let token_hash = message::digest(token(&h).unwrap().as_bytes());
-        let journal = if let Some(digest) = body.installation_models_sha256 {
+        let journal = if let Some(selection) = body.catalog_models {
+            control
+                .stage_catalog_models_session(
+                    body.revision,
+                    body.settings,
+                    user.username,
+                    token_hash,
+                    selection,
+                )
+                .await
+        } else if let Some(digest) = body.installation_models_sha256 {
             control
                 .stage_installation_models_session(
                     body.revision,
@@ -155,7 +173,7 @@ async fn apply(
             json!({"revision":epoch.revision,"staged":true,"epoch":epoch}),
         ));
     }
-    if body.installation_models_sha256.is_some() {
+    if body.installation_models_sha256.is_some() || body.catalog_models.is_some() {
         return Err(Error(
             StatusCode::CONFLICT,
             "Enroll coordinated activation before selecting installation models.".into(),

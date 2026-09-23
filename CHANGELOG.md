@@ -2,6 +2,14 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Add an administrator Web catalog for explicitly retained model sets, independent
+  of rollout-cache pruning. Preview and select their exact files in a coordinated
+  settings save while preserving current policy and credentials; include the
+  retained shadow candidate explicitly. Private copies are bounded and streamed,
+  survive source deletion, and can be removed without breaking staged rollouts.
+  Show model-bound fusion report checks separately from whole-pipeline quality,
+  which remains unevaluated. No enrollment, promotion or deployment is implied.
+
 - Bound each controller's active, prepared and retained engines to three runtime
   generations, including detached native/semantic inference after cancellation.
   Defer preparation under pressure, explain the coordinator's wait in English,

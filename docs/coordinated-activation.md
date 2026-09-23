@@ -162,11 +162,13 @@ The calibration workbench's shadow-candidate selection and removal also stage a
 coordinated revision after enrollment, preserving their observation-only role.
 Its UI shows pending activation and refreshes the installed selection after release.
 
-This is explicit installed-versus-installation selection, not a complete retained
-artifact catalog. Disabling a detector omits its files from the new bundle; later
-re-enabling a missing model requires an explicit installation selection. Arbitrary
-model uploads, independent qualification records for selectable model sets and
-long-lived selection of inactive historical artifacts remain future catalog work.
+The [retained model catalog](model-catalog.md) additionally keeps explicitly named
+installed sets independently of rollout pruning. Administrators can preview and
+select a dormant set without its original installation or research files. The
+new draft keeps current policies and credentials and explicitly selects the
+retained shadow candidate. Hashes and bundled report checks do not independently
+qualify that set. Arbitrary model uploads, independently audited qualification
+records and replicated catalog/console failover remain future work.
 A newer managed shadow candidate still requires its referenced research file and
 matching digest; an unavailable new candidate never falls back to the old one.
 

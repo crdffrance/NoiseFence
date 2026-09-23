@@ -11,7 +11,13 @@ export type ModelPreview = {
   installation: Record<string, ModelFile>;
   qualification: 'not_evaluated';
 };
-export function ModelManifest({ value }: { value: ModelPreview }) {
+export function ModelManifest({
+  value,
+  sourceLabel = 'Server installation',
+}: {
+  value: Pick<ModelPreview, 'installed' | 'installation'>;
+  sourceLabel?: string;
+}) {
   const slots = [
     ...new Set([
       ...Object.keys(value.installed),
@@ -26,7 +32,7 @@ export function ModelManifest({ value }: { value: ModelPreview }) {
           <tr>
             <th>Model slot</th>
             <th>Installed</th>
-            <th>Server installation</th>
+            <th>{sourceLabel}</th>
           </tr>
         </thead>
         <tbody>

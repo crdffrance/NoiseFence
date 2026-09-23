@@ -1207,6 +1207,223 @@ async fn settings_keep_installed_models_until_an_explicit_digest_bound_selection
 }
 
 #[tokio::test]
+async fn retained_model_selection_uses_current_policy_keys_and_survives_catalog_removal() {
+    let old_key = "synthetic-catalog-old-crdf-key";
+    let new_key = "synthetic-catalog-new-crdf-key";
+    let h = Harness::with_crdf(true, true, Some(old_key)).await;
+    let alice = grant(&h, "alice").await;
+    h.stage(97.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let initial = h.central.publication().await.unwrap();
+    let body = json!({"revision":h.central.snapshot().revision,"label":"Original model"});
+    for (token, csrf) in [(&alice, true), (&h.identity, true), (&h.admin, false)] {
+        assert!(
+            !h.browser(token, "/admin/cluster/models/catalog", body.clone(), csrf)
+                .await
+                .status()
+                .is_success()
+        );
+    }
+    let retained = h
+        .browser(&h.admin, "/admin/cluster/models/catalog", body, true)
+        .await;
+    assert!(
+        retained.status().is_success(),
+        "{}",
+        retained.text().await.unwrap()
+    );
+    let retained: Value = retained.json().await.unwrap();
+    let id = retained["entry"]["id"].as_str().unwrap().to_owned();
+    let listing = view(&h, &h.admin, "/admin/cluster/models/catalog").await;
+    assert_eq!(listing["entries"].as_array().unwrap().len(), 1);
+    for hidden in [
+        old_key,
+        "source-model.json",
+        "provider_credentials",
+        "credential_generation",
+        "domains",
+    ] {
+        assert!(!listing.to_string().contains(hidden));
+    }
+    let source = h.central.base.filter.model.as_ref().unwrap();
+    let mut model: Value = serde_json::from_slice(&std::fs::read(source).unwrap()).unwrap();
+    model["bias"] = json!(-8.0);
+    model["version"] = json!("replacement");
+    std::fs::write(source, serde_json::to_vec(&model).unwrap()).unwrap();
+    let current = h.central.snapshot();
+    let mut request = json!({"revision":current.revision,"settings":current.settings});
+    drop(current);
+    let preview: Value = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/preview",
+            request.clone(),
+            true,
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    request["installation_models_sha256"] = preview["installation_sha256"].clone();
+    h.outage.store(true, Ordering::SeqCst);
+    assert!(
+        h.browser(&h.admin, "/admin/config", request, true)
+            .await
+            .status()
+            .is_success()
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    // Rotate keys as a separate rollout; the retained model set must never put
+    // its old provider configuration back when selected later.
+    let response = h
+        .browser(
+            &h.admin,
+            "/admin/protection/keys/crdf",
+            json!({"revision":h.central.snapshot().revision,"key":new_key}),
+            true,
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    assert!(!artifacts::directory(&h.central.base.data_dir, &initial.bundle).exists());
+    std::fs::remove_file(source).unwrap();
+    let current = h.central.snapshot();
+    let mut settings = current.settings.clone();
+    settings.filters.threshold = 91.;
+    settings.preferences.enabled = true;
+    let body = json!({"revision":current.revision,"settings":settings,"id":id});
+    drop(current);
+    for (token, csrf) in [(&alice, true), (&h.identity, true), (&h.admin, false)] {
+        assert!(
+            !h.browser(
+                token,
+                "/admin/cluster/models/catalog/preview",
+                body.clone(),
+                csrf
+            )
+            .await
+            .status()
+            .is_success()
+        );
+        assert!(
+            !h.browser(
+                token,
+                "/admin/cluster/models/catalog/remove",
+                json!({"id":id}),
+                csrf
+            )
+            .await
+            .status()
+            .is_success()
+        );
+    }
+    let response = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/catalog/preview",
+            body.clone(),
+            true,
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let preview: Value = response.json().await.unwrap();
+    assert_eq!(preview["qualification"]["whole_pipeline"], "not_evaluated");
+    assert_eq!(
+        preview["installation_sha256"],
+        artifacts::model_digest(&initial.bundle).unwrap()
+    );
+    let mut request = json!({"revision":body["revision"],"settings":settings,"catalog_models":{"id":id,"sha256":preview["installation_sha256"]}});
+    request["settings"]["quality_candidate"] = preview["quality_candidate"].clone();
+    let mut stale = request.clone();
+    stale["catalog_models"]["sha256"] = json!("0".repeat(64));
+    assert_eq!(
+        h.browser(&h.admin, "/admin/config", stale, true)
+            .await
+            .status(),
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut ambiguous = request.clone();
+    ambiguous["installation_models_sha256"] = preview["installation_sha256"].clone();
+    assert_eq!(
+        h.browser(&h.admin, "/admin/config", ambiguous, true)
+            .await
+            .status(),
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY
+    );
+    h.outage.store(true, Ordering::SeqCst);
+    let response = h.browser(&h.admin, "/admin/config", request, true).await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    // Preparation uses frozen rollout storage, independently of catalog lifetime.
+    let response = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/catalog/remove",
+            json!({"id":id}),
+            true,
+        )
+        .await;
+    assert!(response.status().is_success());
+    h.all_prepared().await;
+    h.finish().await;
+    for node in [&h.central, &h.worker] {
+        let snapshot = node.snapshot();
+        assert_eq!(snapshot.config.filter.threshold, 91.);
+        assert!(snapshot.config.preferences.enabled);
+        assert_eq!(
+            protocol::secrets(&snapshot.config).unwrap()["crdf"],
+            new_key
+        );
+        assert_eq!(
+            engine::Model::load(snapshot.config.filter.model.as_ref().unwrap())
+                .unwrap()
+                .bias,
+            -4.
+        );
+        let restarted =
+            Controller::load(node.base.clone(), Store::open(&node.base.data_dir).unwrap())
+                .await
+                .unwrap();
+        assert!(!restarted.cluster_ready());
+        assert_eq!(restarted.snapshot().config.filter.threshold, 91.);
+        assert_eq!(
+            protocol::secrets(&restarted.snapshot().config).unwrap()["crdf"],
+            new_key
+        );
+        assert_eq!(
+            engine::Model::load(restarted.snapshot().config.filter.model.as_ref().unwrap())
+                .unwrap()
+                .bias,
+            -4.
+        );
+    }
+    assert!(
+        view(&h, &h.admin, "/admin/cluster/models/catalog").await["entries"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    h.close().await;
+}
+
+#[tokio::test]
 async fn managed_shadow_selection_stages_and_survives_source_removal_then_disables() {
     use noisefence::{message::digest, quality};
     let h = Harness::new(false, true).await;
@@ -1273,6 +1490,24 @@ async fn managed_shadow_selection_stages_and_survives_source_removal_then_disabl
     );
     let config = view(&h, &h.admin, "/admin/config").await;
     assert_eq!(config["settings"]["quality_candidate"]["job"], job);
+    let retained = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/catalog",
+            json!({"revision":selected.revision,"label":"Retained shadow"}),
+            true,
+        )
+        .await;
+    assert!(
+        retained.status().is_success(),
+        "{}",
+        retained.text().await.unwrap()
+    );
+    let id = retained.json::<Value>().await.unwrap()["entry"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    drop(selected);
     // Same selected job remains usable after the original research file is gone.
     h.stage(98.).await;
     h.all_prepared().await;
@@ -1317,6 +1552,60 @@ async fn managed_shadow_selection_stages_and_survives_source_removal_then_disabl
             .candidate
             .is_none()
     );
+    h.ready_peer().await;
+    let snapshot = h.central.snapshot();
+    let mut request = json!({"revision":snapshot.revision,"settings":snapshot.settings,"id":id});
+    drop(snapshot);
+    let preview = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/catalog/preview",
+            request.clone(),
+            true,
+        )
+        .await;
+    assert!(
+        preview.status().is_success(),
+        "{}",
+        preview.text().await.unwrap()
+    );
+    let preview: Value = preview.json().await.unwrap();
+    assert_eq!(preview["quality_candidate"]["job"], job);
+    request.as_object_mut().unwrap().remove("id");
+    request["settings"]["quality_candidate"] = preview["quality_candidate"].clone();
+    request["catalog_models"] = json!({"id":id,"sha256":preview["installation_sha256"]});
+    h.outage.store(true, Ordering::SeqCst);
+    let response = h.browser(&h.admin, "/admin/config", request, true).await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    for node in [&h.central, &h.worker] {
+        assert_eq!(
+            node.snapshot()
+                .settings
+                .quality_candidate
+                .as_ref()
+                .unwrap()
+                .job
+                .as_deref(),
+            Some(job.as_str())
+        );
+        assert!(
+            node.snapshot()
+                .config
+                .quality
+                .as_ref()
+                .unwrap()
+                .candidate
+                .as_ref()
+                .unwrap()
+                .is_file()
+        );
+    }
     h.close().await;
 }
 

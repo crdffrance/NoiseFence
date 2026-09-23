@@ -129,8 +129,10 @@ an authority loop that commits the console revision atomically. Explicit admin A
 stage, abort and recover rollouts. English Web forms now show progress and use
 coordinated saves after enrollment; personal proposals are checked against their
 exact authorized delta. Provider credentials now use private epoch-bound generations with coordinated
-staging and recovery. A retained qualified-artifact catalog, membership and full
-deployment qualification remain required before production enrollment. Ordinary
+staging and recovery. The [retained model catalog](model-catalog.md) supports
+explicit dormant selection with bounded private copies and model-bound report
+diagnostics. Independently audited qualification, membership and full deployment
+qualification remain required before production enrollment. Ordinary
 coordinated saves now retain installed model bytes; explicit Web selection of
 installation files is bound to a reviewed logical-manifest digest.
 

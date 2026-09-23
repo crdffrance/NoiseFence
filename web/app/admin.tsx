@@ -53,6 +53,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
 import { ModelSources } from './model-sources';
+import { ModelCatalog } from './model-catalog';
 import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, savesBlocked, type SaveResult } from './activation';
 
@@ -443,7 +444,7 @@ export function AdminConsole({
 }) {
   const activation = useActivation(user, true);
   const blocked = savesBlocked(activation.view, activation.error);
-  const [modelChoice, setModelChoice] = useState<{digest:string;draft:string;revision:number} | null>(null);
+  const [modelChoice, setModelChoice] = useState<{digest:string;catalogId?:string;quality?:Settings['quality_candidate'];draft:string;revision:number} | null>(null);
   const [config, setConfig] = useState<Configuration | null>(null),
     [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''),
@@ -464,6 +465,7 @@ export function AdminConsole({
   const [accountFilter, setAccountFilter] = useState('all');
   const modelDraft = draft ? JSON.stringify(normalize(draft)) : '';
   const modelSelection = modelChoice?.draft === modelDraft && modelChoice?.revision === config?.revision ? modelChoice.digest : null;
+  const catalogSelection = modelSelection ? modelChoice?.catalogId : undefined;
   const dirty =
     !!config &&
     !!draft &&
@@ -548,7 +550,7 @@ export function AdminConsole({
     if (!config || !draft || blocked) return;
     const result = await api<SaveResult>(
       '/admin/config',
-      { revision: config.revision, settings: normalize(draft), installation_models_sha256: modelSelection },
+      { revision: config.revision, settings: catalogSelection ? {...normalize(draft),quality_candidate:modelChoice?.quality ?? null} : normalize(draft), installation_models_sha256: catalogSelection ? null : modelSelection, catalog_models: catalogSelection ? {id:catalogSelection,sha256:modelSelection} : null },
       user.csrf,
     );
     await reload();
@@ -1109,7 +1111,11 @@ export function AdminConsole({
             />
           </div>
           <div id="filters-panel-models" role="tabpanel" aria-labelledby="filters-tab-models" hidden={filterSection !== 'models'} className="filter-section">
-            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
+            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
+            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
+              if (!choice) {setModelChoice(null);return;}
+              setModelChoice({digest:choice.digest,catalogId:choice.id,quality:choice.quality_candidate,draft:modelDraft,revision:config.revision});
+            }} />
           </div>
           <div
             id="filters-panel-policy"
@@ -1816,7 +1822,8 @@ export function AdminConsole({
         <div className="save-area">
           {review && (
             <section className="change-review">
-              {modelSelection && <p className="notice">This change explicitly selects server model files with digest <code>{modelSelection}</code>. Changed bytes will be refused until previewed again.</p>}
+              {modelSelection && <p className="notice">This change explicitly selects {catalogSelection ? 'retained' : 'server'} model files with digest <code>{modelSelection}</code>. Changed bytes will be refused until previewed again.</p>}
+              {catalogSelection && <p className="notice">The shadow candidate follows the retained preview, including explicit absence. Its role remains observation only.</p>}
               <h2>Check for changes</h2>
               <ul>
                 {(

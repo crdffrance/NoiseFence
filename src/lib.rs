@@ -20,6 +20,7 @@ pub mod learning;
 pub mod llm;
 pub mod mailing;
 pub mod message;
+pub mod model_catalog;
 pub mod native_filter;
 pub mod observations;
 pub mod population;
