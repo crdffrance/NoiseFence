@@ -1,5 +1,6 @@
 'use client';
 import {ReleaseReadiness} from './release-readiness';
+import {ReadinessExclusions} from './release-readiness-view';
 import { useEffect, useState } from 'react';
 import {QualityWorkbench,type DatasetPurpose} from './quality-workbench';
 import { Button } from '@/components/ui/button';
@@ -118,6 +119,7 @@ export function QualityConsole({user}:{user:User}) {
         <p>{loaded.readiness.risk_with_observations} risk annotations with usable observations · {loaded.readiness.kind_with_observations} usable mail-type annotations.</p>
         <p>You can validate the risk without knowing the type of mail. Uncertain answers are not transformed into legitimate examples.</p>
         {loaded.readiness.missing_or_incompatible_observations>0 && <p>{loaded.readiness.missing_or_incompatible_observations} messages do not have the necessary observations for this pipeline. Their corrections remain.</p>}
+        <ReadinessExclusions exclusions={loaded.readiness.exclusions}/>
         {loaded.readiness.detector_cohorts>1 && <p>This batch covers several versions of the controls; they will have to be evaluated separately.</p>}
         <p className="muted small">These counts describe the available data. Run a comparison to inspect the chronological folds and campaign diversity before training.</p>
       </div>}

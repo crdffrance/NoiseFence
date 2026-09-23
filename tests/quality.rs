@@ -907,6 +907,8 @@ async fn release_readiness_is_scoped_cohort_specific_and_never_an_activation_cer
     assert_eq!(r.cohorts[&cohort].messages, 1);
     assert_eq!(r.cohorts[&cohort].wanted, 1);
     assert_eq!(r.cohorts[&cohort].usable, 1);
+    assert_eq!(r.cohorts[&cohort].usable_wanted, 1);
+    assert_eq!(r.schema, "noisefence-release-readiness-2");
     assert!(r.qualification_required && r.blockers.contains(&"independent_evaluation_required"));
     let bob = quality::qualification::inspect(&store, "bob".into(), cohort.clone())
         .await
@@ -955,4 +957,173 @@ fn unsupported_llm_claims_are_diagnostic_only_and_do_not_enter_joint_features() 
     assert!(evidence.llm.reported_probability.is_none());
     assert!(evidence.llm.reported_confidence.is_none());
     assert_eq!(scan.llm.status, llm::LlmStatus::Complete);
+}
+
+#[tokio::test]
+async fn release_and_sample_readiness_share_eligibility_and_preserve_every_label() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    account(&store, "bob", false, "bob@example.test").await;
+    let now = noisefence::now();
+    let mut original = observed(&cfg);
+    original.quality = Some(quality::snapshot(&original, None));
+    let cohort = original.quality.as_ref().unwrap().artifacts_sha256.clone();
+    for risk in [
+        Some(Risk::Legitimate),
+        Some(Risk::Spam),
+        Some(Risk::Uncertain),
+        None,
+    ] {
+        let id = insert(&store, &original, "alice@example.test", now - 100).await;
+        if let Some(risk) = risk {
+            evaluation::label(&store, "alice".into(), id, risk, Some(Kind::Notification))
+                .await
+                .unwrap();
+        }
+    }
+    // Known labels survive every exclusion. The same campaign intentionally
+    // repeats: readiness counts do not claim independent campaigns or tests.
+    type EligibilityCase = (&'static str, fn(&mut Scan));
+    let cases: &[EligibilityCase] = &[
+        ("incomplete_extraction", |s| {
+            s.quality.as_mut().unwrap().complete_features = false
+        }),
+        ("unsupported_protocol", |s| {
+            s.quality.as_mut().unwrap().protocol_sha256 = digest(b"old protocol")
+        }),
+        ("non_smtp_observation", |s| {
+            s.quality.as_mut().unwrap().source = "supplied_envelope".into()
+        }),
+        ("invalid_observation", |s| {
+            s.quality.as_mut().unwrap().schema = "unknown".into()
+        }),
+        ("invalid_features", |s| {
+            s.quality.as_mut().unwrap().values.clear()
+        }),
+        ("invalid_features", |s| {
+            s.quality.as_mut().unwrap().values[0] = 1e10
+        }),
+        ("missing_campaign_identity", |s| s.campaign_simhash = None),
+        ("missing_campaign_identity", |s| s.fingerprint.clear()),
+        ("invalid_provenance", |s| {
+            s.quality.as_mut().unwrap().availability_profile = "PRIVATE INVALID PROFILE".into()
+        }),
+        ("invalid_provenance", |s| {
+            s.quality.as_mut().unwrap().artifacts_sha256 = "PRIVATE INVALID COHORT".into()
+        }),
+        ("missing_observation", |s| s.quality = None),
+        ("invalid_observation", |s| {
+            s.quality.as_mut().unwrap().candidate_status = "PRIVATE".repeat(20000)
+        }),
+    ];
+    let mut expected = std::collections::BTreeMap::new();
+    for (reason, mutate) in cases {
+        let mut scan = original.clone();
+        mutate(&mut scan);
+        let id = insert(&store, &scan, "alice@example.test", now - 100).await;
+        evaluation::label(
+            &store,
+            "alice".into(),
+            id,
+            Risk::Legitimate,
+            Some(Kind::Other),
+        )
+        .await
+        .unwrap();
+        *expected.entry(*reason).or_insert(0) += 1;
+    }
+    // A different recipient's labels cannot change Alice's numerators.
+    let id = insert(&store, &original, "bob@example.test", now - 100).await;
+    evaluation::label(&store, "bob".into(), id, Risk::Spam, None)
+        .await
+        .unwrap();
+    let batch = evaluation::sample(
+        &store,
+        "alice".into(),
+        now - 1000,
+        now,
+        50,
+        "example.test".into(),
+    )
+    .await
+    .unwrap();
+    let release = quality::qualification::inspect(&store, "alice".into(), cohort.clone())
+        .await
+        .unwrap();
+    let sample = evaluation::readiness(&store, "alice".into(), batch.clone())
+        .await
+        .unwrap();
+    let counts = &release.cohorts[&cohort];
+    assert_eq!(counts.usable, 4);
+    assert_eq!(
+        (
+            counts.usable_wanted,
+            counts.usable_unwanted,
+            counts.usable_uncertain,
+            counts.usable_unlabelled
+        ),
+        (1, 1, 1, 1)
+    );
+    assert_eq!(
+        release.cohorts.values().map(|c| c.wanted).sum::<usize>(),
+        cases.len() + 1
+    );
+    assert_eq!(
+        release.cohorts.values().map(|c| c.messages).sum::<usize>(),
+        cases.len() + 4
+    );
+    for c in release.cohorts.values() {
+        assert_eq!(
+            c.messages,
+            c.wanted + c.unwanted + c.uncertain + c.unlabelled
+        );
+        assert_eq!(
+            c.usable,
+            c.usable_wanted + c.usable_unwanted + c.usable_uncertain + c.usable_unlabelled
+        );
+        assert_eq!(c.messages - c.usable, c.exclusions.values().sum::<usize>());
+    }
+    assert_eq!(sample["available"], cases.len() + 4);
+    assert_eq!(sample["risk_labels"], cases.len() + 2);
+    assert_eq!(sample["risk_with_observations"], 2);
+    assert_eq!(sample["kind_with_observations"], 3);
+    assert_eq!(sample["missing_or_incompatible_observations"], cases.len());
+    assert_eq!(sample["exclusions"], json!(expected));
+    let mut combined = std::collections::BTreeMap::<String, usize>::new();
+    for c in release.cohorts.values() {
+        for (reason, count) in serde_json::to_value(&c.exclusions)
+            .unwrap()
+            .as_object()
+            .unwrap()
+        {
+            *combined.entry(reason.clone()).or_default() += count.as_u64().unwrap() as usize;
+        }
+    }
+    assert_eq!(json!(combined), sample["exclusions"]);
+    assert!(release.blockers.contains(&"insufficient_wanted_labels"));
+    assert!(
+        release
+            .blockers
+            .contains(&"independent_evaluation_required")
+    );
+    assert!(!serde_json::to_string(&release).unwrap().contains("PRIVATE"));
+    assert!(!sample.to_string().contains("PRIVATE"));
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let revoked = quality::qualification::inspect(&store, "alice".into(), cohort)
+        .await
+        .unwrap();
+    assert!(revoked.cohorts.is_empty());
+    let revoked_sample = evaluation::readiness(&store, "alice".into(), batch)
+        .await
+        .unwrap();
+    assert_eq!(revoked_sample["available"], 0);
+    assert_eq!(revoked_sample["risk_with_observations"], 0);
 }

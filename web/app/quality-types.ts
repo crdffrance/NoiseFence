@@ -12,6 +12,7 @@ export type SampleReadiness = {
   selected:number;available:number;labelled:number;risk_labels:number;kind_labels:number;
   risk_with_observations:number;kind_with_observations:number;
   missing_or_incompatible_observations:number;detector_cohorts:number;
+  exclusions?:Record<string,number>;
   training_validated:false;observation_only:true;
 };
 export function candidateLabel(status: string) {

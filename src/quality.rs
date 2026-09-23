@@ -1,5 +1,6 @@
 //! Joint, versioned observations and shadow predictions. Never changes delivery.
 pub mod behavior;
+mod eligibility;
 pub mod evaluation;
 pub mod history;
 pub mod qualification;
@@ -61,7 +62,8 @@ pub fn specs() -> &'static [fusion::Feature] {
     })
 }
 pub fn protocol_hash() -> String {
-    message::digest(PROTOCOL)
+    static HASH: OnceLock<String> = OnceLock::new();
+    HASH.get_or_init(|| message::digest(PROTOCOL)).clone()
 }
 pub fn policy_hash(config: &crate::config::Config) -> String {
     let policy = serde_json::json!({"schema":protocol_hash(),

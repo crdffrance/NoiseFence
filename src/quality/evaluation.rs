@@ -151,22 +151,29 @@ pub async fn readiness(store: &Store, username: String, batch: String) -> Result
         let selected: Option<usize> = db.query_row("SELECT selected FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3",
             params![batch,username,now()-30*86400], |r|r.get(0)).optional()?;
         let selected = selected.ok_or_else(||anyhow::anyhow!("sample not found"))?;
-        let mut query = db.prepare("SELECT l.risk,l.kind,
-          json_extract(m.scan,'$.quality.complete_features')=1 AND json_extract(m.scan,'$.quality.source')='smtp_session' AND json_extract(m.scan,'$.quality.protocol_sha256')=?4,
-          json_extract(m.scan,'$.quality.artifacts_sha256')
+        let sql = format!("SELECT l.risk,l.kind, {}, {},
+          json_extract(m.scan,'$.fingerprint'), json_extract(m.scan,'$.campaign_simhash')
           FROM quality_members x JOIN messages m ON m.id=x.message_id
           LEFT JOIN quality_labels l ON l.message_id=m.id AND l.username=?1
-          WHERE x.batch_id=?2 AND m.created>=?3 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1)")?;
-        let mut rows = query.query(params![username,batch,now()-30*86400,super::protocol_hash()])?;
+          WHERE x.batch_id=?2 AND m.is_dsn=0 AND m.created>=?3 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) LIMIT 50001",
+          super::eligibility::OBSERVATION_SQL, super::eligibility::COHORT_SQL);
+        let mut query = db.prepare(&sql)?;
+        let mut rows = query.query(params![username,batch,now()-30*86400])?;
         let (mut available, mut labelled, mut risk_labels, mut kind_labels, mut risk_observed, mut kind_observed, mut missing) = (0usize,0usize,0usize,0usize,0usize,0usize,0usize);
         let mut cohorts = std::collections::BTreeSet::new();
+        let mut exclusions = std::collections::BTreeMap::new();
         while let Some(row) = rows.next()? {
             available += 1;
+            ensure!(available <= 50000, "Readiness population exceeds capacity");
             let risk: Option<String> = row.get(0)?;
             let kind: Option<String> = row.get(1)?;
-            let observed = row.get::<_,Option<bool>>(2)?.unwrap_or(false);
-            let artifact: Option<String> = row.get(3)?;
-            let observed = observed && artifact.as_deref().is_some_and(super::hash);
+            let observation: Option<String> = row.get(2)?;
+            let artifact: String = row.get(3)?;
+            let fingerprint: Option<String> = row.get(4)?;
+            let simhash: Option<String> = row.get(5)?;
+            let eligibility = super::eligibility::inspect(observation.as_deref(), &artifact, fingerprint.as_deref(), simhash.as_deref());
+            let observed = eligibility.is_ok();
+            if let Err(reason) = eligibility { *exclusions.entry(reason).or_insert(0usize) += 1; }
             labelled += usize::from(risk.is_some());
             let certain = matches!(risk.as_deref(),Some("legitimate"|"spam"));
             risk_labels += usize::from(certain);
@@ -174,11 +181,11 @@ pub async fn readiness(store: &Store, username: String, batch: String) -> Result
             risk_observed += usize::from(certain && observed);
             kind_observed += usize::from(kind.is_some() && observed);
             missing += usize::from(!observed);
-            if observed { cohorts.insert(artifact.unwrap()); }
+            if observed { cohorts.insert(artifact); }
         }
         Ok(json!({"selected":selected,"available":available,"labelled":labelled,"risk_labels":risk_labels,
             "kind_labels":kind_labels,"risk_with_observations":risk_observed,"kind_with_observations":kind_observed,
-            "missing_or_incompatible_observations":missing,"detector_cohorts":cohorts.len(),
+            "missing_or_incompatible_observations":missing,"detector_cohorts":cohorts.len(),"exclusions":exclusions,
             "training_validated":false,"observation_only":true}))
     }).await
 }

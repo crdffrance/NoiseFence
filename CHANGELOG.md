@@ -2,6 +2,13 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Correct calibration-readiness counts: use labelled, usable observations for
+  class-count checks and share eligibility between global and sample views.
+  Preserve all messages/annotations and explain incompatible or missing inputs
+  in the English console. Never infer an eligible count from an older API schema
+  or expose previous counts while a revised dataset is loading. Independent
+  qualification is still required; no scoring or production changes.
+
 - Add an offline `scoring-compare` command for bounded, private comparison of
   frozen native SMTP observations. Separate historical scores from controlled
   aggregation projections; preserve cohort identity and unavailable inputs, and

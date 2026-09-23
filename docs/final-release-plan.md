@@ -69,6 +69,26 @@ References: [Rspamd actions and scores](https://docs.rspamd.com/configuration/me
 - CRDF preserves valid targets within a structurally valid mixed batch. Invalid target responses are unavailable and uncached. An invalid response does not impose account-wide backoff; authentication/rate-limit responses still do.
 - URL inspection can follow complete early meta redirects from a bounded oversized-page prefix. A truncated page without a usable redirect remains incomplete. Reaching HTTP 2xx, resolving the full chain and scanning a complete page remain distinct diagnostics. SSRF, DNS revalidation, hop and time limits are unchanged.
 
+### 0.28.0-rc.3: consistent dataset-readiness counts
+
+Release-readiness schema 2 separates all of the signed-in user's annotations
+from annotations with usable observations. Global and sample readiness share
+validation of the recorded observation schema, feature protocol, native SMTP
+provenance, completed extraction, bounded feature values and campaign identifiers.
+Class-count blockers use the usable labelled intersection, never the raw annotation
+total. Excluded, uncertain and unlabelled messages remain visible, with fixed
+exclusion reasons. Reads retain the 30-day access scope and 50,000-row ceiling,
+and bound each selected observation to 128 KiB. Oversized observations are counted
+as invalid, not silently dropped or counted as usable.
+
+A usable observation is not necessarily a fully available external analysis, an
+independent campaign or a reserved test example; the separate evaluation gate
+always remains. Older detector cohorts are not pooled into the current cohort.
+The English console shows both label totals and usable intersections. It does not
+infer the new counts from older API responses, display a missing cohort identity
+as a zero population, or show previous counts while a changed dataset is loading.
+No model is trained, promoted or enabled by these read-only counts.
+
 ### Operator procedure
 
 1. Keep **Filters → observation** and freeze detector/model/policy digests. Upgrade all MX software before collecting a new qualification cohort; mixed-version rolling-upgrade traffic is not one evaluation cohort.
