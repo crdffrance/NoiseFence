@@ -281,11 +281,7 @@ async fn preview(
         cfg.filter.threshold,
     ));
     crate::decision::apply(&mut scan, cfg.filter.require_corroboration);
-    crate::decision::resolve_by_score(
-        &mut scan,
-        cfg.filter.resolve_uncertain_by_score,
-        cfg.filter.threshold,
-    );
+    crate::decision::finalize(&mut scan, cfg.filter.threshold);
     let mut facts = crate::custom_filtering::Facts::default();
     use crate::custom_filtering::Field;
     facts.put(Field::EnvelopeFrom, &body.sender);

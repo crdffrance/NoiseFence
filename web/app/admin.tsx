@@ -1187,12 +1187,7 @@ export function AdminConsole({
                   </small>
                 </label>
               </div>
-              <Toggle
-                label="Resolve uncertain results using the score"
-                description="Replace Needs review with a classification using the content index and configured threshold. Detector disagreements and missing checks remain visible. Existing history uses its recorded threshold; completed deliveries stay unchanged. Upgrade every MX before enabling."
-                checked={Boolean(draft.filters.resolve_uncertain_by_score)}
-                onChange={(v) => filterAt('resolve_uncertain_by_score', v)}
-              />
+              <p className="notice">Automatic decisions are always enabled. Inconclusive detector results are resolved using the content index and configured threshold. Messages without a usable score are accepted with an analysis-unavailable notice. Coverage and action restrictions remain visible separately.</p>
               <Toggle
                 label="Apply actions when decision-specific evidence is sufficient"
                 description="Allow actions on partial analyses only when the selected decision has its required evidence. Score-based spam needs readable content, automatic score resolution and the applicable threshold. Explicit matched rules remain separate. Tagging still requires a ready ARC renderer and Proton validation. Off by default; qualify the policy and upgrade every MX before activation."
@@ -1201,7 +1196,7 @@ export function AdminConsole({
               />
               <Toggle
                 label="Require corroboration before classifying spam"
-                description={draft.filters.resolve_uncertain_by_score ? "Missing corroboration is recorded, then the configured threshold resolves the classification automatically." : "A high content score needs corroboration to become a spam classification. This reduces model-only false positives but can leave spam under review. Validated fusion uses its own policy."}
+                description="Missing corroboration is recorded, then the configured threshold resolves the classification automatically."
                 checked={Boolean(draft.filters.require_corroboration)}
                 onChange={(v) => filterAt('require_corroboration', v)}
               />

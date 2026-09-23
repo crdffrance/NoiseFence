@@ -1632,7 +1632,7 @@ function Home() {
                             More filters
                           </option>
                           <option value="pending">Pending</option>
-                          {!stats?.resolve_uncertain_by_score && <option value="review">Needs review</option>}
+                          <option value="review">Historical unresolved decisions</option>
                           <option value="publicity_signal">
                             Marketing signals, all classifications
                           </option>
@@ -1712,7 +1712,7 @@ function Home() {
                             legitimate: "Legitimate",
                             quarantined: "Quarantined",
                             pending: "Pending",
-                            review: "Needs review",
+                            review: "Historical unresolved",
                             publicity_signal: "Marketing signals",
                             incomplete: "Partial analysis",
                             rspamd_all: "All Rspamd comparisons",

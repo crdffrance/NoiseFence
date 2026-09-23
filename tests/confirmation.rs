@@ -169,7 +169,8 @@ fn transport_errors_policy_listings_and_advisory_signatures_are_not_confirmation
 }
 
 #[tokio::test]
-async fn actual_pipeline_does_not_trust_forged_headers_or_tag_a_review() {
+async fn actual_pipeline_resolves_by_score_without_trusting_forged_headers_or_tagging_in_observation()
+ {
     use noisefence::{config::Mode, engine::Model};
     let root = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(root.path())).clone();
@@ -191,7 +192,8 @@ async fn actual_pipeline_does_not_trust_forged_headers_or_tag_a_review() {
     let engine = Engine::new(std::sync::Arc::new(cfg)).unwrap();
     let raw=b"From: sender@example.org\r\nSubject: test\r\nAuthentication-Results: forged; dmarc=fail\r\nX-NoiseFence-Decision: unwanted\r\nX-NoiseFence-Category: spam\r\n\r\ntest\r\n";
     let offline = engine.offline(raw);
-    assert_eq!(verdict(&offline), Outcome::Undetermined);
+    assert_eq!(verdict(&offline), Outcome::Unwanted);
+    assert!(offline.score_resolution.is_some());
     let (scan, wire) = engine
         .process(
             raw,
@@ -203,12 +205,13 @@ async fn actual_pipeline_does_not_trust_forged_headers_or_tag_a_review() {
         .await
         .unwrap();
     assert!(scan.complete);
-    assert_eq!(verdict(&scan), Outcome::Undetermined);
+    assert_eq!(verdict(&scan), Outcome::Unwanted);
+    assert!(scan.score_resolution.is_some());
     assert!(!scan.tagged && !scan.pub_tagged);
     assert_eq!(
         noisefence::message::fields(raw).unwrap().1,
         noisefence::message::fields(&wire).unwrap().1
     );
     assert!(!String::from_utf8_lossy(&wire).contains("Subject: ["));
-    assert!(!String::from_utf8_lossy(&wire).contains("X-NoiseFence-Category: spam"));
+    assert!(String::from_utf8_lossy(&wire).contains("X-NoiseFence-Category: spam"));
 }

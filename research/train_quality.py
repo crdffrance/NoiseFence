@@ -20,6 +20,7 @@ from scipy.optimize import minimize
 from scipy.special import expit, softmax
 from quality_metrics import interval, metrics, kind_argmax
 from recorded_decisions import SCHEMA as DECISION_SCHEMA, validate_snapshot, engine_decision
+from quality_exposure import validate as validate_exposure
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
@@ -65,6 +66,7 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
             and 0 < header['since'] < header['until'] <= header['captured_at'] <= time.time() + 60
             and is_hex(header.get('seed_sha256')), 'Invalid sampling provenance')
     require(header.get('decision_contract') in (None, DECISION_SCHEMA), 'Unsupported recorded decision contract')
+    validate_exposure(header)
     minimum = np.array([f['minimum'] for f in PROTOCOL['features']])
     maximum = np.array([f['maximum'] for f in PROTOCOL['features']])
     ids, artifacts, counts = set(), set(), Counter()

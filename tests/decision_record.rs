@@ -302,3 +302,51 @@ fn schema_one_unavailable_indices_remain_transportable() {
     noisefence::scoring::validate_transport(&scan).unwrap();
     assert_eq!(assessment::historical(&scan).score.value, None);
 }
+
+#[test]
+fn new_receipts_resolve_abstentions_even_with_legacy_switch_disabled() {
+    use noisefence::fusion::runtime::{DecisionSource, Outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.filter.threshold = 95.;
+    cfg.filter.resolve_uncertain_by_score = false;
+    for (score, usable, expected) in [
+        (94.9, true, Category::Legitimate),
+        (95., true, Category::Spam),
+        (99.8, true, Category::Spam),
+        (99.8, false, Category::Legitimate),
+    ] {
+        let mut scan = Scan {
+            score,
+            complete: false,
+            features_complete: Some(usable),
+            decision: Some(Decision {
+                source: DecisionSource::Legacy,
+                outcome: Outcome::Undetermined,
+                score: None,
+                model: "fixture".into(),
+            }),
+            ..Default::default()
+        };
+        decision_record::record_recipient(&mut scan, &cfg, None, 1234);
+        let receipt = scan.recipient_decision.as_ref().unwrap();
+        assert_eq!(receipt.assessment.category, expected);
+        assert_eq!(
+            receipt.assessment.action.as_ref().unwrap().effective,
+            Action::Deliver
+        );
+        assert_eq!(
+            scan.analysis_result
+                .as_ref()
+                .unwrap()
+                .detector_decision
+                .outcome,
+            Outcome::Undetermined
+        );
+        if !usable {
+            assert_eq!(receipt.classification, Classification::Unassessed);
+            assert_eq!(receipt.assessment.score.value, None);
+        }
+        noisefence::scoring::validate_transport(&scan).unwrap();
+    }
+}

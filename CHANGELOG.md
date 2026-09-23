@@ -2,6 +2,17 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Make new-message decisions definitive: resolve detector abstentions by the applicable content threshold, or accept without a fabricated score when analysis is unavailable. Keep coverage, observation and delivery safeguards separate; preserve historical receipts. Remove the manual-review label and configuration toggle.
+
+- Commit a bounded private export-use journal before quality exports leave the
+  store and bind independent evaluation exports to the frozen candidate digest.
+  Concurrent, manual, failed and cross-batch repeated exports cannot
+  silently appear fresh; detect exact and nearby previously exposed campaigns.
+  Preserve known uses during fenced console recovery and require a fresh future
+  observation window. Reject missing tracking for independent-evaluation claims
+  while keeping historical comparisons readable; explain freshness in the English
+  console. This does not establish independent accuracy or change production.
+
 - Export immutable, whitelisted engine and recipient decisions for private quality
   evaluation. Keep explicit partial-analysis verdicts, recipient overrides and
   requested/effective actions separate; reject malformed contracts and preserve

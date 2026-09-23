@@ -94,7 +94,8 @@ fn encrypted_original_keeps_a_numeric_diagnostic_but_not_a_complete_content_clai
     assert!(!scan.complete);
     assert!(scan.score.is_finite());
     assert!(scan.reasons.iter().any(|r| r.id == "encrypted_content"));
-    assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+    assert!(scan.score_resolution.is_some());
 }
 #[test]
 fn semantic_deadline_is_web_editable_but_model_paths_are_not() {
@@ -227,7 +228,8 @@ fn opaque_mail_cannot_inherit_an_extreme_content_model_score() {
         let e = scan.evidence.unwrap();
         assert_eq!(e.lexical_state, State::Limited);
         assert!(e.lexical_logit.is_none());
-        assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+        assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+        assert!(scan.score_resolution.is_some());
         assert!(!scan.reasons.iter().any(|r| r.id == "model_contribution"));
         assert!(scan.reasons.iter().any(|r| r.id == "content_model_skipped"));
     }
@@ -290,7 +292,8 @@ async fn opaque_content_keeps_bounded_transport_checks_without_reenabling_conten
         scan.evidence.unwrap().authentication.arc_state,
         State::Complete
     );
-    assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+    assert!(scan.score_resolution.is_some());
     assert!(!scan.tagged && !String::from_utf8_lossy(&wire).contains("[SPAM]"));
 }
 

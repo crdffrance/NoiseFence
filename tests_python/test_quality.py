@@ -307,6 +307,10 @@ class QualityTests(unittest.TestCase):
             self.q.train(path,candidate,'SOFTWARE-PROSPECTIVE',history)
         fresh=copy.deepcopy(self.data)
         fresh[0]["purpose"]="holdout"
+        fresh[0]["previously_examined"]=False
+        fresh[0]['exposure_tracking']={'schema':'noisefence-quality-exposure-1',
+            'candidate_sha256':hashlib.sha256((candidate/'model.json').read_bytes()).hexdigest(),
+            'tracking_since':fresh[0]['since']-1,'previously_exported':False,'related_campaign_seen':False}
         for i,row in enumerate(fresh[1:-1]):
             identity=hashlib.sha256(('separate-evaluation-'+str(i)).encode()).hexdigest()
             row.update(id=identity,fingerprint=identity,simhash=identity[:16],legacy_decision={'source':'legacy','outcome':'unwanted'},baseline_complete=True)
@@ -320,6 +324,17 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(report['evaluation_scope'],'shadow_engine_with_antivirus_guard_not_recipient_policy_replay')
         self.assertEqual(report['candidate']['tp'],report['baseline']['tp'])
         self.assertNotIn('separate-evaluation',json.dumps(report))
+        for field in ('previously_exported','related_campaign_seen','candidate_sha256'):
+            reused=copy.deepcopy(fresh)
+            reused[0]['exposure_tracking'][field]='f'*64 if field=='candidate_sha256' else True
+            self.write(path,reused)
+            rejected=evaluate(path,candidate/'model.json',candidate/'training-manifest.json')
+            self.assertFalse(rejected['acceptance']['independent'])
+            self.assertFalse(rejected['acceptance']['passes_pilot'])
+        untracked=copy.deepcopy(fresh);del untracked[0]['exposure_tracking']
+        self.write(path,untracked)
+        self.assertFalse(evaluate(path,candidate/'model.json',candidate/'training-manifest.json')['acceptance']['independent'])
+
         fresh[1]['quality']=None
         fresh[2]['risk']=None;fresh[2]['kind']=None;fresh[2]['labelled_at']=None
         self.write(path,fresh)

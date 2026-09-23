@@ -222,6 +222,7 @@ export function classification(mail: DecisionInput, threshold?: number) {
       malware: {label: 'Malware', tone: 'spam'},
       unassessed: {label: 'Classification unavailable', tone: 'neutral'},
     };
+    if (record.classification === 'unassessed' && record.assessment.category === 'legitimate') return {label: 'Accepted — analysis unavailable', tone: 'neutral'};
     return labels[record.classification] ?? labels.unassessed;
   }
   if (mail.decision?.source === 'antivirus')
@@ -237,11 +238,11 @@ export function classification(mail: DecisionInput, threshold?: number) {
           spam: { label: 'Spam', tone: 'spam' },
           publicity: { label: 'Marketing', tone: 'publicity' },
           legitimate: { label: 'Legitimate', tone: 'good' },
-          undetermined: { label: 'Needs review', tone: 'review' },
+          undetermined: { label: 'Historical decision unavailable', tone: 'neutral' },
         } as Record<string, { label: string; tone: string }>
-      )[recordedCategory] || { label: 'Needs review', tone: 'review' }
+      )[recordedCategory] || { label: 'Historical decision unavailable', tone: 'neutral' }
     );
-  if (!mail.complete && !mail.decision) return { label: 'Needs review', tone: 'review' };
+  if (!mail.complete && !mail.decision) return { label: 'Historical decision unavailable', tone: 'neutral' };
   if (
     !mail.decision &&
     (threshold === undefined || !Number.isFinite(threshold))
@@ -256,7 +257,7 @@ export function classification(mail: DecisionInput, threshold?: number) {
     mail.decision?.outcome === 'undetermined' ||
     mail.category === 'undetermined'
   )
-    return { label: 'Needs review', tone: 'review' };
+    return { label: 'Historical decision unavailable', tone: 'neutral' };
   if (mail.category === 'publicity') return { label: 'Marketing', tone: 'publicity' };
   return { label: 'Legitimate', tone: 'good' };
 }

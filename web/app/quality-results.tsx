@@ -39,3 +39,20 @@ export function TrainingResults({risk}:{risk?:{test?:Metrics}}) {
   return <><MetricTable report={{candidate:risk.test}} caption="Development sample · candidate test fold"/>
     <p className="muted small">These metrics use the development sample partition. They are not a prospective independent evaluation or recipient-policy replay.</p></>;
 }
+
+export type ExportExposure={schema:string;tracked:boolean;candidate_bound:boolean;observation_window_covered:boolean;not_previously_exposed:boolean;eligible_for_independence_checks:boolean};
+function exposureEligible(value?:ExportExposure) {
+  return value?.schema==='noisefence-quality-exposure-1'&&value.tracked===true&&value.candidate_bound===true&&value.observation_window_covered===true&&value.not_previously_exposed===true&&value.eligible_for_independence_checks===true;
+}
+export function ExposureNotice({value}:{value?:ExportExposure}) {
+  if (!value||value.schema!=='noisefence-quality-exposure-1'||!value.tracked) return <p className="notice">Export-use history is not recorded for this report. It cannot establish a fresh independent test.</p>;
+  return <p className="muted small">{!value.observation_window_covered
+    ?'Some observations predate export tracking. Freshness is unverified.'
+    :!value.not_previously_exposed
+      ?'This sample or a related campaign was already exposed. Use these results for regression, not a fresh independent test.'
+      :!value.candidate_bound?'This export is not bound to the evaluated candidate. It cannot establish independent qualification.':'At export time, no prior use was recorded within the tracking window. Independent labels, campaign separation and frozen candidate provenance still require validation.'}</p>;
+}
+export function QualificationStatus({acceptance,exposure}:{acceptance:{passes_pilot:boolean;meets_final_confidence_bounds:boolean};exposure?:ExportExposure}) {
+  if (!exposureEligible(exposure)) return <p>Qualification unavailable: export freshness is not established. Recorded metrics remain visible.</p>;
+  return <p>Shadow pilot: {acceptance.passes_pilot?'criteria met':'not qualified'} · Final confidence bounds: {acceptance.meets_final_confidence_bounds?'met':'not demonstrated'}.</p>;
+}

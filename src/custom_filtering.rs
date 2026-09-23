@@ -486,7 +486,9 @@ pub fn assess_prepared(
             .map(|(_, d)| d)
             .unwrap_or(""),
     );
-    let original = crate::mailing::category(scan, cfg.filter.threshold);
+    let mut resolved = scan.clone();
+    crate::decision::finalize(&mut resolved, cfg.filter.threshold);
+    let original = crate::mailing::category(&resolved, cfg.filter.threshold);
     f.put(Field::Category, original.as_str());
     if policy.ordering == Ordering::Scoped
         && let Some(score) = crate::assessment::assess(scan, cfg.filter.threshold)
@@ -578,9 +580,7 @@ pub fn assess_prepared(
         malware_override: false,
     };
     let mut category = original;
-    if (scan.complete || cfg.filter.resolve_uncertain_by_score)
-        && let Some(p) = profile
-    {
+    if let Some(p) = profile {
         let mut candidate = scan.clone();
         if override_threshold.is_some() {
             candidate.arbitration = None;
@@ -594,11 +594,7 @@ pub fn assess_prepared(
                 || p.require_corroboration
                 || override_threshold.is_some(),
         );
-        crate::decision::resolve_by_score(
-            &mut candidate,
-            cfg.filter.resolve_uncertain_by_score,
-            threshold,
-        );
+        crate::decision::finalize(&mut candidate, threshold);
         category = crate::mailing::category(&candidate, threshold);
     }
     let global = crate::actions::Policy::from_config(cfg);
@@ -708,7 +704,7 @@ pub fn assess_prepared(
         if let Some(c) = r.category {
             trace.category_rule = Some(r.id.clone());
             trace.action_rule = Some(r.id.clone());
-            category = if c == Category::Undetermined && cfg.filter.resolve_uncertain_by_score {
+            category = if c == Category::Undetermined {
                 let mut candidate = scan.clone();
                 candidate.score_resolution = None;
                 candidate.delivery_classification = Some(Category::Undetermined);
@@ -809,11 +805,7 @@ pub fn simulate(
         ));
     }
     crate::decision::apply(&mut candidate, cfg.filter.require_corroboration);
-    crate::decision::resolve_by_score(
-        &mut candidate,
-        cfg.filter.resolve_uncertain_by_score,
-        cfg.filter.threshold,
-    );
+    crate::decision::finalize(&mut candidate, cfg.filter.threshold);
     let facts = Facts::metadata(sender, &candidate);
     let effective = cfg.preferences.policy(policy, recipient);
     assess(&effective, cfg, &candidate, &facts, recipient, at)

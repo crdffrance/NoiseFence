@@ -47,7 +47,7 @@ test('canonical review and legitimate decisions override the lexical score', () 
       },
       95,
     ).label,
-    "Needs review",
+    "Historical decision unavailable",
   );
   assert.equal(
     classification(
@@ -75,7 +75,7 @@ test('malware keeps priority over PUB and incomplete analysis', () => {
   );
   assert.equal(
     classification({ ...mail, complete: false }, 95).label,
-    "Needs review",
+    "Historical decision unavailable",
   );
 });
 test('message details cannot classify historical mail with an invented threshold', () => {
@@ -191,7 +191,7 @@ test('an advisory disagreement is review, not a corrected legitimate decision', 
       ...mail,
       decision: { source: 'legacy', ...report.decision },
     }).label,
-    "Needs review",
+    "Historical decision unavailable",
   );
   assert.equal(arbitrationExplanation(null), null);
 });
@@ -199,4 +199,13 @@ test('an advisory disagreement is review, not a corrected legitimate decision', 
 test("a suppressed hostile-mail bounce never apps delivered", () => {
   assert.equal(deliverySummary([{status:'dsn_suppressed'}]).label, "Notification suppressed (backscatter protection)");
   assert.equal(deliverySummary([{status:'dsn_suppressed'},{status:'delivered'}]).label, "Delivery failed");
+});
+
+test('unassessed accepted receipts show a definitive delivery policy without claiming safety', () => {
+  const mail = {recipient_decision: {
+    version: 2,
+    classification: 'unassessed',
+    assessment: {version: 1, category: 'legitimate'},
+  }};
+  assert.deepEqual(classification(mail), {label: 'Accepted — analysis unavailable', tone: 'neutral'});
 });

@@ -312,6 +312,9 @@ enum Command {
         batch: String,
         #[arg(long)]
         output: PathBuf,
+        /// Bind an independent evaluation export to the already frozen candidate.
+        #[arg(long)]
+        candidate_sha256: Option<String>,
     },
     /// Check a data-only joint candidate against one recorded observation.
     QualityPredict {
@@ -1316,10 +1319,18 @@ async fn main() -> Result<()> {
             username,
             batch,
             output,
+            candidate_sha256,
         } => {
             println!(
                 "{}",
-                noisefence::quality::evaluation::export(&store, username, batch, &output).await?
+                noisefence::quality::evaluation::export_for_candidate(
+                    &store,
+                    username,
+                    batch,
+                    &output,
+                    candidate_sha256
+                )
+                .await?
             );
         }
         Command::ExportPopulation {

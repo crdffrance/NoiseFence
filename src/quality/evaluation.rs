@@ -212,16 +212,32 @@ pub async fn export(
     batch: String,
     output: &Path,
 ) -> Result<Value> {
+    export_for_candidate(store, username, batch, output, None).await
+}
+
+pub async fn export_for_candidate(
+    store: &Store,
+    username: String,
+    batch: String,
+    output: &Path,
+    candidate_sha256: Option<String>,
+) -> Result<Value> {
+    ensure!(
+        candidate_sha256.as_deref().is_none_or(super::hash),
+        "Invalid candidate digest"
+    );
     let rows=store.run(move |db| {
-        let tx=db.transaction()?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let db=&tx;
+        let worker:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='worker')",[],|r|r.get(0))?;
+        ensure!(!worker,"Quality exports run on the coordinator only");
         let header:Option<Value>=db.query_row("SELECT since,until,population,selected,seed FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3",params![batch,username,now()-30*86400],|r| Ok(json!({"type":"header","schema":"noisefence-quality-dataset-1","batch":batch,"since":r.get::<_,i64>(0)?,"until":r.get::<_,i64>(1)?,"population":r.get::<_,usize>(2)?,"selected":r.get::<_,usize>(3)?,"seed_sha256":crate::message::digest(r.get::<_,String>(4)?.as_bytes()),"sampling":"uniform_message","protocol_sha256":super::protocol_hash(),"captured_at":now()}))).optional()?;
         let mut header=header.ok_or_else(||anyhow::anyhow!("sample not found"))?;
         header["decision_contract"]=json!(super::recorded::SCHEMA);
         let purpose: Option<(String,String)>=db.query_row("SELECT purpose,cohort FROM quality_purposes WHERE batch_id=?1",[&batch],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         let (purpose,cohort)=purpose.unwrap_or(("regression".into(),String::new()));
         header["purpose"]=json!(purpose);header["cohort"]=json!(cohort);
-        let examined:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM quality_jobs WHERE batch_id=?1 AND status IN ('complete','insufficient_labels'))",[&batch],|r|r.get(0))?;
+        let examined:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM quality_jobs WHERE batch_id=?1 AND status IN ('complete','insufficient_labels','failed','interrupted'))",[&batch],|r|r.get(0))?;
         header["previously_examined"]=json!(examined);
         let references:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM quality_reference_sets WHERE batch_id=?1)",[&batch],|r|r.get(0))?;
         if references {ensure!(purpose=="regression","References must stay regression-only");header["sampling"]=json!("confirmed_regression");header["previously_examined"]=json!(true);}
@@ -240,7 +256,13 @@ pub async fn export(
             let quality=scan.quality.map(|mut q| {q.sender.key=None;if let Some(b)=&mut q.sender.behavior { b.sample=None; }q});
             out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":engine,"baseline_complete":decisions["engine"]["complete"],"delivery_classification":decisions["final"]["category"],"decision_snapshot":decisions,"quality":quality,"rspamd":scan.rspamd.map(|r|json!({"status":r.status,"action":r.action,"score":r.score,"profile":r.profile,"settings_sha256":r.settings_sha256})),"legacy_score":engine["raw_score"],"pipeline_elapsed_ms":scan.elapsed_ms}));
         }
-        out.push(json!({"type":"footer","rows":out.len()-1}));Ok(out)
+        drop(rows);drop(q);drop(reserved);
+        let mut exposure=super::exposure::record(&tx,&batch,&out[1..],now())?;
+        exposure.candidate_sha256=candidate_sha256;
+        if exposure.previously_exported || exposure.related_campaign_seen {out[0]["previously_examined"]=json!(true);}
+        out[0]["exposure_tracking"]=serde_json::to_value(exposure)?;
+        out.push(json!({"type":"footer","rows":out.len()-1}));
+        tx.commit()?;Ok(out)
     }).await?;
     let parent = output
         .parent()

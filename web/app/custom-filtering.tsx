@@ -111,7 +111,7 @@ const categories: Record<Category, string> = {
   spam: 'Spam',
   publicity: "Marketing",
   legitimate: "Legitimate",
-  undetermined: 'Insufficient evidence',
+  undetermined: 'Automatic decision by threshold (legacy rule)',
 };
 export function FilteringDetails({ value }: { value: FilteringAssessment }) {
   return (
@@ -328,12 +328,6 @@ export function CustomFiltering({
               label="Marketing"
               value={profile.publicity}
               onChange={(publicity) => updateProfile(i, { publicity })}
-            />
-            <ActionSelect
-              label="Without a usable decision"
-              value={profile.review}
-              review
-              onChange={(review) => updateProfile(i, { review })}
             />
           </div>
           <label className="check">

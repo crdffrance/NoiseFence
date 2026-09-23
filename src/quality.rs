@@ -2,6 +2,7 @@
 pub mod behavior;
 mod eligibility;
 pub mod evaluation;
+pub mod exposure;
 pub mod history;
 pub mod qualification;
 pub mod recorded;

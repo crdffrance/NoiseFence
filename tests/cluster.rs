@@ -97,7 +97,7 @@ async fn unavailable_index_survives_history_sync_and_invalid_batch_rolls_back() 
     assert_eq!(serde_json::to_value(&stored).unwrap(), expected);
     let view = noisefence::assessment::historical(&stored);
     assert_eq!(view.score.value, None);
-    assert_eq!(view.category, noisefence::mailing::Category::Undetermined);
+    assert_eq!(view.category, noisefence::mailing::Category::Legitimate);
     let visible = central
         .list("alice".into(), "".into(), "all".into(), 0, 1.)
         .await

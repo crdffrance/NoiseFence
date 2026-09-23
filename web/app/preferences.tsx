@@ -335,13 +335,9 @@ export function MyFilters({
                       }
                     />
                   </label>
-                  {(['spam', 'publicity', 'review'] as const).map((k) => (
+                  {(['spam', 'publicity'] as const).map((k) => (
                     <label key={k}>
-                      {k === 'spam'
-                        ? "Spam detected"
-                        : k === 'publicity'
-                          ? "Marketing and newsletters"
-                          : "Needs review"}
+                      {k === 'spam' ? "Spam detected" : "Marketing and newsletters"}
                       <select
                         value={draft.profile![k]}
                         onChange={(e) =>
@@ -352,7 +348,6 @@ export function MyFilters({
                         }
                       >
                         {view.settings.allowed_actions
-                          .filter((a) => k !== 'review' || a !== 'tag')
                           .map((a) => (
                             <option key={a} value={a}>
                               {actions[a]}
@@ -605,7 +600,7 @@ export function MyFilters({
                       <option value="spam">Spam</option>
                       <option value="publicity">Marketing</option>
                       <option value="legitimate">Legitimate</option>
-                      <option value="undetermined">Needs review</option>
+                      <option value="undetermined">Automatic decision by threshold (legacy rule)</option>
                     </select>
                   </label>
                   <label>

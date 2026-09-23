@@ -5,7 +5,7 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-7";
+pub const VERSION: &str = "decision-policy-8";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -105,6 +105,12 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
     });
 }
 
+/// Delivery policy always terminates; individual detector opinions may abstain.
+/// The legacy switch is retained only for historical contracts and simulations.
+pub fn finalize(scan: &mut Scan, threshold: f64) {
+    resolve_by_score(scan, true, threshold);
+}
+
 /// Successfully observed threats survive unrelated optional-check failures.
 /// Direct extortion still needs observed failed authentication and a second
 /// content signal; no raw score or unavailable check supplies confirmation.
@@ -135,7 +141,7 @@ pub(crate) fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
         || !scan.reasons.iter().any(|r| allowed_missing(&r.id))
         || scan.reasons.iter().any(|r| crate::assessment::INCOMPLETE_REASONS.contains(&r.id.as_str()) && !allowed_missing(&r.id))
         || !((signature && llm) || (context.direct_extortion && (signature || llm)))
-        // A contradictory available opinion still requires human review.
+        // A contradictory opinion remains an internal abstention until final policy.
         || scan.llm.opinion() == Some(Outcome::Legitimate)
     {
         return false;
@@ -221,9 +227,9 @@ fn arbitrate(scan: &mut Scan) -> Option<Arbitration> {
         scan.reasons.push(Signal {
             id: REVIEW_REASON.into(),
             detail: if resolution == Resolution::Disagreement {
-                "The historical ranking and the second opinion contradict each other: message to be checked. The raw score is kept as a diagnosis; neither opinion alone proves the legitimacy or undesirableness of the message."
+                "The historical ranking and the second opinion contradict each other: automatic policy determines the final classification. The raw score is kept as a diagnosis; neither opinion alone proves the legitimacy or undesirableness of the message."
             } else {
-                "The second opinion is ambiguous or insufficiently assured: message to be checked. Uncertainty does not constitute a spam detection or proof of legitimacy."
+                "The second opinion is ambiguous or insufficiently assured: automatic policy determines the final classification. Uncertainty does not constitute a spam detection or proof of legitimacy."
             }.into(),
             weight: 0.0,
         });
@@ -318,7 +324,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
             scan.pub_tagged = false;
             scan.reasons.push(Signal {
                 id: CONTEXT_REASON.into(),
-                detail: "Authenticated threat-report or transaction context conflicts with an uncorroborated content score. Review required; context is not proof of legitimacy.".into(),
+                detail: "Authenticated threat-report or transaction context conflicts with an uncorroborated content score. Automatic policy will resolve the classification; context is not proof of legitimacy.".into(),
                 weight: 0.0,
             });
         }

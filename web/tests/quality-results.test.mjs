@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 const source=await readFile(new URL('../app/quality-results.tsx',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from (["'])([^"']+)\1/g,(_,q,name)=>`from ${JSON.stringify(import.meta.resolve(name))}`);
-const {FullSampleResults,PolicyResults,TrainingResults}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const render=(component,props)=>renderToStaticMarkup(createElement(component,props));
 const metrics={messages:2,tp:1,fp:0,review:0,recall:1,fpr:0,precision:1,fpr_ci95:[0,.5],recall_ci95:[.5,1]};
 
@@ -56,4 +56,20 @@ test('unprepared training candidates do not invent results',()=>{
   const html=render(TrainingResults,{});
   assert.match(html,/No candidate test-fold metrics/);
   assert.doesNotMatch(html,/<table/);
+});
+
+const exposure={schema:'noisefence-quality-exposure-1',tracked:true,candidate_bound:true,observation_window_covered:true,not_previously_exposed:true,eligible_for_independence_checks:true};
+const acceptance={passes_pilot:true,meets_final_confidence_bounds:true};
+test('unused exports retain separate independent qualification requirements',()=>{
+  const html=render(ExposureNotice,{value:exposure});
+  assert.match(html,/At export time/);
+  assert.match(html,/still require validation/);
+});
+test('reused or untracked reports never claim current pilot qualification',()=>{
+  for(const value of [undefined,{...exposure,candidate_bound:false},{...exposure,schema:'future'},{...exposure,tracked:false},{...exposure,not_previously_exposed:false},{...exposure,observation_window_covered:false}]){
+    const html=render(QualificationStatus,{acceptance,exposure:value});
+    assert.match(html,/Qualification unavailable/);
+    assert.doesNotMatch(html,/criteria met|bounds: met/);
+  }
+  assert.match(render(ExposureNotice,{value:{...exposure,not_previously_exposed:false}}),/already exposed/);
 });

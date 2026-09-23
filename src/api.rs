@@ -428,7 +428,7 @@ async fn stats(
     }
     let config = app.effective();
     let threshold = config.filter.threshold;
-    let resolve_uncertain_by_score = config.filter.resolve_uncertain_by_score;
+    let resolve_uncertain_by_score = true;
     let domain = q.domain;
     let mut result = app.store.read(move |db| {
         let query = format!("SELECT COUNT(DISTINCT m.id), COUNT(DISTINCT CASE WHEN ({category})='spam' THEN m.id END), COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END), COUNT(DISTINCT CASE WHEN ({category})='publicity' THEN m.id END), COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))", category=crate::assessment::category_sql());

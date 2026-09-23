@@ -139,3 +139,49 @@ SMTP handling, subject modification or downstream delivery. Recorded decisions
 are comparison outputs, never added training features. Multiple policy variants
 and repeated campaigns must not be treated as independent arrivals. None of these
 changes fits/promotes a model, grants activation or establishes production quality.
+
+
+## One-time export freshness
+
+Private exports now carry `noisefence-quality-exposure-1` metadata. Worker nodes
+refuse exports so they cannot bypass the coordinator journal. The coordinator
+commits a use record in an IMMEDIATE SQLite transaction before writing any export
+bytes. Concurrent exports serialize: only the first can describe the sample as
+unused. A later filesystem error, worker failure or interruption cannot restore
+freshness. Exporting for comparison also consumes the sample; evaluate a frozen
+candidate first when reserving an independent holdout.
+
+Evaluation exports bind the exact frozen model SHA-256 before disclosure. The Web
+worker supplies the already verified candidate digest automatically; manual exports
+can use `quality-export --candidate-sha256 <digest>`. Unbound comparison/training
+exports remain usable but cannot qualify an independent evaluation. The evaluator
+requires that digest to match the candidate bytes. Copying an export for another
+candidate cannot preserve freshness eligibility. Repeating the same frozen
+candidate on the same immutable data is reproducibility, not a new independent
+sample or additional statistical support. Editing exported provenance manually
+invalidates the audit; these private files are not signed third-party certificates.
+
+
+Use records are independent of job success and batch lifetime. A new batch that
+contains an already exported fingerprint or a SimHash within three bits is marked
+previously examined. The bounded lookup uses four 16-bit blocks, retains at most
+50,000 fingerprint/SimHash pairs, and stops at one million candidate comparisons.
+Capacity exhaustion fails the export without publishing a falsely fresh result.
+The transaction rolls back on validation/capacity errors before publication.
+
+Hashes and batch-use metadata expire after 30 days and contain no content or
+addresses. This is a coordinator-local history, not proof that messages were
+never examined by another tool or before tracking began. New independent-evaluation
+checks require the entire observation interval to begin strictly after tracking
+initialization. Legacy exports without this provenance remain usable for descriptive
+comparisons, but cannot establish a fresh holdout. Present malformed provenance
+is rejected. Missing or reused tracking is explained in the English workbench.
+
+Database snapshots retain the journal. Fenced `ha-restore` preserves known uses
+and advances the tracking boundary because a checkpoint might omit later exports
+on the lost coordinator. Pre-recovery observations remain regression material;
+collect future observations before another fresh evaluation. Manual restores or
+software downgrades need a separate provenance review; a database copy alone does
+not establish continuous export history. This mechanism does not certify blind
+labels, representative sampling, campaign independence, base-model provenance or
+qualification of the full delivery pipeline.

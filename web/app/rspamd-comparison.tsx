@@ -17,7 +17,7 @@ export function RspamdComparison({ report, mail, onRefresh }: { report?: RspamdR
         <div><span>Reported threshold</span><strong>{comparisonPoints(report.required_score)} <small>points</small></strong></div>
         <div><span>Proposed action</span><strong>{report.action ?? '—'}</strong></div>
       </div>
-      <p>NoiseFence engine verdict: <strong>{report.noisefence_outcome === 'unwanted' ? 'Unwanted' : report.noisefence_outcome === 'legitimate' ? 'Legitimate / marketing' : 'Needs review'}</strong>. Recipient policies are shown in the delivery details.</p>
+      <p>NoiseFence engine verdict: <strong>{report.noisefence_outcome === 'unwanted' ? 'Unwanted' : report.noisefence_outcome === 'legitimate' ? 'Legitimate / marketing' : 'No decisive opinion'}</strong>. Recipient policies are shown in the delivery details.</p>
       <p className="muted">Rspamd points and the NoiseFence index / 100 use different scales. A disagreement is a review candidate, not proof that either engine is correct.</p>
       <details><summary>Rspamd symbols ({report.symbols.length})</summary>
         <div className="rspamd-symbols"><table><thead><tr><th>Symbol</th><th>Points</th></tr></thead><tbody>

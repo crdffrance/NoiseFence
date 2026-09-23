@@ -923,11 +923,7 @@ impl Engine {
             fusion.apply(scan);
         }
         crate::decision::apply(scan, self.config.filter.require_corroboration);
-        crate::decision::resolve_by_score(
-            scan,
-            self.config.filter.resolve_uncertain_by_score,
-            self.config.filter.threshold,
-        );
+        crate::decision::finalize(scan, self.config.filter.threshold);
         if let (Some(runtime), Some(mut observation)) =
             (&self.native_filter, scan.native_filter.take())
         {

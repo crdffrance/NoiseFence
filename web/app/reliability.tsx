@@ -8,12 +8,12 @@ import { rate,stateLabel,detectorLabels,protonLabels,type Metrics,type Reliabili
 function Measures({title,data}:{title:string;data:Metrics}) {
   return <section className="panel"><h2>{title}</h2><p>{data.labelled} annotated messages</p><dl className="reliability-measures">
     <div><dt>Recall</dt><dd>{rate(data.recall)}</dd></div><div><dt>False positives</dt><dd>{rate(data.false_positive_rate)}</dd></div>
-    <div><dt>Accuracy</dt><dd>{rate(data.precision)}</dd></div><div><dt>Needs review</dt><dd>{rate(data.abstention)}</dd></div>
+    <div><dt>Accuracy</dt><dd>{rate(data.precision)}</dd></div><div><dt>No decisive opinion</dt><dd>{rate(data.abstention)}</dd></div>
   </dl><p className="muted small">They describe these annotations; their selection and related campaigns limit any generalization to traffic.</p></section>;
 }
 function Proton({report}:{report:ProtonReport}) {
   return <div><h3>{report.prefix} · {stateLabel(report.status)}</h3><ul className="reliability-checklist">{report.cases.map(c=><li key={c.id}>
-    <span>{protonLabels[c.id] || "Validation case"}</span><strong>{c.passed && c.evidence_present?"Documented":"Needs review"}</strong>
+    <span>{protonLabels[c.id] || "Validation case"}</span><strong>{c.passed && c.evidence_present?"Documented":"Not validated"}</strong>
   </li>)}</ul></div>;
 }
 function Freshness({title,value}:{title:string;value:Health}) {

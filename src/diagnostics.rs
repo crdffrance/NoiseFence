@@ -32,7 +32,7 @@ impl AnalysisPolicy {
             threshold: config.filter.threshold,
             mode: config.filter.mode,
             require_corroboration: config.filter.require_corroboration,
-            resolve_uncertain_by_score: config.filter.resolve_uncertain_by_score,
+            resolve_uncertain_by_score: true,
             rule_weights: config.filter.rule_weights.clone(),
         }
     }

@@ -264,8 +264,9 @@ pub fn valid_address(s: &str) -> bool {
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
-        let value: Self =
+        let mut value: Self =
             toml::from_str(&std::fs::read_to_string(path).context("read configuration")?)?;
+        value.filter.resolve_uncertain_by_score = true;
         value.validate()?;
         Ok(value)
     }

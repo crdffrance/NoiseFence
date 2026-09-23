@@ -613,6 +613,8 @@ impl Store {
                 [now() - 30 * 86400],
             )?;
             db.execute("DELETE FROM audit WHERE created<?1", [now() - 30 * 86400])?;
+            db.execute("DELETE FROM quality_export_campaigns WHERE exposed_at<?1", [now()-30*86400])?;
+            db.execute("DELETE FROM quality_export_batches WHERE exposed_at<?1", [now()-30*86400])?;
             db.execute(
                 "DELETE FROM quality_batches WHERE created<?1",
                 [now() - 30 * 86400],

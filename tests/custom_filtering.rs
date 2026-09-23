@@ -56,7 +56,7 @@ fn level_policy(threshold: f64) -> Policy {
 }
 
 #[test]
-fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
+fn sensitivity_levels_are_monotonic_with_mandatory_threshold_resolution() {
     use noisefence::evidence::{Artifacts, AuthResult, Evidence, Source, State};
     let tmp = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(tmp.path())).clone();
@@ -91,10 +91,8 @@ fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
                 let result = assess(&policy, &cfg, &scan, &Facts::default(), &recipient, 100);
                 let expected = if score < level.threshold {
                     Category::Legitimate
-                } else if confirmed {
-                    Category::Spam
                 } else {
-                    Category::Undetermined
+                    Category::Spam
                 };
                 assert_eq!(
                     result.category, expected,
@@ -193,7 +191,7 @@ fn levels_cannot_bypass_fusion_malware_or_incomplete_analysis() {
         model: "fixture".into(),
     });
     let result = assess(&policy, &cfg, &s, &Facts::default(), &recipient, 100);
-    assert_eq!(result.category, Category::Undetermined);
+    assert_eq!(result.category, Category::Spam);
     assert_eq!(result.threshold, cfg.filter.threshold);
     cfg.fusion = Some(noisefence::fusion::runtime::Settings {
         family_caps: false,
@@ -449,8 +447,8 @@ fn recipient_profiles_reapply_arbitration_with_their_own_threshold() {
         Outcome::Undetermined
     );
     for (threshold, expected) in [
-        (None, Category::Undetermined),
-        (Some(90.), Category::Undetermined),
+        (None, Category::Spam),
+        (Some(90.), Category::Spam),
         (Some(100.), Category::Legitimate),
     ] {
         let policy = Policy {

@@ -6,6 +6,7 @@ from train_quality import load_dataset, read_jsonl, components, readiness, parti
 from quality_metrics import outcomes, metrics
 from evaluate_quality import baseline
 from recorded_decisions import engine_decision, engine_outcome, policy_report, raw_score
+from quality_exposure import report as exposure_report
 
 
 def rspamd_outcome(row):
@@ -85,7 +86,7 @@ def compare(dataset):
     cy=[int(r['risk']=='spam') for r in representatives]
     latency=sorted(r['pipeline_elapsed_ms'] for r in rows if type(r.get('pipeline_elapsed_ms')) in (int,float) and 0<=r['pipeline_elapsed_ms']<=3600000)
     report={'schema':'noisefence-quality-comparison-3','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
-      'paired':paired_comparison(rows),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
+      'exposure':exposure_report(header),'paired':paired_comparison(rows),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
       'coverage':{**coverage,'labelled':len(labelled),'unlabelled_or_uncertain':len(rows)-len(labelled)},
       'baseline':outcomes(y,native),'rspamd':outcomes(y,other),'legacy_score_calibration':lexical,
       'campaigns':{'count':len(representatives),'conflicting':conflicts,

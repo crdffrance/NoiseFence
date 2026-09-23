@@ -371,7 +371,7 @@ impl Settings {
         cfg.filter.mode = f.mode;
         cfg.filter.threshold = f.threshold;
         cfg.filter.require_corroboration = f.require_corroboration;
-        cfg.filter.resolve_uncertain_by_score = f.resolve_uncertain_by_score;
+        cfg.filter.resolve_uncertain_by_score = true;
         cfg.filter.partial_actions = f.partial_actions;
         cfg.filter.authentication = f.authentication;
         if !f.antivirus {

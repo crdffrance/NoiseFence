@@ -604,6 +604,18 @@ fn fence(root: &Path) -> std::path::PathBuf {
 async fn restore_from_a_crashed_sender_holds_uncertainty_and_does_not_replay_delivered_recipients()
 {
     let p = pair().await;
+    p.a.run(|db| {
+        db.execute("UPDATE quality_exposure_state SET tracking_since=1", [])?;
+        db.execute(
+            "INSERT INTO quality_export_batches VALUES('synthetic-old-export',?1)",
+            [noisefence::now()],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let recovery_started = noisefence::now();
+
     let id = uuid::Uuid::new_v4().to_string();
     enqueue(&p, &id).await.unwrap();
     ha::replica::synchronize(&p.a).await.unwrap();
@@ -627,6 +639,13 @@ async fn restore_from_a_crashed_sender_holds_uncertainty_and_does_not_replay_del
     assert_eq!(report["copied"], 1);
     let expected_scan = remote(&p, &id).await.scan;
     let restored = Store::open(target.path()).unwrap();
+    restored.read(move|db| {
+        let tracked:i64=db.query_row("SELECT tracking_since FROM quality_exposure_state WHERE id=1",[],|r|r.get(0))?;
+        assert!(tracked>=recovery_started);
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM quality_export_batches WHERE batch_id='synthetic-old-export'",[],|r|r.get::<_,usize>(0))?,1);
+        Ok(())
+    }).await.unwrap();
+
     restored.recover().await.unwrap();
     assert!(restored.claim().await.unwrap().is_none());
     let key = id.clone();

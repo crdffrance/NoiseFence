@@ -37,7 +37,7 @@ test('ambiguous and contradictory opinions retain the recorded score without cla
       shown.detail,
       resolution === 'ambiguous' ? /uncertain/ : /disagree/,
     );
-    assert.equal(classification(mail, 95).label, "Needs review");
+    assert.equal(classification(mail, 95).label, "Historical decision unavailable");
     assert.equal(mail.decision.score, null);
     assert.equal(mail.tagged, false);
   }
@@ -55,7 +55,7 @@ test('an incomplete LLM check preserves numeric results and explicitly describes
   assert.equal(shown.value, 72.35);
   assert.equal(shown.kind, 'partial');
   assert.match(shown.detail, /Incomplete checks: LLM analysis/);
-  assert.equal(classification(mail, 95).label, "Needs review");
+  assert.equal(classification(mail, 95).label, "Historical decision unavailable");
 });
 
 test('limited extraction and multiple missing controls are not described as a complete content analysis', () => {
@@ -81,7 +81,7 @@ test('lack of corroboration keeps the existing decision score and review status'
   const mail = { ...base, decision: decision('legacy', 'undetermined', 98.2) };
   assert.equal(scorePresentation(mail).value, 98.2);
   assert.match(scorePresentation(mail).detail, /Corroboration is insufficient/);
-  assert.equal(classification(mail, 95).label, "Needs review");
+  assert.equal(classification(mail, 95).label, "Historical decision unavailable");
 });
 
 test('the antivirus missing-control explanation uses its actual state, not a generic signature reason', () => {
@@ -189,7 +189,7 @@ test('an advisory score describes detector uncertainty without contradicting a r
     const shown = scorePresentation(mail);
     assert.equal(shown.value, 99.4);
     assert.match(shown.detail, /engine decision is undetermined/);
-    assert.doesNotMatch(shown.detail, /message remains Needs review/);
+    assert.doesNotMatch(shown.detail, /message remains Historical decision unavailable/);
     assert.equal(classification(mail).label, label);
   }
 });

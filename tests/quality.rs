@@ -1214,3 +1214,222 @@ fn provider_features_and_native_context_share_frozen_eligibility_without_false_v
         );
     }
 }
+
+fn export_header(path: &std::path::Path) -> serde_json::Value {
+    let raw = std::fs::read_to_string(path).unwrap();
+    serde_json::from_str(raw.lines().next().unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn export_consumption_is_atomic_across_concurrent_outputs_and_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    insert(&store, &observed(&cfg), "alice@example.test", now - 100).await;
+    let batch = evaluation::sample_with_purpose(
+        &store,
+        "alice".into(),
+        now - 200,
+        now,
+        10,
+        "".into(),
+        evaluation::Purpose::Holdout,
+        "".into(),
+    )
+    .await
+    .unwrap();
+    let a = root.path().join("a.jsonl");
+    let b = root.path().join("b.jsonl");
+    let (first, second) = tokio::join!(
+        evaluation::export_for_candidate(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            &a,
+            Some("a".repeat(64))
+        ),
+        evaluation::export_for_candidate(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            &b,
+            Some("b".repeat(64))
+        )
+    );
+    first.unwrap();
+    second.unwrap();
+    let headers = [export_header(&a), export_header(&b)];
+    assert_eq!(
+        headers[0]["exposure_tracking"]["candidate_sha256"],
+        "a".repeat(64)
+    );
+    assert_eq!(
+        headers[1]["exposure_tracking"]["candidate_sha256"],
+        "b".repeat(64)
+    );
+    assert_eq!(
+        headers
+            .iter()
+            .filter(|h| h["previously_examined"] == false)
+            .count(),
+        1
+    );
+    assert_eq!(
+        headers
+            .iter()
+            .filter(|h| h["exposure_tracking"]["previously_exported"] == true)
+            .count(),
+        1
+    );
+    drop(store);
+    let store = Store::open(root.path()).unwrap();
+    let c = root.path().join("c.jsonl");
+    evaluation::export(&store, "alice".into(), batch, &c)
+        .await
+        .unwrap();
+    assert_eq!(export_header(&c)["previously_examined"], true);
+}
+
+#[tokio::test]
+async fn failed_export_remains_consumed_without_any_completed_job() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    insert(&store, &observed(&cfg), "alice@example.test", now - 100).await;
+    let batch = evaluation::sample(&store, "alice".into(), now - 200, now, 10, "".into())
+        .await
+        .unwrap();
+    assert!(
+        evaluation::export(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            &root.path().join("absent/output.jsonl")
+        )
+        .await
+        .is_err()
+    );
+    let output = root.path().join("after.jsonl");
+    evaluation::export(&store, "alice".into(), batch, &output)
+        .await
+        .unwrap();
+    assert_eq!(export_header(&output)["previously_examined"], true);
+    store
+        .read(|db| {
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM quality_jobs", [], |r| r
+                    .get::<_, usize>(0))?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn different_batches_and_near_campaigns_cannot_reset_export_freshness() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    let original = observed(&cfg);
+    insert(&store, &original, "alice@example.test", now - 100).await;
+    let batch = evaluation::sample(&store, "alice".into(), now - 200, now - 70, 10, "".into())
+        .await
+        .unwrap();
+    evaluation::export(
+        &store,
+        "alice".into(),
+        batch.clone(),
+        &root.path().join("first.jsonl"),
+    )
+    .await
+    .unwrap();
+    store
+        .run(move |db| {
+            db.execute("DELETE FROM quality_batches WHERE id=?1", [batch])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    for (name, scan) in [
+        ("exact", original.clone()),
+        (
+            "near",
+            Scan {
+                fingerprint: digest(b"different exact bytes"),
+                campaign_simhash: Some(format!(
+                    "{:016x}",
+                    u64::from_str_radix(original.campaign_simhash.as_deref().unwrap(), 16).unwrap()
+                        ^ 7
+                )),
+                ..original.clone()
+            },
+        ),
+    ] {
+        let id = insert(&store, &scan, "alice@example.test", now - 50).await;
+        let batch = evaluation::sample(&store, "alice".into(), now - 70, now, 10, "".into())
+            .await
+            .unwrap();
+        let output = root.path().join(format!("{name}.jsonl"));
+        evaluation::export(&store, "alice".into(), batch, &output)
+            .await
+            .unwrap();
+        let header = export_header(&output);
+        assert_eq!(header["exposure_tracking"]["previously_exported"], false);
+        assert_eq!(header["exposure_tracking"]["related_campaign_seen"], true);
+        assert_eq!(header["previously_examined"], true);
+        store
+            .run(move |db| {
+                db.execute("DELETE FROM messages WHERE id=?1", [id])?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn worker_cannot_export_around_the_coordinator_exposure_journal() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    insert(&store, &observed(&cfg), "alice@example.test", now - 100).await;
+    let batch = evaluation::sample(&store, "alice".into(), now - 200, now, 10, "".into())
+        .await
+        .unwrap();
+    store
+        .run(|db| {
+            db.execute("INSERT INTO cluster_state VALUES('role','worker')", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let output = root.path().join("worker.jsonl");
+    let error = evaluation::export(&store, "alice".into(), batch, &output)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("coordinator only"));
+    assert!(!output.exists());
+    store
+        .read(|db| {
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM quality_export_batches", [], |r| r
+                    .get::<_, usize>(
+                    0
+                ))?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

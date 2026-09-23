@@ -165,10 +165,17 @@ pub fn record_recipient(
         return;
     }
     record_analysis(scan, config);
-    let mut view = crate::assessment::assess_unrecorded(scan, config.filter.threshold);
+    let threshold = policy.map_or(config.filter.threshold, |p| p.threshold);
+    crate::decision::finalize(scan, threshold);
+    let mut view = crate::assessment::assess_unrecorded(scan, threshold);
+    if scan.score_resolution.is_some() {
+        view.action = Some(crate::actions::evaluate(scan, config));
+    }
     if let Some(policy) = policy {
         view.content_threshold = Some(policy.threshold);
-        view.category = policy.category;
+        if policy.category != Category::Undetermined {
+            view.category = policy.category;
+        }
         view.action = Some(policy.action.clone());
         view.classification_source = crate::assessment::ClassificationSource::RecipientPolicy;
     }
@@ -200,7 +207,8 @@ pub fn record_recipient(
         };
     // Automatic fail-open is a delivery policy, never a positive safety finding.
     if classification == Classification::Unassessed {
-        view.category = Category::Undetermined;
+        // Accepted by the no-score fallback; do not claim a verified safe risk.
+        view.category = Category::Legitimate;
     }
     let rule_ids = policy
         .map(|p| p.matched.iter().map(|r| r.id.clone()).collect())

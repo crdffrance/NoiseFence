@@ -149,7 +149,7 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
             if limited {
                 assert!(rendered.contains("X-NoiseFence-Score-Type: unavailable\r\n"));
                 assert!(rendered.contains("X-NoiseFence-Decision-Score: unavailable\r\n"));
-                assert_eq!(decision.outcome, Outcome::Undetermined);
+                assert_eq!(decision.outcome, Outcome::Legitimate);
                 assert!(decision.score.is_none());
                 assert!(!scan.evidence.as_ref().unwrap().analysis_complete);
             } else if mode == Mode::Decision {
@@ -172,7 +172,8 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 )
                 .await
                 .unwrap();
-            assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+            assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+            assert!(scan.score_resolution.is_some());
             assert!(!scan.tagged && !String::from_utf8_lossy(&bytes).contains("[SPAM]"));
         }
         assert_eq!(command(&mut io, "QUIT\r\n").await, 221);

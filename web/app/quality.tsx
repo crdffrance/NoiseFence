@@ -15,7 +15,7 @@ export function QualityDetails({report}:{report:QualityReport}) {
     <h2>Risk and type of mail</h2>
     <p>{candidateLabel(report.candidate_status)}</p>
     {report.prediction && <>
-      <p><strong>{report.prediction.risk === 'spam' ? "Likely spam" : report.prediction.risk === 'legitimate' ? "Likely legitimate" : "Needs review"}</strong>
+      <p><strong>{report.prediction.risk === 'spam' ? "Likely spam" : report.prediction.risk === 'legitimate' ? "Likely legitimate" : "No decisive opinion"}</strong>
         {' · '}{mailKindLabel(report.prediction.kind)}</p>
       <p className="muted small">Model {report.prediction.model} · Probability of estimated risk {(report.prediction.risk_probability*100).toFixed(1)} % in the context assessed.</p>
     </>}
