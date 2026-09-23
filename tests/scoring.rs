@@ -105,7 +105,25 @@ fn signal(id: &str, weight: f64) -> Signal {
     }
 }
 fn sample() -> Scan {
+    use noisefence::evidence::{
+        Artifacts, AuthResult, DomainQuery, DomainRole, Evidence, Query, Source, State,
+    };
+    let config = Config::load(Path::new("config/development.toml")).unwrap();
+    let mut evidence = Evidence::new(&config, Artifacts::new(&config, None, None, false), false);
+    evidence.source = Source::SmtpSession;
+    evidence.authentication.state = State::Complete;
+    evidence.authentication.spf_state = State::Complete;
+    evidence.authentication.spf = Some(AuthResult::Fail);
+    evidence.reputation.state = State::Complete;
+    evidence.reputation.domains = vec![DomainQuery {
+        roles: vec![DomainRole::Body],
+        result: Query {
+            state: State::Complete,
+            codes: vec!["127.0.1.2".parse().unwrap()],
+        },
+    }];
     Scan {
+        evidence: Some(evidence),
         complete: true,
         features_complete: Some(true),
         feature_version: noisefence::features::VERSION,
@@ -116,6 +134,207 @@ fn sample() -> Scan {
         ],
         ..Default::default()
     }
+}
+
+#[test]
+fn dmarc_consumes_the_observed_spf_failure_once_without_erasing_other_findings() {
+    use noisefence::evidence::{AuthResult as A, State};
+    let mut scan = sample();
+    scan.reasons.push(signal("dmarc_fail", 2.));
+    let a = &mut scan.evidence.as_mut().unwrap().authentication;
+    a.dmarc_state = State::Complete;
+    a.dmarc_spf = Some(A::Fail);
+    a.dmarc_dkim = Some(A::Fail);
+    let report = scoring::combine(&scan, Some(-2.), false);
+    assert_eq!(report.rules_total, Some(6.5)); // 4 reputation + 2 DMARC + 0.5 urgency
+    let spf = report
+        .contributions
+        .iter()
+        .find(|r| r.id == "spf_fail")
+        .unwrap();
+    assert_eq!(spf.proposed, Some(1.));
+    assert_eq!(spf.retained, Some(0.));
+    assert_eq!(spf.adjustment, Adjustment::SubsumedEvidence);
+    assert_eq!(spf.subsumed_by.as_deref(), Some("dmarc_fail"));
+    scan.reasons.extend(scan.reasons.clone());
+    scan.reasons.reverse();
+    assert_eq!(
+        scoring::combine(&scan, Some(-2.), false).score,
+        report.score
+    );
+    // Missing DMARC evidence must not consume the separately observed SPF fail.
+    scan.evidence.as_mut().unwrap().authentication.dmarc_state = State::Unavailable;
+    let partial = scoring::combine(&scan, Some(-2.), false);
+    assert_eq!(partial.rules_total, Some(5.5));
+    assert!(
+        partial
+            .contributions
+            .iter()
+            .all(|r| r.subsumed_by.is_none())
+    );
+    // Conflicting duplicate inputs remain invalid, even in a consumed rule.
+    scan.reasons.push(signal("spf_fail", 3.));
+    assert!(scoring::combine(&scan, Some(-2.), false).score.is_none());
+}
+
+#[test]
+fn unobserved_or_incompatible_transport_findings_cannot_retain_weights() {
+    use noisefence::evidence::{Source, State};
+    let changes: &[fn(&mut Scan)] = &[
+        |s| s.evidence = None,
+        |s| s.evidence.as_mut().unwrap().source = Source::ContentOnly,
+        |s| s.evidence.as_mut().unwrap().schema = "unknown".into(),
+        |s| {
+            let e = s.evidence.as_mut().unwrap();
+            e.authentication.spf_state = State::Unavailable;
+            e.reputation.state = State::Disabled;
+        },
+        |s| {
+            let e = s.evidence.as_mut().unwrap();
+            e.authentication.state = State::Disabled;
+            e.reputation.state = State::Busy;
+        },
+    ];
+    for change in changes {
+        let mut scan = sample();
+        change(&mut scan);
+        let report = scoring::combine(&scan, Some(-2.), false);
+        assert_eq!(report.rules_total, Some(0.5));
+        for r in report.contributions.iter().filter(|r| r.id != "urgency") {
+            assert_eq!(r.retained, Some(0.));
+            assert_eq!(r.adjustment, Adjustment::UnavailableEvidence);
+        }
+    }
+}
+
+#[test]
+fn completed_reputation_targets_survive_partial_outages_but_policy_and_error_codes_do_not() {
+    use noisefence::evidence::{DomainQuery, DomainRole, Query, State};
+    let mut scan = sample();
+    scan.reasons = vec![signal("domain_reputation", 4.), signal("ip_reputation", 4.)];
+    let e = &mut scan.evidence.as_mut().unwrap().reputation;
+    e.state = State::Unavailable;
+    e.ip = Query {
+        state: State::Complete,
+        codes: vec!["127.0.0.2".parse().unwrap()],
+    };
+    e.domains.push(DomainQuery {
+        roles: vec![DomainRole::Helo],
+        result: Query::new(State::Unavailable),
+    });
+    assert_eq!(scoring::combine(&scan, None, false).rules_total, Some(8.));
+    for code in ["127.0.0.10", "127.0.0.30", "127.255.255.254", "192.0.2.1"] {
+        scan.evidence.as_mut().unwrap().reputation.ip.codes = vec![code.parse().unwrap()];
+        assert_eq!(scoring::combine(&scan, None, false).rules_total, Some(4.));
+    }
+    for code in ["127.0.1.102", "127.255.255.254", "127.0.0.2"] {
+        scan.evidence.as_mut().unwrap().reputation.domains[0]
+            .result
+            .codes = vec![code.parse().unwrap()];
+        assert_eq!(scoring::combine(&scan, None, false).rules_total, Some(0.));
+    }
+}
+
+#[test]
+fn smtp_contribution_uses_current_complete_bounded_policy_not_a_stale_signal() {
+    use noisefence::smtp_policy::{self, PolicyStatus};
+    let mut scan = sample();
+    scan.reasons = vec![signal("smtp_policy_contribution", 1.5)];
+    let p = &mut scan.smtp_policy;
+    p.version = smtp_policy::VERSION.into();
+    p.status = PolicyStatus::Complete;
+    p.scoring_enabled = true;
+    p.applied_weight = -0.25;
+    assert_eq!(
+        scoring::combine(&scan, None, false).rules_total,
+        Some(-0.25)
+    );
+    scan.smtp_policy.scoring_enabled = false;
+    assert_eq!(scoring::combine(&scan, None, false).rules_total, Some(0.));
+    scan.smtp_policy.scoring_enabled = true;
+    for status in [
+        PolicyStatus::Unavailable,
+        PolicyStatus::Busy,
+        PolicyStatus::Disabled,
+    ] {
+        scan.smtp_policy.status = status;
+        assert_eq!(scoring::combine(&scan, None, false).rules_total, Some(0.));
+    }
+    scan.smtp_policy.status = PolicyStatus::Complete;
+    scan.smtp_policy.applied_weight = 8.;
+    assert_eq!(scoring::combine(&scan, None, false).rules_total, Some(0.));
+}
+
+#[test]
+fn old_unavailable_ledgers_remain_readable_without_acquiring_new_dependencies() {
+    let config: Config = toml::from_str(include_str!("../config/development.toml")).unwrap();
+    let mut scan = unavailable_score::scan(&config);
+    let report = scan.scoring.as_mut().unwrap();
+    report.version = scoring::LEGACY_VERSION.into();
+    scan.analysis_result.as_mut().unwrap().scoring = Some(report.clone());
+    let raw = serde_json::to_string(&scan).unwrap();
+    assert!(!raw.contains("subsumed_by"));
+    let restored: Scan = serde_json::from_str(&raw).unwrap();
+    scoring::validate_transport(&restored).unwrap();
+    assert_eq!(
+        scoring::recorded(&restored).unwrap().version,
+        scoring::LEGACY_VERSION
+    );
+}
+
+#[test]
+fn dmarc_success_temporary_errors_and_missing_branches_cannot_supply_a_failure_vote() {
+    use noisefence::evidence::{AuthResult as A, State};
+    for (spf, dkim) in [
+        (Some(A::Fail), Some(A::Pass)),
+        (Some(A::Pass), Some(A::Fail)),
+        (Some(A::Fail), Some(A::TempError)),
+        (Some(A::TempError), Some(A::Fail)),
+        (Some(A::Fail), None),
+        (None, Some(A::Fail)),
+        (Some(A::None), Some(A::None)),
+    ] {
+        let mut scan = sample();
+        scan.reasons = vec![signal("spf_fail", 1.), signal("dmarc_fail", 2.)];
+        let a = &mut scan.evidence.as_mut().unwrap().authentication;
+        a.dmarc_state = State::Complete;
+        a.dmarc_spf = spf;
+        a.dmarc_dkim = dkim;
+        let report = scoring::combine(&scan, None, false);
+        assert_eq!(report.rules_total, Some(1.));
+        assert!(report.contributions.iter().all(|r| r.subsumed_by.is_none()));
+    }
+}
+
+#[test]
+fn a_shared_authentication_failure_cannot_cross_the_threshold_by_counting_spf_twice() {
+    use noisefence::{
+        decision,
+        evidence::{AuthResult as A, State},
+        fusion::runtime::{Decision, DecisionSource, Outcome},
+    };
+    let mut scan = sample();
+    scan.reasons = vec![signal("spf_fail", 1.), signal("dmarc_fail", 2.)];
+    let a = &mut scan.evidence.as_mut().unwrap().authentication;
+    a.dmarc_state = State::Complete;
+    a.dmarc_spf = Some(A::Fail);
+    a.dmarc_dkim = Some(A::Fail);
+    let report = scoring::combine(&scan, Some(0.), false);
+    scan.score = report.score.unwrap();
+    scan.scoring = Some(report);
+    assert!(noisefence::engine::sigmoid(3.) * 100. >= 95.); // old additive policy
+    assert!(scan.score < 95.);
+    scan.decision = Some(Decision {
+        source: DecisionSource::Legacy,
+        outcome: Outcome::Undetermined,
+        score: Some(scan.score),
+        model: "synthetic-index".into(),
+    });
+    decision::resolve_by_score(&mut scan, true, 95.);
+    assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+    assert_eq!(scan.score_resolution.as_ref().unwrap().threshold, 95.);
+    // This fixture proves a policy boundary, not that failed authentication is
+    // legitimate or that the chosen cutoff is calibrated on real traffic.
 }
 
 #[test]
@@ -204,6 +423,7 @@ fn stale_or_unsupported_llm_signal_cannot_resurrect_a_vote() {
     assert_eq!(llm.adjustment, Adjustment::DetectorPolicy);
     assert_eq!(report.total_logit, Some(3.5));
     scan.reasons.retain(|r| r.id == "llm_advisory");
+    scan.evidence = None;
     assert!(!noisefence::confirmation::corroborated(&scan));
 }
 

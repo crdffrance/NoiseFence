@@ -32,7 +32,7 @@ policy can evaluate partial actions against decision-specific evidence instead.
 Proton marking guards remain independent.
 Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
-copy. Each copy exposes only its own decision in version 6 diagnostic headers.
+copy. Each copy exposes only its own decision in version 7 diagnostic headers.
 
 Recipient variants share one immutable body allocation and retain their own
 headers. Disk writes and replica uploads stream both chunks. The configured SMTP
@@ -246,7 +246,7 @@ upgrade gate does not replace the planned atomic multi-node activation protocol.
 
 The release candidate records `scoring` in the scan and the immutable
 `analysis_result.scoring` snapshot. The policy is
-`content-logit-deduplicated-1`; its version is bound into the detector artifact
+`content-evidence-combination-2`; its version is bound into the detector artifact
 fingerprint. This report is the calculation used by the content scorer, rather
 than a later reconstruction from today's configuration. Diagnostics and the
 English console read the stored report. Historical records without it retain
@@ -278,11 +278,36 @@ expose a null score, not zero, in the canonical assessment. Internally, the old
 nonoptional `Scan.score` uses `-1` for this case so serialization remains finite;
 consumers must use the canonical assessment and validate the 0–100 range.
 
-This prevents duplicate application of a message-level signal; it does **not**
-prove independence of different signals. In particular, SPF and DMARC failures
-may remain correlated, and the lexical model can already encode rule-related
-features. The bounded fusion implementation below provides a separate candidate
-path; fitting its family limits and independent full-pipeline qualification remain
+Version 2 also reconciles authentication, DQS and SMTP contributions with their
+structured detector results. Missing, disabled, content-only, incompatible or
+unusable supporting evidence excludes a retained old signal. A completed DQS hit
+survives a later target failure; PBL/BCL policy listings, provider errors and
+compromised legitimate-domain codes cannot supply the malicious-domain weight.
+Completed SMTP contributions retain the configured bounded applied weight;
+an unavailable result cannot revive an old contribution.
+
+When completed DMARC alignment failure consumes the same observed failed SPF
+branch, the SPF penalty remains visible but contributes zero. Its ledger entry
+records `subsumed_evidence` and `subsumed_by: dmarc_fail`. Missing DMARC evidence
+never consumes a separately completed SPF finding. Conflicting/nonfinite input
+weights still invalidate the calculation rather than being concealed by this rule.
+
+Version 1 ledgers remain readable and are never reinterpreted. Header version 7
+reads retained rules from the same immutable ledger, and adds the combination
+policy and bounded adjustment codes. The main English rule list consumes the
+same retained ledger after diagnostics load, shows repeated occurrences only
+once numerically and labels historical/unloaded weights as proposed. Neither
+surface displays repeated or consumed proposed weights as actual contributions. Receivers must support the new
+adjustment variants before accepting these records; upgrade receipt/history
+consumers together. Do not rewrite new ledgers into old versions to bypass a
+mixed-version validation failure.
+
+This is a behavior change requiring fresh calibration and qualification, not a
+claim of improved capture or false positives. Its version participates in the
+artifact fingerprint. Source/build qualification changes with this calculation.
+It does **not** prove independence of all signals: the lexical model can already
+encode rule-related features, and content-model/LLM correlations remain. The
+bounded fusion implementation below provides a separate candidate path; fitting its family limits and independent full-pipeline qualification remain
 required before replacing this index. No accuracy improvement or production activation
 is claimed from these structural tests.
 

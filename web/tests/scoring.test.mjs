@@ -51,3 +51,22 @@ test('capped fusion view shows raw and retained units without implying activatio
   assert.match(comparison,/did not supply the final detector decision/);
   assert.equal(renderToStaticMarkup(createElement(FusionAccountingView,{})),'');
 });
+
+
+test('dependency accounting shows excluded facts without reusing their proposed weights', () => {
+  const html = renderToStaticMarkup(createElement(ScoreAccounting, {report: {
+    ...report, version: 'content-evidence-combination-2', rules_total: 2,
+    contributions: [
+      {id:'spf_fail',family:'authentication',occurrences:1,proposed:1,retained:0,adjustment:'subsumed_evidence',subsumed_by:'dmarc_fail'},
+      {id:'smtp_policy_contribution',family:'smtp',occurrences:1,proposed:1.5,retained:0,adjustment:'unavailable_evidence'},
+    ],
+  }}));
+  assert.match(html, /Already included in the composite finding/);
+  assert.match(html, /<code>dmarc_fail<\/code>/);
+  assert.match(html, /Excluded — no usable supporting result/);
+  const escaped = renderToStaticMarkup(createElement(ScoreAccounting, {report: {...report,
+    contributions:[{...report.contributions[0],subsumed_by:'<script>private</script>'}],
+  }}));
+  assert.doesNotMatch(escaped, /<script>/);
+  assert.match(escaped, /&lt;script&gt;/);
+});

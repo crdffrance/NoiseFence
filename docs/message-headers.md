@@ -1,13 +1,13 @@
 # Message diagnostic headers
 
-Newly prepared messages use **`X-NoiseFence-Header-Version: 6`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
+Newly prepared messages use **`X-NoiseFence-Header-Version: 7`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
 
 ## Risk, classification and delivery
 
 | Header | Meaning |
 | --- | --- |
 | `X-NoiseFence-Id` | Queue identifier; not an authorization token |
-| `X-NoiseFence-Header-Version` | Wire contract version, currently `6` |
+| `X-NoiseFence-Header-Version` | Wire contract version, currently `7` |
 | `X-NoiseFence-Activation` | Recorded activation sequence, configuration revision and policy/model bundle SHA-256, or `not_recorded` |
 | `X-NoiseFence-Assessment-Version` | Shared API/header assessment contract, currently `1` |
 | `X-NoiseFence-Record-Version` | Receipt decision schema version, currently `2`, or `not_recorded` |
@@ -86,7 +86,9 @@ The risk index is not generally a spam probability. A missing decision score doe
 | `X-NoiseFence-Authentication` | Recorded SPF, DKIM, DMARC alignment and ARC outcomes; complements standard `Authentication-Results` |
 | `X-NoiseFence-Incomplete-Reasons` | Known missing-check codes, `none` when complete, or `unspecified` |
 | `X-NoiseFence-Arbitration` | Baseline, second opinion and agreement/disagreement resolution |
-| `X-NoiseFence-Rules` | Rule identifiers and log-odds contributions, with total/shown/omitted counts |
+| `X-NoiseFence-Rules` | Retained ledger rule contributions in log-odds, with total/shown/omitted counts; legacy signals only when exact accounting was not recorded |
+| `X-NoiseFence-Score-Combination` | Recorded combination policy, retained rule total and total logit, or `not_recorded` |
+| `X-NoiseFence-Rule-Adjustments` | Bounded rule IDs with duplicate, unavailable-evidence or composite-consumption adjustments; includes the consuming rule where recorded |
 | `X-NoiseFence-LLM` | Status, advisory category, category/probability coherence, usable opinion, bounded failure code and duration |
 | `X-NoiseFence-Antivirus` | Primary antivirus and complementary signature outcomes and duration |
 | `X-NoiseFence-Vision` | OCR status, inspected parts/pages, QR/other code counts, errors and duration |
@@ -101,7 +103,7 @@ The risk index is not generally a spam probability. A missing decision score doe
 A shortened synthetic example:
 
 ```text
-X-NoiseFence-Header-Version: 6
+X-NoiseFence-Header-Version: 7
 X-NoiseFence-Assessment-Version: 1
 X-NoiseFence-Mode: observe
 X-NoiseFence-Score: 87.4

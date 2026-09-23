@@ -147,6 +147,7 @@ type Mail = {
       contributions: { feature: string; contribution: number }[];
     } | null;
   };
+  scoring?: import('./scoring-format').ScoringReport | null;
   reasons: { id: string; detail: string; weight: number }[];
   recipients: {
     filtering?: FilteringAssessment | null;
@@ -353,6 +354,7 @@ function Home() {
           ? {
               ...previous,
               rspamd: data.analysis.rspamd,
+              scoring: data.analysis.scoring,
               recipients: data.recipients.map((recipient) => ({
                 ...previous.recipients.find(
                   (existing) => existing.address === recipient.address,
@@ -1262,6 +1264,7 @@ function Home() {
                         )}
                     </details>
                     <RuleDetails
+                      scoring={selected.scoring}
                       reasons={selected.reasons}
                       source={selected.decision?.source}
                     />

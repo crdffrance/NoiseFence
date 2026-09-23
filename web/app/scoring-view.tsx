@@ -16,7 +16,7 @@ export function ScoreAccounting({report}:{report?:ScoringReport|null}) {
     {report.score == null && <p className="diagnostic-callout">No usable content index. Invalid or inconsistent inputs are not interpreted as zero risk.</p>}
     {report.invalid_inputs > 0 && <p className="diagnostic-callout">{report.invalid_inputs} unrecognized weighted inputs prevented this calculation.</p>}
     <div className="table-scroll"><table><thead><tr><th>Signal</th><th>Occurrences</th><th>Proposed</th><th>Retained</th><th>Treatment</th></tr></thead>
-      <tbody>{report.contributions.map(entry => <tr key={entry.id}><td><code>{entry.id}</code></td><td>{entry.occurrences}</td><td>{scoreValue(entry.proposed)}</td><td>{scoreValue(entry.retained)}</td><td>{scoreAdjustment(entry.adjustment)}</td></tr>)}</tbody>
+      <tbody>{report.contributions.map(entry => <tr key={entry.id}><td><code>{entry.id}</code></td><td>{entry.occurrences}</td><td>{scoreValue(entry.proposed)}</td><td>{scoreValue(entry.retained)}</td><td>{scoreAdjustment(entry.adjustment)}{entry.subsumed_by && <> · <code>{entry.subsumed_by}</code></>}</td></tr>)}</tbody>
     </table></div>
     <p className="diagnostic-muted">Identical message-level signals count once. Distinct correlated signals still need joint calibration; deduplication alone does not establish independence. The LLM contribution is not an independent confirmation of this index.</p>
   </details>;

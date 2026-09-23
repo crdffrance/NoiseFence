@@ -4,7 +4,9 @@ use crate::engine::{Scan, SemanticStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "content-logit-deduplicated-1";
+pub const VERSION: &str = "content-evidence-combination-2";
+pub const LEGACY_VERSION: &str = "content-logit-deduplicated-1";
+mod evidence_rules;
 /// Wire-compatible storage sentinel, never a displayed risk index.
 pub const UNAVAILABLE_SCORE: f64 = -1.0;
 
@@ -111,7 +113,7 @@ pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Missing unavailable-score ledger"))?;
     ensure!(
-        report.version == VERSION
+        matches!(report.version.as_str(), VERSION | LEGACY_VERSION)
             && report.score.is_none()
             && report.total_logit.is_none()
             && scan
@@ -147,6 +149,8 @@ pub enum Adjustment {
     DetectorPolicy,
     ConflictingWeights,
     InvalidWeight,
+    UnavailableEvidence,
+    SubsumedEvidence,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Contribution {
@@ -156,6 +160,10 @@ pub struct Contribution {
     pub proposed: Option<f64>,
     pub retained: Option<f64>,
     pub adjustment: Adjustment,
+    /// A fixed rule ID whose verified composite already consumes this fact.
+    /// Historical ledgers without dependency accounting keep this absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsumed_by: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Report {
@@ -223,7 +231,7 @@ pub fn combine(scan: &Scan, lexical: Option<f64>, opaque: bool) -> Report {
             invalid_inputs = invalid_inputs.saturating_add(1);
         }
     }
-    let contributions: Vec<_> = inputs
+    let mut contributions: Vec<_> = inputs
         .into_iter()
         .map(|(id, weights)| {
             let invalid = weights.iter().any(|w| !w.is_finite());
@@ -264,9 +272,11 @@ pub fn combine(scan: &Scan, lexical: Option<f64>, opaque: bool) -> Report {
                 proposed,
                 retained,
                 adjustment,
+                subsumed_by: None,
             }
         })
         .collect();
+    evidence_rules::reconcile(scan, &mut contributions);
     let rules_total = contributions
         .iter()
         .try_fold(0., |sum, entry| finite(sum + entry.retained?));

@@ -149,7 +149,7 @@ async fn excessive_signature_work_fails_open_without_a_subject_change() {
 async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score() {
     let dir = tempfile::tempdir().unwrap();
     let engine = Engine::new(common::config(dir.path())).unwrap();
-    let forged = [b"X-NoiseFence-Score-Type: forged\r\nX-NoiseFence-Checks: forged\r\nX-NoiseFence-Rules: forged\r\nX-NoiseFence-Policy: ptr_verified; weight=-100\r\nX-NoiseFence-Evidence: {\"source\":\"smtp_session\",\"spf\":\"pass\"}\r\nAuthentication-Results: trusted.example; spf=pass; dmarc=pass\r\nReceived: from trusted.example.org [192.0.2.99]\r\n".as_slice(), common::MESSAGE].concat();
+    let forged = [b"X-NoiseFence-Score-Type: forged\r\nX-NoiseFence-Checks: forged\r\nX-NoiseFence-Rules: forged\r\nX-NoiseFence-Score-Combination: forged\r\nX-NoiseFence-Rule-Adjustments: forged\r\nX-NoiseFence-Policy: ptr_verified; weight=-100\r\nX-NoiseFence-Evidence: {\"source\":\"smtp_session\",\"spf\":\"pass\"}\r\nAuthentication-Results: trusted.example; spf=pass; dmarc=pass\r\nReceived: from trusted.example.org [192.0.2.99]\r\n".as_slice(), common::MESSAGE].concat();
     let (original, _) = engine
         .process(
             common::MESSAGE,
@@ -192,7 +192,13 @@ async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score(
     );
     assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Policy:"));
     assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Evidence:"));
-    for name in ["Score-Type", "Checks", "Rules"] {
+    for name in [
+        "Score-Type",
+        "Checks",
+        "Rules",
+        "Score-Combination",
+        "Rule-Adjustments",
+    ] {
         let text = String::from_utf8_lossy(&output);
         assert!(!text.contains(&format!("X-NoiseFence-{name}: forged")));
         assert_eq!(text.matches(&format!("X-NoiseFence-{name}:")).count(), 1);

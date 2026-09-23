@@ -745,7 +745,7 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
     assert!(
         fields
             .iter()
-            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 6\r\n"))
+            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 7\r\n"))
     );
 
     io.write_all(b"QUIT\r\n").await.unwrap();
