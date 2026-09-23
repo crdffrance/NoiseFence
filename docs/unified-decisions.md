@@ -32,7 +32,7 @@ policy can evaluate partial actions against decision-specific evidence instead.
 Proton marking guards remain independent.
 Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
-copy. Each copy exposes only its own decision in version 5 diagnostic headers.
+copy. Each copy exposes only its own decision in version 6 diagnostic headers.
 
 Recipient variants share one immutable body allocation and retain their own
 headers. Disk writes and replica uploads stream both chunks. The configured SMTP
@@ -49,6 +49,16 @@ This change does not relax the two-copy acceptance requirement. Coordinated
 upgrade, mixed-version validation and failover qualification remain required
 before production rollout. A policy hash is a consistency identifier, not an
 authentication mechanism.
+
+## Recorded activation identity
+
+Receipt schema 2 captures the MAIL-pinned activation epoch before engine analysis,
+including incomplete paths and recipient rendering. Analysis, recipient receipt,
+SMTP headers and English diagnostics use that identity. Replica/history validation
+rejects contradictory or missing embedded epochs for schema 2. Schema 1 remains
+readable without inferring missing identity from transport fields or current settings.
+The Web view does not render unsafe rounded JavaScript integer identities.
+These consistency checks do not attest bundle quality or establish rollout safety.
 
 ## Recorded score boundaries
 

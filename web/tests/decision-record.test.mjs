@@ -47,3 +47,14 @@ test('marketing policy keeps its low threat index and explicit delivery action',
   assert.equal(scorePresentation(publicity).value, 12);
   assert.equal(receiptAssessment(publicity).action.requested, 'quarantine');
 });
+
+for (const version of [1, 2]) {
+  test(`receipt schema ${version} preserves detailed classification, score and unavailable coverage`, () => {
+    const snapshot = {...mail, recipient_decision: {...record, version, classification: 'phishing',
+      coverage: 'unavailable', activation_epoch: version === 2 ? {sequence: 7, revision: 12, digest: 'a'.repeat(64)} : undefined}};
+    assert.equal(classification(snapshot, 100).label, 'Phishing');
+    assert.equal(scorePresentation(snapshot).value, 99);
+    assert.equal(coveragePresentation(snapshot).label, 'Content analysis unavailable');
+    assert.equal(receiptAssessment(snapshot).action.effective, 'deliver');
+  });
+}

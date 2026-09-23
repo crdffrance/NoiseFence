@@ -1189,7 +1189,13 @@ impl Engine {
                 helo,
                 sender,
                 id,
-                (crate::evidence::Source::SuppliedEnvelope, &[], &[], None),
+                (
+                    crate::evidence::Source::SuppliedEnvelope,
+                    &[],
+                    &[],
+                    None,
+                    None,
+                ),
             )
             .await?;
         let variant = variants.remove(0);
@@ -1202,9 +1208,13 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        context: (&[crate::config::Recipient], &crate::rbl::Report),
+        context: (
+            &[crate::config::Recipient],
+            &crate::rbl::Report,
+            Option<&crate::cluster::activation::Epoch>,
+        ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
-        let (recipients, early_rbl) = context;
+        let (recipients, early_rbl, epoch) = context;
         let scopes: Vec<_> = recipients
             .iter()
             .filter_map(|r| {
@@ -1226,6 +1236,7 @@ impl Engine {
                 &scopes,
                 recipients,
                 Some(early_rbl),
+                epoch,
             ),
         )
         .await
@@ -1242,10 +1253,15 @@ impl Engine {
             &[String],
             &[crate::config::Recipient],
             Option<&crate::rbl::Report>,
+            Option<&crate::cluster::activation::Epoch>,
         ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        if let Some(epoch) = context.4 {
+            epoch.validate()?;
+        }
+        scan.activation_epoch = context.4.cloned();
         scan.features_complete.get_or_insert(scan.complete);
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
@@ -2100,7 +2116,13 @@ mod tests {
         let engine = Engine::new(cfg.clone()).unwrap();
         let recipients = [cfg.recipient("alice@example.test").unwrap()];
         let raw = b"From: sender@example.org\r\nSubject: Original subject\r\n\r\nOriginal body\r\n";
+        let epoch = crate::cluster::activation::Epoch {
+            sequence: 7,
+            revision: 12,
+            digest: "a".repeat(64),
+        };
         let scan = Scan {
+            activation_epoch: Some(epoch.clone()),
             complete: false,
             features_complete: Some(true),
             ..Default::default()
@@ -2117,6 +2139,11 @@ mod tests {
             .unwrap();
         assert_eq!(variants.len(), 1);
         let variant = &variants[0];
+        crate::scoring::validate_transport(&variant.scan).unwrap();
+        assert_eq!(
+            crate::decision_record::recorded_activation(&variant.scan),
+            Some(&epoch)
+        );
         let record = variant.scan.recipient_decision.as_ref().unwrap();
         let action = record.assessment.action.as_ref().unwrap();
         assert_eq!(action.requested, Action::Tag);

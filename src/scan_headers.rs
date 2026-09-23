@@ -7,6 +7,7 @@ use std::net::IpAddr;
 pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Id",
     "X-NoiseFence-Header-Version",
+    "X-NoiseFence-Activation",
     "X-NoiseFence-Record-Version",
     "X-NoiseFence-Classification",
     "X-NoiseFence-Coverage",
@@ -272,7 +273,19 @@ pub(crate) fn render(
     );
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "5");
+    h.field("X-NoiseFence-Header-Version", "6");
+    h.field(
+        "X-NoiseFence-Activation",
+        crate::decision_record::recorded_activation(scan).map_or_else(
+            || "not_recorded".into(),
+            |epoch| {
+                format!(
+                    "sequence={}; revision={}; bundle-sha256={};",
+                    epoch.sequence, epoch.revision, epoch.digest
+                )
+            },
+        ),
+    );
     h.field("X-NoiseFence-Version", env!("CARGO_PKG_VERSION"));
     h.field(
         "X-NoiseFence-Mode",
@@ -634,6 +647,27 @@ mod tests {
     }
 
     #[test]
+    fn activation_header_uses_canonical_receipt_and_is_in_signing_fields() {
+        let mut scan = scan();
+        scan.activation_epoch = Some(crate::cluster::activation::Epoch {
+            sequence: 7,
+            revision: 12,
+            digest: "a".repeat(64),
+        });
+        // A transport epoch alone is not recorded canonical identity.
+        assert_eq!(headers(&scan)["x-noisefence-activation"], "not_recorded");
+        crate::decision_record::record_recipient(&mut scan, &config(), None, 1234);
+        assert_eq!(
+            headers(&scan)["x-noisefence-activation"],
+            format!("sequence=7; revision=12; bundle-sha256={};", "a".repeat(64))
+        );
+        assert_eq!(headers(&scan)["x-noisefence-record-version"], "2");
+        assert!(signed_fields().any(|field| field == "X-NoiseFence-Activation"));
+        scan.activation_epoch.as_mut().unwrap().sequence += 1;
+        assert_eq!(headers(&scan)["x-noisefence-activation"], "not_recorded");
+    }
+
+    #[test]
     fn incomplete_keeps_recorded_numeric_score_and_specific_cause() {
         let mut s = scan();
         s.complete = false;
@@ -879,7 +913,7 @@ mod contract_tests {
                 ("X-NoiseFence-Score-Type", word(&report.score.kind)),
                 ("X-NoiseFence-Category", report.category.as_str().into()),
                 ("X-NoiseFence-Subject-Tag", "none".into()),
-                ("X-NoiseFence-Header-Version", "5".into()),
+                ("X-NoiseFence-Header-Version", "6".into()),
                 (
                     "X-NoiseFence-Status",
                     if s.complete { "complete" } else { "incomplete" }.into(),

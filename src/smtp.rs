@@ -624,13 +624,12 @@ async fn session(
                         &helo,
                         &sender,
                         &id,
-                        (&recipients, &early_rbl),
+                        (&recipients, &early_rbl, activation_epoch.as_ref()),
                     )
                     .await;
                 let result = match result {
                     Ok(mut variants) => {
                         for variant in &mut variants {
-                            variant.scan.activation_epoch = activation_epoch.clone();
                             early_rbl.attach(&mut variant.scan);
                             variant.scan.smtp_admission = admission_reports.clone();
                             if let Some(ticket) = &comparison {

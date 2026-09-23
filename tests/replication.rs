@@ -182,7 +182,18 @@ async fn fusion_score_boundary_crosses_replica_confirmation_without_using_conten
 async fn unavailable_index_replicates_without_becoming_zero_or_a_clean_verdict() {
     let p = pair().await;
     let id = uuid::Uuid::new_v4().to_string();
-    let scan = unavailable_score::scan(&p.config);
+    let mut scan = unavailable_score::scan(&p.config);
+    let epoch = noisefence::cluster::activation::Epoch {
+        sequence: 1,
+        revision: 1,
+        digest: "a".repeat(64),
+    };
+    let proof = p.a.activation.drain(&epoch).await.unwrap();
+    p.a.activation.resume(&proof, &epoch).unwrap();
+    scan.activation_epoch = Some(epoch);
+    scan.analysis_result = None;
+    scan.recipient_decision = None;
+    noisefence::decision_record::record_recipient(&mut scan, &p.config, None, noisefence::now());
     let expected = serde_json::to_value(&scan).unwrap();
     p.a.enqueue(
         id.clone(),
@@ -243,7 +254,7 @@ async fn unavailable_index_replicates_without_becoming_zero_or_a_clean_verdict()
     let key = cluster::protocol::credential(&settings.credential_file).unwrap();
     let mut invalid_manifest = remote(&p, &id).await;
     invalid_manifest.generation += 1;
-    invalid_manifest.scan["scoring"] = serde_json::Value::Null;
+    invalid_manifest.scan["recipient_decision"]["activation_epoch"]["revision"] = 2.into();
     let response = reqwest::Client::new()
         .post(format!(
             "{}/api/v1/replication/v1/manifest",

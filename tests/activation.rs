@@ -664,6 +664,9 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
     for expected in ["451", "250"] {
         io.write_all(b"DATA\r\n").await.unwrap();
         assert!(response(&mut io).await.starts_with("354"));
+        io.write_all(b"X-NoiseFence-Activation: forged\r\n")
+            .await
+            .unwrap();
         io.write_all(common::MESSAGE).await.unwrap();
         io.write_all(b".\r\n").await.unwrap();
         assert!(response(&mut io).await.starts_with(expected));
@@ -682,15 +685,61 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
         .store
         .read(|db| {
             Ok(db
-                .prepare("SELECT scan FROM messages")?
-                .query_map([], |r| r.get::<_, String>(0))?
+                .prepare("SELECT id, scan FROM messages")?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
         .await
         .unwrap();
     assert_eq!(records.len(), 1);
-    let scan: noisefence::engine::Scan = serde_json::from_str(&records[0]).unwrap();
-    assert_eq!(scan.activation_epoch, Some(current));
+    let scan: noisefence::engine::Scan = serde_json::from_str(&records[0].1).unwrap();
+    assert_eq!(scan.activation_epoch.as_ref(), Some(&current));
+    assert_eq!(
+        scan.analysis_result
+            .as_ref()
+            .unwrap()
+            .activation_epoch
+            .as_ref(),
+        Some(&current)
+    );
+    assert_eq!(
+        scan.recipient_decision
+            .as_ref()
+            .unwrap()
+            .activation_epoch
+            .as_ref(),
+        Some(&current)
+    );
+    noisefence::scoring::validate_transport(&scan).unwrap();
+    let wire = std::fs::read(worker.store.raw_path(&records[0].0)).unwrap();
+    let (fields, _) = noisefence::message::fields(&wire).unwrap();
+    let values: Vec<_> = fields
+        .iter()
+        .filter(|f| noisefence::message::name(f) == "x-noisefence-activation")
+        .map(|f| {
+            std::str::from_utf8(f)
+                .unwrap()
+                .split_once(':')
+                .unwrap()
+                .1
+                .split_ascii_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    assert_eq!(
+        values,
+        vec![format!(
+            "sequence={}; revision={}; bundle-sha256={};",
+            current.sequence, current.revision, current.digest
+        )]
+    );
+    assert!(
+        fields
+            .iter()
+            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 6\r\n"))
+    );
+
     io.write_all(b"QUIT\r\n").await.unwrap();
     assert!(response(&mut io).await.starts_with("221"));
     drop(io);

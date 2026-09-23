@@ -214,7 +214,6 @@ journals fail startup. Downgrading `user_version` is not a rollback procedure.
   manifests; measure work and memory on the reference hardware.
 - Define membership changes, upgrade negotiation and console recovery for enrolled
   clusters, without silently bypassing revoked or missing participants.
-- Carry activation identity through canonical receipt/header diagnostics.
 - Qualify actual process crashes, concurrent SMTP/two-copy replication, deployment
   upgrades and console failover together, then measure throughput and latency.
 
@@ -222,7 +221,10 @@ Local network tests run real HTTP authority/worker loops, immutable model transf
 revoked admin and personal-scope permissions, normal Web saves, scoped status,
 nonblocking progress during durable-write draining, partition after partial application, lost responses,
 early abort, missing release and higher-revision recovery. They also verify cached
-runtime/CLI restart when original model files have disappeared. Earlier tests
+runtime/CLI restart when original model files have disappeared. Canonical receipt
+schema 2 and header version 6 now preserve the MAIL-pinned
+activation identity across diagnostics, replica confirmation, queue restoration
+and history ingestion. Legacy missing identity remains unknown. Tests
 cover real SMTP epoch crossing and uncancellable durable disk acceptance. These
 are software consistency tests, not measured spam capture or false-positive rates.
 Production observation, Proton prerequisites and independent model qualification

@@ -40,6 +40,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
     pub fusion_combination: Option<crate::fusion::combination::Accounting>,
     pub scoring: Option<crate::scoring::Report>,
     pub observations: Option<crate::observations::Report>,
@@ -84,6 +85,7 @@ impl From<Scan> for Analysis {
             .map(|r| r.semantic)
             .unwrap_or(scan.semantic.contribution);
         Self {
+            activation_epoch: crate::decision_record::recorded_activation(&scan).cloned(),
             fusion_combination: scan
                 .analysis_result
                 .as_ref()

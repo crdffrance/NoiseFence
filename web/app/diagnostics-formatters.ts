@@ -58,6 +58,7 @@ export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
+    activation_epoch?: import('./receipt-activation').ReceiptEpoch | null;
     assessment?: import('./assessment').Assessment;
     fusion_combination?: import('./scoring-format').FusionAccounting | null;
     scoring?: import('./scoring-format').ScoringReport | null;

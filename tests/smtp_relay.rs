@@ -131,7 +131,7 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 .map(|v| format!("{v:.1}"))
                 .unwrap_or_else(|| "unavailable".into());
             assert!(rendered.contains(&format!("X-NoiseFence-Score: {displayed}\r\n")));
-            assert!(rendered.contains("X-NoiseFence-Header-Version: 5\r\n"));
+            assert!(rendered.contains("X-NoiseFence-Header-Version: 6\r\n"));
             assert!(rendered.contains(&format!(
                     "X-NoiseFence-Decision: {}\r\n",
                     serde_json::to_value(decision.outcome)

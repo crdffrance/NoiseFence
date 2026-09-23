@@ -12,9 +12,7 @@ pub const UNAVAILABLE_SCORE: f64 = -1.0;
 /// number alone is not an unavailable-score contract: require the producer's
 /// ledger, incomplete status and explicit reason. Never recalculate old scores.
 pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
-    if let Some(epoch) = &scan.activation_epoch {
-        epoch.validate()?;
-    }
+    crate::decision_record::validate_activation(scan)?;
     use crate::assessment::{Score, ScoreKind, ScoreSource, valid_score};
     use crate::fusion::runtime::{Decision, DecisionSource};
     use anyhow::ensure;
@@ -124,7 +122,7 @@ pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
     );
     if let Some(record) = &scan.analysis_result {
         ensure!(
-            record.version == crate::decision_record::VERSION
+            (1..=crate::decision_record::VERSION).contains(&record.version)
                 && record.coverage != crate::decision_record::Coverage::Complete
                 && record.scoring.as_ref() == Some(report),
             "Unavailable-score snapshot changed"
@@ -132,7 +130,7 @@ pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
     }
     if let Some(record) = &scan.recipient_decision {
         ensure!(
-            record.version == crate::decision_record::VERSION
+            (1..=crate::decision_record::VERSION).contains(&record.version)
                 && record.coverage != crate::decision_record::Coverage::Complete
                 && !record.assessment.complete,
             "Unavailable recipient score marked complete"

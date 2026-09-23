@@ -46,8 +46,9 @@ export type Assessment = {
 
 /** Frozen at receipt, shared by API, SMTP headers and replicated queue copies. */
 export type RecipientDecision = {
+  activation_epoch?: import('./receipt-activation').ReceiptEpoch | null;
   policy_trace?: import('./policy-trace').PolicyTrace | null;
-  version: 1;
+  version: 1 | 2;
   recorded_at: number;
   policy_sha256: string;
   profile: string | null;
@@ -57,8 +58,13 @@ export type RecipientDecision = {
   assessment: Assessment;
 };
 
+export function receiptDecision(mail: {recipient_decision?: RecipientDecision | null}) {
+  const record = mail.recipient_decision;
+  return record?.version === 1 || record?.version === 2 ? record : null;
+}
+
 export function receiptAssessment(mail: {assessment?: Assessment; recipient_decision?: RecipientDecision | null}) {
-  return mail.recipient_decision?.version === 1 ? mail.recipient_decision.assessment : mail.assessment;
+  return receiptDecision(mail)?.assessment ?? mail.assessment;
 }
 
 export const missingCheckLabels: Record<string, string> = {
@@ -80,7 +86,7 @@ export const missingCheckLabels: Record<string, string> = {
 export function coveragePresentation(mail: {complete: boolean; assessment?: Assessment; recipient_decision?: RecipientDecision | null}) {
   const assessment = receiptAssessment(mail);
   const complete = assessment?.complete ?? mail.complete;
-  const unavailable = mail.recipient_decision?.version === 1 && mail.recipient_decision.coverage === 'unavailable';
+  const unavailable = receiptDecision(mail)?.coverage === 'unavailable';
   const names = [...new Set((assessment?.incomplete_reasons ?? [])
     .map(id => Object.hasOwn(missingCheckLabels, id) ? missingCheckLabels[id] : 'unspecified check'))];
   const optionalNames: Record<string, string> = {crdf: 'CRDF reputation', virustotal: 'VirusTotal reputation', link_inventory: 'link inventory', url_resolution: 'URL destinations', rbl: 'DNS blocklists', mailing: 'PUB classification'};

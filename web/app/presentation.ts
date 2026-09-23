@@ -1,4 +1,4 @@
-import { type Assessment, type RecipientDecision, receiptAssessment, missingCheckLabels } from './assessment.ts';
+import { type Assessment, type RecipientDecision, receiptAssessment, receiptDecision, missingCheckLabels } from './assessment.ts';
 
 type DecisionInput = {
   recipient_decision?: RecipientDecision | null;
@@ -212,7 +212,8 @@ export function publicitySignal(
 
 // Keep the canonical decision distinct from the delivery action and feedback.
 export function classification(mail: DecisionInput, threshold?: number) {
-  if (mail.recipient_decision?.version === 1) {
+  const record = receiptDecision(mail);
+  if (record) {
     const labels = {
       legitimate: {label: 'Legitimate', tone: 'good'},
       publicity: {label: 'Marketing', tone: 'publicity'},
@@ -221,7 +222,7 @@ export function classification(mail: DecisionInput, threshold?: number) {
       malware: {label: 'Malware', tone: 'spam'},
       unassessed: {label: 'Classification unavailable', tone: 'neutral'},
     };
-    return labels[mail.recipient_decision.classification] ?? labels.unassessed;
+    return labels[record.classification] ?? labels.unassessed;
   }
   if (mail.decision?.source === 'antivirus')
     return { label: 'Malware', tone: 'spam' };

@@ -1,15 +1,16 @@
 # Message diagnostic headers
 
-Newly prepared messages use **`X-NoiseFence-Header-Version: 5`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
+Newly prepared messages use **`X-NoiseFence-Header-Version: 6`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
 
 ## Risk, classification and delivery
 
 | Header | Meaning |
 | --- | --- |
 | `X-NoiseFence-Id` | Queue identifier; not an authorization token |
-| `X-NoiseFence-Header-Version` | Wire contract version, currently `5` |
+| `X-NoiseFence-Header-Version` | Wire contract version, currently `6` |
+| `X-NoiseFence-Activation` | Recorded activation sequence, configuration revision and policy/model bundle SHA-256, or `not_recorded` |
 | `X-NoiseFence-Assessment-Version` | Shared API/header assessment contract, currently `1` |
-| `X-NoiseFence-Record-Version` | Receipt decision schema version, currently `1`, or `not_recorded` |
+| `X-NoiseFence-Record-Version` | Receipt decision schema version, currently `2`, or `not_recorded` |
 | `X-NoiseFence-Classification` | `legitimate`, `publicity`, `spam`, `phishing`, `malware`, `unassessed`, or `not_recorded` |
 | `X-NoiseFence-Coverage` | `complete`, `partial`, `unavailable` (content extraction unavailable), or `not_recorded` |
 | `X-NoiseFence-Policy-SHA256` | Fingerprint of the applied policy, threshold, rules and action; not a signature |
@@ -44,6 +45,19 @@ Version 4 adds the explicit receipt decision fields. `Category` remains a compat
 Version 5 preserves those aliases and adds `Action-Coverage`. Its `eligible=yes`
 means evidence requirements are met; it does not override observation mode or
 Proton validation. Read `Action-Effective` for the action actually prepared.
+
+Version 6 adds `Activation`, captured from the MAIL-pinned runtime before analysis
+and header preparation. Receipt schema 2 binds the same identity into analysis
+and recipient records. Replication/history reject missing or contradictory
+identities in these new records. The assessment schema remains version 1.
+Legacy schema-1 receipts remain readable, including unavailable scores; an old
+transport-only epoch never fills missing canonical identity. Uncoordinated and
+offline analyses emit `not_recorded`. Hashes identify configuration, not detection
+quality or authentication. Existing queued bytes are not rewritten.
+Upgrade all replica/history readers and the console before enabling schema-2
+producers. Older strict receivers may reject new receipts, causing SMTP deferral
+under mandatory two-copy acceptance. Never downgrade a receipt to bypass this
+check; mixed-version deployment remains a qualification gate.
 
 The additive `Score-Boundary` field uses boundary version 1. `content_index`
 compares the selected content index with its recorded recipient threshold.
@@ -87,7 +101,7 @@ The risk index is not generally a spam probability. A missing decision score doe
 A shortened synthetic example:
 
 ```text
-X-NoiseFence-Header-Version: 5
+X-NoiseFence-Header-Version: 6
 X-NoiseFence-Assessment-Version: 1
 X-NoiseFence-Mode: observe
 X-NoiseFence-Score: 87.4

@@ -9,7 +9,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -34,6 +34,8 @@ pub enum Classification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub score_boundary: Option<crate::score_boundary::Boundary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_combination: Option<crate::fusion::combination::Accounting>,
@@ -55,6 +57,8 @@ pub struct AnalysisResult {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecipientDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_trace: Option<crate::policy_trace::Trace>,
     pub version: u32,
     pub recorded_at: i64,
@@ -66,6 +70,52 @@ pub struct RecipientDecision {
     pub classification: Classification,
     pub coverage: Coverage,
     pub assessment: Assessment,
+}
+
+/// Old receipts may only have a transport epoch. Never backfill the canonical
+/// decision from that field or today's runtime. Version 2 records bind it before
+/// header generation and require exact preservation during transport.
+pub fn validate_activation(scan: &Scan) -> anyhow::Result<()> {
+    if let Some(epoch) = &scan.activation_epoch {
+        epoch.validate()?;
+    }
+    for (version, epoch) in scan
+        .analysis_result
+        .as_ref()
+        .map(|r| (r.version, r.activation_epoch.as_ref()))
+        .into_iter()
+        .chain(
+            scan.recipient_decision
+                .as_ref()
+                .map(|r| (r.version, r.activation_epoch.as_ref())),
+        )
+    {
+        anyhow::ensure!(
+            (1..=VERSION).contains(&version),
+            "Unsupported receipt contract version"
+        );
+        if let Some(epoch) = epoch {
+            epoch.validate()?;
+        }
+        if version >= 2 || epoch.is_some() {
+            anyhow::ensure!(
+                epoch == scan.activation_epoch.as_ref(),
+                "Receipt activation identity disagrees with its transport epoch"
+            );
+        }
+    }
+    Ok(())
+}
+pub fn recorded_activation(scan: &Scan) -> Option<&crate::cluster::activation::Epoch> {
+    validate_activation(scan).ok()?;
+    scan.recipient_decision
+        .as_ref()
+        .and_then(|r| r.activation_epoch.as_ref())
+        .or_else(|| {
+            scan.analysis_result
+                .as_ref()
+                .and_then(|r| r.activation_epoch.as_ref())
+        })
 }
 
 fn coverage(scan: &Scan) -> Coverage {
@@ -86,6 +136,7 @@ pub fn record_analysis(scan: &mut Scan, config: &Config) {
     }
     let view = crate::assessment::assess_unrecorded(scan, config.filter.threshold);
     scan.analysis_result = Some(Box::new(AnalysisResult {
+        activation_epoch: scan.activation_epoch.clone(),
         score_boundary: view.score_boundary,
         version: VERSION,
         scoring: scan.scoring.clone(),
@@ -163,6 +214,7 @@ pub fn record_recipient(
         "trace":policy.and_then(|p|p.trace.as_ref()),
     })).expect("typed receipt policy"));
     scan.recipient_decision = Some(Box::new(RecipientDecision {
+        activation_epoch: scan.activation_epoch.clone(),
         policy_trace: policy.and_then(|p| p.trace.clone()),
         version: VERSION,
         recorded_at,

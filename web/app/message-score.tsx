@@ -1,4 +1,4 @@
-import { coveragePresentation, receiptAssessment } from './assessment';
+import { coveragePresentation, receiptAssessment, receiptDecision } from './assessment';
 import { actionReason } from './action-coverage';
 import { ActionCoverageDetails } from './action-coverage-view';
 import { PolicyTraceDetails } from './policy-trace-view';
@@ -29,7 +29,7 @@ export function MessageScoreDetails({ mail }: { mail: ScoreInput }) {
   const score = scorePresentation(mail);
   const coverage = coveragePresentation(mail);
   const assessment = receiptAssessment(mail);
-  const record = mail.recipient_decision?.version === 1 ? mail.recipient_decision : null;
+  const record = receiptDecision(mail);
   const boundary = assessment?.score_boundary?.version === 1 ? assessment.score_boundary : null;
   const fusionScore = assessment?.score.source === 'decision' && assessment.decision.source === 'fusion';
   return (

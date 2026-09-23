@@ -189,3 +189,116 @@ async fn persisted_views_filters_and_numeric_search_use_the_same_receipt() {
         }
     }
 }
+
+fn activation_receipt(config: &noisefence::config::Config) -> Scan {
+    let mut scan = recorded(config, false);
+    scan.analysis_result = None;
+    scan.recipient_decision = None;
+    scan.activation_epoch = Some(noisefence::cluster::activation::Epoch {
+        sequence: 7,
+        revision: 12,
+        digest: "a".repeat(64),
+    });
+    decision_record::record_recipient(&mut scan, config, None, 1234);
+    scan
+}
+
+#[test]
+fn recorded_activation_survives_roundtrip_and_policy_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let scan = activation_receipt(&cfg);
+    let expected = scan.activation_epoch.clone();
+    let mut restored: Scan = serde_json::from_slice(&serde_json::to_vec(&scan).unwrap()).unwrap();
+    let mut changed = (*cfg).clone();
+    changed.filter.threshold = 1.;
+    decision_record::record_recipient(&mut restored, &changed, None, 9999);
+    noisefence::scoring::validate_transport(&restored).unwrap();
+    assert_eq!(
+        restored.analysis_result.as_ref().unwrap().activation_epoch,
+        expected
+    );
+    assert_eq!(
+        restored
+            .recipient_decision
+            .as_ref()
+            .unwrap()
+            .activation_epoch,
+        expected
+    );
+    assert_eq!(
+        noisefence::diagnostics::Analysis::from(restored).activation_epoch,
+        expected
+    );
+}
+
+#[test]
+fn contradictory_or_unsupported_activation_receipts_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let original = activation_receipt(&cfg);
+    for case in 0..7 {
+        let mut scan = original.clone();
+        match case {
+            0 => scan.activation_epoch = None,
+            1 => scan.analysis_result.as_mut().unwrap().activation_epoch = None,
+            2 => scan.recipient_decision.as_mut().unwrap().activation_epoch = None,
+            3 => scan.activation_epoch.as_mut().unwrap().revision += 1,
+            4 => {
+                scan.recipient_decision
+                    .as_mut()
+                    .unwrap()
+                    .activation_epoch
+                    .as_mut()
+                    .unwrap()
+                    .digest = "b".repeat(64)
+            }
+            5 => scan.analysis_result.as_mut().unwrap().version = decision_record::VERSION + 1,
+            _ => scan.recipient_decision.as_mut().unwrap().version = 0,
+        }
+        assert!(
+            noisefence::scoring::validate_transport(&scan).is_err(),
+            "case {case}"
+        );
+        assert!(decision_record::recorded_activation(&scan).is_none());
+        assert!(
+            noisefence::diagnostics::Analysis::from(scan)
+                .activation_epoch
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn legacy_receipts_never_infer_identity_from_transport_epoch() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let mut scan = activation_receipt(&cfg);
+    let analysis = scan.analysis_result.as_mut().unwrap();
+    analysis.version = 1;
+    analysis.activation_epoch = None;
+    let recipient = scan.recipient_decision.as_mut().unwrap();
+    recipient.version = 1;
+    recipient.activation_epoch = None;
+    let restored: Scan = serde_json::from_slice(&serde_json::to_vec(&scan).unwrap()).unwrap();
+    noisefence::scoring::validate_transport(&restored).unwrap();
+    assert!(decision_record::recorded_activation(&restored).is_none());
+    assert!(
+        noisefence::diagnostics::Analysis::from(restored)
+            .activation_epoch
+            .is_none()
+    );
+}
+
+#[path = "common/unavailable_score.rs"]
+mod unavailable_score;
+#[test]
+fn schema_one_unavailable_indices_remain_transportable() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let mut scan = unavailable_score::scan(&cfg);
+    scan.analysis_result.as_mut().unwrap().version = 1;
+    scan.recipient_decision.as_mut().unwrap().version = 1;
+    noisefence::scoring::validate_transport(&scan).unwrap();
+    assert_eq!(assessment::historical(&scan).score.value, None);
+}

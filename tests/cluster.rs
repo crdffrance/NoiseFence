@@ -15,7 +15,18 @@ async fn unavailable_index_survives_history_sync_and_invalid_batch_rolls_back() 
     node(&central, "mx2").await;
     account(&central, "alice", false, &["alice@example.test"]).await;
     let id = uuid::Uuid::new_v4().to_string();
-    let scan = unavailable_score::scan(&cb);
+    let mut scan = unavailable_score::scan(&cb);
+    let epoch = noisefence::cluster::activation::Epoch {
+        sequence: 1,
+        revision: 1,
+        digest: "a".repeat(64),
+    };
+    let proof = remote.activation.drain(&epoch).await.unwrap();
+    remote.activation.resume(&proof, &epoch).unwrap();
+    scan.activation_epoch = Some(epoch);
+    scan.analysis_result = None;
+    scan.recipient_decision = None;
+    noisefence::decision_record::record_recipient(&mut scan, &cb, None, noisefence::now());
     let expected = serde_json::to_value(&scan).unwrap();
     remote
         .enqueue(
@@ -27,6 +38,22 @@ async fn unavailable_index_survives_history_sync_and_invalid_batch_rolls_back() 
         )
         .await
         .unwrap();
+    let mut inconsistent = history::export(&remote).await.unwrap();
+    inconsistent[0]
+        .scan
+        .recipient_decision
+        .as_mut()
+        .unwrap()
+        .activation_epoch
+        .as_mut()
+        .unwrap()
+        .revision += 1;
+    assert!(
+        central
+            .run(move |db| history::ingest(db, "mx2", inconsistent, noisefence::now()))
+            .await
+            .is_err()
+    );
     let mut records = history::export(&remote).await.unwrap();
     let mut invalid: history::Record =
         serde_json::from_value(serde_json::to_value(&records[0]).unwrap()).unwrap();

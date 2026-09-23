@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from './client';
+import { ReceiptActivation } from './receipt-activation';
 import { ScoreAccounting, FusionAccountingView } from './scoring-view';
 import { observationState, observationRole, observationScope, observationName,
   observationResult, observationMeasurement, sharedObservationGroups,
@@ -166,6 +167,7 @@ function AnalysisDetails({
         </div>
       </dl>
       <p className="diagnostic-callout">{policySummary(analysis.policy)}</p>
+      <ReceiptActivation epoch={analysis.activation_epoch} />
       <ScoreAccounting report={analysis.scoring} />
       <FusionAccountingView report={analysis.fusion_combination} decisionSource={analysis.assessment?.decision.source} />
       <DetectorObservations report={analysis.observations} />
