@@ -167,6 +167,118 @@ fn file_slots(value: &Value) -> Vec<String> {
     paths.retain(|p| value.pointer(p).is_some_and(Value::is_string));
     paths
 }
+/// A stable model identity names logical slots, not capture-order filenames.
+/// It includes the validation report and encoder bytes as well as predictors.
+pub fn model_manifest(bundle: &Bundle) -> Result<BTreeMap<String, Artifact>> {
+    bundle.validate()?;
+    let mut result = BTreeMap::new();
+    for pointer in file_slots(&bundle.shared) {
+        let name = bundle.shared.pointer(&pointer).unwrap().as_str().unwrap();
+        result.insert(
+            pointer,
+            bundle.files.get(name).context("Unlisted model")?.clone(),
+        );
+    }
+    if bundle
+        .shared
+        .pointer("/filter/semantic/encoder_dir")
+        .is_some_and(Value::is_string)
+    {
+        for name in ["config.json", "tokenizer.json", "model.safetensors"] {
+            result.insert(
+                format!("/filter/semantic/encoder/{name}"),
+                bundle
+                    .files
+                    .get(&format!("encoder/{name}"))
+                    .context("Unlisted encoder")?
+                    .clone(),
+            );
+        }
+    }
+    Ok(result)
+}
+pub fn model_digest(bundle: &Bundle) -> Result<String> {
+    Ok(crate::message::digest(&serde_json::to_vec(
+        &model_manifest(bundle)?,
+    )?))
+}
+/// Preserve machine-local settings while explicitly binding installed model slots
+/// to their immutable files. Unselected installation paths are never a fallback.
+pub fn model_base(
+    base: &crate::config::Config,
+    installed: &Bundle,
+) -> Result<crate::config::Config> {
+    model_manifest(installed)?;
+    let root = directory(&base.data_dir, installed);
+    let mut value = serde_json::to_value(base)?;
+    for pointer in file_slots(&installed.shared) {
+        if let Some(target) = value.pointer_mut(&pointer) {
+            let name = installed
+                .shared
+                .pointer(&pointer)
+                .unwrap()
+                .as_str()
+                .unwrap();
+            *target = json!(root.join(name));
+        }
+    }
+    if let Some(target) = value.pointer_mut("/filter/semantic/encoder_dir")
+        && installed
+            .shared
+            .pointer("/filter/semantic/encoder_dir")
+            .is_some_and(Value::is_string)
+    {
+        *target = json!(root.join("encoder"));
+    }
+    // Include explicit absence: a disabled shadow candidate must not return
+    // through its old installation path on a later settings-only save.
+    if let Some(quality) = installed.shared.get("quality") {
+        let mut quality = quality.clone();
+        if let Some(name) = quality.get("candidate").and_then(Value::as_str) {
+            quality["candidate"] = json!(root.join(name));
+        }
+        value["quality"] = quality;
+    }
+    Ok(serde_json::from_value(value)?)
+}
+pub fn require_installed_models(
+    config: &crate::config::Config,
+    installed: &Bundle,
+    changed_quality: bool,
+) -> Result<()> {
+    model_manifest(installed)?;
+    let value = serde_json::to_value(config)?;
+    let root = directory(&config.data_dir, installed);
+    for pointer in file_slots(&value) {
+        if changed_quality && pointer == "/quality/candidate" {
+            continue;
+        }
+        let expected = installed
+            .shared
+            .pointer(&pointer)
+            .and_then(Value::as_str)
+            .map(|name| json!(root.join(name)));
+        ensure!(
+            expected.as_ref() == value.pointer(&pointer),
+            "Model slot {pointer} is not installed in this policy; explicitly preview and select installation models"
+        );
+    }
+    if let Some(dir) = value
+        .pointer("/filter/semantic/encoder_dir")
+        .filter(|v| v.is_string())
+    {
+        ensure!(
+            installed
+                .shared
+                .pointer("/filter/semantic/encoder_dir")
+                .is_some_and(Value::is_string)
+                && dir == &json!(root.join("encoder")),
+            "Select the complete installation encoder explicitly"
+        );
+    }
+    Ok(())
+}
+
 /// Model files whose bytes must match the resident engine before publication.
 pub fn bindings(
     config: &crate::config::Config,

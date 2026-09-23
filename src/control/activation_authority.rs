@@ -216,8 +216,77 @@ impl Controller {
         actor: String,
         token_hash: String,
     ) -> Result<Journal> {
-        self.stage_authorized(revision, settings, actor, token_hash, None)
+        self.stage_authorized(revision, settings, actor, token_hash, None, None)
             .await
+    }
+    /// Explicit selection requires the digest returned by a draft preview.
+    /// Settings-only and personal saves always retain installed model slots.
+    pub async fn stage_installation_models_session(
+        self: &Arc<Self>,
+        revision: i64,
+        settings: Settings,
+        actor: String,
+        token_hash: String,
+        models_sha256: String,
+    ) -> Result<Journal> {
+        ensure!(
+            crate::compatibility::valid_hash(&models_sha256),
+            "Invalid model selection digest"
+        );
+        self.stage_authorized(
+            revision,
+            settings,
+            actor,
+            token_hash,
+            None,
+            Some(models_sha256),
+        )
+        .await
+    }
+    pub async fn effective_settings(&self, settings: &Settings) -> Result<crate::config::Config> {
+        if self.activation_journal().await?.is_some() {
+            let publication = self.publication().await?;
+            settings.effective_installed(&self.base, &publication.bundle)
+        } else {
+            settings.effective(&self.base)
+        }
+    }
+    pub async fn preview_installation_models(
+        self: &Arc<Self>,
+        revision: i64,
+        mut settings: Settings,
+    ) -> Result<serde_json::Value> {
+        self.authority_id()?;
+        let permit = self
+            .applying
+            .clone()
+            .try_acquire_owned()
+            .context("A policy operation is already in progress")?;
+        let this = self.clone();
+        tokio::spawn(async move {
+            ensure!(
+                this.snapshot().revision == revision,
+                "Configuration changed; reload before selecting models"
+            );
+            settings.hydrate(&this.base);
+            let current = this.publication().await?;
+            let base = this.base.clone();
+            tokio::task::spawn_blocking(move || {
+                // Keep the expensive-preview slot until owned hashing finishes,
+                // including when the HTTP client disconnects.
+                let _permit = permit;
+                let config = settings.effective(&base)?;
+                let candidate = artifacts::capture(&config, settings, revision)?;
+                Ok(serde_json::json!({"revision":revision,
+                    "installed_sha256":artifacts::model_digest(&current.bundle)?,
+                    "installation_sha256":artifacts::model_digest(&candidate.bundle)?,
+                    "installed":artifacts::model_manifest(&current.bundle)?,
+                    "installation":artifacts::model_manifest(&candidate.bundle)?,
+                    "qualification":"not_evaluated"}))
+            })
+            .await?
+        })
+        .await?
     }
     pub async fn stage_preferences_session(
         self: &Arc<Self>,
@@ -233,7 +302,7 @@ impl Controller {
         } else {
             settings.preferences.mailboxes.remove(&scope);
         }
-        self.stage_authorized(revision, settings, actor, token_hash, Some(scope))
+        self.stage_authorized(revision, settings, actor, token_hash, Some(scope), None)
             .await
     }
     async fn stage_authorized(
@@ -243,6 +312,7 @@ impl Controller {
         actor: String,
         token_hash: String,
         scope: Option<String>,
+        models_sha256: Option<String>,
     ) -> Result<Journal> {
         let owner = self.authority_id()?;
         let this = self.clone();
@@ -256,14 +326,19 @@ impl Controller {
             settings.hydrate(&this.base);
             if let Some(scope)=&scope { scoped_delta(&current.settings, &settings, scope)?; }
             ensure!(serde_json::to_vec(&settings)?.len()<=128*1024, "Configuration exceeds its size limit");
-            let config=settings.effective(&this.base)?;
             let publication=this.publication().await?;
             let next_revision=revision.checked_add(1).context("Revision exhausted")?;
             let root=this.base.data_dir.clone(); let reserve=this.base.smtp.minimum_free_bytes;
             let source=publication.clone();
+            let base=this.base.clone();
             let candidate=tokio::task::spawn_blocking(move|| {
                 artifacts::freeze(&root,&source,reserve)?;
+                let config=if models_sha256.is_some() {settings.effective(&base)?}
+                    else {settings.effective_installed(&base,&source.bundle)?};
                 let next=artifacts::capture(&config,settings,next_revision)?;
+                if let Some(expected)=models_sha256 {
+                    ensure!(artifacts::model_digest(&next.bundle)?==expected, "Installation models changed after preview; review and select them again");
+                }
                 artifacts::freeze(&root,&next,reserve)?;
                 Ok::<_,anyhow::Error>(next.bundle)
             }).await??;

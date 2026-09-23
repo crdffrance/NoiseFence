@@ -52,6 +52,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
+import { ModelSources } from './model-sources';
 import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, savesBlocked, type SaveResult } from './activation';
 
@@ -171,6 +172,7 @@ type Metrics = {
   };
 };
 const filterSections = [
+  { id: 'models', label: 'Model files', description: 'Installed artifacts and explicit updates', icon: <Server size={19} /> },
   {
     id: 'admission',
     label: 'SMTP admission',
@@ -441,6 +443,7 @@ export function AdminConsole({
 }) {
   const activation = useActivation(user, true);
   const blocked = savesBlocked(activation.view, activation.error);
+  const [modelChoice, setModelChoice] = useState<{digest:string;draft:string;revision:number} | null>(null);
   const [config, setConfig] = useState<Configuration | null>(null),
     [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''),
@@ -459,10 +462,12 @@ export function AdminConsole({
   const [filterQuery, setFilterQuery] = useState('');
   const [accountQuery, setAccountQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
+  const modelDraft = draft ? JSON.stringify(normalize(draft)) : '';
+  const modelSelection = modelChoice?.draft === modelDraft && modelChoice?.revision === config?.revision ? modelChoice.digest : null;
   const dirty =
     !!config &&
     !!draft &&
-    JSON.stringify(config.settings) !== JSON.stringify(draft);
+    (JSON.stringify(config.settings) !== JSON.stringify(draft) || modelSelection !== null);
   useEffect(() => {
     onDirty(dirty);
     const leave = (e: BeforeUnloadEvent) => {
@@ -535,6 +540,7 @@ export function AdminConsole({
     const c = await api<Configuration>('/admin/config');
     setConfig(c);
     setDraft(c.settings);
+    setModelChoice(null);
     setReview(false);
     setEpoch((e) => e + 1);
   }
@@ -542,7 +548,7 @@ export function AdminConsole({
     if (!config || !draft || blocked) return;
     const result = await api<SaveResult>(
       '/admin/config',
-      { revision: config.revision, settings: normalize(draft) },
+      { revision: config.revision, settings: normalize(draft), installation_models_sha256: modelSelection },
       user.csrf,
     );
     await reload();
@@ -1101,6 +1107,9 @@ export function AdminConsole({
               levels={config.sensitivity_levels}
               csrf={user.csrf}
             />
+          </div>
+          <div id="filters-panel-models" role="tabpanel" aria-labelledby="filters-tab-models" hidden={filterSection !== 'models'} className="filter-section">
+            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
           </div>
           <div
             id="filters-panel-policy"
@@ -1806,6 +1815,7 @@ export function AdminConsole({
         <div className="save-area">
           {review && (
             <section className="change-review">
+              {modelSelection && <p className="notice">This change explicitly selects server model files with digest <code>{modelSelection}</code>. Changed bytes will be refused until previewed again.</p>}
               <h2>Check for changes</h2>
               <ul>
                 {(

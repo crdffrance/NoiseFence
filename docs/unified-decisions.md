@@ -118,8 +118,10 @@ durable journals, runtime preparation, SMTP fences, authenticated v2 transport a
 an authority loop that commits the console revision atomically. Explicit admin APIs
 stage, abort and recover rollouts. English Web forms now show progress and use
 coordinated saves after enrollment; personal proposals are checked against their
-exact authorized delta. Managed artifacts/credentials, membership and full
-deployment qualification remain required before production enrollment.
+exact authorized delta. A retained qualified-artifact catalog, managed credentials, membership and full
+deployment qualification remain required before production enrollment. Ordinary
+coordinated saves now retain installed model bytes; explicit Web selection of
+installation files is bound to a reviewed logical-manifest digest.
 
 1. Complete controlled score combination using normalized detector observations.
    Grouping records correlations; it is not a new weighting policy. Preserve the

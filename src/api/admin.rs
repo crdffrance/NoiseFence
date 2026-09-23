@@ -81,7 +81,7 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         publicity: crate::actions::Action::Deliver,
         quarantine_days: 14,
     });
-    let tag_ready = tag.effective(&control.base).is_ok();
+    let tag_ready = control.effective_settings(&tag).await.is_ok();
     let mut pub_tag = tag.clone();
     pub_tag.mailing = Some(crate::mailing::Policy::default());
     pub_tag.actions = Some(crate::actions::Policy {
@@ -90,7 +90,7 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         publicity: crate::actions::Action::Tag,
         quarantine_days: 14,
     });
-    let pub_tag_ready = pub_tag.effective(&control.base).is_ok();
+    let pub_tag_ready = control.effective_settings(&pub_tag).await.is_ok();
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
         "available":Settings::available(&control.base),
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
@@ -108,6 +108,8 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
 struct Apply {
     revision: i64,
     settings: Settings,
+    #[serde(default)]
+    installation_models_sha256: Option<String>,
 }
 async fn apply(
     State(app): State<App>,
@@ -123,23 +125,37 @@ async fn apply(
         ));
     }
     if control.activation_journal().await?.is_some() {
-        let journal = control
-            .stage_activation_session(
-                body.revision,
-                body.settings,
-                user.username,
-                message::digest(token(&h).unwrap().as_bytes()),
-            )
-            .await
-            .map_err(|e| {
-                Error(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    format!("Staging refused: {e}"),
+        let token_hash = message::digest(token(&h).unwrap().as_bytes());
+        let journal = if let Some(digest) = body.installation_models_sha256 {
+            control
+                .stage_installation_models_session(
+                    body.revision,
+                    body.settings,
+                    user.username,
+                    token_hash,
+                    digest,
                 )
-            })?;
+                .await
+        } else {
+            control
+                .stage_activation_session(body.revision, body.settings, user.username, token_hash)
+                .await
+        }
+        .map_err(|e| {
+            Error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Staging refused: {e}"),
+            )
+        })?;
         let epoch = journal.rollout().unwrap().epoch();
         return Ok(Json(
             json!({"revision":epoch.revision,"staged":true,"epoch":epoch}),
+        ));
+    }
+    if body.installation_models_sha256.is_some() {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Enroll coordinated activation before selecting installation models.".into(),
         ));
     }
     let id = control
@@ -566,8 +582,8 @@ async fn validate_configuration(
     administrator(&app, &h, true).await?;
     let c = controller(&app)?;
     body.settings.hydrate(&c.base);
-    body.settings
-        .effective(&c.base)
+    c.effective_settings(&body.settings)
+        .await
         .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
     Ok(Json(json!({"settings":body.settings})))
 }

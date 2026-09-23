@@ -993,3 +993,270 @@ async fn web_progress_remains_readable_while_activation_waits_for_a_durable_writ
     h.finish().await;
     h.close().await;
 }
+
+#[tokio::test]
+async fn settings_keep_installed_models_until_an_explicit_digest_bound_selection() {
+    let h = Harness::new(true, true).await;
+    let alice = grant(&h, "alice").await;
+    h.stage(97.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let initial = h.central.publication().await.unwrap();
+    let initial_models = artifacts::model_digest(&initial.bundle).unwrap();
+    let source = h.central.base.filter.model.as_ref().unwrap();
+    let mut model: Value = serde_json::from_slice(&std::fs::read(source).unwrap()).unwrap();
+    model["version"] = json!("explicit-model-v2");
+    model["bias"] = json!(-8.0);
+    std::fs::write(source, serde_json::to_vec(&model).unwrap()).unwrap();
+    // Replacing an installation file does not select it during an ordinary save.
+    let same = h.stage(98.).await;
+    assert_eq!(
+        artifacts::model_digest(same.rollout().unwrap().candidate()).unwrap(),
+        initial_models
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let current = h.central.snapshot();
+    let preview_body = json!({"revision":current.revision,"settings":current.settings});
+    assert_eq!(
+        h.browser(
+            &alice,
+            "/admin/cluster/models/preview",
+            preview_body.clone(),
+            true
+        )
+        .await
+        .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        h.browser(
+            &h.admin,
+            "/admin/cluster/models/preview",
+            preview_body.clone(),
+            false
+        )
+        .await
+        .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    let preview = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/preview",
+            preview_body.clone(),
+            true,
+        )
+        .await;
+    assert!(
+        preview.status().is_success(),
+        "{}",
+        preview.text().await.unwrap()
+    );
+    let preview: Value = preview.json().await.unwrap();
+    assert_eq!(preview["installed_sha256"], initial_models);
+    assert_ne!(preview["installation_sha256"], initial_models);
+    assert_eq!(preview["qualification"], "not_evaluated");
+    assert!(!preview.to_string().contains(source.to_str().unwrap()));
+    // A preview never grants permission to silently consume subsequently changed bytes.
+    model["version"] = json!("explicit-model-v3");
+    model["bias"] = json!(-7.0);
+    std::fs::write(source, serde_json::to_vec(&model).unwrap()).unwrap();
+    let mut request = preview_body.clone();
+    request["installation_models_sha256"] = preview["installation_sha256"].clone();
+    let response = h
+        .browser(&h.admin, "/admin/config", request.clone(), true)
+        .await;
+    assert_eq!(response.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response
+            .text()
+            .await
+            .unwrap()
+            .contains("changed after preview")
+    );
+    assert_eq!(h.central.snapshot().revision, current.revision);
+    let preview: Value = h
+        .browser(
+            &h.admin,
+            "/admin/cluster/models/preview",
+            preview_body,
+            true,
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    request["installation_models_sha256"] = preview["installation_sha256"].clone();
+    h.outage.store(true, Ordering::SeqCst);
+    let response = h.browser(&h.admin, "/admin/config", request, true).await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    assert_eq!(response.json::<Value>().await.unwrap()["staged"], true);
+    std::fs::remove_file(source).unwrap();
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let installed = h.central.publication().await.unwrap();
+    assert_eq!(
+        artifacts::model_digest(&installed.bundle).unwrap(),
+        preview["installation_sha256"]
+    );
+    assert_ne!(
+        artifacts::model_digest(&installed.bundle).unwrap(),
+        initial_models
+    );
+    let worker = h.worker.snapshot();
+    let worker_publication =
+        artifacts::capture(&worker.config, worker.settings.clone(), worker.revision).unwrap();
+    assert_eq!(
+        artifacts::model_digest(&worker_publication.bundle).unwrap(),
+        preview["installation_sha256"]
+    );
+    assert_eq!(
+        worker.engine.quality_artifacts_sha256(),
+        h.central.snapshot().engine.quality_artifacts_sha256()
+    );
+    // Another settings change, plus draft validation, use immutable cached files.
+    let settings = h.central.snapshot().settings.clone();
+    let valid = h
+        .browser(
+            &h.admin,
+            "/admin/config/validate",
+            json!({"settings":settings}),
+            true,
+        )
+        .await;
+    assert!(
+        valid.status().is_success(),
+        "{}",
+        valid.text().await.unwrap()
+    );
+    let retained = h.stage(98.5).await;
+    assert_eq!(
+        artifacts::model_digest(retained.rollout().unwrap().candidate()).unwrap(),
+        preview["installation_sha256"]
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    h.close().await;
+}
+
+#[tokio::test]
+async fn managed_shadow_selection_stages_and_survives_source_removal_then_disables() {
+    use noisefence::{message::digest, quality};
+    let h = Harness::new(false, true).await;
+    h.stage(97.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let job = uuid::Uuid::new_v4().to_string();
+    let path = h
+        .central
+        .base
+        .data_dir
+        .join("calibration")
+        .join(&job)
+        .join("candidate/model.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let model = json!({"schema":"noisefence-quality-model-2","version":"SOFTWARE-TEST-ONLY",
+        "protocol_sha256":quality::protocol_hash(),"artifacts_sha256":h.central.snapshot().engine.quality_artifacts_sha256(),
+        "dataset_sha256":digest(b"synthetic"),"trained_at":noisefence::now(),"profiles":["fixture"],
+        "risk":{"bias":0.,"weights":vec![0.;quality::specs().len()]},"calibration":[1.,0.],"thresholds":[0.2,0.8],
+        "kinds":[],"kind_models":[],"kind_profiles":[],"kind_temperature":1.,"training_manifest_sha256":digest(b"fixture manifest")});
+    let bytes = serde_json::to_vec(&model).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    quality::Model::load(&path).unwrap();
+    let sha = digest(&bytes);
+    let key = job.clone();
+    h.central.store.run(move|db| {
+        db.execute("INSERT INTO quality_batches VALUES('fixture','admin',?1,?1,?1,'example.test','fixture',0,0)",[noisefence::now()])?;
+        db.execute("INSERT INTO quality_jobs(id,username,batch_id,operation,status,created,model_sha256) VALUES(?1,'admin','fixture','train','complete',?2,?3)",params![key,noisefence::now(),sha])?;
+        Ok(())
+    }).await.unwrap();
+    h.outage.store(true, Ordering::SeqCst);
+    let response = h
+        .browser(
+            &h.admin,
+            "/quality/candidate",
+            json!({"revision":h.central.snapshot().revision,"job":job}),
+            true,
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let response: Value = response.json().await.unwrap();
+    assert_eq!(response["staged"], true);
+    assert_eq!(response["observation_only"], true);
+    std::fs::remove_file(&path).unwrap();
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let selected = h.central.snapshot();
+    assert!(
+        selected
+            .config
+            .quality
+            .as_ref()
+            .unwrap()
+            .candidate
+            .as_ref()
+            .unwrap()
+            .is_file()
+    );
+    let config = view(&h, &h.admin, "/admin/config").await;
+    assert_eq!(config["settings"]["quality_candidate"]["job"], job);
+    // Same selected job remains usable after the original research file is gone.
+    h.stage(98.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    let cleared = h
+        .browser(
+            &h.admin,
+            "/quality/candidate",
+            json!({"revision":h.central.snapshot().revision,"job":null}),
+            true,
+        )
+        .await;
+    assert!(
+        cleared.status().is_success(),
+        "{}",
+        cleared.text().await.unwrap()
+    );
+    h.all_prepared().await;
+    h.finish().await;
+    h.ready_peer().await;
+    assert!(
+        h.central
+            .snapshot()
+            .config
+            .quality
+            .as_ref()
+            .unwrap()
+            .candidate
+            .is_none()
+    );
+    h.stage(99.).await;
+    h.all_prepared().await;
+    h.finish().await;
+    assert!(
+        h.worker
+            .snapshot()
+            .config
+            .quality
+            .as_ref()
+            .unwrap()
+            .candidate
+            .is_none()
+    );
+    h.close().await;
+}

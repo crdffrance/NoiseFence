@@ -24,11 +24,22 @@ pub(super) fn routes(app: App) -> Router<App> {
         )
         .route("/admin/cluster/activation/abort", post(abort_activation))
         .route("/admin/cluster/activation/view", get(activation_view))
+        .route("/admin/cluster/models/preview", post(preview_models))
         .route(
             "/admin/cluster/activation/recover",
             post(recover_activation),
         )
         .merge(nodes)
+}
+async fn preview_models(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(body): Json<ActivationStage>,
+) -> ApiResult<Json<Value>> {
+    super::admin::administrator(&app, &h, true).await?;
+    let value = coordinator(&app)?.preview_installation_models(body.revision,body.settings).await
+        .map_err(|e| {tracing::warn!(error=%e,"installation model preview failed"); Error(StatusCode::UNPROCESSABLE_ENTITY,"Installation models could not be read or validated. Check server files and reload the draft. Installed models remain unchanged.".into())})?;
+    Ok(Json(value))
 }
 async fn activation_view(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     let user = super::admin::administrator(&app, &h, false).await?;

@@ -198,6 +198,24 @@ impl Settings {
         }
     }
     pub fn effective(&self, base: &Config) -> Result<Config> {
+        self.effective_inner(base, false)
+    }
+    pub(crate) fn effective_installed(
+        &self,
+        base: &Config,
+        installed: &crate::cluster::artifacts::Bundle,
+    ) -> Result<Config> {
+        ensure!(
+            self.quality_candidate.is_some() || installed.settings.quality_candidate.is_none(),
+            "Use an explicit empty candidate selection to disable a managed shadow model"
+        );
+        let pinned = crate::cluster::artifacts::model_base(base, installed)?;
+        let unchanged = self.quality_candidate == installed.settings.quality_candidate;
+        let config = self.effective_inner(&pinned, unchanged)?;
+        crate::cluster::artifacts::require_installed_models(&config, installed, !unchanged)?;
+        Ok(config)
+    }
+    fn effective_inner(&self, base: &Config, pinned_quality: bool) -> Result<Config> {
         ensure!(
             self.domains.len() <= 100 && self.gateways.len() <= 100,
             "At most 100 domains and 100 gateways."
@@ -229,7 +247,9 @@ impl Settings {
             );
         }
         let mut cfg = base.clone();
-        if let Some(selection) = &self.quality_candidate {
+        if let Some(selection) = &self.quality_candidate
+            && !pinned_quality
+        {
             let path = selection.path(&base.data_dir)?;
             if let Some(path) = &path {
                 let bytes = crate::native_filter::read_bounded(path, 2 * 1024 * 1024)?;

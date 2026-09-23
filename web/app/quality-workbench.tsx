@@ -1,5 +1,7 @@
 'use client';
 import {useEffect,useState} from 'react';
+import { ActivationPanel, useActivation } from './activation-view';
+import { saveNotice, type SaveResult } from './activation';
 import {Button} from '@/components/ui/button';
 import {api,type User} from './client';
 export type DatasetPurpose='development'|'regression'|'holdout';
@@ -25,25 +27,29 @@ function Folds({value}:{value:Readiness}) {
   return <div className="quality-folds">{Object.entries(value).map(([name,fold])=><div key={name} className={fold.ready?'ready':'pending'}><strong>{name}</strong><span>{fold.ready?'Ready':'More labelled campaigns needed'}</span></div>)}</div>;
 }
 export function QualityWorkbench({user,batch,purpose,refresh}:{user:User;batch:string;purpose:DatasetPurpose;refresh:number}) {
+  const activation = useActivation(user, true);
+  const installedRevision = !activation.view?.pending ? activation.view?.installed_revision : undefined;
+  const [notice,setNotice] = useState('');
   const [state,setState]=useState<State|null>(null),[tick,setTick]=useState(0),[candidate,setCandidate]=useState('');
   const [loadedAt,setLoadedAt]=useState(0);
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  useEffect(()=>{const c=new AbortController();api<State>('/quality/jobs',undefined,undefined,{signal:c.signal}).then(value=>{if(!c.signal.aborted){setState(value);setLoadedAt(Date.now()/1000);}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[tick,refresh]);
+  useEffect(()=>{const c=new AbortController();api<State>('/quality/jobs',undefined,undefined,{signal:c.signal}).then(value=>{if(!c.signal.aborted){setState(value);setLoadedAt(Date.now()/1000);}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[tick,refresh,installedRevision]);
   useEffect(()=>{if(!state?.jobs.some(j=>['queued','running'].includes(j.status)))return;const t=setTimeout(()=>setTick(n=>n+1),5000);return()=>clearTimeout(t);},[state]);
-  async function action(path:string,body:unknown){setBusy(true);setError('');try{await api(path,body,user.csrf);setTick(n=>n+1);}catch(e){setError(e instanceof Error?e.message:'Request failed.');}finally{setBusy(false);}}
+  async function action(path:string,body:unknown){setBusy(true);setError('');try{const result=await api<Partial<SaveResult>>(path,body,user.csrf);if (typeof result.staged === 'boolean' && typeof result.revision === 'number') {setNotice(saveNotice(result as SaveResult));await activation.refresh();}setTick(n=>n+1);}catch(e){setError(e instanceof Error?e.message:'Request failed.');}finally{setBusy(false);}}
   const candidates=state?.jobs.filter(j=>j.operation==='train'&&j.status==='complete'&&j.model_sha256)??[];
   const active=state?.selection?.job;
   const working=state?.jobs.some(j=>j.status==='running');
   const workerRecent=!!state?.worker&&(loadedAt-state.worker.heartbeat<180||working);
   return <section className="panel quality-workbench"><p className="eyebrow">CALIBRATION WORKBENCH</p><h2>Measure before changing decisions</h2>
+    <ActivationPanel state={activation} user={user} administrator />{notice && <output className="notice">{notice}</output>}
     <div className="quality-steps"><div><strong>1. Label</strong><span>Separate risk from mail type</span></div><div><strong>2. Compare</strong><span>Same human references for both engines</span></div><div><strong>3. Observe</strong><span>Explicit activation and rollback</span></div></div>
     <p className="muted">{workerRecent?'Research worker available.':'Research worker has not reported recently. Queued jobs wait for the offline worker.'} {active?`Shadow candidate: ${active.slice(0,8)}.`:'No managed shadow candidate selected.'}</p>
     <div className="quality-controls"><Button disabled={busy||!batch} variant="outline" onClick={()=>action('/quality/jobs',{batch,operation:'compare',candidate:null})}>Compare this sample</Button>
       <Button disabled={busy||!batch||purpose!=='development'} onClick={()=>action('/quality/jobs',{batch,operation:'train',candidate:null})}>Train a shadow candidate</Button>
       <label>Prepared candidate<select value={candidate} onChange={e=>setCandidate(e.target.value)}><option value="">Select a candidate</option>{candidates.map(j=><option key={j.id} value={j.id}>{new Date(j.created*1000).toLocaleString('en-GB')} · {j.id.slice(0,8)}</option>)}</select></label>
       <Button variant="outline" disabled={busy||!batch||!candidate} onClick={()=>action('/quality/jobs',{batch,operation:'evaluate',candidate})}>Evaluate on this sample</Button>
-      <Button disabled={busy||!candidate||!state||candidate===active} onClick={()=>action('/quality/candidate',{revision:state!.revision,job:candidate})}>Use in observation</Button>
-      <Button variant="outline" disabled={busy||!active||!state} onClick={()=>action('/quality/candidate',{revision:state!.revision,job:null})}>Disable shadow candidate</Button>
+      <Button disabled={busy||!activation.view||activation.view.pending||!!activation.error||!candidate||!state||candidate===active} onClick={()=>action('/quality/candidate',{revision:state!.revision,job:candidate})}>Use in observation</Button>
+      <Button variant="outline" disabled={busy||!activation.view||activation.view.pending||!!activation.error||!active||!state} onClick={()=>action('/quality/candidate',{revision:state!.revision,job:null})}>Disable shadow candidate</Button>
       <Button variant="outline" disabled={busy} onClick={()=>setTick(n=>n+1)}>Refresh jobs</Button></div>
     <p className="notice">Only development samples may be fitted. Regression and holdout samples remain excluded from training. Selecting an earlier prepared candidate rolls observation back through the same versioned configuration on both MX servers.</p>
     <p className="muted small">Final qualification requires an independent, recent test and confidence bounds. A shadow pilot does not grant permission to tag, reject or quarantine messages.</p>

@@ -130,6 +130,46 @@ Successful progress clears the incident; a newer epoch does not display an older
 failure. A user can see the generic incident only for their still-authorized own
 proposal. Browser rendering is separately tested for escaping and scoped display.
 
+## Explicit model selection
+
+Ordinary coordinated settings and personal saves retain the installed model
+slots, rebased to their immutable manifest files. They neither re-read old
+installation files nor silently adopt replacements at those paths. An unchanged
+managed shadow candidate uses its cached bytes; an explicit empty candidate
+selection disables it. Dropping its selection metadata alone is refused rather
+than misrepresenting the still-installed candidate.
+
+The English Filters → Model files section previews the installation files for the
+current draft via `POST /admin/cluster/models/preview` with `{revision, settings}`.
+This requires an administrator session and CSRF. The response names logical model
+slots, sizes and SHA-256 hashes, including validation reports and encoder files;
+it does not expose filesystem paths. Identity is stable when internal capture
+filenames change. `qualification: not_evaluated` is explicit: hashing does not
+establish filtering accuracy, and the existing validation/Proton gates still apply.
+
+After reviewing the preview, the administrator can add
+`installation_models_sha256` to the ordinary `/admin/config` save. The server
+requires enrolled coordination, re-reads the draft's configured installation
+models, verifies that their complete logical manifest matches the preview digest,
+and freezes the exact bytes before staging. Changed files are refused until
+previewed again. Personal preferences cannot submit this option. Model selection
+alone creates a visible unsaved draft even when policy parameters are unchanged.
+Edits to the draft/revision invalidate that selection; stale preview requests are
+cancelled. Preparation on every MX still loads and validates the chosen runtime
+before any policy commit or SMTP release.
+
+The calibration workbench's shadow-candidate selection and removal also stage a
+coordinated revision after enrollment, preserving their observation-only role.
+Its UI shows pending activation and refreshes the installed selection after release.
+
+This is explicit installed-versus-installation selection, not a complete retained
+artifact catalog. Disabling a detector omits its files from the new bundle; later
+re-enabling a missing model requires an explicit installation selection. Arbitrary
+model uploads, independent qualification records for selectable model sets and
+long-lived selection of inactive historical artifacts remain future catalog work.
+A newer managed shadow candidate still requires its referenced research file and
+matching digest; an unavailable new candidate never falls back to the old one.
+
 ## SMTP and queue behavior
 
 MAIL receives `451 4.3.2` while admission is fenced. A transaction begun before
@@ -167,10 +207,9 @@ journals fail startup. Downgrading `user_version` is not a rollback procedure.
 
 ## Remaining integration and qualification
 
-- Finish managed model selection and credential-update workflows. New policy
-  proposals currently resolve models from the
-  installation configuration; frozen publication and restart no longer need the
-  original files, but this is not yet a Web-managed artifact catalog.
+- Finish the retained/qualified artifact catalog and credential-update workflows.
+  Installed model retention and explicit digest-bound installation selection work
+  as described above; inactive historical models are not a retained catalog.
 - Bound resident model generations retained by old SMTP analyses, not just disk
   manifests; measure work and memory on the reference hardware.
 - Define membership changes, upgrade negotiation and console recovery for enrolled
