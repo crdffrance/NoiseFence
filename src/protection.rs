@@ -280,10 +280,25 @@ pub struct Runtime {
 }
 impl Runtime {
     pub fn new(config: &Settings, root: &Path) -> Result<Self> {
+        Self::with_credentials(
+            config,
+            root,
+            Arc::new(crate::credentials::Snapshot::protection(root)),
+        )
+    }
+    pub(crate) fn with_credentials(
+        config: &Settings,
+        root: &Path,
+        credentials: Arc<crate::credentials::Snapshot>,
+    ) -> Result<Self> {
         config.validate()?;
         Ok(Self {
             redirects: redirects::Resolver::new(config.url_resolution.clone())?,
-            providers: Arc::new(providers::Client::new(config, root)?),
+            providers: Arc::new(providers::Client::with_credentials(
+                config,
+                root,
+                credentials,
+            )?),
             root: root.into(),
             feed: Arc::new(std::sync::Mutex::new((
                 Instant::now(),
@@ -291,10 +306,14 @@ impl Runtime {
             ))),
         })
     }
-    pub(crate) fn reconfigure(&self, config: &Settings) -> Result<Self> {
+    pub(crate) fn reconfigure(
+        &self,
+        config: &Settings,
+        credentials: Arc<crate::credentials::Snapshot>,
+    ) -> Result<Self> {
         config.validate()?;
         Ok(Self {
-            providers: Arc::new(self.providers.reconfigure(config)?),
+            providers: Arc::new(self.providers.reconfigure(config, credentials)?),
             root: self.root.clone(),
             feed: self.feed.clone(),
             redirects: self.redirects.reconfigure(config.url_resolution.clone())?,

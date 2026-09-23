@@ -45,6 +45,13 @@ pub struct QuotaUsage {
 }
 /// Read aggregate counters only. Never expose cache identifiers or credentials.
 pub fn quota_usage(root: &Path, provider: Provider) -> Result<QuotaUsage> {
+    quota_usage_with_key(root, provider, read_key(root, provider).ok().as_deref())
+}
+pub(crate) fn quota_usage_with_key(
+    root: &Path,
+    provider: Provider,
+    key: Option<&str>,
+) -> Result<QuotaUsage> {
     let now = crate::now();
     let mut usage = QuotaUsage {
         minute_used: 0,
@@ -74,7 +81,7 @@ pub fn quota_usage(root: &Path, provider: Provider) -> Result<QuotaUsage> {
             usage.minute_used = mu;
         }
     }
-    if let Ok(key) = read_key(root, provider) {
+    if let Some(key) = key {
         let credential = crate::message::digest(format!("{}:{key}", provider.name()).as_bytes());
         usage.cooldown_until = db
             .query_row(
@@ -227,7 +234,7 @@ enum Reservation {
 
 #[derive(Clone)]
 pub struct Client {
-    root: PathBuf,
+    credentials: Arc<crate::credentials::Snapshot>,
     config: Settings,
     http: reqwest::Client,
     db: Arc<Mutex<Connection>>,
@@ -238,6 +245,17 @@ pub struct Client {
 }
 impl Client {
     pub fn new(config: &Settings, root: &Path) -> Result<Self> {
+        Self::with_credentials(
+            config,
+            root,
+            Arc::new(crate::credentials::Snapshot::protection(root)),
+        )
+    }
+    pub(crate) fn with_credentials(
+        config: &Settings,
+        root: &Path,
+        credentials: Arc<crate::credentials::Snapshot>,
+    ) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let folder = root.join("protection");
         std::fs::create_dir_all(&folder)?;
@@ -252,7 +270,7 @@ impl Client {
         Ok(Self {
             #[cfg(test)]
             endpoint_override: None,
-            root: root.into(),
+            credentials,
             config: config.clone(),
             http: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -267,9 +285,14 @@ impl Client {
             requests: crate::capacity::Capacity::new(config.max_parallel),
         })
     }
-    pub(super) fn reconfigure(&self, config: &Settings) -> Result<Self> {
+    pub(super) fn reconfigure(
+        &self,
+        config: &Settings,
+        credentials: Arc<crate::credentials::Snapshot>,
+    ) -> Result<Self> {
         let mut next = self.clone();
         next.config = config.clone();
+        next.credentials = credentials;
         next.http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
@@ -757,9 +780,7 @@ impl Client {
             if indicators.is_empty() {
                 return;
             }
-            let root = self.root.clone();
-            let Ok(Ok(key)) = tokio::task::spawn_blocking(move || read_key(&root, provider)).await
-            else {
+            let Some(key) = self.credentials.get(provider.name()).map(str::to_owned) else {
                 report.status = Status::NotConfigured;
                 return;
             };
@@ -1525,15 +1546,71 @@ mod transport_tests {
         (format!("http://{address}/lookup"), task)
     }
     #[tokio::test]
+    async fn runtime_credentials_survive_rotation_and_removal_without_resetting_limits() {
+        let root = tempfile::tempdir().unwrap();
+        let settings = Settings::default();
+        let empty = Client::new(&settings, root.path()).unwrap();
+        let old_key = "synthetic-original-credential-1234";
+        let new_key = "synthetic-replacement-credential-5678";
+        save_key(root.path(), Provider::Crdf, old_key).unwrap();
+        let mut old = Client::new(&settings, root.path()).unwrap();
+        save_key(root.path(), Provider::Crdf, new_key).unwrap();
+        let mut next = old
+            .reconfigure(
+                &settings,
+                Arc::new(crate::credentials::Snapshot::protection(root.path())),
+            )
+            .unwrap();
+        assert!(Arc::ptr_eq(&old.gate, &next.gate));
+        assert!(Arc::ptr_eq(&old.requests, &next.requests));
+        assert!(Arc::ptr_eq(&old.db, &next.db));
+        std::fs::remove_file(key_path(root.path(), Provider::Crdf)).unwrap();
+        let mut targets = Targets::default();
+        targets.domains.insert("example.com".into());
+        assert_eq!(
+            empty
+                .inspect(Provider::Crdf, true, &targets, &Policy::default())
+                .await
+                .0
+                .status,
+            Status::NotConfigured
+        );
+        let response = serde_json::json!({"error":false,"data":[{"url":"https://example.com/","error":false,"in_database":false}]}).to_string();
+        for (client, expected) in [(&mut old, old_key), (&mut next, new_key)] {
+            let (url, request) = server("200 OK", response.clone(), 0).await;
+            client.endpoint_override = Some(url);
+            let report = client
+                .inspect(Provider::Crdf, true, &targets, &Policy::default())
+                .await
+                .0;
+            assert_eq!(report.status, Status::Complete);
+            assert_eq!(
+                report.cache_hits, 0,
+                "rotated credentials do not reuse another key's cache"
+            );
+            assert!(
+                request
+                    .await
+                    .unwrap()
+                    .contains(&format!("x-api-key: {expected}"))
+            );
+        }
+        assert_eq!(
+            quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
+            2
+        );
+    }
+
+    #[tokio::test]
     async fn read_only_transport_caches_and_sends_only_one_domain() {
         let root = tempfile::tempdir().unwrap();
-        let mut client = Client::new(&Settings::default(), root.path()).unwrap();
         save_key(
             root.path(),
             Provider::Crdf,
             "synthetic-key-for-transport-1234",
         )
         .unwrap();
+        let mut client = Client::new(&Settings::default(), root.path()).unwrap();
         let (url,task)=server("200 OK",serde_json::json!({"error":false,"data":[{"url":"https://example.com/","error":false,"in_database":false}]}).to_string(),0).await;
         client.endpoint_override = Some(url);
         let mut targets = Targets::default();
@@ -1574,13 +1651,13 @@ mod transport_tests {
             crdf_per_day: 1,
             ..Default::default()
         };
-        let mut client = Client::new(&settings, root.path()).unwrap();
         save_key(
             root.path(),
             Provider::Crdf,
             "synthetic-key-for-transport-1234",
         )
         .unwrap();
+        let mut client = Client::new(&settings, root.path()).unwrap();
         client
             .reserve(
                 Provider::Crdf,
@@ -1633,13 +1710,13 @@ mod transport_tests {
             crdf_per_day: 1,
             ..Default::default()
         };
-        let mut client = Client::new(&settings, root.path()).unwrap();
         save_key(
             root.path(),
             Provider::Crdf,
             "synthetic-key-for-transport-1234",
         )
         .unwrap();
+        let mut client = Client::new(&settings, root.path()).unwrap();
         let mut expected = vec!["z-final.example.com".to_string()];
         let mut originals: Vec<_> = (0..13).map(|i| format!("a{i}.example.com")).collect();
         originals.sort();
@@ -1714,18 +1791,18 @@ mod transport_tests {
             ("200 OK", "{}".to_owned(), 300, Failure::Timeout),
         ] {
             let root = tempfile::tempdir().unwrap();
+            save_key(
+                root.path(),
+                Provider::Virustotal,
+                "synthetic-key-for-transport-1234",
+            )
+            .unwrap();
             let mut client = Client::new(
                 &Settings {
                     timeout_ms: if delay == 0 { 2000 } else { 100 },
                     ..Default::default()
                 },
                 root.path(),
-            )
-            .unwrap();
-            save_key(
-                root.path(),
-                Provider::Virustotal,
-                "synthetic-key-for-transport-1234",
             )
             .unwrap();
             let (url, task) = server(status, body, delay).await;
@@ -1798,14 +1875,14 @@ mod transport_tests {
             crdf_per_day: 0,
             ..Default::default()
         };
-        let mut client = Client::new(&settings, root.path()).unwrap();
-        client.endpoint_override = Some(endpoint);
         save_key(
             root.path(),
             Provider::Crdf,
             "synthetic-key-for-concurrency-1234",
         )
         .unwrap();
+        let mut client = Client::new(&settings, root.path()).unwrap();
+        client.endpoint_override = Some(endpoint);
         let mut targets = Targets::default();
         for i in 0..6 {
             targets.domains.insert(format!("a{i}.example.com"));

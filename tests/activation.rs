@@ -40,7 +40,11 @@ async fn synchronize(
     authority: Journal,
 ) -> anyhow::Result<Option<Acknowledgement>> {
     control
-        .synchronize_activation(authority, "a".repeat(64), noisefence::now())
+        .synchronize_activation(
+            authority,
+            noisefence::credentials::Snapshot::default(),
+            noisefence::now(),
+        )
         .await
 }
 
@@ -90,7 +94,11 @@ async fn enrollment_cannot_rewind_a_previously_synchronized_worker() {
     f.stage(1, 97.);
     assert!(
         worker
-            .synchronize_activation(f.read(), "a".repeat(64), i64::MIN)
+            .synchronize_activation(
+                f.read(),
+                noisefence::credentials::Snapshot::default(),
+                i64::MIN
+            )
             .await
             .is_err()
     );
@@ -946,4 +954,81 @@ async fn smtp_defers_existing_and_new_transactions_while_accepted_mail_keeps_its
     drop(io);
     stop.send(true).unwrap();
     server.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn participant_uses_exact_received_credentials_and_old_snapshots_stay_immutable() {
+    use noisefence::{
+        cluster::protocol,
+        credentials::Snapshot,
+        protection::{Provider, save_key},
+    };
+    use std::collections::BTreeMap;
+    let mut f = Fixture::new();
+    let remote = tempfile::tempdir().unwrap();
+    save_key(
+        remote.path(),
+        Provider::Crdf,
+        "synthetic-local-old-key-12345",
+    )
+    .unwrap();
+    let worker = participant(remote.path(), true).await;
+    let old = worker.snapshot();
+    f.initialize();
+    let epoch = f.stage(1, 97.);
+    let keys = Snapshot::from_map(BTreeMap::from([(
+        "crdf".into(),
+        "synthetic-authority-key-56789".into(),
+    )]))
+    .unwrap();
+    worker
+        .synchronize_activation(f.read(), keys.clone(), noisefence::now())
+        .await
+        .unwrap();
+    save_key(
+        remote.path(),
+        Provider::Crdf,
+        "synthetic-unrelated-disk-key-98765",
+    )
+    .unwrap();
+    for id in ["mx1", "mx2"] {
+        f.ack(&epoch, id, Progress::Prepared);
+    }
+    let tx = f.db.transaction().unwrap();
+    let committed = Journal::commit(&tx, &epoch, 100).unwrap();
+    tx.commit().unwrap();
+    worker
+        .synchronize_activation(committed, keys.clone(), noisefence::now())
+        .await
+        .unwrap();
+    for id in ["mx1", "mx2"] {
+        f.ack(&epoch, id, Progress::Applied);
+    }
+    let tx = f.db.transaction().unwrap();
+    let released = Journal::release(&tx, &epoch, 100).unwrap();
+    tx.commit().unwrap();
+    worker
+        .synchronize_activation(released.clone(), keys, noisefence::now())
+        .await
+        .unwrap();
+    assert!(worker.cluster_ready());
+    assert_eq!(
+        protocol::secrets(&old.config).unwrap()["crdf"],
+        "synthetic-local-old-key-12345"
+    );
+    assert_eq!(
+        protocol::secrets(&worker.snapshot().config).unwrap()["crdf"],
+        "synthetic-authority-key-56789"
+    );
+    assert!(
+        worker
+            .synchronize_activation(released, Snapshot::default(), noisefence::now())
+            .await
+            .is_err()
+    );
+    assert!(worker.cluster_ready());
+    assert_eq!(
+        protocol::secrets(&worker.snapshot().config).unwrap()["crdf"],
+        "synthetic-authority-key-56789"
+    );
 }

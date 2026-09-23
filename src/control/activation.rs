@@ -24,8 +24,9 @@ impl Controller {
         self: &Arc<Self>,
         bundle: &artifacts::Bundle,
         epoch: &Epoch,
-        keys: &str,
+        credentials: &crate::credentials::Snapshot,
     ) -> Result<Arc<Snapshot>> {
+        let keys = credentials.fingerprint();
         if let Some(staged) = self.prepared_activation.lock().unwrap().as_ref()
             && staged.epoch == *epoch
             && staged.keys == keys
@@ -36,10 +37,13 @@ impl Controller {
         let bundle = bundle.clone();
         let epoch = epoch.clone();
         let current = self.snapshot();
+        let credentials = Arc::new(credentials.clone());
         let next = tokio::task::spawn_blocking(move || -> Result<_> {
             // Re-verify every byte after download and on recovery, and force a
             // model reload: a matching path alone cannot prove the resident model.
-            let config = Arc::new(artifacts::materialize(&base, &bundle, true)?);
+            let mut config = artifacts::materialize(&base, &bundle, true)?;
+            config.provider_credentials = Some(credentials);
+            let config = Arc::new(config);
             let engine = Arc::new(current.engine.reload_cluster_models(config.clone())?);
             let publication =
                 artifacts::capture(&config, bundle.settings.clone(), bundle.revision)?;
@@ -65,7 +69,7 @@ impl Controller {
         .await??;
         *self.prepared_activation.lock().unwrap() = Some(Prepared {
             epoch: next.activation_epoch.clone().unwrap(),
-            keys: keys.into(),
+            keys,
             snapshot: next.clone(),
         });
         Ok(next)
@@ -111,9 +115,10 @@ impl Controller {
     pub async fn synchronize_activation(
         self: &Arc<Self>,
         authority: Journal,
-        keys: String,
+        credentials: crate::credentials::Snapshot,
         server_time: i64,
     ) -> Result<Option<Acknowledgement>> {
+        let keys = credentials.fingerprint();
         ensure!(
             server_time.abs_diff(crate::now()) <= 300,
             "Activation clock skew"
@@ -189,7 +194,7 @@ impl Controller {
                 .await?;
             if this.store.activation.epoch().is_none() {
                 let initial = this
-                    .activation_runtime(local.installed(), local.installed_epoch(), &keys)
+                    .activation_runtime(local.installed(), local.installed_epoch(), &credentials)
                     .await?;
                 this.install_activation(initial, &keys, server_time);
                 this.store
@@ -198,7 +203,7 @@ impl Controller {
             }
             match phase {
                 Phase::Preparing => {
-                    this.activation_runtime(rollout.candidate(), rollout.epoch(), &keys)
+                    this.activation_runtime(rollout.candidate(), rollout.epoch(), &credentials)
                         .await?;
                     local.prepared()?;
                     this.persist_activation(local.clone(), keys, server_time)
@@ -206,7 +211,7 @@ impl Controller {
                 }
                 Phase::Committed => {
                     let prepared = this
-                        .activation_runtime(rollout.candidate(), rollout.epoch(), &keys)
+                        .activation_runtime(rollout.candidate(), rollout.epoch(), &credentials)
                         .await?;
                     local.applied()?;
                     this.persist_activation(local.clone(), keys.clone(), server_time)
@@ -215,7 +220,11 @@ impl Controller {
                 }
                 Phase::Released | Phase::Aborted => {
                     let installed = this
-                        .activation_runtime(local.installed(), local.installed_epoch(), &keys)
+                        .activation_runtime(
+                            local.installed(),
+                            local.installed_epoch(),
+                            &credentials,
+                        )
                         .await?;
                     this.install_activation(installed, &keys, server_time);
                     this.store

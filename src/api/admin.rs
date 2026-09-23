@@ -375,15 +375,35 @@ async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Js
     let settings = snapshot.config.protection.as_ref();
     let base = control.base.protection.as_ref();
     let root = app.store.root.clone();
-    let (keys, usage) = tokio::task::spawn_blocking(move || {
-        use crate::protection::{Provider, key_present, quota_usage};
-        (json!({"crdf":key_present(&root,Provider::Crdf),"virustotal":key_present(&root,Provider::Virustotal)}),
-         json!({"crdf":quota_usage(&root,Provider::Crdf).ok(),"virustotal":quota_usage(&root,Provider::Virustotal).ok()}))
-    }).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"Condition of the connectors not available.".into()))?;
+    let resident_keys = snapshot.config.provider_credentials.clone();
+    let (keys, loaded_keys, pending_keys, usage) = tokio::task::spawn_blocking(move || {
+        use crate::protection::providers::{Provider, quota_usage_with_key, read_key};
+        let mut saved = json!({});
+        let mut loaded = json!({});
+        let mut pending = json!({});
+        let mut usage = json!({});
+        for provider in [Provider::Crdf, Provider::Virustotal] {
+            let name = provider.name();
+            let source = read_key(&root, provider).ok();
+            let current = resident_keys.as_ref().and_then(|keys| keys.get(name));
+            saved[name] = json!(source.is_some());
+            loaded[name] = json!(current.is_some());
+            pending[name] = json!(source.as_deref() != current);
+            usage[name] = json!(quota_usage_with_key(&root, provider, current).ok());
+        }
+        (saved, loaded, pending, usage)
+    })
+    .await
+    .map_err(|_| {
+        Error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Condition of the connectors not available.".into(),
+        )
+    })?;
     use crate::protection::Provider;
     Ok(Json(json!({
         "available":base.is_some(), "enabled":settings.is_some(), "revision":snapshot.revision,
-        "keys":keys, "observation_only":true, "usage":usage,
+        "keys":keys, "loaded_keys":loaded_keys, "pending_keys":pending_keys, "observation_only":true, "usage":usage,
         "quotas":settings.map(|s|json!({"crdf":s.quota(Provider::Crdf,&s.policy),"virustotal":s.quota(Provider::Virustotal,&s.policy)})),
         "bootstrap_quotas":base.map(|s|json!({"crdf":s.bootstrap_quota(Provider::Crdf),"virustotal":s.bootstrap_quota(Provider::Virustotal)})),
         "capacity":base.map(|s|json!({"timeout_ms":s.timeout_ms,"max_parallel":s.max_parallel,"max_indicators":12}))

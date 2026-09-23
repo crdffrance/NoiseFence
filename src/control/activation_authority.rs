@@ -4,7 +4,7 @@ use super::{Controller, Settings};
 use crate::cluster::{
     Role,
     activation::{Epoch, Journal, Phase, Progress, transport::Peer},
-    artifacts, protocol,
+    artifacts,
 };
 use anyhow::{Context, Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -456,9 +456,9 @@ impl Controller {
             let rollout=journal.rollout().context("Missing activation rollout")?;
             let selected=if rollout.phase()==Phase::Aborted {rollout.base()} else {rollout.candidate()};
             let base=this.base.clone();let selected=selected.clone();
-            let keys=tokio::task::spawn_blocking(move|| ->Result<String> {
+            let keys=tokio::task::spawn_blocking(move|| ->Result<crate::credentials::Snapshot> {
                 let config=artifacts::materialize(&base,&selected,false)?;
-                Ok(crate::message::digest(&serde_json::to_vec(&protocol::secrets(&config)?)?))
+                crate::credentials::Snapshot::capture(&config)
             }).await??;
             let acknowledgement=this.synchronize_activation(journal,keys,crate::now()).await.context(ActivationProblem::RuntimePreparationFailed)?;
             let updated=this.store.run(move|db| {

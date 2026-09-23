@@ -1118,6 +1118,8 @@ async fn protection_credentials_stay_private_and_policy_changes_preserve_the_sco
     let (status, body) = request(&app, &admin, "/admin/protection", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["keys"]["crdf"], true);
+    assert_eq!(body["loaded_keys"]["crdf"], false);
+    assert_eq!(body["pending_keys"]["crdf"], true);
     assert!(!body.to_string().contains(key));
     for path in ["/admin/config", "/admin/audit", "/admin/revisions"] {
         let (_, body) = request(&app, &admin, path, None).await;
@@ -1144,6 +1146,36 @@ async fn protection_credentials_stay_private_and_policy_changes_preserve_the_sco
     assert_eq!(old.score, new.score);
     assert_eq!(old.features, new.features);
     assert!(new.protection.unwrap().observation_only);
+    let (_, loaded) = request(&app, &admin, "/admin/protection", None).await;
+    assert_eq!(loaded["loaded_keys"]["crdf"], true);
+    assert_eq!(loaded["pending_keys"]["crdf"], false);
+    let until = noisefence::now() + 600;
+    let db = rusqlite::Connection::open(dir.path().join("protection/reputation.sqlite3")).unwrap();
+    let credential = noisefence::message::digest(format!("crdf:{key}").as_bytes());
+    db.execute(
+        "INSERT OR REPLACE INTO cooldown(key,expires) VALUES(?1,?2)",
+        rusqlite::params![credential, until],
+    )
+    .unwrap();
+    let replacement = "synthetic-replacement-crdf-key-12345";
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/protection/keys/crdf",
+            Some(json!({"key":replacement}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, pending) = request(&app, &admin, "/admin/protection", None).await;
+    assert_eq!(pending["keys"]["crdf"], true);
+    assert_eq!(pending["loaded_keys"]["crdf"], true);
+    assert_eq!(pending["pending_keys"]["crdf"], true);
+    assert_eq!(pending["usage"]["crdf"]["cooldown_until"], until);
+    assert!(!pending.to_string().contains(key));
+    assert!(!pending.to_string().contains(replacement));
     let resumed = Controller::load(cfg, store).await.unwrap();
     assert!(
         resumed

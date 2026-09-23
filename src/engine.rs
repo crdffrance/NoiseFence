@@ -610,6 +610,8 @@ impl Engine {
         Self::build(config, Some(self), true)
     }
     fn build(config: Arc<Config>, template: Option<&Self>, reload_models: bool) -> Result<Self> {
+        let config = crate::credentials::pin(config)?;
+        let credentials = config.provider_credentials.as_ref().unwrap();
         let rspamd = Arc::new(crate::rspamd::Runtime::new(
             config.rspamd.clone(),
             template.map(|t| &*t.rspamd),
@@ -655,10 +657,12 @@ impl Engine {
             .filter(|c| c.monthly_budget_micro_eur > 0)
             .map(|c| match template.and_then(|t| t.llm.clone()) {
                 Some(client) => client
-                    .reconfigure(c.clone(), &config.data_dir)
+                    .reconfigure(c.clone(), &config.data_dir, credentials)
                     .map(Arc::new),
-                None => crate::llm::Client::new(c.clone(), &config.data_dir)
-                    .map(|client| Arc::new(client.with_capacity(llm_capacity.clone()))),
+                None => {
+                    crate::llm::Client::with_credentials(c.clone(), &config.data_dir, credentials)
+                        .map(|client| Arc::new(client.with_capacity(llm_capacity.clone())))
+                }
             })
             .transpose()?;
         let (model, model_hash) = if let Some(template) = template.filter(|_| !reload_models) {
@@ -754,10 +758,15 @@ impl Engine {
             .as_ref()
             .map(
                 |settings| match template.and_then(|t| t.protection.clone()) {
-                    Some(runtime) => runtime.reconfigure(settings).map(Arc::new),
-                    None => {
-                        crate::protection::Runtime::new(settings, &config.data_dir).map(Arc::new)
-                    }
+                    Some(runtime) => runtime
+                        .reconfigure(settings, credentials.clone())
+                        .map(Arc::new),
+                    None => crate::protection::Runtime::with_credentials(
+                        settings,
+                        &config.data_dir,
+                        credentials.clone(),
+                    )
+                    .map(Arc::new),
                 },
             )
             .transpose()?;

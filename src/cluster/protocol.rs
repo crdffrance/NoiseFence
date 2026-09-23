@@ -133,6 +133,9 @@ pub fn credential(path: &Path) -> Result<String> {
     Ok(value.into())
 }
 pub fn secrets(config: &crate::config::Config) -> Result<BTreeMap<String, String>> {
+    if let Some(keys) = &config.provider_credentials {
+        return Ok(keys.export());
+    }
     let mut secrets = BTreeMap::new();
     for provider in [
         crate::protection::providers::Provider::Crdf,

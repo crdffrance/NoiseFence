@@ -292,6 +292,14 @@ pub fn save_key(root: &std::path::Path, provider: &str, key: &str) -> Result<()>
     result
 }
 pub fn dqs_key(config: &Config) -> Result<Option<String>> {
+    if let Some(keys) = &config.provider_credentials {
+        return Ok(config
+            .filter
+            .spamhaus_key_env
+            .as_ref()
+            .and_then(|_| keys.get("spamhaus"))
+            .map(str::to_owned));
+    }
     let Some(env) = &config.filter.spamhaus_key_env else {
         return Ok(None);
     };

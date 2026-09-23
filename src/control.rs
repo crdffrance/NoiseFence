@@ -514,6 +514,7 @@ impl Controller {
                     })
                     .await??,
                 );
+                let config = crate::credentials::pin(config)?;
                 let models_changed =
                     cluster_model_identity(&config) != cluster_model_identity(&current.config);
                 if models_changed {
@@ -709,7 +710,7 @@ impl Controller {
         } else {
             0
         };
-        let config = Arc::new(effective);
+        let config = crate::credentials::pin(Arc::new(effective))?;
         let seed = if clustered.is_some() || crate::cluster::is_worker(&base) {
             config.clone()
         } else {
@@ -740,7 +741,11 @@ impl Controller {
                 // Keep the template usable even when the Web policy disables the module.
                 installed.patterns = saved;
             }
-            Arc::new(seed)
+            if revision == 0 {
+                config.clone()
+            } else {
+                Arc::new(seed)
+            }
         };
         let cfg = config.clone();
         let (template, engine) = tokio::task::spawn_blocking(move || -> Result<_> {
@@ -864,7 +869,7 @@ impl Controller {
             ensure!(this.store.activation.epoch().is_none() && this.store.activation.ready(),
                 "Use the coordinated activation driver for this storage");
             ensure!(revision==this.snapshot().revision,"Modified configuration in another session. Reload before saving.");
-            let config=Arc::new(settings.effective(&this.base)?);
+            let config=crate::credentials::pin(Arc::new(settings.effective(&this.base)?))?;
             let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
             let template=this.template.read().unwrap().clone(); let cfg=config.clone();
             let engine=Arc::new(tokio::task::spawn_blocking(move||template.reconfigure(cfg)).await??);

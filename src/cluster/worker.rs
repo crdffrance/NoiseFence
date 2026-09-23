@@ -268,6 +268,7 @@ async fn poll(
     history::acknowledge(&control.store, reply.receipts).await?;
     let root = control.base.data_dir.clone();
     let secrets = reply.secrets;
+    let credentials = crate::credentials::Snapshot::from_map(secrets.clone())?;
     let credits = reply.credits;
     let key_hash = tokio::task::spawn_blocking(move || -> Result<String> {
         budget::install(&root, &credits, crate::now())?;
@@ -290,7 +291,7 @@ async fn poll(
             }
         }
         control
-            .synchronize_activation(journal.clone(), key_hash, reply.server_time)
+            .synchronize_activation(journal.clone(), credentials, reply.server_time)
             .await?;
         let root = control.base.data_dir.clone();
         tokio::task::spawn_blocking(move || artifacts::prune_retained(&root, &journal.bundles()))

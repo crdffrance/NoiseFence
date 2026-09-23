@@ -9,6 +9,9 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Runtime-only provider key snapshot; never accepted from settings or serialized.
+    #[serde(skip)]
+    pub provider_credentials: Option<std::sync::Arc<crate::credentials::Snapshot>>,
     #[serde(skip)]
     pub console_only: bool,
     pub cluster: Option<crate::cluster::Settings>,

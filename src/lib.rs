@@ -75,3 +75,5 @@ pub mod cluster;
 pub mod mfa;
 
 pub mod ha;
+
+pub mod credentials;

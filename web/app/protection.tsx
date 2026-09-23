@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
 import { checkFailure } from './presentation';
+import { providerCredentialLabel, providerToggleDisabled } from './provider-credentials';
 import {
   ProviderQuotas,
   type ProviderQuota,
@@ -31,6 +32,8 @@ type Provider = 'crdf' | 'virustotal';
 type ProviderState = {
   available: boolean;
   keys: Record<Provider, boolean>;
+  loaded_keys?: Record<Provider, boolean>;
+  pending_keys?: Record<Provider, boolean>;
   quotas: Record<Provider, ProviderQuota> | null;
   bootstrap_quotas: Record<Provider, ProviderQuota> | null;
   usage: Record<Provider, QuotaUsage | null>;
@@ -300,9 +303,7 @@ export function ProtectionSettings({
                             : 'VirusTotal'}
                         </strong>
                         <small>
-                          {status.keys[provider]
-                            ? "Saved key"
-                            : "Key required"}{' '}
+                          {providerCredentialLabel(status.keys[provider], status.loaded_keys?.[provider], status.pending_keys?.[provider])}{' '}
                         </small>
                       </span>
                       <input
@@ -311,7 +312,7 @@ export function ProtectionSettings({
                         role="switch"
                         aria-checked={policy[provider]}
                         checked={policy[provider]}
-                        disabled={!status.keys[provider]}
+                        disabled={providerToggleDisabled(status.keys[provider], status.loaded_keys?.[provider], policy[provider])}
                         onChange={(e) =>
                           update({ [provider]: e.target.checked })
                         }

@@ -205,6 +205,24 @@ of ignoring the fence. MFA, replication and cluster initialization preserve a
 newer database format rather than lowering it. Missing or identity-mismatched
 journals fail startup. Downgrading `user_version` is not a rollback procedure.
 
+## Runtime credential snapshots
+
+Each resident engine and its admission RBL share one provider credential snapshot.
+CRDF/VirusTotal no longer read key files during analysis. Old snapshots retain
+keys through file rotation/removal; new engines capture new values without
+resetting shared quotas or concurrency gates. An explicitly empty snapshot cannot
+fall back to disk or environment variables. Debug and configuration serialization
+omit secret values.
+
+The v2 participant consumes the exact credential set from the authenticated poll,
+not an independent reread of the installed files. Preparation caching uses its
+fingerprint; a released epoch rejects a changed credential fingerprint. These
+checks freeze a resident generation only. Durable credential generations are not
+yet part of the bundle identity. The authority still resolves its source keys at
+activation steps, and worker sync still updates source files. Staged key changes,
+base/candidate secret distribution, crash recovery and rollback must be bound to
+their respective epochs before this feature is production-ready.
+
 ## Remaining integration and qualification
 
 - Finish the retained/qualified artifact catalog and credential-update workflows.

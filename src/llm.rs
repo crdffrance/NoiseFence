@@ -466,8 +466,13 @@ impl Client {
         self.capacity = capacity;
         self
     }
-    pub(crate) fn reconfigure(&self, config: LlmConfig, data_dir: &Path) -> Result<Self> {
-        let mut next = Self::new(config, data_dir)?;
+    pub(crate) fn reconfigure(
+        &self,
+        config: LlmConfig,
+        data_dir: &Path,
+        keys: &crate::credentials::Snapshot,
+    ) -> Result<Self> {
+        let mut next = Self::with_credentials(config, data_dir, keys)?;
         next.capacity = self.capacity.clone();
         next.budget = self.budget.clone();
         Ok(next)
@@ -476,13 +481,26 @@ impl Client {
         self.capacity.set_limit(self.config.max_parallel);
     }
     pub fn new(config: LlmConfig, data_dir: &Path) -> Result<Self> {
-        config.validate()?;
-        let mut headers = HeaderMap::new();
         let key = match crate::management::read_key(data_dir, "scaleway")? {
             Some(key) => key,
             None => std::env::var(&config.api_key_env)
                 .context("missing LLM API key environment variable")?,
         };
+        Self::with_key(config, data_dir, &key)
+    }
+    pub(crate) fn with_credentials(
+        config: LlmConfig,
+        data_dir: &Path,
+        keys: &crate::credentials::Snapshot,
+    ) -> Result<Self> {
+        let key = keys
+            .get("scaleway")
+            .context("LLM credential unavailable in the runtime snapshot")?;
+        Self::with_key(config, data_dir, key)
+    }
+    fn with_key(config: LlmConfig, data_dir: &Path, key: &str) -> Result<Self> {
+        config.validate()?;
+        let mut headers = HeaderMap::new();
         ensure!(!key.is_empty(), "empty LLM API key");
         let mut authorization = HeaderValue::from_str(&format!("Bearer {key}"))?;
         authorization.set_sensitive(true);

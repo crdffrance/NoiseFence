@@ -2,6 +2,8 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Pin one redacted, non-serialized provider credential set per resident runtime. CRDF/VirusTotal stop rereading keys during analysis; LLM/DQS/admission consume the same snapshot. Preserve keys for in-flight work through file replacement/removal, retain shared quota/capacity state, and prepare v2 participants from the exact authenticated credential set. Durable credential generation staging/distribution/recovery remains unfinished; no production enrollment.
+
 - Capture the MAIL-pinned activation identity before analysis/header preparation. Receipt schema 2, diagnostic header version 6 and English details preserve configuration revision, sequence and bundle digest; replica/history reject contradictory identities. Keep schema-1 receipts readable without fabricating missing history, including unavailable indices. This does not change scoring or qualify production activation.
 
 - Retain immutable installed model files during coordinated settings/preference saves, even after original source removal or replacement. Add an administrator-only Web preview and explicit digest-bound selection of server installation models, including validation reports/encoder files. Changed bytes require a new preview; model identity is not a quality claim. Stage calibration-workbench shadow selection/removal and preserve cached selected candidates across later saves. Long-lived inactive/qualified artifact catalogs and managed credential changes remain open.
