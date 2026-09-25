@@ -131,7 +131,7 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
         ("/api/v1/messages", 8),
         ("/api/v1/messages?filter=spam", 4),
         ("/api/v1/messages?filter=incomplete", 3),
-        ("/api/v1/messages?filter=legitimate", 1),
+        ("/api/v1/messages?filter=legitimate", 4),
         ("/api/v1/messages?filter=publicity", 0),
     ] {
         let response = app
@@ -150,6 +150,9 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
         let rows: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(rows.len(), count);
         for row in &rows {
+            if path.ends_with("=legitimate") {
+                assert_eq!(row["verdict"], "ham");
+            }
             if row["subject"] == "old-high" {
                 assert_eq!(row["category"], "undetermined");
                 assert!(row["assessment"]["content_threshold"].is_null());

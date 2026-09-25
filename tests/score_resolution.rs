@@ -163,7 +163,7 @@ async fn history_does_not_reclassify_abstentions_under_current_policy() {
     for (filter, expected) in [
         ("all", 4),
         ("spam", 0),
-        ("legitimate", 0),
+        ("legitimate", 4),
         ("publicity", 0),
         ("review", 3),
         ("incomplete", 1),
@@ -185,6 +185,7 @@ async fn history_does_not_reclassify_abstentions_under_current_policy() {
         for m in page.messages {
             assert_ne!(m.id, "hidden");
             assert_eq!(m.category, Category::Undetermined);
+            assert_eq!(m.verdict, "ham");
             assert!(m.assessment.score_resolution.is_none());
             assert!(m.assessment.decision_recorded);
             assert_eq!(m.assessment.content_threshold, Some(95.));
@@ -196,6 +197,7 @@ async fn history_does_not_reclassify_abstentions_under_current_policy() {
         .unwrap()
         .unwrap();
     assert!(diagnostics.analysis.score_resolution.is_none());
+    assert_eq!(diagnostics.analysis.verdict, "ham");
     assert_eq!(
         diagnostics.analysis.assessment.category,
         Category::Undetermined

@@ -1301,8 +1301,32 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
         let (code, body) = request(&app, &alice, &format!("/messages?filter={filter}"), None).await;
         assert_eq!(code, StatusCode::OK, "{body}");
         let rows = body.as_array().unwrap();
-        assert_eq!(rows.len(), 1, "{body}");
-        assert_eq!(rows[0]["category"], category);
+        if filter == "legitimate" {
+            // Ham groups fail-open history, but does not rewrite its evidence.
+            assert_eq!(rows.len(), 3, "{body}");
+            assert!(rows.iter().all(|row| row["verdict"] == "ham"));
+            assert_eq!(
+                rows.iter()
+                    .filter(|row| row["category"] == "undetermined")
+                    .count(),
+                2
+            );
+            assert_eq!(
+                rows.iter()
+                    .filter(|row| row["category"] == "legitimate")
+                    .count(),
+                1
+            );
+        } else {
+            assert_eq!(rows.len(), 1, "{body}");
+            assert_eq!(rows[0]["category"], category);
+            let verdict = match category {
+                "publicity" => "pub",
+                "spam" => "spam",
+                _ => "ham",
+            };
+            assert_eq!(rows[0]["verdict"], verdict);
+        }
         assert!(!body.to_string().contains("bob@example.test"));
     }
     let (_, stats) = request(&app, &alice, "/stats", None).await;
