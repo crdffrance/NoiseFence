@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
+## 0.28.0-rc.4 — Definitive decisions and independent second opinions
 
 - Present the NoiseFence verdict and delivery before the Rspamd research opinion. Explain greylisting as an unexecuted deferral, keep disagreements out of manual delivery tasks, and verify that late or failed observer results cannot change native decisions or receipts.
 
