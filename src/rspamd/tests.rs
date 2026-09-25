@@ -228,6 +228,9 @@ async fn asynchronous_scan_uses_original_envelope_and_only_updates_comparison_af
     scan.score = 12.3;
     scan.complete = true;
     scan.decision = Some(crate::fusion::runtime::Decision::legacy(&scan, 95.));
+    let config: crate::config::Config =
+        toml::from_str(include_str!("../../config/development.toml")).unwrap();
+    crate::decision_record::record_recipient(&mut scan, &config, None, 1234);
     let mut initial = ticket.report.clone();
     initial.bind(&scan);
     scan.rspamd = Some(initial);
@@ -467,5 +470,49 @@ async fn failures_remain_explicit_without_replacing_native_results() {
         assert_eq!(after["complete"], true);
         assert!(!followed.load(std::sync::atomic::Ordering::SeqCst));
         server.abort();
+    }
+}
+
+#[test]
+fn second_opinions_cannot_change_final_decision_or_delivery() {
+    let config: crate::config::Config =
+        toml::from_str(include_str!("../../config/development.toml")).unwrap();
+    for score in [0., 89.1, 95., 99.8] {
+        let mut baseline = crate::engine::extract(MAIL, 10000);
+        baseline.score = score;
+        baseline.complete = true;
+        baseline.features_complete = Some(true);
+        baseline.decision = Some(crate::fusion::runtime::Decision {
+            source: crate::fusion::runtime::DecisionSource::Legacy,
+            outcome: Outcome::Undetermined,
+            score: None,
+            model: "fixture".into(),
+        });
+        let mut expected = baseline.clone();
+        crate::decision_record::record_recipient(&mut expected, &config, None, 1234);
+        for (status, action) in [
+            (Status::Complete, "reject"),
+            (Status::Complete, "no action"),
+            (Status::Complete, "greylist"),
+            (Status::Pending, "greylist"),
+            (Status::Timeout, "reject"),
+            (Status::Unavailable, "reject"),
+        ] {
+            let mut scan = baseline.clone();
+            let mut opinion = report();
+            opinion.status = status;
+            opinion.action = Some(action.into());
+            scan.rspamd = Some(opinion);
+            crate::decision_record::record_recipient(&mut scan, &config, None, 1234);
+            assert_ne!(
+                scan.decision.as_ref().unwrap().outcome,
+                Outcome::Undetermined
+            );
+            scan.rspamd = None;
+            assert_eq!(
+                serde_json::to_value(scan).unwrap(),
+                serde_json::to_value(&expected).unwrap()
+            );
+        }
     }
 }

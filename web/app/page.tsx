@@ -1051,10 +1051,9 @@ function Home() {
                     {new Date(selected.created * 1000).toLocaleString("en-GB")}
                   </p>
                 </div>
-                <RspamdComparison report={selected.rspamd} mail={selected} onRefresh={() => setDiagnosticsRevision(value => value + 1)} />
                 <div className="detail-grid">
                   <section className="panel analysis-panel">
-                    <h2>Why this classification?</h2>
+                    <h2>NoiseFence verdict</h2>
                     <MessageScoreDetails mail={selected} />
                     {selected.arbitration && (
                       <p className="notice">
@@ -1419,6 +1418,7 @@ function Home() {
                     </p>
                   </section>
                 </div>
+                <RspamdComparison report={selected.rspamd} mail={selected} onRefresh={() => setDiagnosticsRevision(value => value + 1)} />
               </>
             ) : (
               <>

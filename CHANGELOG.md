@@ -2,6 +2,8 @@
 
 ## 0.28.0-rc.3 — Scoped policy inheritance (unreleased)
 
+- Present the NoiseFence verdict and delivery before the Rspamd research opinion. Explain greylisting as an unexecuted deferral, keep disagreements out of manual delivery tasks, and verify that late or failed observer results cannot change native decisions or receipts.
+
 - Make new-message decisions definitive: resolve detector abstentions by the applicable content threshold, or accept without a fabricated score when analysis is unavailable. Keep coverage, observation and delivery safeguards separate; preserve historical receipts. Remove the manual-review label and configuration toggle.
 
 - Commit a bounded private export-use journal before quality exports leave the
