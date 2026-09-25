@@ -9,7 +9,7 @@
  AND (?6='' OR lower(substr(qd.address,-length(?6)-1))='@'||lower(?6) OR lower(substr(qd.destination,-length(?6)-1))='@'||lower(?6))))
  OR (?2='pending' AND EXISTS(SELECT 1 FROM deliveries pd JOIN console_access pg ON pg.delivery_id=pd.id WHERE pd.message_id=m.id AND pg.username=?1 AND pd.status IN ('pending','sending')
  AND (?6='' OR lower(substr(pd.address,-length(?6)-1))='@'||lower(?6) OR lower(substr(pd.destination,-length(?6)-1))='@'||lower(?6))))
- OR (?2='legitimate' AND ({category})='legitimate')
+ OR (?2='legitimate' AND ({category}) IN ('legitimate','undetermined'))
  OR (?2='publicity' AND ({category})='publicity')
  OR (?2='publicity_signal' AND {signal})
  OR (?2='rspamd_all' AND json_type(m.scan,'$.rspamd')='object')

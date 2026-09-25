@@ -31,9 +31,9 @@ test('receipt classification, risk and coverage take precedence over live or leg
   assert.equal(scorePresentation({...mail, assessment: {...assessment, score: {...assessment.score, value: 0}}}).value, 99);
 });
 
-test('unmeasured fail-open and malware do not invent a risk value or a legitimate verdict', () => {
+test('unmeasured fail-open and malware preserve unavailable risk under three-way badges', () => {
   const empty = {...assessment, category: 'undetermined', score: {...assessment.score, value: null, raw: null, decision: null, kind: 'unavailable'}};
-  for (const [finding, label] of [['unassessed', 'Classification unavailable'], ['malware', 'Malware']]) {
+  for (const [finding, label] of [['unassessed', 'Ham'], ['malware', 'Spam']]) {
     const unavailable = {...mail, recipient_decision: {...record, classification: finding, coverage: 'unavailable', assessment: empty}};
     assert.equal(classification(unavailable).label, label);
     assert.equal(scorePresentation(unavailable).value, null);
@@ -43,7 +43,7 @@ test('unmeasured fail-open and malware do not invent a risk value or a legitimat
 
 test('marketing policy keeps its low threat index and explicit delivery action', () => {
   const publicity = {...mail, recipient_decision: {...record, classification: 'publicity', coverage: 'complete', assessment: {...assessment, category: 'publicity', complete: true, score: {...assessment.score, value: 12, kind: 'content'}}}};
-  assert.equal(classification(publicity).label, 'Marketing');
+  assert.equal(classification(publicity).label, 'Pub');
   assert.equal(scorePresentation(publicity).value, 12);
   assert.equal(receiptAssessment(publicity).action.requested, 'quarantine');
 });
@@ -52,7 +52,7 @@ for (const version of [1, 2]) {
   test(`receipt schema ${version} preserves detailed classification, score and unavailable coverage`, () => {
     const snapshot = {...mail, recipient_decision: {...record, version, classification: 'phishing',
       coverage: 'unavailable', activation_epoch: version === 2 ? {sequence: 7, revision: 12, digest: 'a'.repeat(64)} : undefined}};
-    assert.equal(classification(snapshot, 100).label, 'Phishing');
+    assert.equal(classification(snapshot, 100).label, 'Spam');
     assert.equal(scorePresentation(snapshot).value, 99);
     assert.equal(coveragePresentation(snapshot).label, 'Content analysis unavailable');
     assert.equal(receiptAssessment(snapshot).action.effective, 'deliver');

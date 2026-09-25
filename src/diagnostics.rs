@@ -40,6 +40,7 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub verdict: &'static str,
     pub activation_epoch: Option<crate::cluster::activation::Epoch>,
     pub fusion_combination: Option<crate::fusion::combination::Accounting>,
     pub scoring: Option<crate::scoring::Report>,
@@ -95,6 +96,7 @@ impl From<Scan> for Analysis {
                 .analysis_result
                 .as_ref()
                 .and_then(|r| r.observations.clone()),
+            verdict: crate::assessment::historical(&scan).verdict(),
             assessment: crate::assessment::historical(&scan),
             recipient_decision: scan.recipient_decision,
             rspamd: scan.rspamd.clone().map(crate::rspamd::Report::visible),

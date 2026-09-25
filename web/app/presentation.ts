@@ -210,56 +210,37 @@ export function publicitySignal(
   );
 }
 
-// Keep the canonical decision distinct from the delivery action and feedback.
-export function classification(mail: DecisionInput, threshold?: number) {
+// Primary delivery labels are always Spam / Ham / Pub. Coverage and detailed
+// threats remain separate. Historical fallbacks never rewrite stored receipts.
+export function classification(mail: DecisionInput, _threshold?: number) {
   const record = receiptDecision(mail);
-  if (record) {
-    const labels = {
-      legitimate: {label: 'Legitimate', tone: 'good'},
-      publicity: {label: 'Marketing', tone: 'publicity'},
-      spam: {label: 'Spam', tone: 'spam'},
-      phishing: {label: 'Phishing', tone: 'spam'},
-      malware: {label: 'Malware', tone: 'spam'},
-      unassessed: {label: 'Classification unavailable', tone: 'neutral'},
-    };
-    if (record.classification === 'unassessed' && record.assessment.category === 'legitimate') return {label: 'Accepted — analysis unavailable', tone: 'neutral'};
-    return labels[record.classification] ?? labels.unassessed;
-  }
-  if (mail.decision?.source === 'antivirus')
-    return { label: 'Malware', tone: 'spam' };
+  const report = receiptAssessment(mail);
+  const category = report?.category ?? mail.delivery_classification;
+  const label = (value: string, fallback = false) => ({
+    label: value === 'spam' ? 'Spam' : value === 'publicity' ? 'Pub' : 'Ham',
+    tone: value === 'spam' ? 'spam' : value === 'publicity' ? 'publicity' : fallback ? 'neutral' : 'good',
+  });
+  if (record && ['phishing', 'malware'].includes(record.classification)) return label('spam');
+  if (!record && mail.decision?.source === 'antivirus') return label('spam');
+  if (category && category !== 'undetermined')
+    return label(category, record?.classification === 'unassessed' || report?.score_resolution?.score === null);
+  if (!report && !category && mail.decision?.outcome === 'unwanted') return label('spam');
+  if (!report && !category && mail.decision?.outcome === 'legitimate')
+    return label(mail.category === 'publicity' ? 'publicity' : 'legitimate');
+  return label('legitimate', true);
+}
 
-  const recordedCategory = mail.assessment?.version === 1 ? mail.assessment.category : mail.delivery_classification;
-  if (recordedCategory === 'legitimate' && mail.assessment?.score_resolution?.score === null)
-    return { label: 'Accepted — no usable score', tone: 'neutral' };
-  if (recordedCategory)
-    return (
-      (
-        {
-          spam: { label: 'Spam', tone: 'spam' },
-          publicity: { label: 'Marketing', tone: 'publicity' },
-          legitimate: { label: 'Legitimate', tone: 'good' },
-          undetermined: { label: 'Historical decision unavailable', tone: 'neutral' },
-        } as Record<string, { label: string; tone: string }>
-      )[recordedCategory] || { label: 'Historical decision unavailable', tone: 'neutral' }
-    );
-  if (!mail.complete && !mail.decision) return { label: 'Historical decision unavailable', tone: 'neutral' };
-  if (
-    !mail.decision &&
-    (threshold === undefined || !Number.isFinite(threshold))
-  )
-    return { label: 'Historical classification unavailable', tone: 'review' };
-  if (
-    mail.decision?.outcome === 'unwanted' ||
-    (!mail.decision && threshold !== undefined && mail.score >= threshold)
-  )
-    return { label: 'Spam', tone: 'spam' };
-  if (
-    mail.decision?.outcome === 'undetermined' ||
-    mail.category === 'undetermined'
-  )
-    return { label: 'Historical decision unavailable', tone: 'neutral' };
-  if (mail.category === 'publicity') return { label: 'Marketing', tone: 'publicity' };
-  return { label: 'Legitimate', tone: 'good' };
+export function classificationDetail(mail: DecisionInput): string {
+  const record = receiptDecision(mail);
+  const report = receiptAssessment(mail);
+  if (record && ['phishing', 'malware'].includes(record.classification))
+    return `Spam — ${record.classification} detected.`;
+  if (classification(mail).label === 'Ham' && (record?.classification === 'unassessed' || report?.category === 'undetermined'
+      || (!report && !mail.delivery_classification && mail.decision?.outcome !== 'unwanted' && mail.decision?.outcome !== 'legitimate')))
+    return 'Ham — fail-open grouping: insufficient recorded evidence. This is not a safety guarantee. The original analysis and delivery remain unchanged.';
+  if (classification(mail).label === 'Ham' && report?.score_resolution?.score === null)
+    return 'Ham — accepted without a usable score. Analysis details remain available.';
+  return 'NoiseFence verdict. Analysis coverage and delivery actions are shown separately.';
 }
 
 export function deliverySummary(recipients: { status: string }[]) {

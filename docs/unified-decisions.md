@@ -32,7 +32,7 @@ policy can evaluate partial actions against decision-specific evidence instead.
 Proton marking guards remain independent.
 Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
-copy. Each copy exposes only its own decision in version 8 diagnostic headers.
+copy. Each copy exposes only its own decision in version 9 diagnostic headers.
 
 Recipient variants share one immutable body allocation and retain their own
 headers. Disk writes and replica uploads stream both chunks. The configured SMTP

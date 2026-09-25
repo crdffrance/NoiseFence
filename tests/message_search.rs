@@ -657,6 +657,7 @@ async fn historical_threshold_and_api_assessment_agree_with_search() {
     assert_eq!(mail.assessment.score.value, Some(90.));
     assert_eq!(mail.category, noisefence::mailing::Category::Legitimate);
     assert_eq!(mail.assessment.category, mail.category);
+    assert_eq!(mail.verdict, "ham");
     assert_eq!(
         mail.decision.outcome,
         noisefence::fusion::runtime::Outcome::Legitimate

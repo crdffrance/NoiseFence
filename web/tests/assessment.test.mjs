@@ -12,7 +12,7 @@ test('the console consumes the same versioned assessment cases as Rust and SMTP 
     const mail={...input,category:e.category,assessment};
     assert.equal(scorePresentation(mail).value,e.value,c.name);
     assert.equal(scorePresentation(mail).kind,e.kind,c.name);
-    assert.equal(classification(mail).label,input.decision?.source==='antivirus'?'Malware':{spam:'Spam',publicity:'Marketing',legitimate:'Legitimate',undetermined:'Historical decision unavailable'}[e.category],c.name);
+    assert.equal(classification(mail).label,input.decision?.source==='antivirus'?'Spam':{spam:'Spam',publicity:'Pub',legitimate:'Ham',undetermined:'Ham'}[e.category],c.name);
     assert.equal(coveragePresentation(mail).complete,input.complete,c.name);
     // A UI-local raw score or settings change cannot reinterpret the server assessment.
     assert.equal(scorePresentation({...mail,score:42}).value,e.value,c.name);

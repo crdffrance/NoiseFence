@@ -95,6 +95,26 @@ pub struct Assessment {
     pub subject_tag: SubjectTag,
 }
 
+impl Assessment {
+    /// Three-way display/wire verdict; historical snapshots remain untouched.
+    /// With insufficient recorded evidence, Ham is the fail-open grouping.
+    pub fn verdict(&self) -> &'static str {
+        match self.category {
+            Category::Spam => "spam",
+            Category::Publicity => "pub",
+            Category::Legitimate | Category::Undetermined => "ham",
+        }
+    }
+}
+
+/// Console grouping only: never used by training, evaluation or delivery.
+pub(crate) fn verdict_category_sql() -> String {
+    format!(
+        "CASE ({}) WHEN 'spam' THEN 'spam' WHEN 'publicity' THEN 'publicity' ELSE 'legitimate' END",
+        category_sql()
+    )
+}
+
 pub fn recorded_threshold(scan: &Scan) -> Option<f64> {
     valid_score(scan.analysis_policy.as_ref().map(|p| p.threshold))
 }
@@ -326,6 +346,19 @@ mod tests {
                         |r| r.get(0),
                     )
                     .unwrap();
+                let grouping: String = db
+                    .query_row(
+                        &format!("SELECT ({}) FROM messages m", verdict_category_sql()),
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                let expected = match historical(&scan).verdict() {
+                    "spam" => "spam",
+                    "pub" => "publicity",
+                    _ => "legitimate",
+                };
+                assert_eq!(grouping, expected, "{} / receipt={receipt}", case["name"]);
                 assert_eq!(
                     sql,
                     historical(&scan).category.as_str(),

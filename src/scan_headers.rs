@@ -38,6 +38,7 @@ pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Decision-Source",
     "X-NoiseFence-Decision-Recorded",
     "X-NoiseFence-Category",
+    "X-NoiseFence-Verdict",
     "X-NoiseFence-Analysis",
     "X-NoiseFence-Checks",
     "X-NoiseFence-Authentication",
@@ -305,7 +306,7 @@ pub(crate) fn render(
     );
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "8");
+    h.field("X-NoiseFence-Header-Version", "9");
     h.field(
         "X-NoiseFence-Activation",
         crate::decision_record::recorded_activation(scan).map_or_else(
@@ -393,6 +394,7 @@ pub(crate) fn render(
         yes(report.decision_recorded),
     );
     h.field("X-NoiseFence-Category", report.category.as_str());
+    h.field("X-NoiseFence-Verdict", report.verdict());
     h.field(
         "X-NoiseFence-Analysis",
         format!(
@@ -770,7 +772,7 @@ mod tests {
             detail: "private body".into(),
         }];
         let h = headers(&s);
-        assert_eq!(h["x-noisefence-header-version"], "8");
+        assert_eq!(h["x-noisefence-header-version"], "9");
         assert_eq!(h["x-noisefence-score"], number(Some(s.score)));
         assert!(
             h["x-noisefence-score-combination"].contains("rules-retained=2.5; total-logit=-2.5;")
@@ -985,6 +987,7 @@ mod tests {
             let h = headers(&scan);
             assert_eq!(h["x-noisefence-score"], number(report.score.value));
             assert_eq!(h["x-noisefence-category"], report.category.as_str());
+            assert_eq!(h["x-noisefence-verdict"], report.verdict());
             assert_eq!(h["x-noisefence-decision"], word(&report.decision.outcome));
             assert_eq!(
                 h["x-noisefence-decision-recorded"],
@@ -1099,7 +1102,7 @@ mod contract_tests {
                 ("X-NoiseFence-Score-Type", word(&report.score.kind)),
                 ("X-NoiseFence-Category", report.category.as_str().into()),
                 ("X-NoiseFence-Subject-Tag", "none".into()),
-                ("X-NoiseFence-Header-Version", "8".into()),
+                ("X-NoiseFence-Header-Version", "9".into()),
                 (
                     "X-NoiseFence-Status",
                     if s.complete { "complete" } else { "incomplete" }.into(),

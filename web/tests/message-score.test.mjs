@@ -37,7 +37,7 @@ test('ambiguous and contradictory opinions retain the recorded score without cla
       shown.detail,
       resolution === 'ambiguous' ? /uncertain/ : /disagree/,
     );
-    assert.equal(classification(mail, 95).label, "Historical decision unavailable");
+    assert.equal(classification(mail, 95).label, "Ham");
     assert.equal(mail.decision.score, null);
     assert.equal(mail.tagged, false);
   }
@@ -55,7 +55,7 @@ test('an incomplete LLM check preserves numeric results and explicitly describes
   assert.equal(shown.value, 72.35);
   assert.equal(shown.kind, 'partial');
   assert.match(shown.detail, /Incomplete checks: LLM analysis/);
-  assert.equal(classification(mail, 95).label, "Historical decision unavailable");
+  assert.equal(classification(mail, 95).label, "Ham");
 });
 
 test('limited extraction and multiple missing controls are not described as a complete content analysis', () => {
@@ -81,7 +81,7 @@ test('lack of corroboration keeps the existing decision score and review status'
   const mail = { ...base, decision: decision('legacy', 'undetermined', 98.2) };
   assert.equal(scorePresentation(mail).value, 98.2);
   assert.match(scorePresentation(mail).detail, /Corroboration is insufficient/);
-  assert.equal(classification(mail, 95).label, "Historical decision unavailable");
+  assert.equal(classification(mail, 95).label, "Ham");
 });
 
 test('the antivirus missing-control explanation uses its actual state, not a generic signature reason', () => {
@@ -128,7 +128,7 @@ test('malware remains the classification even when the content index is low or i
     };
     assert.equal(scorePresentation(mail).value, 3.2);
     assert.match(scorePresentation(mail).detail, /antivirus/);
-    assert.equal(classification(mail).label, 'Malware');
+    assert.equal(classification(mail).label, 'Spam');
     assert.equal(mail.decision.score, null);
   }
 });
@@ -178,8 +178,8 @@ test('internal delivery notifications do not present their stored zero as an inc
 test('an advisory score describes detector uncertainty without contradicting a recipient rule', () => {
   for (const [category, label] of [
     ['spam', 'Spam'],
-    ['legitimate', "Legitimate"],
-    ['publicity', "Marketing"],
+    ['legitimate', "Ham"],
+    ['publicity', "Pub"],
   ]) {
     const mail = {
       ...base,

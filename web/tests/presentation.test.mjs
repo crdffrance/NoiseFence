@@ -38,7 +38,7 @@ const mail = {
   tagged: false,
   pub_tagged: false,
 };
-test('canonical review and legitimate decisions override the lexical score', () => {
+test('primary grouping preserves native decisions and ignores live thresholds', () => {
   assert.equal(
     classification(
       {
@@ -47,7 +47,7 @@ test('canonical review and legitimate decisions override the lexical score', () 
       },
       95,
     ).label,
-    "Historical decision unavailable",
+    "Ham",
   );
   assert.equal(
     classification(
@@ -57,9 +57,9 @@ test('canonical review and legitimate decisions override the lexical score', () 
       },
       95,
     ).label,
-    "Marketing",
+    "Pub",
   );
-  assert.equal(classification(mail, 95).label, 'Spam');
+  assert.equal(classification(mail, 95).label, 'Ham');
 });
 test('malware keeps priority over PUB and incomplete analysis', () => {
   assert.equal(
@@ -71,21 +71,21 @@ test('malware keeps priority over PUB and incomplete analysis', () => {
       },
       95,
     ).label,
-    'Malware',
+    'Spam',
   );
   assert.equal(
     classification({ ...mail, complete: false }, 95).label,
-    "Historical decision unavailable",
+    "Ham",
   );
 });
 test('message details cannot classify historical mail with an invented threshold', () => {
   assert.equal(
     classification(mail).label,
-    "Historical classification unavailable",
+    "Ham",
   );
   assert.equal(
     classification(mail, Number.NaN).label,
-    "Historical classification unavailable",
+    "Ham",
   );
   assert.equal(
     classification({
@@ -99,7 +99,7 @@ test('message details cannot classify historical mail with an invented threshold
       ...mail,
       decision: { source: 'fusion', outcome: 'legitimate', score: 2 },
     }).label,
-    "Marketing",
+    "Pub",
   );
 });
 test('mixed deliveries never look fully delivered while a copy is held or failed', () => {
@@ -145,12 +145,12 @@ test('recipient classification is visible without rewriting the detector decisio
   };
   assert.equal(
     classification({ ...original, delivery_classification: 'publicity' }).label,
-    "Marketing",
+    "Pub",
   );
   assert.equal(
     classification({ ...original, delivery_classification: 'legitimate' })
       .label,
-    "Legitimate",
+    "Ham",
   );
   assert.equal(original.decision.outcome, 'unwanted');
   assert.equal(
@@ -159,7 +159,7 @@ test('recipient classification is visible without rewriting the detector decisio
       complete: false,
       delivery_classification: 'publicity',
     }).label,
-    "Marketing",
+    "Pub",
   );
   assert.equal(
     classification({
@@ -167,11 +167,11 @@ test('recipient classification is visible without rewriting the detector decisio
       decision: { source: 'antivirus', outcome: 'unwanted', score: null },
       delivery_classification: 'legitimate',
     }).label,
-    'Malware',
+    'Spam',
   );
 });
 
-test('an advisory disagreement is review, not a corrected legitimate decision', async () => {
+test('historical disagreements keep their diagnostics under a neutral Ham grouping', async () => {
   const { arbitrationExplanation } = await import('../app/presentation.ts');
   const report = {
     version: 'decision-policy-2',
@@ -191,7 +191,7 @@ test('an advisory disagreement is review, not a corrected legitimate decision', 
       ...mail,
       decision: { source: 'legacy', ...report.decision },
     }).label,
-    "Historical decision unavailable",
+    "Ham",
   );
   assert.equal(arbitrationExplanation(null), null);
 });
@@ -207,5 +207,33 @@ test('unassessed accepted receipts show a definitive delivery policy without cla
     classification: 'unassessed',
     assessment: {version: 1, category: 'legitimate'},
   }};
-  assert.deepEqual(classification(mail), {label: 'Accepted — analysis unavailable', tone: 'neutral'});
+  assert.deepEqual(classification(mail), {label: 'Ham', tone: 'neutral'});
+});
+
+
+test('all primary badges are three-way and detailed threats remain available', async () => {
+  const {classificationDetail} = await import('../app/presentation.ts');
+  for (const [detailed, category, expected] of [
+    ['legitimate', 'legitimate', 'Ham'], ['publicity', 'publicity', 'Pub'],
+    ['spam', 'spam', 'Spam'], ['phishing', 'spam', 'Spam'],
+    ['malware', 'spam', 'Spam'], ['unassessed', 'legitimate', 'Ham'],
+    ['unassessed', 'undetermined', 'Ham'],
+  ]) {
+    const item = {...mail, recipient_decision: {version: 2, classification: detailed,
+      assessment: {version: 1, category}}};
+    const before = JSON.stringify(item);
+    assert.equal(classification(item).label, expected);
+    if (['phishing','malware'].includes(detailed)) assert.match(classificationDetail(item), new RegExp(detailed));
+    if (detailed === 'unassessed') assert.match(classificationDetail(item), /not a safety guarantee/);
+    assert.equal(JSON.stringify(item), before);
+  }
+});
+
+
+test('missing scores do not describe an explicit spam or pub rule as Ham', async () => {
+  const {classificationDetail} = await import('../app/presentation.ts');
+  for (const category of ['spam','publicity']) {
+    const item = {...mail, assessment: {version:1, category, score_resolution:{score:null}}};
+    assert.doesNotMatch(classificationDetail(item), /Ham/);
+  }
 });

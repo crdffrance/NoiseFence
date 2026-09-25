@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Standardize the primary message verdict as Spam, Ham or Pub in the console, API (`verdict`) and version 9 SMTP headers (`X-NoiseFence-Verdict`). Keep detailed threats, coverage and immutable decisions separate. Historical unresolved records use an explicitly explained neutral Ham grouping, including the Ham search filter; they remain unresolved in evaluation data. Rspamd never determines the verdict.
+
 ## 0.28.0-rc.5 — Definitive decisions and independent second opinions
 
 - Present the NoiseFence verdict and delivery before the Rspamd research opinion. Explain greylisting as an unexecuted deferral, keep disagreements out of manual delivery tasks, and verify that late or failed observer results cannot change native decisions or receipts.

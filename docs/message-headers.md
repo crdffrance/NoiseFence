@@ -1,13 +1,13 @@
 # Message diagnostic headers
 
-Newly prepared messages use **`X-NoiseFence-Header-Version: 8`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
+Newly prepared messages use **`X-NoiseFence-Header-Version: 9`**. The API and headers use the same receipt-time assessment, version 1. Already delivered or queued messages keep their original bytes and header version; this release does not rescan or resend them.
 
 ## Risk, classification and delivery
 
 | Header | Meaning |
 | --- | --- |
 | `X-NoiseFence-Id` | Queue identifier; not an authorization token |
-| `X-NoiseFence-Header-Version` | Wire contract version, currently `8` |
+| `X-NoiseFence-Header-Version` | Wire contract version, currently `9` |
 | `X-NoiseFence-Activation` | Recorded activation sequence, configuration revision and policy/model bundle SHA-256, or `not_recorded` |
 | `X-NoiseFence-Assessment-Version` | Shared API/header assessment contract, currently `1` |
 | `X-NoiseFence-Record-Version` | Receipt decision schema version, currently `2`, or `not_recorded` |
@@ -30,6 +30,7 @@ Newly prepared messages use **`X-NoiseFence-Header-Version: 8`**. The API and he
 | `X-NoiseFence-Decision` | Engine outcome: `legitimate`, `unwanted` or `undetermined` |
 | `X-NoiseFence-Decision-Recorded` | `yes` for a stored decision; `no` for a historical fallback |
 | `X-NoiseFence-Decision-Source` | `legacy`, `fusion` or `antivirus` |
+| `X-NoiseFence-Verdict` | Primary grouping: `spam`, `ham` or `pub`; independent of Rspamd |
 | `X-NoiseFence-Category` | Recorded delivery classification: `spam`, `publicity`, `legitimate` or `undetermined` |
 | `X-NoiseFence-Classification-Source` | `recipient_policy`, `recorded_decision` or `historical_fallback` |
 | `X-NoiseFence-Content-Threshold` | Content threshold captured at analysis time; `unavailable` when absent |
@@ -103,7 +104,7 @@ The risk index is not generally a spam probability. A missing decision score doe
 A shortened synthetic example:
 
 ```text
-X-NoiseFence-Header-Version: 8
+X-NoiseFence-Header-Version: 9
 X-NoiseFence-Assessment-Version: 1
 X-NoiseFence-Mode: observe
 X-NoiseFence-Score: 87.4
@@ -169,3 +170,18 @@ check is distinct from obtaining usable evidence. Normalized diagnostic exclusio
 explain the distinction. Existing queued bytes and historical receipts keep their
 original header version. No original Authentication-Results header supplies these
 internal facts, and this change does not modify score thresholds or delivery policy.
+
+## Three-way verdict (header version 9)
+
+The primary console badge, the message-list and diagnostic API `verdict` field,
+and `X-NoiseFence-Verdict` use **Spam / Ham / Pub** (lowercase on the wire).
+Phishing and malware belong to Spam; their detailed findings remain in
+`X-NoiseFence-Classification` and detector details. Ham describes the delivery
+classification, not a guarantee of safety. Coverage, missing scores and failures
+remain visible separately. Recipient policy still determines each copy.
+
+Existing category identifiers (`legitimate`, `publicity`, `spam`) remain stable
+in the API, filters and immutable receipts for compatibility. Old undecided
+records use the neutral Ham fail-open grouping with an explicit explanation.
+Their original undecided assessment remains available for auditing and evaluation. This display does not rewrite the
+original decision, delivery, score or queued message. Rspamd is never used.

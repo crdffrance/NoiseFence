@@ -27,6 +27,7 @@ import {
 } from './message-search';
 import {
   classification,
+  classificationDetail,
   deliverySummary,
   checkFailure,
   publicitySignal,
@@ -1002,8 +1003,10 @@ function Home() {
                 </Button>
                 <div className="detail-heading">
                   <p className="eyebrow">FILTER DECISION</p>
+                  <p className="small">{classificationDetail(selected)}</p>
                   <div className="detail-badges">
                     <span
+                      title={classificationDetail(selected)}
                       className={`status ${classification(selected, historicalThreshold?.messageId === selected.id ? historicalThreshold.threshold : undefined).tone}`}
                     >
                       {
@@ -1028,9 +1031,9 @@ function Home() {
                       <span className="status">
                         Correction :{' '}
                         {selected.feedback_category === 'legitimate'
-                          ? "Legitimate"
+                          ? "Ham"
                           : selected.feedback_category === 'publicity'
-                            ? "Marketing"
+                            ? "Pub"
                             : 'Spam'}
                       </span>
                     )}
@@ -1313,7 +1316,7 @@ function Home() {
                         }
                         onClick={() => feedback('legitimate')}
                       >
-                        <Check size={17} /> Legitimate
+                        <Check size={17} /> Ham
                       </Button>
                       <Button
                         disabled={busy}
@@ -1333,7 +1336,7 @@ function Home() {
                         }
                         onClick={() => feedback('publicity')}
                       >
-                        Marketing
+                        Pub
                       </Button>
                     </div>
                     <p className="muted small">
@@ -1502,7 +1505,7 @@ function Home() {
                     },
                     {
                       id: 'publicity',
-                      label: "Marketing · PUB",
+                      label: "Pub",
                       count: stats?.publicity,
                       icon: Flag,
                       tone: 'purple',
@@ -1586,8 +1589,8 @@ function Home() {
                       {[
                         ['all', "All"],
                         ['spam', "Spam detected"],
-                        ['publicity', "Marketing"],
-                        ['legitimate', "Legitimate"],
+                        ['publicity', "Pub"],
+                        ['legitimate', "Ham"],
                         [
                           'quarantined',
                           `Quarantine (${stats?.quarantined ?? 0})`,
@@ -1708,8 +1711,8 @@ function Home() {
                         <span className="filter-chip">
                           {{
                             spam: "Spam detected",
-                            publicity: "Marketing",
-                            legitimate: "Legitimate",
+                            publicity: "Pub",
+                            legitimate: "Ham",
                             quarantined: "Quarantined",
                             pending: "Pending",
                             review: "Historical unresolved",
@@ -1835,6 +1838,7 @@ function Home() {
                             </TableCell>
                             <TableCell>
                               <span
+                                title={classificationDetail(m)}
                                 className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
                               >
                                 {
@@ -1919,7 +1923,8 @@ function Home() {
                       >
                         <span className="mobile-message-top">
                           <span
-                            className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
+                            title={classificationDetail(m)}
+                                className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
                           >
                             {classification(m, stats?.threshold ?? 95).label}
                           </span>
