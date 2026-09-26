@@ -6,6 +6,7 @@
 - Retain provider findings together with their reports. Record bounded CRDF batch-error codes without provider content or credentials; keep target binding, quotas and backoff unchanged.
 - Clarify completed-transfer, ride-receipt and optional consent context in prompt `noisefence-classify-11`. Context does not grant sender trust or change numeric weights. The new prompt defines a new observation cohort and needs human-labelled evaluation.
 - Explain per-partition training readiness in the English console. Return an actionable failure report when protected campaign identities are missing; never silently remove protected references or fit a model on an invalid partition.
+- Preserve the complete rc.7 typed messaging policy during an unenrolled coordinator-first rollout; credential-bound activation still requires matching builds.
 - Keep Spam/Ham/Pub decisions independent of Rspamd. No recalibrated model, detection-rate claim, threshold change or enforcement activation is included. See the [filter qualification procedure](docs/filter-qualification.md).
 
 ## 0.28.0-rc.7 — Spam, Ham and Pub verdicts

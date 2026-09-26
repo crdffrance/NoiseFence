@@ -1570,6 +1570,43 @@ fn llm_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout(
 }
 
 #[test]
+fn rc8_rollout_preserves_rc7_typed_policy_without_relaxing_bound_activation() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    cfg.domains[0].recipient_verification = Some(Default::default());
+    cfg.rspamd = Some(Default::default());
+    cfg.research_archive = Some(Default::default());
+    cfg.smtp_policy = Some(Default::default());
+    let mut settings = noisefence::control::Settings::from_config(&cfg);
+    settings.filters.resolve_uncertain_by_score = true;
+    settings.filters.partial_actions = true;
+    settings
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .insert("semantic".into(), json!({"timeout_ms":1500}));
+    let mut bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    let prior = bundle.for_build("0.28.0-rc.7").unwrap();
+    assert_eq!(
+        serde_json::to_value(&prior.settings).unwrap(),
+        serde_json::to_value(&bundle.settings).unwrap()
+    );
+    assert_eq!(prior.shared, bundle.shared);
+    assert_eq!(
+        serde_json::to_value(&prior.files).unwrap(),
+        serde_json::to_value(&bundle.files).unwrap()
+    );
+    assert_ne!(prior.digest, bundle.digest);
+    prior.validate().unwrap();
+    assert!(bundle.for_build("0.28.0-rc.99").is_err());
+    bundle.credential_generation = Some("a".repeat(64));
+    bundle.digest = bundle.hash().unwrap();
+    assert!(bundle.for_build("0.28.0-rc.7").is_err());
+    assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+}
+
+#[test]
 fn score_resolution_cannot_be_enabled_while_older_workers_use_another_policy() {
     let root = tempfile::tempdir().unwrap();
     let cfg = config(root.path(), Role::Coordinator);

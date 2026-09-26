@@ -414,6 +414,15 @@ impl Bundle {
             super::protocol::compatible_build(build),
             "Unsupported worker build"
         );
+        // rc.8 changes analysis/runtime diagnostics, not typed messaging policies.
+        // Keep the complete rc.7 policy during an unenrolled coordinator-first
+        // rollout. Credential-bound activation above still requires equal builds.
+        if env!("CARGO_PKG_VERSION") == "0.28.0-rc.8" && build == "0.28.0-rc.7" {
+            let mut bundle = self.clone();
+            bundle.build = build.into();
+            bundle.digest = bundle.hash()?;
+            return Ok(bundle);
+        }
         ensure!(
             super::protocol::supports_scoped_policy(build)
                 || (self
