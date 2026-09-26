@@ -255,8 +255,8 @@ pub(crate) fn render(
                 .map(|epoch| epoch.revision.to_string())
                 .unwrap_or_else(|| "not_recorded".into()),
             crate::decision_record::recorded_activation(scan)
-                .map(|epoch| epoch.digest)
-                .unwrap_or_else(|| "not_recorded".into())
+                .map(|epoch| epoch.digest.as_str())
+                .unwrap_or("not_recorded")
         ),
     );
     h.field(
@@ -270,7 +270,9 @@ pub(crate) fn render(
             number(report.content_threshold)
         ),
     );
-    let action_coverage = if let Some(coverage) = report.action.as_ref().and_then(|a| a.coverage.as_ref()) {
+    let action_coverage = if let Some(coverage) =
+        report.action.as_ref().and_then(|a| a.coverage.as_ref())
+    {
         let list = |items: &[crate::action_coverage::Requirement]| {
             if items.is_empty() {
                 "none".into()
@@ -284,14 +286,14 @@ pub(crate) fn render(
             }
         };
         format!(
-                "action-version={}; action-partial-policy={}; action-basis={}; action-eligible={}; action-required={}; action-missing={};",
-                token(&coverage.version).unwrap_or("unknown"),
-                yes(coverage.partial_actions),
-                word(&coverage.basis),
-                yes(coverage.eligible()),
-                list(&coverage.required),
-                list(&coverage.missing)
-            )
+            "action-version={}; action-partial-policy={}; action-basis={}; action-eligible={}; action-required={}; action-missing={};",
+            token(&coverage.version).unwrap_or("unknown"),
+            yes(coverage.partial_actions),
+            word(&coverage.basis),
+            yes(coverage.eligible()),
+            list(&coverage.required),
+            list(&coverage.missing)
+        )
     } else {
         "not_recorded".into()
     };
@@ -312,10 +314,10 @@ pub(crate) fn render(
         h.field("X-NoiseFence-Score-Resolution", "none");
     }
     let supplementary_gaps = if report.supplementary_gaps.is_empty() {
-            "none".into()
-        } else {
-            report.supplementary_gaps.join("; ")
-        };
+        "none".into()
+    } else {
+        report.supplementary_gaps.join("; ")
+    };
 
     h.field("X-NoiseFence-Id", id);
     h.field("X-NoiseFence-Header-Version", "11");
@@ -335,19 +337,19 @@ pub(crate) fn render(
             b.model_sha256.as_deref().filter(|h| crate::compatibility::valid_hash(h)).unwrap_or("not_recorded"))));
 
     let delivery_policy = report
-            .action
-            .as_ref()
-            .map(|a| {
-                format!(
-                    "requested={}; effective={}; reason={}; subject-tag={}; {}",
-                    word(&a.requested),
-                    word(&a.effective),
-                    token(&a.reason).unwrap_or("unknown"),
-                    word(&report.subject_tag),
-                    action_coverage
-                )
-            })
-            .unwrap_or_else(|| "not_recorded".into());
+        .action
+        .as_ref()
+        .map(|a| {
+            format!(
+                "requested={}; effective={}; reason={}; subject-tag={}; {}",
+                word(&a.requested),
+                word(&a.effective),
+                token(&a.reason).unwrap_or("unknown"),
+                word(&report.subject_tag),
+                action_coverage
+            )
+        })
+        .unwrap_or_else(|| "not_recorded".into());
     h.field("X-NoiseFence-Delivery-Policy", delivery_policy);
 
     h.field("X-NoiseFence-Verdict", report.verdict());
@@ -357,7 +359,11 @@ pub(crate) fn render(
             "complete={}; elapsed-ms={}; incomplete={}; supplementary-gaps={};",
             yes(report.complete),
             scan.elapsed_ms,
-            if report.incomplete_reasons.is_empty() { "none".into() } else { report.incomplete_reasons.join(",") },
+            if report.incomplete_reasons.is_empty() {
+                "none".into()
+            } else {
+                report.incomplete_reasons.join(",")
+            },
             supplementary_gaps.replace(' ', "")
         ),
     );
@@ -470,12 +476,15 @@ pub(crate) fn render(
     } else {
         h.field(
             "X-NoiseFence-Rules",
-            format!("combination-policy=not_recorded adjustment-total=not_recorded {}", rules(
-                scan.reasons.iter().map(|r| (r.id.as_str(), r.weight)),
-                scan.reasons.len(),
-                "logit",
-                "rule",
-            )),
+            format!(
+                "combination-policy=not_recorded adjustment-total=not_recorded {}",
+                rules(
+                    scan.reasons.iter().map(|r| (r.id.as_str(), r.weight)),
+                    scan.reasons.len(),
+                    "logit",
+                    "rule",
+                )
+            ),
         );
     }
     h.field(
@@ -519,12 +528,12 @@ pub(crate) fn render(
         .map(String::as_str)
         .collect::<std::collections::BTreeSet<_>>();
     let vision_errors = if scan.vision.errors.is_empty() {
-            "none".into()
-        } else if vision_errors.is_empty() {
-            "unrecognized".into()
-        } else {
-            vision_errors.into_iter().collect::<Vec<_>>().join(",")
-        };
+        "none".into()
+    } else if vision_errors.is_empty() {
+        "unrecognized".into()
+    } else {
+        vision_errors.into_iter().collect::<Vec<_>>().join(",")
+    };
     h.field(
         "X-NoiseFence-Vision",
         format!(
@@ -567,48 +576,47 @@ pub(crate) fn render(
             r.checks.len(), r.listed_providers, count(Status::NotListed), count(Status::Listed),
             count(Status::Policy), count(Status::Unavailable), count(Status::Skipped), word(&r.effective_action))
     }).unwrap_or_else(|| "not_recorded".into()));
-    let native = scan.native_filter
-            .as_ref()
-            .map(|n| {
-                format!(
-                    "status={}; mode={}; affects-delivery={}; calibrated={}; elapsed-ms={};",
-                    word(&n.report.status),
-                    word(&n.report.mode),
-                    yes(n.report.affects_delivery),
-                    yes(n.report.calibrated),
-                    n.report.elapsed_ms
-                )
-            })
-            .unwrap_or_else(|| {
-                if config.native_filter.is_some() {
-                    "not_run"
-                } else {
-                    "disabled"
-                }
-                .into()
-            });
-    let native_rules = scan.native_filter
-            .as_ref()
-            .and_then(|n| n.report.score.as_ref())
-            .map(|s| {
-                rules(
-                    s.symbols
-                        .iter()
-                        .filter(|r| r.absorbed_by.is_empty())
-                        .map(|r| (r.id.as_str(), r.weight)),
-                    s.symbols
-                        .iter()
-                        .filter(|r| r.absorbed_by.is_empty())
-                        .count(),
-                    "pre-cap-points",
-                    "native-rule",
-                )
-            })
-            .unwrap_or_else(|| "unavailable".into());
-    h.field(
-        "X-NoiseFence-Native",
-        format!("{native} {native_rules}"),
-    );
+    let native = scan
+        .native_filter
+        .as_ref()
+        .map(|n| {
+            format!(
+                "status={}; mode={}; affects-delivery={}; calibrated={}; elapsed-ms={};",
+                word(&n.report.status),
+                word(&n.report.mode),
+                yes(n.report.affects_delivery),
+                yes(n.report.calibrated),
+                n.report.elapsed_ms
+            )
+        })
+        .unwrap_or_else(|| {
+            if config.native_filter.is_some() {
+                "not_run"
+            } else {
+                "disabled"
+            }
+            .into()
+        });
+    let native_rules = scan
+        .native_filter
+        .as_ref()
+        .and_then(|n| n.report.score.as_ref())
+        .map(|s| {
+            rules(
+                s.symbols
+                    .iter()
+                    .filter(|r| r.absorbed_by.is_empty())
+                    .map(|r| (r.id.as_str(), r.weight)),
+                s.symbols
+                    .iter()
+                    .filter(|r| r.absorbed_by.is_empty())
+                    .count(),
+                "pre-cap-points",
+                "native-rule",
+            )
+        })
+        .unwrap_or_else(|| "unavailable".into());
+    h.field("X-NoiseFence-Native", format!("{native} {native_rules}"));
     let mut wire = received;
     for name in FIELDS {
         wire.push_str(h.0.get(name).expect("registered header must be rendered"));
@@ -832,21 +840,45 @@ mod tests {
             digest: "a".repeat(64),
         });
         // A transport epoch alone is not recorded canonical identity.
-        assert_eq!(parameter(&headers(&scan)["x-noisefence-policy"], "activation-sequence"), "not_recorded");
+        assert_eq!(
+            parameter(
+                &headers(&scan)["x-noisefence-policy"],
+                "activation-sequence"
+            ),
+            "not_recorded"
+        );
         crate::decision_record::record_recipient(&mut scan, &config(), None, 1234);
         assert_eq!(
-            parameter(&headers(&scan)["x-noisefence-policy"], "activation-sequence"),
+            parameter(
+                &headers(&scan)["x-noisefence-policy"],
+                "activation-sequence"
+            ),
             "7"
         );
-        assert_eq!(parameter(&headers(&scan)["x-noisefence-policy"], "activation-revision"), "12");
-        assert_eq!(parameter(&headers(&scan)["x-noisefence-policy"], "activation-sha256"), "a".repeat(64));
+        assert_eq!(
+            parameter(
+                &headers(&scan)["x-noisefence-policy"],
+                "activation-revision"
+            ),
+            "12"
+        );
+        assert_eq!(
+            parameter(&headers(&scan)["x-noisefence-policy"], "activation-sha256"),
+            "a".repeat(64)
+        );
         assert_eq!(
             parameter(&headers(&scan)["x-noisefence-policy"], "record-version"),
             "2"
         );
         assert!(signed_fields().any(|field| field == "X-NoiseFence-Policy"));
         scan.activation_epoch.as_mut().unwrap().sequence += 1;
-        assert_eq!(parameter(&headers(&scan)["x-noisefence-policy"], "activation-sequence"), "not_recorded");
+        assert_eq!(
+            parameter(
+                &headers(&scan)["x-noisefence-policy"],
+                "activation-sequence"
+            ),
+            "not_recorded"
+        );
     }
 
     #[test]
@@ -978,7 +1010,10 @@ mod tests {
         assert_eq!(h["x-noisefence-score"], "1.2");
         assert_eq!(h["x-noisefence-score-type"], "advisory");
         assert_eq!(h["x-noisefence-verdict"], "spam");
-        assert_eq!(parameter(&h["x-noisefence-policy"], "decision-source"), "antivirus");
+        assert_eq!(
+            parameter(&h["x-noisefence-policy"], "decision-source"),
+            "antivirus"
+        );
         assert!(h["x-noisefence-antivirus"].contains("main=malware"));
     }
 
@@ -1121,7 +1156,11 @@ mod contract_tests {
                     case["name"]
                 );
             }
-            assert!(wire.contains("subject-tag=none;"), "{}", case["name"]);
+            assert!(
+                wire.contains("X-NoiseFence-Delivery-Policy: not_recorded\r\n"),
+                "{}",
+                case["name"]
+            );
             assert!(
                 wire.contains(&format!(
                     "X-NoiseFence-Analysis: complete={}; elapsed-ms={};",

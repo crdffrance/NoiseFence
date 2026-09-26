@@ -2466,8 +2466,9 @@ mod tests {
         let raw_copy = variant.raw.to_vec();
         let wire = String::from_utf8_lossy(&raw_copy);
         assert!(wire.contains("Subject: Original subject\r\n"));
-        assert!(wire.contains("X-NoiseFence-Action-Requested: tag\r\n"));
-        assert!(wire.replace("\r\n\t", " ").contains("effective=deliver;"));
+        assert!(wire
+            .replace("\r\n\t", " ")
+            .contains("X-NoiseFence-Delivery-Policy: requested=tag; effective=deliver; reason=subject_rewrite_unavailable; subject-tag=none;"));
         assert!(wire.contains("missing=subject_rewrite;"));
         assert_eq!(
             message::fields(&raw_copy).unwrap().1,

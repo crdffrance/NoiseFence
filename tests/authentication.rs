@@ -190,18 +190,23 @@ async fn received_policy_headers_cannot_supply_a_trusted_smtp_identity_or_score(
         serde_json::to_value(evidence).unwrap(),
         serde_json::to_value(original.evidence.unwrap()).unwrap()
     );
-    assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Policy:"));
+    let output_text = String::from_utf8_lossy(&output);
+    assert_eq!(output_text.matches("X-NoiseFence-Policy:").count(), 1);
+    assert!(!output_text.contains("ptr_verified") && !output_text.contains("weight=-100"));
     assert!(!String::from_utf8_lossy(&output).contains("X-NoiseFence-Evidence:"));
-    for name in [
-        "Score-Type",
-        "Checks",
-        "Rules",
-        "Score-Combination",
-        "Rule-Adjustments",
+    for (name, expected) in [
+        ("Score-Type", 1),
+        ("Checks", 1),
+        ("Rules", 1),
+        ("Score-Combination", 0),
+        ("Rule-Adjustments", 0),
     ] {
         let text = String::from_utf8_lossy(&output);
         assert!(!text.contains(&format!("X-NoiseFence-{name}: forged")));
-        assert_eq!(text.matches(&format!("X-NoiseFence-{name}:")).count(), 1);
+        assert_eq!(
+            text.matches(&format!("X-NoiseFence-{name}:")).count(),
+            expected
+        );
     }
 }
 

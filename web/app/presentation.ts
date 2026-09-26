@@ -115,13 +115,24 @@ export function scorePresentation(mail: ScoreInput) {
         'Recorded content index. Malware detected by the antivirus takes priority over this score.',
     };
   if (decision?.outcome === 'undetermined') {
+    const explanation =
+      mail.reasons?.some(r => r.id === 'context_requires_review')
+        ? 'Authenticated reporting or receipt context conflicts with the content model.'
+        : mail.reasons?.some(r => r.id === 'llm_inconsistent')
+          ? 'The LLM category and risk estimate are inconsistent.'
+          : mail.arbitration?.resolution === 'disagreement'
+            ? 'Detector opinions disagree.'
+            : mail.arbitration?.resolution === 'ambiguous'
+              ? 'The second opinion is uncertain.'
+              : decision.source === 'fusion'
+                ? 'Fusion cannot reach an outcome.'
+                : 'Corroboration is insufficient.';
     return {
       value,
       model,
       kind: 'advisory',
       label: 'Advisory risk index',
-      detail:
-        'The engine did not produce a score-based outcome. The Spam, Ham or Pub verdict above follows the recorded classification and recipient policy. This risk index is advisory, not a spam probability.',
+      detail: `The engine decision is undetermined: ${explanation} The Spam, Ham or Pub verdict above follows the recorded classification and recipient policy. This risk index is advisory, not a spam probability.`,
     };
   }
   if (report ? report.score.kind === 'decision' : useDecision && decision?.source === 'fusion')

@@ -52,7 +52,7 @@ export function MessageScoreDetails({
         <div className="analysis-stat analysis-verdict">
           <dt className="analysis-stat-label">NoiseFence verdict</dt>
           <dd className={`status ${shown.tone}`}>{shown.label}</dd>
-          <dd className="analysis-stat-note">NoiseFence's independent decision</dd>
+          <dd className="analysis-stat-note">NoiseFence&apos;s independent decision</dd>
         </div>
         <div className="analysis-stat">
           <dt className="analysis-stat-label">{score.label}</dt>

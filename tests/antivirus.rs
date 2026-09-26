@@ -302,7 +302,10 @@ async fn successful_malware_scan_survives_an_unavailable_advisory_scanner() {
     assert!(text.contains("X-NoiseFence-Analysis: complete=no;"));
     assert!(text.contains("X-NoiseFence-Policy:"));
     assert!(text.replace("\r\n\t", " ").contains("outcome=unwanted;"));
-    assert!(text.replace("\r\n\t", " ").contains("decision-source=antivirus;"));
+    assert!(
+        text.replace("\r\n\t", " ")
+            .contains("decision-source=antivirus;")
+    );
     assert!(text.contains("X-NoiseFence-Verdict: spam\r\n"));
     assert!(!text.contains("X-NoiseFence-Verdict: pub"));
     assert!(!text.contains("Subject: ["));
