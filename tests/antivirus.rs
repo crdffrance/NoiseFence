@@ -176,8 +176,12 @@ async fn antivirus_metadata_is_persisted_without_changing_the_original_body() {
         noisefence::fusion::runtime::Outcome::Unwanted
     );
     assert!(scan.decision.as_ref().unwrap().score.is_none());
-    assert!(String::from_utf8_lossy(&raw).contains("X-NoiseFence-Category: spam"));
-    assert!(String::from_utf8_lossy(&raw).contains("X-NoiseFence-Decision-Source: antivirus\r\n"));
+    assert!(String::from_utf8_lossy(&raw).contains("X-NoiseFence-Verdict: spam"));
+    assert!(
+        String::from_utf8_lossy(&raw)
+            .replace("\r\n\t", " ")
+            .contains("source=antivirus;")
+    );
     assert!(!scan.tagged);
     let (_, original_body) = noisefence::message::fields(common::MESSAGE).unwrap();
     let (_, processed_body) = noisefence::message::fields(&raw).unwrap();
@@ -295,11 +299,12 @@ async fn successful_malware_scan_survives_an_unavailable_advisory_scanner() {
     );
     assert!(scan.decision.as_ref().unwrap().score.is_none());
     let text = String::from_utf8_lossy(&wire);
-    assert!(text.contains("X-NoiseFence-Status: incomplete\r\n"));
-    assert!(text.contains("X-NoiseFence-Decision: unwanted\r\n"));
-    assert!(text.contains("X-NoiseFence-Decision-Source: antivirus\r\n"));
-    assert!(text.contains("X-NoiseFence-Category: spam\r\n"));
-    assert!(!text.contains("X-NoiseFence-Category: publicity"));
+    assert!(text.contains("X-NoiseFence-Analysis: complete=no;"));
+    assert!(text.contains("X-NoiseFence-Policy:"));
+    assert!(text.replace("\r\n\t", " ").contains("outcome=unwanted;"));
+    assert!(text.replace("\r\n\t", " ").contains("decision-source=antivirus;"));
+    assert!(text.contains("X-NoiseFence-Verdict: spam\r\n"));
+    assert!(!text.contains("X-NoiseFence-Verdict: pub"));
     assert!(!text.contains("Subject: ["));
     assert_eq!(
         noisefence::message::fields(raw).unwrap().1,

@@ -213,8 +213,9 @@ function AnalysisDetails({
       </details>}
       {analysis.native_filter && <details className="diagnostic-disclosure">
         <summary>Native engine: composite rules, campaigns and Bayes</summary>
-        <p className="diagnostic-muted">Comparative observation without effect on delivery. Points and result Bayes are not calibrated probabilities.</p>
+        <p className="diagnostic-muted">Recorded native engine results. The mode and delivery effect below describe their role; points and Bayes output are not calibrated probabilities.</p>
         <dl className="diagnostic-facts">
+          <div><dt>Mode / delivery effect</dt><dd>{analysis.native_filter.mode} · {analysis.native_filter.affects_delivery ? "contributes to delivery policy" : "observation only"}</dd></div>
           <div><dt>Local analysis</dt><dd>{evidenceState(analysis.native_filter.status)} · {duration(analysis.native_filter.elapsed_ms)}</dd></div>
           <div><dt>Points after ceilings</dt><dd>{contribution(analysis.native_filter.score?.total)}</dd></div>
           <div><dt>OSB Bayes Classifier</dt><dd>{({untrained:"No model trained",complete:"Analysis available",scope_mismatch:"Domain outside model scope",expired:"Model expired",insufficient_features:"Insufficient evidence",incompatible:"incompatible protocol"} as Record<string,string>)[analysis.native_filter.bayes.status] ?? "Analysis not available"}</dd></div>
@@ -564,7 +565,7 @@ export default function Diagnostics({
   return (
     <section className="panel message-diagnostics" aria-labelledby={titleId}>
       <div className="diagnostic-heading">
-        <h2 id={titleId}>Message diagnostics</h2>
+        <h2 id={titleId}>Authentication and delivery trace</h2>
         <Button
           variant="outline"
           disabled={loading}
@@ -614,11 +615,10 @@ export default function Diagnostics({
       <div aria-busy={loading}>
         {data && (
           <>
-            <AnalysisDetails
-              analysis={data.analysis}
-              reasons={reasons}
-              source={source}
-            />
+            <details className="diagnostic-disclosure">
+              <summary>Score accounting and detector observations</summary>
+              <AnalysisDetails analysis={data.analysis} reasons={reasons} source={source} />
+            </details>
             <AuthenticationDetails
               auth={data.analysis.evidence?.authentication}
             />

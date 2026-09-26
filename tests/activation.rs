@@ -752,7 +752,7 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
     let (fields, _) = noisefence::message::fields(&wire).unwrap();
     let values: Vec<_> = fields
         .iter()
-        .filter(|f| noisefence::message::name(f) == "x-noisefence-activation")
+        .filter(|f| noisefence::message::name(f) == "x-noisefence-policy")
         .map(|f| {
             std::str::from_utf8(f)
                 .unwrap()
@@ -764,17 +764,14 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
                 .join(" ")
         })
         .collect();
-    assert_eq!(
-        values,
-        vec![format!(
-            "sequence={}; revision={}; bundle-sha256={};",
-            current.sequence, current.revision, current.digest
-        )]
-    );
+    assert_eq!(values.len(), 1);
+    assert!(values[0].contains(&format!("activation-sequence={};", current.sequence)));
+    assert!(values[0].contains(&format!("activation-revision={};", current.revision)));
+    assert!(values[0].contains(&format!("activation-sha256={};", current.digest)));
     assert!(
         fields
             .iter()
-            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 9\r\n"))
+            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 11\r\n"))
     );
 
     // Keep the same live socket across more updates than the runtime bound.

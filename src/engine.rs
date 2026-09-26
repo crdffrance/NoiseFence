@@ -2467,7 +2467,7 @@ mod tests {
         let wire = String::from_utf8_lossy(&raw_copy);
         assert!(wire.contains("Subject: Original subject\r\n"));
         assert!(wire.contains("X-NoiseFence-Action-Requested: tag\r\n"));
-        assert!(wire.contains("X-NoiseFence-Action-Effective: deliver\r\n"));
+        assert!(wire.replace("\r\n\t", " ").contains("effective=deliver;"));
         assert!(wire.contains("missing=subject_rewrite;"));
         assert_eq!(
             message::fields(&raw_copy).unwrap().1,
@@ -2564,10 +2564,10 @@ mod tests {
                 .unwrap()
                 .replace("\r\n\t", " ");
             let value = serde_json::to_value(expected).unwrap();
-            assert!(wire.contains(&format!(
-                "X-NoiseFence-Action-Effective: {}\r\n",
-                value.as_str().unwrap()
-            )));
+            assert!(
+                wire.replace("\r\n\t", " ")
+                    .contains(&format!("effective={};", value.as_str().unwrap()))
+            );
             assert!(wire.contains("X-NoiseFence-Classification: spam\r\n"));
             assert!(wire.contains("X-NoiseFence-Score: 99.0\r\n"));
             assert!(!wire.contains("alice@"));

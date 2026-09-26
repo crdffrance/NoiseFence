@@ -213,5 +213,5 @@ async fn actual_pipeline_resolves_by_score_without_trusting_forged_headers_or_ta
         noisefence::message::fields(&wire).unwrap().1
     );
     assert!(!String::from_utf8_lossy(&wire).contains("Subject: ["));
-    assert!(String::from_utf8_lossy(&wire).contains("X-NoiseFence-Category: spam"));
+    assert!(String::from_utf8_lossy(&wire).contains("X-NoiseFence-Verdict: spam"));
 }

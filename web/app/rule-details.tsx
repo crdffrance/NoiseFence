@@ -21,7 +21,7 @@ export function RuleDetails({
   );
   return (
     <div className="rule-diagnostics">
-      <h3 className="subheading">Triggered filters and signals</h3>
+      <h3 className="subheading">Triggered signals</h3>
       <p>{decisionExplanation(source)}</p>
       <p className="diagnostic-muted">
         {scoring
@@ -48,54 +48,61 @@ export function RuleDetails({
                 : reason.weight;
             return (
               <li key={`${reason.id}-${index}`}>
-                <div>
-                  <code className="diagnostic-rule-id">{reason.id}</code>
-                  <p>{reason.detail}</p>
-                  <p className="diagnostic-muted">
-                    {reason.id === 'malware_priority'
-                      ? 'Antivirus priority · This signal is not a probabilistic weight.'
-                      : summary
-                        ? 'Model summary · already included; not an additional rule.'
-                        : !scoring
-                          ? 'Proposed weight · retained contribution not recorded.'
-                          : entry
-                            ? duplicate
-                              ? 'Repeated occurrence · counted once in the recorded calculation.'
-                              : scoreAdjustment(entry.adjustment)
-                            : 'Diagnostic signal · not a retained weighted rule.'}
-                    {entry?.subsumed_by && (
-                      <>
-                        {' '}
-                        Included in <code>{entry.subsumed_by}</code>.
-                      </>
-                    )}
-                    {entry && !duplicate && (
-                      <> {weightEffect(value ?? Number.NaN)}</>
-                    )}
-                  </p>
-                  {reason.id === 'model_contribution' && (
+                <details className="signal-detail">
+                  <summary>
+                    <span className="signal-name">
+                      <span>{reason.id.replaceAll('_', ' ')}</span>
+                      <code className="diagnostic-rule-id">{reason.id}</code>
+                    </span>
+                    <span className="diagnostic-weight">
+                      {reason.id === 'malware_priority' ? (
+                        'Priority'
+                      ) : (
+                        <>
+                          <strong>{contribution(value)}</strong>
+                          <small>
+                            {summary
+                              ? 'model summary'
+                              : scoring
+                                ? 'retained log-odds'
+                                : 'proposed log-odds'}
+                          </small>
+                        </>
+                      )}
+                    </span>
+                  </summary>
+                  <div className="signal-evidence">
+                    <p>{reason.detail}</p>
                     <p className="diagnostic-muted">
-                      Summary of the lexical and semantic model already included
-                      in the calculation; do not add it a second time.
+                      {reason.id === 'malware_priority'
+                        ? 'Antivirus priority · This signal is not a probabilistic weight.'
+                        : summary
+                          ? 'Model summary · already included; not an additional rule.'
+                          : !scoring
+                            ? 'Proposed weight · retained contribution not recorded.'
+                            : entry
+                              ? duplicate
+                                ? 'Repeated occurrence · counted once in the recorded calculation.'
+                                : scoreAdjustment(entry.adjustment)
+                              : 'Diagnostic signal · not a retained weighted rule.'}
+                      {entry?.subsumed_by && (
+                        <>
+                          {' '}
+                          Included in <code>{entry.subsumed_by}</code>.
+                        </>
+                      )}
+                      {entry && !duplicate && (
+                        <> {weightEffect(value ?? Number.NaN)}</>
+                      )}
                     </p>
-                  )}
-                </div>
-                <span className="diagnostic-weight">
-                  {reason.id === 'malware_priority' ? (
-                    'Priority'
-                  ) : (
-                    <>
-                      <strong>{contribution(value)}</strong>
-                      <small>
-                        {summary
-                          ? 'model summary'
-                          : scoring
-                            ? 'retained log-odds'
-                            : 'proposed log-odds'}
-                      </small>
-                    </>
-                  )}
-                </span>
+                    {reason.id === 'model_contribution' && (
+                      <p className="diagnostic-muted">
+                        Summary of the lexical and semantic model already included
+                        in the calculation; do not add it a second time.
+                      </p>
+                    )}
+                  </div>
+                </details>
               </li>
             );
           })}

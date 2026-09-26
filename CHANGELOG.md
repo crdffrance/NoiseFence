@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.28.0-rc.9 — Simplify message diagnostics
+
+- Replace redundant message-diagnostic headers with a version 11 contract of 25 stable fields. Group score, policy, action, coverage and rule-accounting details while retaining ARC signing and bounded, privacy-safe values.
+- Rework message analysis into a decision-first summary with Spam/Ham/Pub, risk index, analysis coverage and action at receipt. Expand individual findings on demand; keep execution details and the independent Rspamd second opinion separate from the NoiseFence verdict.
+- Refresh the public GitHub documentation and examples to describe the current header contract and explain that the risk index, coverage, classification and delivery action are distinct.
+
 ## 0.28.0-rc.8 — Preserve completed checks and explain calibration readiness
 
 - Preserve completed LLM, SMTP-policy, reputation and campaign results when a sibling check exhausts the shared analysis deadline. Bound authentication to two seconds and continue independent content checks after authentication or DNS-reputation errors; missing checks remain unavailable and cannot enable subject rewriting.

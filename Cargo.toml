@@ -1,6 +1,6 @@
 [package]
 name = "noisefence"
-version = "0.28.0-rc.8"
+version = "0.28.0-rc.9"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"

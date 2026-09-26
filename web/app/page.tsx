@@ -31,7 +31,6 @@ import {
   deliverySummary,
   checkFailure,
   publicitySignal,
-  arbitrationExplanation,
   type Arbitration,
 } from './presentation';
 import {
@@ -1054,31 +1053,46 @@ function Home() {
                     {new Date(selected.created * 1000).toLocaleString("en-GB")}
                   </p>
                 </div>
+                <section
+                  className="panel analysis-summary-panel"
+                  aria-label="Message analysis summary"
+                >
+                  <div className="analysis-section-heading">
+                    <div>
+                      <p className="eyebrow">RECEIPT-TIME DECISION</p>
+                      <h2>Message analysis</h2>
+                    </div>
+                    <span className="small muted">
+                      Saved at receipt · preserved when settings change
+                    </span>
+                  </div>
+                  <MessageScoreDetails
+                    mail={selected}
+                    verdict={classification(
+                      selected,
+                      historicalThreshold?.messageId === selected.id
+                        ? historicalThreshold.threshold
+                        : undefined,
+                    )}
+                  />
+                </section>
                 <div className="detail-grid">
                   <section className="panel analysis-panel">
-                    <h2>NoiseFence verdict</h2>
-                    <MessageScoreDetails mail={selected} />
-                    {selected.arbitration && (
-                      <p className="notice">
-                        {arbitrationExplanation(selected.arbitration, selected.assessment?.score_resolution)?.detail}{' '}
-                        Historical index:{' '}
-                        {selected.arbitration.baseline.score?.toFixed(1) ?? '—'}{' '}
-                        / 100.
-                      </p>
-                    )}
-                    {selected.decision?.source === 'antivirus' && (
-                      <p className="notice">
-                        Antivirus result takes precedence over suspicion index (
-                        {selected.score.toFixed(1)} / 100) and on advertising detection.
-                      </p>
-                    )}
-                    {!selected.complete && (
-                      <p className="notice">
-                        Some checks have not been carried out. The detections obtained remain visible; no prefixes are added to the object.
-                      </p>
-                    )}
+                    <div className="analysis-section-heading">
+                      <div>
+                        <p className="eyebrow">FILTER EVIDENCE</p>
+                        <h2>Triggered signals</h2>
+                      </div>
+                      <span className="status">
+                        {selected.reasons.length} signals
+                      </span>
+                    </div>
+                    <p className="muted small">
+                      Each finding is shown once. Expand it for evidence and its
+                      contribution to the recorded score.
+                    </p>
                     <details className="analysis-details">
-                      <summary>Checks and details of the analysis</summary>
+                      <summary>Detector execution and availability</summary>
                       {selected.fusion &&
                         selected.fusion.status !== 'disabled' && (
                           <div className="notice">
@@ -1107,7 +1121,7 @@ function Home() {
                             </p>
                             {selected.fusion.mode === 'observe' && (
                               <p>
-                                Search result, no effect on ranking.
+                                Research result; this model did not determine delivery.
                               </p>
                             )}
                             <small>{selected.fusion.model}</small>
@@ -1195,7 +1209,7 @@ function Home() {
                               </p>
                             )}
                             <small>
-                              Local treatment · {selected.vision.elapsed_ms} ms · The decoded links are not open.
+                              Local processing · {selected.vision.elapsed_ms} ms · Decoding does not fetch links; URL checks are reported separately.
                             </small>
                           </div>
                         )}

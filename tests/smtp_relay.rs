@@ -120,7 +120,7 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 message::fields(&queued).unwrap().1
             );
             let (headers, _) = message::fields(&queued).unwrap();
-            for name in [b"X-NoiseFence-Decision:".as_slice(), b"X-NoiseFence-Score:"] {
+            for name in [b"X-NoiseFence-Policy:".as_slice(), b"X-NoiseFence-Score:"] {
                 assert_eq!(headers.iter().filter(|h| h.starts_with(name)).count(), 1);
             }
             let decision = scan.decision.as_ref().unwrap();
@@ -131,13 +131,13 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
                 .map(|v| format!("{v:.1}"))
                 .unwrap_or_else(|| "unavailable".into());
             assert!(rendered.contains(&format!("X-NoiseFence-Score: {displayed}\r\n")));
-            assert!(rendered.contains("X-NoiseFence-Header-Version: 9\r\n"));
+            assert!(rendered.contains("X-NoiseFence-Header-Version: 11\r\n"));
             assert!(rendered.contains(&format!(
                 "X-NoiseFence-Verdict: {}\r\n",
                 assessment.verdict()
             )));
             assert!(rendered.contains(&format!(
-                    "X-NoiseFence-Decision: {}\r\n",
+                    "outcome={};",
                     serde_json::to_value(decision.outcome)
                         .unwrap()
                         .as_str()
@@ -152,7 +152,11 @@ async fn smtp_fusion_uses_one_decision_and_preserves_legacy_and_limited_observat
             assert_eq!(scan.complete, !limited);
             if limited {
                 assert!(rendered.contains("X-NoiseFence-Score-Type: unavailable\r\n"));
-                assert!(rendered.contains("X-NoiseFence-Decision-Score: unavailable\r\n"));
+                assert!(
+                    rendered
+                        .replace("\r\n\t", " ")
+                        .contains("decision=unavailable;")
+                );
                 assert_eq!(decision.outcome, Outcome::Legitimate);
                 assert!(decision.score.is_none());
                 assert!(!scan.evidence.as_ref().unwrap().analysis_complete);
@@ -980,8 +984,8 @@ async fn scoped_filtering_splits_distinct_actions_and_keeps_recipient_headers_an
             a.action.effective
         );
         let rendered = String::from_utf8_lossy(&wire).replace("\r\n\t", " ");
-        assert!(rendered.contains(&format!(
-                "X-NoiseFence-Action-Effective: {}\r\n",
+        assert!(rendered.replace("\r\n\t", " ").contains(&format!(
+                "effective={};",
                 serde_json::to_value(a.action.effective)
                     .unwrap()
                     .as_str()

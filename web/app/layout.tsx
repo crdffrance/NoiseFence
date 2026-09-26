@@ -7,6 +7,7 @@ import './interface.css';
 import './workspace-refinement.css';
 import './message-search.css';
 import './filter-workspace.css';
+import './message-analysis.css';
 
 export const metadata: Metadata = {
   title: "NoiseFence — Mail security",

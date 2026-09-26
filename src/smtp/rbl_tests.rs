@@ -121,7 +121,7 @@ async fn rbl_denies_before_data_storage_and_scanning_and_observe_preserves_deliv
             assert_eq!(wire.matches("X-NoiseFence-RBL:").count(), 1);
             if limited {
                 assert!(wire.contains("X-NoiseFence-Score-Type: partial"));
-                assert!(wire.contains("X-NoiseFence-Decision: legitimate"));
+                assert!(wire.contains("outcome=legitimate;"));
             }
         }
         reply(&mut wire, "QUIT\r\n").await.unwrap();
