@@ -1,4 +1,8 @@
+#[path = "common/fusion.rs"]
+mod boundary_fixture;
 mod common;
+#[path = "common/unavailable_score.rs"]
+mod unavailable_score;
 use noisefence::{
     api,
     cluster::{self, Role},
@@ -97,6 +101,14 @@ async fn pair() -> Pair {
     }
 }
 async fn enqueue(p: &Pair, id: &str) -> anyhow::Result<()> {
+    let mut scan = engine::extract(common::MESSAGE, 1024 * 1024);
+    scan.analysis_policy = Some(noisefence::diagnostics::AnalysisPolicy::capture(&p.config));
+    scan.decision = Some(noisefence::fusion::runtime::Decision::legacy(
+        &scan,
+        p.config.filter.threshold,
+    ));
+    scan.action = Some(noisefence::actions::evaluate(&scan, &p.config));
+    noisefence::decision_record::record_recipient(&mut scan, &p.config, None, noisefence::now());
     p.a.enqueue(
         id.into(),
         "sender@example.org".into(),
@@ -104,7 +116,7 @@ async fn enqueue(p: &Pair, id: &str) -> anyhow::Result<()> {
             p.config.recipient("alice@example.test").unwrap(),
             p.config.recipient("bob@example.test").unwrap(),
         ],
-        engine::extract(common::MESSAGE, 1024 * 1024),
+        scan,
         common::MESSAGE.to_vec(),
     )
     .await
@@ -120,6 +132,168 @@ async fn remote(p: &Pair, id: &str) -> ha::replica::Manifest {
     })
     .await
     .unwrap()
+}
+#[tokio::test]
+async fn fusion_score_boundary_crosses_replica_confirmation_without_using_content_cutoff() {
+    let p = pair().await;
+    let mut cfg = (*p.config).clone();
+    let (model, _) =
+        boundary_fixture::install(&mut cfg, noisefence::fusion::runtime::Mode::Decision);
+    let runtime =
+        noisefence::fusion::runtime::Runtime::load(cfg.fusion.as_ref().unwrap(), &model.artifacts)
+            .unwrap();
+    let (_, evidence) = boundary_fixture::fixture(&cfg);
+    let mut scan = engine::Scan {
+        score: 99.,
+        complete: true,
+        features_complete: Some(true),
+        evidence: Some(evidence),
+        analysis_policy: Some(noisefence::diagnostics::AnalysisPolicy::capture(&cfg)),
+        ..Default::default()
+    };
+    runtime.apply(&mut scan);
+    noisefence::decision_record::record_recipient(&mut scan, &cfg, None, noisefence::now());
+    let expected = serde_json::to_value(&scan).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    p.a.enqueue(
+        id.clone(),
+        "sender@example.org".into(),
+        vec![cfg.recipient("alice@example.test").unwrap()],
+        scan,
+        common::MESSAGE.to_vec(),
+    )
+    .await
+    .unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let replica = remote(&p, &id).await;
+    assert!(replica.confirmed);
+    assert_eq!(replica.scan, expected);
+    let stored: engine::Scan = serde_json::from_value(replica.scan).unwrap();
+    let view = noisefence::assessment::historical(&stored);
+    let boundary = view.score_boundary.unwrap();
+    assert_eq!(boundary.cutoff, model.cutoff);
+    assert_ne!(Some(boundary.cutoff), view.content_threshold);
+    assert_eq!(boundary.source, noisefence::score_boundary::Source::Fusion);
+    assert!(p.a.claim().await.unwrap().is_some());
+    assert!(p.b.claim().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn unavailable_index_replicates_without_becoming_zero_or_a_clean_verdict() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut scan = unavailable_score::scan(&p.config);
+    let epoch = noisefence::cluster::activation::Epoch {
+        sequence: 1,
+        revision: 1,
+        digest: "a".repeat(64),
+    };
+    let proof = p.a.activation.drain(&epoch).await.unwrap();
+    p.a.activation.resume(&proof, &epoch).unwrap();
+    scan.activation_epoch = Some(epoch);
+    scan.analysis_result = None;
+    scan.recipient_decision = None;
+    noisefence::decision_record::record_recipient(&mut scan, &p.config, None, noisefence::now());
+    let expected = serde_json::to_value(&scan).unwrap();
+    p.a.enqueue(
+        id.clone(),
+        "sender@example.org".into(),
+        vec![p.config.recipient("alice@example.test").unwrap()],
+        scan.clone(),
+        common::MESSAGE.to_vec(),
+    )
+    .await
+    .unwrap();
+    let manifest = remote(&p, &id).await;
+    assert_eq!(manifest.scan, expected);
+    assert_eq!(
+        std::fs::read(ha::replica::body_path(&p.b, "mx1", &id)).unwrap(),
+        common::MESSAGE
+    );
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let confirmed = remote(&p, &id).await;
+    assert!(confirmed.confirmed);
+    assert_eq!(confirmed.scan, expected);
+    let restored: engine::Scan = serde_json::from_value(confirmed.scan).unwrap();
+    assert_eq!(
+        noisefence::assessment::historical(&restored).score.value,
+        None
+    );
+    assert!(p.a.claim().await.unwrap().is_some());
+    assert!(p.b.claim().await.unwrap().is_none());
+    let target = tempfile::tempdir().unwrap();
+    ha::recovery::snapshot_database(
+        &p.a.root.join("state.sqlite3"),
+        &target.path().join("state.sqlite3"),
+    )
+    .unwrap();
+    let receipt = fence(p._a.path());
+    ha::recovery::restore_queue(&p.b.root, target.path(), "mx1", &receipt)
+        .await
+        .unwrap();
+    let recovered = Store::open(target.path()).unwrap();
+    let recovered_id = id.clone();
+    let recovered_scan: engine::Scan = recovered
+        .read(move |db| {
+            let raw: String = db.query_row(
+                "SELECT scan FROM messages WHERE id=?1",
+                [recovered_id],
+                |r| r.get(0),
+            )?;
+            Ok(serde_json::from_str(&raw)?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(&recovered_scan).unwrap(), expected);
+    assert_eq!(
+        std::fs::read(recovered.raw_path(&id)).unwrap(),
+        common::MESSAGE
+    );
+    // A peer cannot replace a valid saved receipt with inconsistent metadata.
+    let settings = p.config.replication.as_ref().unwrap();
+    let key = cluster::protocol::credential(&settings.credential_file).unwrap();
+    let mut invalid_manifest = remote(&p, &id).await;
+    invalid_manifest.generation += 1;
+    invalid_manifest.scan["recipient_decision"]["activation_epoch"]["revision"] = 2.into();
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/replication/v1/manifest",
+            settings.peer_url
+        ))
+        .bearer_auth(key)
+        .header("x-noisefence-node", "mx1")
+        .json(&invalid_manifest)
+        .send()
+        .await
+        .unwrap();
+    assert!(!response.status().is_success());
+    assert_eq!(remote(&p, &id).await.scan, expected);
+    // The sender also rejects bad scores before uploading any body candidate.
+    let invalid_id = uuid::Uuid::new_v4().to_string();
+    let untouched_id = uuid::Uuid::new_v4().to_string();
+    let valid = scan.clone();
+    let mut invalid = scan;
+    invalid.scoring = None;
+    assert!(
+        p.a.enqueue_variants(
+            "sender@example.org".into(),
+            [(untouched_id.clone(), valid), (invalid_id.clone(), invalid)]
+                .into_iter()
+                .map(|(id, scan)| noisefence::store::QueueVariant {
+                    id,
+                    scan,
+                    raw: common::MESSAGE.to_vec().into(),
+                    recipients: vec![(p.config.recipient("alice@example.test").unwrap(), None)],
+                })
+                .collect()
+        )
+        .await
+        .is_err()
+    );
+    assert!(!p.a.raw_path(&invalid_id).exists());
+    assert!(!ha::replica::body_path(&p.b, "mx1", &invalid_id).exists());
+    assert!(!p.a.raw_path(&untouched_id).exists());
+    assert!(!ha::replica::body_path(&p.b, "mx1", &untouched_id).exists());
 }
 #[tokio::test]
 async fn accepted_message_has_two_durable_bodies_and_only_one_queue_owner() {
@@ -173,6 +347,8 @@ async fn rspamd_report_propagates_over_ha_without_changing_ownership_or_delivery
     scan.score = 12.5;
     scan.complete = true;
     scan.decision = Some(Decision::legacy(&scan, p.config.filter.threshold));
+    scan.action = Some(noisefence::actions::evaluate(&scan, &p.config));
+    noisefence::decision_record::record_recipient(&mut scan, &p.config, None, noisefence::now());
     scan.rspamd = Some(pending.clone());
     p.a.enqueue(
         id.clone(),
@@ -428,6 +604,18 @@ fn fence(root: &Path) -> std::path::PathBuf {
 async fn restore_from_a_crashed_sender_holds_uncertainty_and_does_not_replay_delivered_recipients()
 {
     let p = pair().await;
+    p.a.run(|db| {
+        db.execute("UPDATE quality_exposure_state SET tracking_since=1", [])?;
+        db.execute(
+            "INSERT INTO quality_export_batches VALUES('synthetic-old-export',?1)",
+            [noisefence::now()],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let recovery_started = noisefence::now();
+
     let id = uuid::Uuid::new_v4().to_string();
     enqueue(&p, &id).await.unwrap();
     ha::replica::synchronize(&p.a).await.unwrap();
@@ -449,9 +637,35 @@ async fn restore_from_a_crashed_sender_holds_uncertainty_and_does_not_replay_del
         .unwrap();
     assert_eq!(report["held_recipients"], 1);
     assert_eq!(report["copied"], 1);
+    let expected_scan = remote(&p, &id).await.scan;
     let restored = Store::open(target.path()).unwrap();
+    restored.read(move|db| {
+        let tracked:i64=db.query_row("SELECT tracking_since FROM quality_exposure_state WHERE id=1",[],|r|r.get(0))?;
+        assert!(tracked>=recovery_started);
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM quality_export_batches WHERE batch_id='synthetic-old-export'",[],|r|r.get::<_,usize>(0))?,1);
+        Ok(())
+    }).await.unwrap();
+
     restored.recover().await.unwrap();
     assert!(restored.claim().await.unwrap().is_none());
+    let key = id.clone();
+    let restored_scan: serde_json::Value = restored
+        .read(move |db| {
+            let raw: String =
+                db.query_row("SELECT scan FROM messages WHERE id=?1", [key], |r| r.get(0))?;
+            Ok(serde_json::from_str(&raw)?)
+        })
+        .await
+        .unwrap();
+    assert!(expected_scan["recipient_decision"].is_object());
+    assert_eq!(
+        restored_scan["recipient_decision"],
+        expected_scan["recipient_decision"]
+    );
+    assert_eq!(
+        restored_scan["analysis_result"],
+        expected_scan["analysis_result"]
+    );
     let states = restored
         .read(|db| {
             Ok(db
@@ -907,6 +1121,182 @@ async fn smtp_accepts_only_after_two_copies_and_defers_when_the_peer_dies_during
         1
     );
     assert_eq!(ha::status(&p.b).await.unwrap().remote_messages, 1);
+    drop(io);
+    stop.send(true).unwrap();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn streamed_variants_replicate_exact_wires_and_late_conflicts_never_commit_a_partial_batch() {
+    use noisefence::{queue_body::WireBody, store::QueueVariant};
+    let p = pair().await;
+    let payload = WireBody::shared_payload(common::MESSAGE).unwrap();
+    let make = |id: String, i: usize| {
+        let mut recipient = p.config.recipient("alice@example.test").unwrap();
+        recipient.address = format!("r{i}@example.test");
+        let wire = noisefence::message::rewrite(
+            common::MESSAGE,
+            false,
+            &format!("X-NoiseFence-Id: {id}\r\n"),
+        )
+        .unwrap();
+        let mut scan = engine::extract(common::MESSAGE, 100_000);
+        scan.action = Some(noisefence::actions::evaluate(&scan, &p.config));
+        noisefence::decision_record::record_recipient(&mut scan, &p.config, None, 1234);
+        QueueVariant {
+            id,
+            scan,
+            raw: WireBody::with_shared_payload(wire, &payload).unwrap(),
+            recipients: vec![(recipient, None)],
+        }
+    };
+    let ids: Vec<_> = (0..8).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+    p.a.enqueue_variants(
+        "s@example.org".into(),
+        ids.iter()
+            .enumerate()
+            .map(|(i, id)| make(id.clone(), i))
+            .collect(),
+    )
+    .await
+    .unwrap();
+    for id in &ids {
+        let local = std::fs::read(p.a.raw_path(id)).unwrap();
+        let replica = std::fs::read(ha::replica::body_path(&p.b, "mx1", id)).unwrap();
+        assert_eq!(local, replica);
+    }
+    assert_eq!(ha::status(&p.b).await.unwrap().remote_messages, 8);
+    let mut second: Vec<_> = (0..8)
+        .map(|i| make(uuid::Uuid::new_v4().to_string(), i))
+        .collect();
+    let new_ids: Vec<_> = second.iter().take(7).map(|v| v.id.clone()).collect();
+    second[7].id = ids[0].clone(); // The wire has another ID/hash: immutable peer conflict.
+    assert!(
+        p.a.enqueue_variants("s@example.org".into(), second)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        p.a.read(|db| Ok(
+            db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?
+        ))
+        .await
+        .unwrap(),
+        8
+    );
+    for id in &new_ids {
+        assert!(!p.a.raw_path(id).exists());
+    }
+    assert!(
+        p.b.claim().await.unwrap().is_none(),
+        "unconfirmed candidates never acquire delivery ownership"
+    );
+    // Confirm and recover the accepted batch without reclassification.
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let delivered =
+        p.b.read(|db| {
+            Ok(db.query_row(
+                "SELECT COUNT(*) FROM ha_remote WHERE generation>0",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(delivered, 8);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn smtp_accepts_eight_scoped_policies_as_one_replicated_transaction() {
+    use noisefence::{
+        custom_filtering::{Condition, Field, Operator, Ordering, Policy, Rule},
+        engine::Engine,
+        relay, smtp,
+    };
+    use tokio::io::{AsyncWriteExt, BufReader};
+    let p = pair().await;
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let mut cfg = (*p.config).clone();
+    cfg.domains[0].accept_all_recipients = true;
+    let addresses: Vec<_> = (0..8).map(|i| format!("r{i}@example.test")).collect();
+    cfg.custom_filtering = Some(Policy {
+        ordering: Ordering::Scoped,
+        rules: addresses
+            .iter()
+            .enumerate()
+            .map(|(i, address)| Rule {
+                id: format!("rule-{i}"),
+                name: format!("Recipient {i}"),
+                enabled: true,
+                priority: 0,
+                scope: address.clone(),
+                expires: None,
+                any: false,
+                conditions: vec![Condition {
+                    field: Field::Recipient,
+                    op: Operator::Equals,
+                    value: address.clone(),
+                }],
+                category: Some(noisefence::mailing::Category::Publicity),
+                action: None,
+                stop: false,
+            })
+            .collect(),
+        ..Default::default()
+    });
+    cfg.validate().unwrap();
+    let cfg = Arc::new(cfg);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop, rx) = tokio::sync::watch::channel(false);
+    let state = smtp::State {
+        config: cfg.clone(),
+        store: p.a.clone(),
+        engine: Arc::new(Engine::new(cfg).unwrap()),
+        processing: Arc::new(tokio::sync::Semaphore::new(1)),
+    };
+    let task = tokio::spawn(smtp::serve(listener, state, rx));
+    let mut io: smtp::Wire = BufReader::new(Box::new(
+        tokio::net::TcpStream::connect(address).await.unwrap(),
+    ));
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 220);
+    for command in ["EHLO example.org\r\n", "MAIL FROM:<sender@example.org>\r\n"] {
+        smtp::reply(&mut io, command).await.unwrap();
+        assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    }
+    for address in &addresses {
+        smtp::reply(&mut io, &format!("RCPT TO:<{address}>\r\n"))
+            .await
+            .unwrap();
+        assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    }
+    smtp::reply(&mut io, "DATA\r\n").await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 354);
+    io.write_all(common::MESSAGE).await.unwrap();
+    io.write_all(b".\r\n").await.unwrap();
+    io.flush().await.unwrap();
+    assert_eq!(relay::response(&mut io).await.unwrap().code, 250);
+    let rows=p.a.read(|db|Ok(db.prepare("SELECT m.id,m.scan,d.address FROM messages m JOIN deliveries d ON d.message_id=m.id ORDER BY d.address")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)).await.unwrap();
+    assert_eq!(rows.len(), 8);
+    for ((id, json, address), expected) in rows.iter().zip(&addresses) {
+        assert_eq!(address, expected);
+        let scan: engine::Scan = serde_json::from_str(json).unwrap();
+        let record = scan.recipient_decision.unwrap();
+        assert_eq!(
+            record.assessment.category,
+            noisefence::mailing::Category::Publicity
+        );
+        assert_eq!(record.policy_trace.unwrap().rules.len(), 1);
+        let raw = std::fs::read(p.a.raw_path(id)).unwrap();
+        assert_eq!(
+            raw,
+            std::fs::read(ha::replica::body_path(&p.b, "mx1", id)).unwrap()
+        );
+        assert_eq!(
+            noisefence::message::fields(&raw).unwrap().1,
+            noisefence::message::fields(common::MESSAGE).unwrap().1
+        );
+    }
     drop(io);
     stop.send(true).unwrap();
     task.await.unwrap().unwrap();

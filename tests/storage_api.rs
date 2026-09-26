@@ -25,6 +25,7 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
     let cases = [
         ("old-high", 99.0, true, None),
         ("old-incomplete", 99.0, false, None),
+        ("recorded-high", 99.0, true, None),
         (
             "fusion-unwanted",
             1.0,
@@ -77,6 +78,12 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
             score,
             model: "SOFTWARE-TEST-ONLY".into(),
         });
+        if subject == "recorded-high" {
+            scan.analysis_policy = Some(noisefence::diagnostics::AnalysisPolicy::capture(&cfg));
+            scan.decision = Some(Decision::legacy(&scan, cfg.filter.threshold));
+            scan.action = Some(noisefence::actions::evaluate(&scan, &cfg));
+            noisefence::decision_record::record_recipient(&mut scan, &cfg, None, noisefence::now());
+        }
         store
             .enqueue(
                 uuid::Uuid::new_v4().to_string(),
@@ -95,7 +102,10 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
             .await
             .unwrap();
     }
-    let app = api::router(cfg.clone(), store).unwrap();
+    let mut live = (*cfg).clone();
+    live.filter.threshold = 100.;
+    live.filter.resolve_uncertain_by_score = true;
+    let app = api::router(std::sync::Arc::new(live), store).unwrap();
     let response = app
         .clone()
         .oneshot(
@@ -118,10 +128,10 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
         .unwrap()
         .to_string();
     for (path, count) in [
-        ("/api/v1/messages", 7),
+        ("/api/v1/messages", 8),
         ("/api/v1/messages?filter=spam", 4),
         ("/api/v1/messages?filter=incomplete", 3),
-        ("/api/v1/messages?filter=legitimate", 1),
+        ("/api/v1/messages?filter=legitimate", 4),
         ("/api/v1/messages?filter=publicity", 0),
     ] {
         let response = app
@@ -140,6 +150,17 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
         let rows: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(rows.len(), count);
         for row in &rows {
+            if path.ends_with("=legitimate") {
+                assert_eq!(row["verdict"], "ham");
+            }
+            if row["subject"] == "old-high" {
+                assert_eq!(row["category"], "undetermined");
+                assert!(row["assessment"]["content_threshold"].is_null());
+            }
+            if row["subject"] == "recorded-high" {
+                assert_eq!(row["category"], "spam");
+                assert!(row["recipient_decision"].is_object());
+            }
             assert!(row["decision"].is_object());
             if path.ends_with("=spam") {
                 assert_eq!(row["decision"]["outcome"], "unwanted");
@@ -173,9 +194,9 @@ async fn api_lists_and_statistics_follow_stored_decisions_and_recipient_grants()
     assert_eq!(response.status(), StatusCode::OK);
     let stats: serde_json::Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(stats["received"], 7);
+    assert_eq!(stats["received"], 8);
     assert_eq!(stats["flagged"], 4);
-    assert_eq!(stats["pending"], 7);
+    assert_eq!(stats["pending"], 8);
     assert_eq!(stats["publicity"], 0);
 }
 

@@ -593,6 +593,7 @@ async fn timeouts_preserve_completed_checks_with_zero_partial_contribution() {
     assert_eq!(result.status, PolicyStatus::Unavailable);
     assert!(has(&result, "helo_literal_match") && has(&result, "sender_null"));
     assert!(has(&result, "ptr_dns_unavailable"));
+    assert_eq!(result.timeouts, vec![CheckKind::Ptr]);
     assert_eq!(result.applied_weight, 0.0);
     assert!(result.checks.iter().all(|c| c.weight == 0.0));
     let mut scan = crate::engine::Scan {

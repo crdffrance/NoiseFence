@@ -2,7 +2,7 @@
 import {groundingSummary, responseIssueLabel, type LlmGrounding} from './llm-evidence';
 import { RspamdComparison, RspamdOverview } from './rspamd-comparison';
 import type { RspamdReport, ComparisonSummary } from './rspamd-format';
-import type { Assessment } from './assessment';
+import type { Assessment, RecipientDecision } from './assessment';
 import { MyFilters } from './preferences';
 import { ClusterConsole } from './cluster';
 import { OnboardingGate } from './onboarding';
@@ -13,6 +13,7 @@ import { AdmissionDetails, type AdmissionDecision } from './smtp-admission';
 import type { EarlyRbl } from './rbl-types';
 import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
 import { actionLabel, type DeliveryAction } from './actions';
+import { actionReason } from './action-coverage';
 import { ConfirmDialog } from './console-ui';
 import { MyAccount } from './account';
 import { RecoveryCodes } from './mfa';
@@ -26,10 +27,10 @@ import {
 } from './message-search';
 import {
   classification,
+  classificationDetail,
   deliverySummary,
   checkFailure,
   publicitySignal,
-  arbitrationExplanation,
   type Arbitration,
 } from './presentation';
 import {
@@ -94,6 +95,7 @@ import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
 type Mail = {
+  recipient_decision?: RecipientDecision | null;
   rspamd?: RspamdReport | null;
   assessment?: Assessment;
   node_id?: string | null;
@@ -145,6 +147,7 @@ type Mail = {
       contributions: { feature: string; contribution: number }[];
     } | null;
   };
+  scoring?: import('./scoring-format').ScoringReport | null;
   reasons: { id: string; detail: string; weight: number }[];
   recipients: {
     filtering?: FilteringAssessment | null;
@@ -351,6 +354,7 @@ function Home() {
           ? {
               ...previous,
               rspamd: data.analysis.rspamd,
+              scoring: data.analysis.scoring,
               recipients: data.recipients.map((recipient) => ({
                 ...previous.recipients.find(
                   (existing) => existing.address === recipient.address,
@@ -998,8 +1002,10 @@ function Home() {
                 </Button>
                 <div className="detail-heading">
                   <p className="eyebrow">FILTER DECISION</p>
+                  <p className="small">{classificationDetail(selected)}</p>
                   <div className="detail-badges">
                     <span
+                      title={classificationDetail(selected)}
                       className={`status ${classification(selected, historicalThreshold?.messageId === selected.id ? historicalThreshold.threshold : undefined).tone}`}
                     >
                       {
@@ -1024,9 +1030,9 @@ function Home() {
                       <span className="status">
                         Correction :{' '}
                         {selected.feedback_category === 'legitimate'
-                          ? "Legitimate"
+                          ? "Ham"
                           : selected.feedback_category === 'publicity'
-                            ? "Marketing"
+                            ? "Pub"
                             : 'Spam'}
                       </span>
                     )}
@@ -1047,32 +1053,46 @@ function Home() {
                     {new Date(selected.created * 1000).toLocaleString("en-GB")}
                   </p>
                 </div>
-                <RspamdComparison report={selected.rspamd} mail={selected} onRefresh={() => setDiagnosticsRevision(value => value + 1)} />
+                <section
+                  className="panel analysis-summary-panel"
+                  aria-label="Message analysis summary"
+                >
+                  <div className="analysis-section-heading">
+                    <div>
+                      <p className="eyebrow">RECEIPT-TIME DECISION</p>
+                      <h2>Message analysis</h2>
+                    </div>
+                    <span className="small muted">
+                      Saved at receipt · preserved when settings change
+                    </span>
+                  </div>
+                  <MessageScoreDetails
+                    mail={selected}
+                    verdict={classification(
+                      selected,
+                      historicalThreshold?.messageId === selected.id
+                        ? historicalThreshold.threshold
+                        : undefined,
+                    )}
+                  />
+                </section>
                 <div className="detail-grid">
                   <section className="panel analysis-panel">
-                    <h2>Why this classification?</h2>
-                    <MessageScoreDetails mail={selected} />
-                    {selected.arbitration && (
-                      <p className="notice">
-                        {arbitrationExplanation(selected.arbitration, selected.assessment?.score_resolution)?.detail}{' '}
-                        Historical index:{' '}
-                        {selected.arbitration.baseline.score?.toFixed(1) ?? '—'}{' '}
-                        / 100.
-                      </p>
-                    )}
-                    {selected.decision?.source === 'antivirus' && (
-                      <p className="notice">
-                        Antivirus result takes precedence over suspicion index (
-                        {selected.score.toFixed(1)} / 100) and on advertising detection.
-                      </p>
-                    )}
-                    {!selected.complete && (
-                      <p className="notice">
-                        Some checks have not been carried out. The detections obtained remain visible; no prefixes are added to the object.
-                      </p>
-                    )}
+                    <div className="analysis-section-heading">
+                      <div>
+                        <p className="eyebrow">FILTER EVIDENCE</p>
+                        <h2>Triggered signals</h2>
+                      </div>
+                      <span className="status">
+                        {selected.reasons.length} signals
+                      </span>
+                    </div>
+                    <p className="muted small">
+                      Each finding is shown once. Expand it for evidence and its
+                      contribution to the recorded score.
+                    </p>
                     <details className="analysis-details">
-                      <summary>Checks and details of the analysis</summary>
+                      <summary>Detector execution and availability</summary>
                       {selected.fusion &&
                         selected.fusion.status !== 'disabled' && (
                           <div className="notice">
@@ -1101,7 +1121,7 @@ function Home() {
                             </p>
                             {selected.fusion.mode === 'observe' && (
                               <p>
-                                Search result, no effect on ranking.
+                                Research result; this model did not determine delivery.
                               </p>
                             )}
                             <small>{selected.fusion.model}</small>
@@ -1189,7 +1209,7 @@ function Home() {
                               </p>
                             )}
                             <small>
-                              Local treatment · {selected.vision.elapsed_ms} ms · The decoded links are not open.
+                              Local processing · {selected.vision.elapsed_ms} ms · Decoding does not fetch links; URL checks are reported separately.
                             </small>
                           </div>
                         )}
@@ -1260,6 +1280,7 @@ function Home() {
                         )}
                     </details>
                     <RuleDetails
+                      scoring={selected.scoring}
                       reasons={selected.reasons}
                       source={selected.decision?.source}
                     />
@@ -1309,7 +1330,7 @@ function Home() {
                         }
                         onClick={() => feedback('legitimate')}
                       >
-                        <Check size={17} /> Legitimate
+                        <Check size={17} /> Ham
                       </Button>
                       <Button
                         disabled={busy}
@@ -1329,7 +1350,7 @@ function Home() {
                         }
                         onClick={() => feedback('publicity')}
                       >
-                        Marketing
+                        Pub
                       </Button>
                     </div>
                     <p className="muted small">
@@ -1350,10 +1371,7 @@ function Home() {
                       <p className="small muted">
                         Action at reception:{' '}
                         {actionLabel[selected.action.effective]}.
-                        {selected.action.reason === 'observation' &&
-                          ` Active observation; planned action: ${actionLabel[selected.action.requested]}.`}
-                        {selected.action.reason === 'incomplete' &&
-                          "Incomplete analysis: transmission without prefix."}
+                        {' '}{actionReason(selected.action.reason)}. Planned action: {actionLabel[selected.action.requested]}.
                       </p>
                     )}
                     {selected.recipients.map((r) => (
@@ -1417,6 +1435,7 @@ function Home() {
                     </p>
                   </section>
                 </div>
+                <RspamdComparison report={selected.rspamd} mail={selected} onRefresh={() => setDiagnosticsRevision(value => value + 1)} />
               </>
             ) : (
               <>
@@ -1500,7 +1519,7 @@ function Home() {
                     },
                     {
                       id: 'publicity',
-                      label: "Marketing · PUB",
+                      label: "Pub",
                       count: stats?.publicity,
                       icon: Flag,
                       tone: 'purple',
@@ -1584,8 +1603,8 @@ function Home() {
                       {[
                         ['all', "All"],
                         ['spam', "Spam detected"],
-                        ['publicity', "Marketing"],
-                        ['legitimate', "Legitimate"],
+                        ['publicity', "Pub"],
+                        ['legitimate', "Ham"],
                         [
                           'quarantined',
                           `Quarantine (${stats?.quarantined ?? 0})`,
@@ -1630,7 +1649,7 @@ function Home() {
                             More filters
                           </option>
                           <option value="pending">Pending</option>
-                          {!stats?.resolve_uncertain_by_score && <option value="review">Needs review</option>}
+                          <option value="review">Historical unresolved decisions</option>
                           <option value="publicity_signal">
                             Marketing signals, all classifications
                           </option>
@@ -1706,11 +1725,11 @@ function Home() {
                         <span className="filter-chip">
                           {{
                             spam: "Spam detected",
-                            publicity: "Marketing",
-                            legitimate: "Legitimate",
+                            publicity: "Pub",
+                            legitimate: "Ham",
                             quarantined: "Quarantined",
                             pending: "Pending",
-                            review: "Needs review",
+                            review: "Historical unresolved",
                             publicity_signal: "Marketing signals",
                             incomplete: "Partial analysis",
                             rspamd_all: "All Rspamd comparisons",
@@ -1833,6 +1852,7 @@ function Home() {
                             </TableCell>
                             <TableCell>
                               <span
+                                title={classificationDetail(m)}
                                 className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
                               >
                                 {
@@ -1917,7 +1937,8 @@ function Home() {
                       >
                         <span className="mobile-message-top">
                           <span
-                            className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
+                            title={classificationDetail(m)}
+                                className={`status ${classification(m, stats?.threshold ?? 95).tone}`}
                           >
                             {classification(m, stats?.threshold ?? 95).label}
                           </span>

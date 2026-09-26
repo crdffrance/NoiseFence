@@ -1,0 +1,248 @@
+/* Message detail: decision first, evidence on demand. */
+.shell .analysis-summary-panel {
+  margin-block: 22px;
+  padding: clamp(20px, 3vw, 32px);
+  border-color: color-mix(in srgb, var(--border) 78%, #6b8eb9);
+}
+
+.analysis-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.analysis-section-heading h2 {
+  margin: 4px 0 0;
+}
+
+.analysis-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--border);
+}
+
+.analysis-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 20px;
+  overflow-wrap: anywhere;
+  background: var(--card);
+}
+
+.analysis-stat dt,
+.analysis-stat dd {
+  margin: 0;
+}
+
+.analysis-stat-label {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.analysis-stat-note {
+  margin-top: auto !important;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.analysis-verdict .status {
+  padding: 5px 13px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.analysis-summary-panel .status.neutral {
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.shell .analysis-stat .score-large {
+  margin: 0;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.shell .analysis-stat .score-large span {
+  margin-left: 6px;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  letter-spacing: 0;
+}
+
+.analysis-action-value {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.analysis-summary-note {
+  max-width: 100ch;
+  margin: 18px 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+
+.analysis-explanation {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  font-size: 0.85rem;
+}
+
+.analysis-explanation > summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.analysis-explanation > summary:focus-visible,
+.signal-detail > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.analysis-explanation .score-label {
+  margin-top: 18px;
+  overflow-wrap: anywhere;
+}
+
+.shell .analysis-panel {
+  grid-column: 1;
+  grid-row: auto;
+}
+
+.shell .message-actions-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.shell .analysis-panel .analysis-details {
+  margin: 16px 0 24px;
+}
+
+.rule-diagnostics .diagnostic-rules > li {
+  display: block;
+  padding: 0;
+}
+
+.signal-detail {
+  width: 100%;
+}
+
+.signal-detail > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 2px;
+  cursor: pointer;
+}
+
+.signal-detail > summary::before {
+  width: 12px;
+  flex: 0 0 12px;
+  color: var(--muted-foreground);
+  content: '+';
+  font-size: 1.15rem;
+}
+
+.signal-detail[open] > summary::before {
+  content: '−';
+}
+
+.signal-name {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.signal-name > span {
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+.signal-name code {
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
+}
+
+.signal-detail .diagnostic-weight {
+  flex-shrink: 0;
+  font-size: 0.95rem;
+}
+
+.signal-detail .diagnostic-weight small {
+  font-size: 0.7rem;
+}
+
+.signal-evidence {
+  margin: 0 0 18px 16px;
+  border-left: 2px solid var(--border);
+  padding-left: 18px;
+  line-height: 1.65;
+}
+
+.shell .detail-grid .message-diagnostics {
+  grid-row: auto;
+}
+
+.dark .analysis-overview {
+  border-color: #405572;
+  background: #405572;
+}
+
+.dark .analysis-stat {
+  background: var(--card);
+}
+
+@media (max-width: 1150px) {
+  .analysis-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1000px) {
+  .shell .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell .message-actions-panel {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .analysis-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analysis-stat {
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .signal-detail > summary {
+    gap: 9px;
+  }
+}

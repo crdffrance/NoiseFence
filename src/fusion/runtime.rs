@@ -22,6 +22,8 @@ pub enum Mode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub family_caps: bool,
     pub model: PathBuf,
     #[serde(default)]
     pub mode: Mode,
@@ -176,6 +178,10 @@ impl Validation {
                 && self.manifest_sha256 == model.manifest_sha256,
             "fusion validation is for another model"
         );
+        ensure!(
+            model.combination.is_none() || self.schema == "noisefence-fusion-promotion-2",
+            "Capped fusion requires version-2 independent quality and latency evidence"
+        );
         for h in [
             &self.model_sha256,
             &self.manifest_sha256,
@@ -278,6 +284,10 @@ impl Runtime {
         settings.validate()?;
         let (model, sha256) = Model::load_bound(&settings.model)?;
         ensure!(
+            settings.family_caps == model.combination.is_some(),
+            "Fusion family-cap setting must match the model contract"
+        );
+        ensure!(
             model.artifacts.equivalent(artifacts),
             "fusion model does not match loaded detector artifacts"
         );
@@ -303,6 +313,8 @@ impl Runtime {
     /// Observation mode does not change the active decision or completeness.
     pub fn apply(&self, scan: &mut Scan) {
         let started = Instant::now();
+        scan.fusion_combination = None;
+        scan.fusion_boundary = None;
         let mut observation = Observation {
             mode: self.mode,
             status: Status::NotRun,
@@ -322,8 +334,17 @@ impl Runtime {
             .as_ref()
             .filter(|e| e.source != Source::ContentOnly)
         {
-            match self.model.predict(evidence) {
-                Ok(prediction) => {
+            match self.model.predict_accounted(evidence) {
+                Ok((prediction, mut accounting)) => {
+                    scan.fusion_boundary = Some(crate::score_boundary::Boundary::fusion(
+                        &self.model,
+                        &self.sha256,
+                        prediction.logit,
+                    ));
+                    if let Some(report) = &mut accounting {
+                        report.model_sha256 = Some(self.sha256.clone());
+                    }
+                    scan.fusion_combination = accounting;
                     observation.status = if prediction.profile_supported {
                         Status::Complete
                     } else {

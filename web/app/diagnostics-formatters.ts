@@ -4,6 +4,7 @@ export type HistoricalPolicy = {
   mode: 'observe' | 'tag' | 'enforce';
   require_corroboration: boolean;
   resolve_uncertain_by_score?: boolean;
+  partial_actions?: boolean;
   rule_weights: Record<string, number>;
 };
 
@@ -57,6 +58,11 @@ export type RecipientHistory = DiagnosticRecipient;
 export type MessageDiagnostics = {
   message_id: string;
   analysis: {
+    activation_epoch?: import('./receipt-activation').ReceiptEpoch | null;
+    assessment?: import('./assessment').Assessment;
+    fusion_combination?: import('./scoring-format').FusionAccounting | null;
+    scoring?: import('./scoring-format').ScoringReport | null;
+    observations?: import('./observations-format').ObservationReport | null;
     rspamd?: import('./rspamd-format').RspamdReport | null;
     elapsed_ms: number;
     feature_version: number;
@@ -73,7 +79,7 @@ export type MessageDiagnostics = {
     } | null;
     lexical_logit: number | null;
     semantic_contribution: number | null;
-    rule_weight_total: number;
+    rule_weight_total: number | null;
     evidence: {
       authentication?: AuthenticationEvidence;
       lexical_state?: string;

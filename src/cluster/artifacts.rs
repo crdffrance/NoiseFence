@@ -18,6 +18,8 @@ pub struct Artifact {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Bundle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_generation: Option<String>,
     pub protocol: String,
     pub build: String,
     pub revision: i64,
@@ -26,10 +28,93 @@ pub struct Bundle {
     pub files: BTreeMap<String, Artifact>,
     pub digest: String,
 }
+#[derive(Clone)]
 pub struct Publication {
     pub bundle: Bundle,
     pub paths: BTreeMap<String, PathBuf>,
     pub config: crate::config::Config,
+}
+
+/// Freeze a captured publication in its content-addressed model directory before
+/// making a rollout durable. Only manifest-listed files are copied, bounded and
+/// hashed while streaming. No HTTP recipient ever receives mutable source paths.
+pub fn freeze(root: &Path, publication: &Publication, reserve: u64) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    publication.bundle.validate()?;
+    if let Some(hash) = &publication.bundle.credential_generation {
+        let keys = crate::credentials::Snapshot::capture(&publication.config)?;
+        ensure!(
+            keys.fingerprint() == *hash,
+            "Publication credential binding mismatch"
+        );
+        crate::credentials::generations::freeze(root, &keys)?;
+    }
+    let dir = directory(root, &publication.bundle);
+    for (name, artifact) in &publication.bundle.files {
+        let path = dir.join(name);
+        if path.exists() {
+            ensure!(
+                file_digest(&path)? == (artifact.size, artifact.sha256.clone()),
+                "Corrupt frozen model"
+            );
+            continue;
+        }
+        ensure!(
+            crate::store::available_bytes(root)? >= reserve.saturating_add(artifact.size),
+            "Insufficient space to stage models"
+        );
+        let parent = path.parent().unwrap();
+        std::fs::create_dir_all(parent)?;
+        let temp = parent.join(format!(".stage-{}", uuid::Uuid::new_v4()));
+        let result = (|| -> Result<()> {
+            let mut input = std::fs::File::open(
+                publication
+                    .paths
+                    .get(name)
+                    .context("Missing model source")?,
+            )?;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp)?;
+            let mut digest = Sha256::new();
+            let mut size = 0u64;
+            let mut buffer = [0; 65536];
+            loop {
+                let n = input.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                size += n as u64;
+                ensure!(size <= artifact.size, "Model changed while staging");
+                digest.update(&buffer[..n]);
+                output.write_all(&buffer[..n])?;
+            }
+            ensure!(
+                size == artifact.size && hex::encode(digest.finalize()) == artifact.sha256,
+                "Model changed while staging"
+            );
+            output.sync_all()?;
+            drop(output);
+            std::fs::rename(&temp, &path)?;
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        result?;
+    }
+    // Persist nested directory entries too, including a newly created model set.
+    if dir.exists() {
+        std::fs::File::open(&dir)?.sync_all()?;
+        std::fs::File::open(dir.parent().unwrap())?.sync_all()?;
+        std::fs::File::open(root.join("cluster"))?.sync_all()?;
+        std::fs::File::open(root)?.sync_all()?;
+    }
+    Ok(())
 }
 const SHARED: &[&str] = &[
     "filter",
@@ -70,7 +155,7 @@ pub fn file_digest(path: &Path) -> Result<(u64, String)> {
     ensure!(count == size, "Model changed while hashing");
     Ok((size, hex::encode(digest.finalize())))
 }
-fn file_slots(value: &Value) -> Vec<String> {
+pub(crate) fn file_slots(value: &Value) -> Vec<String> {
     let mut paths = vec![
         "/filter/model",
         "/filter/semantic/combination",
@@ -93,6 +178,120 @@ fn file_slots(value: &Value) -> Vec<String> {
     paths.retain(|p| value.pointer(p).is_some_and(Value::is_string));
     paths
 }
+/// A stable model identity names logical slots, not capture-order filenames.
+/// It includes the validation report and encoder bytes as well as predictors.
+pub fn model_manifest(bundle: &Bundle) -> Result<BTreeMap<String, Artifact>> {
+    bundle.validate()?;
+    let mut result = BTreeMap::new();
+    for pointer in file_slots(&bundle.shared) {
+        let name = bundle.shared.pointer(&pointer).unwrap().as_str().unwrap();
+        result.insert(
+            pointer,
+            bundle.files.get(name).context("Unlisted model")?.clone(),
+        );
+    }
+    if bundle
+        .shared
+        .pointer("/filter/semantic/encoder_dir")
+        .is_some_and(Value::is_string)
+    {
+        for name in ["config.json", "tokenizer.json", "model.safetensors"] {
+            result.insert(
+                format!("/filter/semantic/encoder/{name}"),
+                bundle
+                    .files
+                    .get(&format!("encoder/{name}"))
+                    .context("Unlisted encoder")?
+                    .clone(),
+            );
+        }
+    }
+    Ok(result)
+}
+pub fn model_digest(bundle: &Bundle) -> Result<String> {
+    Ok(crate::message::digest(&serde_json::to_vec(
+        &model_manifest(bundle)?,
+    )?))
+}
+/// Preserve machine-local settings while explicitly binding installed model slots
+/// to their immutable files. Unselected installation paths are never a fallback.
+pub fn model_base(
+    base: &crate::config::Config,
+    installed: &Bundle,
+) -> Result<crate::config::Config> {
+    model_manifest(installed)?;
+    let root = directory(&base.data_dir, installed);
+    let mut value = serde_json::to_value(base)?;
+    for pointer in file_slots(&installed.shared) {
+        if let Some(target) = value.pointer_mut(&pointer) {
+            let name = installed
+                .shared
+                .pointer(&pointer)
+                .unwrap()
+                .as_str()
+                .unwrap();
+            *target = json!(root.join(name));
+        }
+    }
+    if let Some(target) = value.pointer_mut("/filter/semantic/encoder_dir")
+        && installed
+            .shared
+            .pointer("/filter/semantic/encoder_dir")
+            .is_some_and(Value::is_string)
+    {
+        *target = json!(root.join("encoder"));
+    }
+    // Include explicit absence: a disabled shadow candidate must not return
+    // through its old installation path on a later settings-only save.
+    if let Some(quality) = installed.shared.get("quality") {
+        let mut quality = quality.clone();
+        if let Some(name) = quality.get("candidate").and_then(Value::as_str) {
+            quality["candidate"] = json!(root.join(name));
+        }
+        value["quality"] = quality;
+    }
+    let mut config = serde_json::from_value(value)?;
+    bind_installed_credentials(&mut config, installed)?;
+    Ok(config)
+}
+pub fn require_installed_models(
+    config: &crate::config::Config,
+    installed: &Bundle,
+    changed_quality: bool,
+) -> Result<()> {
+    model_manifest(installed)?;
+    let value = serde_json::to_value(config)?;
+    let root = directory(&config.data_dir, installed);
+    for pointer in file_slots(&value) {
+        if changed_quality && pointer == "/quality/candidate" {
+            continue;
+        }
+        let expected = installed
+            .shared
+            .pointer(&pointer)
+            .and_then(Value::as_str)
+            .map(|name| json!(root.join(name)));
+        ensure!(
+            expected.as_ref() == value.pointer(&pointer),
+            "Model slot {pointer} is not installed in this policy; explicitly preview and select installation models"
+        );
+    }
+    if let Some(dir) = value
+        .pointer("/filter/semantic/encoder_dir")
+        .filter(|v| v.is_string())
+    {
+        ensure!(
+            installed
+                .shared
+                .pointer("/filter/semantic/encoder_dir")
+                .is_some_and(Value::is_string)
+                && dir == &json!(root.join("encoder")),
+            "Select the complete installation encoder explicitly"
+        );
+    }
+    Ok(())
+}
+
 /// Model files whose bytes must match the resident engine before publication.
 pub fn bindings(
     config: &crate::config::Config,
@@ -135,6 +334,12 @@ pub fn capture(
     settings: crate::control::Settings,
     revision: i64,
 ) -> Result<Publication> {
+    if let Some(hash) = &config.credential_generation {
+        ensure!(
+            crate::credentials::Snapshot::capture(config)?.fingerprint() == *hash,
+            "Runtime credential binding mismatch"
+        );
+    }
     let mut shared = serde_json::to_value(config)?;
     shared
         .as_object_mut()
@@ -180,6 +385,7 @@ pub fn capture(
         *value = json!("encoder");
     }
     let mut bundle = Bundle {
+        credential_generation: config.credential_generation.clone(),
         protocol: "noisefence-cluster-1".into(),
         build: env!("CARGO_PKG_VERSION").into(),
         revision,
@@ -201,18 +407,81 @@ impl Bundle {
     pub fn for_build(&self, build: &str) -> Result<Self> {
         self.validate()?;
         ensure!(
+            self.credential_generation.is_none() || build == env!("CARGO_PKG_VERSION"),
+            "Credential-bound policy requires a matching build"
+        );
+        ensure!(
             super::protocol::compatible_build(build),
             "Unsupported worker build"
         );
+        // rc.8 changes analysis/runtime diagnostics, not typed messaging policies.
+        // Keep the complete rc.7 policy during an unenrolled coordinator-first
+        // rollout. Credential-bound activation above still requires equal builds.
+        if env!("CARGO_PKG_VERSION") == "0.28.0-rc.8" && build == "0.28.0-rc.7" {
+            let mut bundle = self.clone();
+            bundle.build = build.into();
+            bundle.digest = bundle.hash()?;
+            return Ok(bundle);
+        }
+        ensure!(
+            super::protocol::supports_scoped_policy(build)
+                || (self
+                    .settings
+                    .custom_filtering
+                    .as_ref()
+                    .is_none_or(|p| p.ordering != crate::custom_filtering::Ordering::Scoped)
+                    && self
+                        .shared
+                        .pointer("/custom_filtering/ordering")
+                        .and_then(Value::as_str)
+                        != Some("scoped")),
+            "Upgrade every MX before enabling scoped policy inheritance"
+        );
+        ensure!(
+            super::protocol::supports_capped_fusion(build)
+                || (self
+                    .shared
+                    .pointer("/fusion/family_caps")
+                    .and_then(Value::as_bool)
+                    != Some(true)
+                    && !self
+                        .settings
+                        .detection
+                        .as_ref()
+                        .and_then(|d| d.modules.get("fusion"))
+                        .is_some_and(
+                            |m| m.get("family_caps").and_then(Value::as_bool) == Some(true)
+                        )),
+            "Upgrade every MX before enabling capped fusion models"
+        );
+        ensure!(
+            super::protocol::supports_partial_actions(build)
+                || (!self.settings.filters.partial_actions
+                    && self
+                        .shared
+                        .pointer("/filter/partial_actions")
+                        .and_then(Value::as_bool)
+                        != Some(true)),
+            "Upgrade every MX before enabling decision-specific partial actions"
+        );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0")
+                || matches!(
+                    build,
+                    "0.25.0"
+                        | "0.25.1"
+                        | "0.25.2"
+                        | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
+                )
                 || self.settings.quality_candidate.is_none(),
             "Upgrade every MX before selecting a managed shadow candidate"
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || build == "0.26.0"
+                || matches!(build, "0.26.0" | "0.27.0" | "0.28.0-rc.1" | "0.28.0-rc.2")
                 || !self.settings.filters.resolve_uncertain_by_score,
             "Upgrade every MX before enabling automatic score resolution"
         );
@@ -229,6 +498,9 @@ impl Bundle {
                         | "0.25.1"
                         | "0.25.2"
                         | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
                 ))
                 || self
                     .settings
@@ -241,7 +513,15 @@ impl Bundle {
             (build == env!("CARGO_PKG_VERSION")
                 || matches!(
                     build,
-                    "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0"
+                    "0.23.0"
+                        | "0.24.0"
+                        | "0.25.0"
+                        | "0.25.1"
+                        | "0.25.2"
+                        | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
                 ))
                 || self
                     .settings
@@ -252,7 +532,16 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2" | "0.26.0")
+                || matches!(
+                    build,
+                    "0.25.0"
+                        | "0.25.1"
+                        | "0.25.2"
+                        | "0.26.0"
+                        | "0.27.0"
+                        | "0.28.0-rc.1"
+                        | "0.28.0-rc.2"
+                )
                 || !self
                     .settings
                     .filters
@@ -275,6 +564,9 @@ impl Bundle {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
+                    | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
             )
         {
             bundle.settings.research_archive = None;
@@ -300,6 +592,9 @@ impl Bundle {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
+                    | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
             )
         {
             // Comparison is not available on older workers. Keep their policy
@@ -321,6 +616,9 @@ impl Bundle {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
+                    | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
             )
             && let Some(detection) = &mut bundle.settings.detection
         {
@@ -337,15 +635,28 @@ impl Bundle {
                 .remove("smtp_admission");
         }
 
+        if !super::protocol::supports_capped_fusion(build)
+            && let Some(detection) = &mut bundle.settings.detection
+        {
+            detection.modules.remove("fusion");
+        }
         bundle.digest = bundle.hash()?;
         Ok(bundle)
     }
     pub fn hash(&self) -> Result<String> {
-        Ok(crate::message::digest(&serde_json::to_vec(
-            &json!({"protocol":self.protocol,"build":self.build,"revision":self.revision,"settings":self.settings,"shared":self.shared,"files":self.files}),
-        )?))
+        let mut value = json!({"protocol":self.protocol,"build":self.build,"revision":self.revision,"settings":self.settings,"shared":self.shared,"files":self.files});
+        if let Some(hash) = &self.credential_generation {
+            value["credential_generation"] = json!(hash);
+        }
+        Ok(crate::message::digest(&serde_json::to_vec(&value)?))
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.credential_generation
+                .as_ref()
+                .is_none_or(|h| crate::compatibility::valid_hash(h)),
+            "Invalid credential generation binding"
+        );
         ensure!(
             self.protocol == "noisefence-cluster-1"
                 && super::protocol::compatible_build(&self.build)
@@ -471,12 +782,14 @@ pub fn materialize(
         full["llm"]["api_key_env"] = json!("NOISEFENCE_CLUSTER_LLM");
     }
     if bundle.settings.filters.reputation
-        && crate::management::key_present(&base.data_dir, "spamhaus")
+        && (bundle.credential_generation.is_some()
+            || crate::management::key_present(&base.data_dir, "spamhaus"))
     {
         full["filter"]["spamhaus_key_env"] = json!("NOISEFENCE_WEB_DQS");
     }
     let mut config: crate::config::Config = serde_json::from_value(full)?;
     config.preferences = bundle.settings.preferences.clone();
+    bind_installed_credentials(&mut config, bundle)?;
     if let Some(rbl) = &config.rbl {
         crate::management::validate_rbl(rbl, base)?;
     }
@@ -486,12 +799,32 @@ pub fn materialize(
 
 /// Retain the active manifest and one preceding generation, never arbitrary paths.
 pub fn prune_models(root: &Path, active: &Bundle, previous: Option<&Bundle>) -> Result<()> {
+    let mut keep = vec![active];
+    keep.extend(previous);
+    prune_retained(root, &keep)
+}
+/// Explicit retention protects active, pending and recovery model sets.
+pub fn prune_retained(root: &Path, bundles: &[&Bundle]) -> Result<()> {
+    ensure!(
+        !bundles.is_empty(),
+        "Cannot prune without a retained model manifest"
+    );
+    for b in bundles {
+        b.validate()?;
+    }
+    let hashes = bundles
+        .iter()
+        .filter_map(|b| b.credential_generation.clone())
+        .collect();
+    crate::credentials::generations::retain(root, &hashes)?;
     let parent = root.join("cluster/models");
     if !parent.is_dir() {
         return Ok(());
     }
-    let active = directory(root, active);
-    let previous = previous.map(|b| directory(root, b));
+    let retained = bundles
+        .iter()
+        .map(|b| directory(root, b))
+        .collect::<std::collections::HashSet<_>>();
     for entry in std::fs::read_dir(parent)? {
         let entry = entry?;
         let name = entry.file_name();
@@ -499,11 +832,37 @@ pub fn prune_models(root: &Path, active: &Bundle, previous: Option<&Bundle>) -> 
         if entry.file_type()?.is_dir()
             && name.len() == 64
             && name.bytes().all(|b| b.is_ascii_hexdigit())
-            && entry.path() != active
-            && previous.as_ref() != Some(&entry.path())
+            && !retained.contains(&entry.path())
         {
             std::fs::remove_dir_all(entry.path())?;
         }
     }
     Ok(())
+}
+
+fn bind_installed_credentials(config: &mut crate::config::Config, bundle: &Bundle) -> Result<()> {
+    config.credential_generation = bundle.credential_generation.clone();
+    if let Some(hash) = &bundle.credential_generation {
+        config.provider_credentials = Some(std::sync::Arc::new(
+            crate::credentials::generations::load(&config.data_dir, hash)?,
+        ));
+    }
+    Ok(())
+}
+/// Freeze the resident source set at enrollment, without consulting mutable files.
+pub fn bind_credentials(mut publication: Publication) -> Result<Publication> {
+    let keys = crate::credentials::Snapshot::capture(&publication.config)?;
+    let hash = keys.fingerprint();
+    publication.config.provider_credentials = Some(std::sync::Arc::new(keys));
+    publication.config.credential_generation = Some(hash.clone());
+    publication.bundle.credential_generation = Some(hash);
+    publication.bundle.digest = publication.bundle.hash()?;
+    Ok(publication)
+}
+/// Enrollment can add a binding to the unchanged legacy policy. A key mismatch
+/// is checked separately against the resident snapshot; this is not a downgrade.
+pub fn without_credential_binding(bundle: &Bundle) -> Result<String> {
+    let mut legacy = bundle.clone();
+    legacy.credential_generation = None;
+    legacy.hash()
 }

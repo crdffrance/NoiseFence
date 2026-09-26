@@ -10,6 +10,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { api, type User } from './client';
+import { ActivationPanel, useActivation } from './activation-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -73,6 +74,7 @@ export function ClusterConsole({
   user: User;
   onDirty: (dirty: boolean) => void;
 }) {
+  const activation = useActivation(user, true);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [identity, setIdentity] = useState<{
@@ -154,6 +156,7 @@ export function ClusterConsole({
     );
   return (
     <div className="cluster-console">
+      <ActivationPanel state={activation} user={user} administrator allowEnrollment />
       <div className="cluster-intro">
         <div>
           <p className="eyebrow">MAIL CONTINUITY</p>

@@ -43,7 +43,7 @@ The price of the example corresponds, on 6 September 2026, to 0.15 €/million i
 
 A durable SQLite booking precedes each call. Concurrent calls and restarts keep this local ceiling; a response whose billing is uncertain keeps its reservation maximum. A valid response adjusts the amount according to the declared usage. The client does not automatically restart HTTP requests. This estimated limit does not replace the provider's billing alerts. The `/api/v1/metrics` admin API displays reservations, requests and ceiling.
 
-By default at most two LLM calls run concurrently within the configured score interval. `review_unconfirmed_high = true` additionally selects scores above `score_high` that lack corroboration under `confirmation-3`; a high score alone should not prevent a second opinion from finding a false positive. This option is disabled by default and can increase transmitted excerpts, within the same budget, concurrency and timeout limits. Malware evidence and incomplete local extraction remain excluded. `scan.llm.selection` records selection even when budget or cancellation prevents completion; old records may omit it. Selection alone never lowers a score. Advisory weights are unchanged. To select all eligible messages, configure the complete score range in the Web console and authorize the corresponding text disclosure.
+By default at most two LLM calls run concurrently within the configured score interval. `review_unconfirmed_high = true` additionally selects scores above `score_high` that lack corroboration under `confirmation-4`; a high score alone should not prevent a second opinion from finding a false positive. This option is disabled by default and can increase transmitted excerpts, within the same budget, concurrency and timeout limits. Malware evidence and incomplete local extraction remain excluded. `scan.llm.selection` records selection even when budget or cancellation prevents completion; old records may omit it. Selection alone never lowers a score. Advisory weights are unchanged. To select all eligible messages, configure the complete score range in the Web console and authorize the corresponding text disclosure.
 
 The 2.5 seconds LLM delay is one of five seconds shared with the DNS checks. Measure the overall p95 with this option: an LLM does not guarantee the 500 ms target. The price per message and the proportion submitted to the LLM must be included in the quality comparisons.
 
@@ -58,3 +58,19 @@ Prompt `noisefence-classify-8` evaluates the apparent current request before the
 Action links precede thread and footer links. Recognized Google, Microsoft Safe Links, TikTok and DoubleClick wrappers can expose up to three **declared, unverified** embedded destinations. Link records include hosts, not paths, query tokens or fragments. No network lookup happens during prompt preparation. The URL inventory also prioritizes current HTML actions and includes these embedded candidates. Active URL inspection still requires the Web `follow_urls` setting and applies the existing URL count, deadlines, public-address DNS checks and per-hop restrictions; form submissions remain excluded. A parsed parameter is never recorded as an observed HTTP redirect or a malicious reputation hit.
 
 The prompt asks for evidence about document/voicemail lures, the current payment request and claimed identity. It explicitly preserves normal receipts, scheduled alerts, reporting workflows and legitimate tracking links. Unknown authentication is not failure, and a wrapper or different domain alone is not evidence of phishing. Classification thresholds, trained feature schemas and delivery policy do not change. The new prompt digest creates a new observation profile; evaluate it against human-labelled wanted and unwanted mail before promotion. A targeted regression set cannot demonstrate the production false-positive target or parity with another engine.
+
+## Completed-result retention and prompt 11
+
+From 0.28.0-rc.8, a completed LLM result is retained even if an independent
+protection check later exhausts the shared deadline. Authentication has a
+two-second sub-deadline so stalled DNS need not consume the full analysis window.
+An authentication or DNS-reputation error records incomplete coverage and allows
+independent content checks to continue. Earlier work can still consume the total
+budget; this is not a guarantee that every selected call completes. Extraction,
+budget, capacity and total-deadline safeguards still apply.
+
+Prompt `noisefence-classify-11` distinguishes completed transfers and ride receipts
+from new payment requests, and optional consent links from credential demands.
+These are contextual instructions, not brand allowlists. Advisory weights,
+thresholds, provider selection and disclosure limits are unchanged. Evaluate the
+new prompt cohort with human labels before claiming a detection improvement.

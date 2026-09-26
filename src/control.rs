@@ -1,4 +1,6 @@
 //! Validated, durable console configuration; one coherent snapshot per SMTP transaction.
+mod activation;
+mod activation_authority;
 use crate::{
     config::{Config, Domain, Mode},
     engine::Engine,
@@ -37,6 +39,8 @@ pub struct ManagedDomain {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Filters {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial_actions: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resolve_uncertain_by_score: bool,
     #[serde(default)]
@@ -136,6 +140,7 @@ impl Settings {
             mailing: config.mailing.as_ref().map(|c| c.policy.clone()),
             actions: config.actions.clone(),
             filters: Filters {
+                partial_actions: config.filter.partial_actions,
                 rule_weights: config.filter.rule_weights.clone(),
                 mode: config.filter.mode,
                 threshold: config.filter.threshold,
@@ -165,7 +170,13 @@ impl Settings {
     }
     pub fn available(base: &Config) -> Filters {
         let mut f = Self::from_config(base).filters;
-        f.reputation |= crate::management::key_present(&base.data_dir, "spamhaus");
+        f.reputation |= if base.credential_generation.is_some() {
+            base.provider_credentials
+                .as_ref()
+                .is_some_and(|k| k.get("spamhaus").is_some())
+        } else {
+            crate::management::key_present(&base.data_dir, "spamhaus")
+        };
         f.llm = base.llm.is_some();
         f
     }
@@ -193,6 +204,27 @@ impl Settings {
         }
     }
     pub fn effective(&self, base: &Config) -> Result<Config> {
+        self.effective_inner(base, false)
+    }
+    pub(crate) fn effective_catalog(&self, base: &Config) -> Result<Config> {
+        self.effective_inner(base, true)
+    }
+    pub(crate) fn effective_installed(
+        &self,
+        base: &Config,
+        installed: &crate::cluster::artifacts::Bundle,
+    ) -> Result<Config> {
+        ensure!(
+            self.quality_candidate.is_some() || installed.settings.quality_candidate.is_none(),
+            "Use an explicit empty candidate selection to disable a managed shadow model"
+        );
+        let pinned = crate::cluster::artifacts::model_base(base, installed)?;
+        let unchanged = self.quality_candidate == installed.settings.quality_candidate;
+        let config = self.effective_inner(&pinned, unchanged)?;
+        crate::cluster::artifacts::require_installed_models(&config, installed, !unchanged)?;
+        Ok(config)
+    }
+    fn effective_inner(&self, base: &Config, pinned_quality: bool) -> Result<Config> {
         ensure!(
             self.domains.len() <= 100 && self.gateways.len() <= 100,
             "At most 100 domains and 100 gateways."
@@ -224,7 +256,9 @@ impl Settings {
             );
         }
         let mut cfg = base.clone();
-        if let Some(selection) = &self.quality_candidate {
+        if let Some(selection) = &self.quality_candidate
+            && !pinned_quality
+        {
             let path = selection.path(&base.data_dir)?;
             if let Some(path) = &path {
                 let bytes = crate::native_filter::read_bounded(path, 2 * 1024 * 1024)?;
@@ -337,7 +371,8 @@ impl Settings {
         cfg.filter.mode = f.mode;
         cfg.filter.threshold = f.threshold;
         cfg.filter.require_corroboration = f.require_corroboration;
-        cfg.filter.resolve_uncertain_by_score = f.resolve_uncertain_by_score;
+        cfg.filter.resolve_uncertain_by_score = true;
+        cfg.filter.partial_actions = f.partial_actions;
         cfg.filter.authentication = f.authentication;
         if !f.antivirus {
             cfg.antivirus = None;
@@ -399,6 +434,7 @@ impl Settings {
 }
 
 pub struct Snapshot {
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
     pub rbl: Arc<crate::rbl::Runtime>,
     pub revision: i64,
     pub settings: Settings,
@@ -411,11 +447,12 @@ impl Controller {
         self.cluster_hash.read().unwrap().clone()
     }
     pub fn cluster_ready(&self) -> bool {
-        !crate::cluster::is_worker(&self.base)
-            || self
-                .cluster_until
-                .load(std::sync::atomic::Ordering::Acquire)
-                >= crate::now()
+        self.store.activation.ready()
+            && (!crate::cluster::is_worker(&self.base)
+                || self
+                    .cluster_until
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    >= crate::now())
     }
     pub async fn publication(&self) -> Result<Arc<crate::cluster::artifacts::Publication>> {
         ensure!(
@@ -429,6 +466,7 @@ impl Controller {
         let snapshot = self.snapshot();
         if let Some(value) = &*cache
             && value.bundle.revision == snapshot.revision
+            && value.bundle.credential_generation == snapshot.config.credential_generation
         {
             return Ok(value.clone());
         }
@@ -453,10 +491,18 @@ impl Controller {
         server_time: i64,
     ) -> Result<()> {
         ensure!(crate::cluster::is_worker(&self.base), "Not a worker");
+        ensure!(
+            self.store.activation.epoch().is_none() && self.store.activation.ready(),
+            "Use the coordinated activation driver for this storage"
+        );
         bundle.validate()?;
         let this = self.clone();
         tokio::spawn(async move {
             let _permit = this.applying.clone().acquire_owned().await?;
+            ensure!(
+                this.store.activation.epoch().is_none() && this.store.activation.ready(),
+                "Use the coordinated activation driver for this storage"
+            );
             let current = this.snapshot();
             ensure!(
                 bundle.revision >= current.revision,
@@ -478,6 +524,7 @@ impl Controller {
                     })
                     .await??,
                 );
+                let config = crate::credentials::pin(config)?;
                 let models_changed =
                     cluster_model_identity(&config) != cluster_model_identity(&current.config);
                 if models_changed {
@@ -544,6 +591,7 @@ impl Controller {
                 }
                 *this.template.write().unwrap() = engine.clone();
                 *this.active.write().unwrap() = Arc::new(Snapshot {
+                    activation_epoch: None,
                     revision: bundle.revision,
                     settings: bundle.settings,
                     config,
@@ -570,6 +618,9 @@ fn cluster_model_identity(config: &Config) -> String {
     })).expect("model identity"))
 }
 pub struct Controller {
+    activation_receipt: std::sync::Mutex<Option<crate::cluster::activation::Acknowledgement>>,
+    activation_serial: Arc<tokio::sync::Mutex<()>>,
+    prepared_activation: std::sync::Mutex<Option<activation::Prepared>>,
     pub base: Arc<Config>,
     pub store: Store,
     template: RwLock<Arc<Engine>>,
@@ -583,6 +634,15 @@ pub struct Controller {
 }
 impl Controller {
     pub async fn load(base: Arc<Config>, store: Store) -> Result<Arc<Self>> {
+        let (participant, authority) = store
+            .run(|db| {
+                let tx = db.transaction()?;
+                Ok((
+                    crate::cluster::activation::participant::Local::read(&tx)?,
+                    crate::cluster::activation::Journal::read(&tx)?,
+                ))
+            })
+            .await?;
         let saved = store
             .run(|db| {
                 Ok(db
@@ -599,7 +659,13 @@ impl Controller {
             None => (0, Settings::from_config(&base)),
         };
         settings.hydrate(&base);
-        let clustered = if crate::cluster::is_worker(&base) {
+        let clustered = if let Some(local) = &participant {
+            Some(local.installed().clone())
+        } else if let Some(journal) = &authority {
+            // Staging can commit before this node has prepared its participant
+            // journal. Recover its frozen base even if installation sources moved.
+            Some(journal.current().clone())
+        } else if crate::cluster::is_worker(&base) {
             store
                 .read(|db| {
                     Ok(db
@@ -654,8 +720,8 @@ impl Controller {
         } else {
             0
         };
-        let config = Arc::new(effective);
-        let seed = if crate::cluster::is_worker(&base) {
+        let config = crate::credentials::pin(Arc::new(effective))?;
+        let seed = if clustered.is_some() || crate::cluster::is_worker(&base) {
             config.clone()
         } else {
             let mut seed = (*base).clone();
@@ -685,7 +751,11 @@ impl Controller {
                 // Keep the template usable even when the Web policy disables the module.
                 installed.patterns = saved;
             }
-            Arc::new(seed)
+            if revision == 0 {
+                config.clone()
+            } else {
+                Arc::new(seed)
+            }
         };
         let cfg = config.clone();
         let (template, engine) = tokio::task::spawn_blocking(move || -> Result<_> {
@@ -708,6 +778,9 @@ impl Controller {
             .archive
             .configure(config.research_archive.clone().unwrap_or_default());
         Ok(Arc::new(Self {
+            activation_receipt: std::sync::Mutex::new(None),
+            activation_serial: Arc::new(tokio::sync::Mutex::new(())),
+            prepared_activation: std::sync::Mutex::new(None),
             base,
             store,
             template: RwLock::new(template),
@@ -722,6 +795,10 @@ impl Controller {
             cluster_keys: RwLock::new(key_hash),
             retired: std::sync::Mutex::new(None),
             active: RwLock::new(Arc::new(Snapshot {
+                activation_epoch: participant
+                    .as_ref()
+                    .map(|p| p.installed_epoch().clone())
+                    .or_else(|| authority.as_ref().map(|j| j.current_epoch())),
                 rbl,
                 revision,
                 settings,
@@ -791,19 +868,36 @@ impl Controller {
             !crate::cluster::is_worker(&self.base),
             "Change the settings from the center console."
         );
+        ensure!(
+            self.store.activation.epoch().is_none() && self.store.activation.ready(),
+            "Use the coordinated activation driver for this storage"
+        );
         settings.hydrate(&self.base);
         let this = self.clone();
         tokio::spawn(async move {
             let _permit=this.applying.clone().try_acquire_owned().context("An amendment is already under way.")?;
+            ensure!(this.store.activation.epoch().is_none() && this.store.activation.ready(),
+                "Use the coordinated activation driver for this storage");
             ensure!(revision==this.snapshot().revision,"Modified configuration in another session. Reload before saving.");
-            let config=Arc::new(settings.effective(&this.base)?);
+            let config=crate::credentials::pin(Arc::new(settings.effective(&this.base)?))?;
             let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
             let template=this.template.read().unwrap().clone(); let cfg=config.clone();
             let engine=Arc::new(tokio::task::spawn_blocking(move||template.reconfigure(cfg)).await??);
             let raw=serde_json::to_string(&settings)?;
             ensure!(raw.len()<=128*1024,"Configuration trop volumineuse.");
+            let previous=this.snapshot();
+            let require_partial_workers=config.filter.partial_actions &&
+                (!previous.config.filter.partial_actions ||
+                    (previous.config.filter.mode!=config.filter.mode && config.filter.mode!=Mode::Observe));
+            let require_fusion_workers=config.fusion.as_ref().is_some_and(|f| f.family_caps &&
+                (previous.config.fusion.as_ref().is_none_or(|p| !p.family_caps) ||
+                 (f.mode==crate::fusion::runtime::Mode::Decision && previous.config.fusion.as_ref().is_none_or(|p| p.mode!=f.mode))));
+            let require_scoped_workers=config.custom_filtering.as_ref().is_some_and(|p|p.ordering==crate::custom_filtering::Ordering::Scoped);
+            let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {
                 let tx=db.transaction()?;
+                ensure!(crate::cluster::activation::Journal::read(&tx)?.is_none(),
+                    "Use coordinated activation for this storage");
                 let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;
                 ensure!(current==revision,"Configuration modified in another session.");
                 if let Some((scope,hash))=&delegated {
@@ -815,6 +909,15 @@ impl Controller {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
                 ensure!(enabled,"Administrator rights revoked.");
                 }
+                if require_partial_workers || require_fusion_workers || require_scoped_workers {
+                    let mut query=tx.prepare("SELECT COALESCE(last_seen,0),COALESCE(json_extract(CASE WHEN json_valid(status) THEN status ELSE '{}' END,'$.build'),'') FROM cluster_nodes WHERE enabled=1")?;
+                    let nodes=query.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                    ensure!(nodes.iter().all(|(seen,build)| *seen>=worker_cutoff
+                        && (!require_partial_workers || crate::cluster::protocol::supports_partial_actions(build))
+                        && (!require_fusion_workers || crate::cluster::protocol::supports_capped_fusion(build))
+                        && (!require_scoped_workers || crate::cluster::protocol::supports_scoped_policy(build))),
+                        "Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions, capped fusion or scoped policy inheritance.");
+                }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;
                 let id=tx.last_insert_rowid();
                 tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'configuration',?3)",params![crate::now(),username,id.to_string()])?;
@@ -822,7 +925,7 @@ impl Controller {
                 tx.commit()?;Ok(id)
             }).await?;
             engine.activate_limits();rbl.activate();this.store.admission.activate(config.smtp_admission.as_ref());this.store.archive.configure(config.research_archive.clone().unwrap_or_default());
-            *this.active.write().unwrap()=Arc::new(Snapshot{revision:id,settings,config,engine,rbl});
+            *this.active.write().unwrap()=Arc::new(Snapshot{activation_epoch:None,revision:id,settings,config,engine,rbl});
             Ok(id)
         }).await?
     }
@@ -834,9 +937,33 @@ pub fn effective_from_disk(base: Arc<Config>) -> Result<Arc<Config>> {
     if !path.exists() {
         return Ok(base);
     }
-    let db =
+    let mut db =
         rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
+    let clustered: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state')",
+        [],
+        |r| r.get(0),
+    )?;
+    if clustered {
+        let tx = db.transaction()?;
+        let local = crate::cluster::activation::participant::Local::read(&tx)?;
+        let authority = crate::cluster::activation::Journal::read(&tx)?;
+        let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        ensure!(
+            version <= 6 && ((local.is_none() && authority.is_none()) == (version != 6)),
+            "Invalid coordinated storage format"
+        );
+        if let Some(bundle) = local
+            .as_ref()
+            .map(|l| l.installed())
+            .or_else(|| authority.as_ref().map(|j| j.current()))
+        {
+            return Ok(Arc::new(crate::cluster::artifacts::materialize(
+                &base, bundle, true,
+            )?));
+        }
+    }
     if crate::cluster::is_worker(&base) {
         let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state')", [], |r| r.get(0))?;
         if exists {

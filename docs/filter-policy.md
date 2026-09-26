@@ -19,7 +19,7 @@ The index is not a sum of independent detector votes. Content contributions are 
 
 ## Classification and priority
 
-Primary antivirus malware detection takes priority over the content index. A low content score therefore does not negate malware detection. Otherwise the canonical decision uses the configured model, evidence and corroboration policy. Conflicting or ambiguous opinions can produce **Needs review**, even with a high content index. Missing reputation or provider results are not evidence of spam.
+Primary antivirus malware detection takes priority over the content index. A low content score therefore does not negate malware detection. Otherwise the canonical decision uses the configured model, evidence and corroboration policy. Conflicting or ambiguous opinions are resolved by the recorded content score and applicable threshold. A missing usable score results in **Accepted — analysis unavailable**, with unassessed risk retained separately. Detector abstentions and historical unresolved records are not new manual-review tasks. Missing reputation or provider results are not evidence of spam.
 
 Marketing is separate from security risk. A newsletter signal does not make malicious content legitimate. API category identifiers remain `spam`, `publicity`, `legitimate` and `undetermined` for compatibility; the English console calls `publicity` **Marketing**. Existing subject prefixes remain `[SPAM]` and `[PUB]`.
 

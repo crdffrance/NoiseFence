@@ -1,4 +1,5 @@
 //! Autonomous SMTP nodes, a single configuration authority, and durable metadata exchange.
+pub mod activation;
 pub mod artifacts;
 pub mod budget;
 pub mod history;
@@ -122,7 +123,7 @@ pub async fn prepare(config: &crate::config::Config, store: &crate::store::Store
             tx.execute("UPDATE cluster_sequence SET value=value+1",[])?;
             tx.execute("INSERT OR IGNORE INTO cluster_dirty SELECT id,(SELECT value FROM cluster_sequence) FROM messages WHERE NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=messages.id)",[])?;
         }
-        if tx.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0))?<3 {tx.execute_batch("PRAGMA user_version=3")?;}tx.commit()?;Ok(())
+        crate::store::require_format(&tx, 3)?;tx.commit()?;Ok(())
     }).await?;
     if is_worker(config) {
         budget::enable_worker(&config.data_dir)?;
@@ -137,8 +138,17 @@ pub async fn run(
         worker::run(control, stop).await
     } else {
         let mut stop = stop;
-        let _ = stop.changed().await;
-        Ok(())
+        loop {
+            tokio::select! {
+                _=stop.changed()=>return Ok(()),
+                result=control.advance_activation()=>{
+                    if let Err(error)=result {
+                        tracing::warn!(error=%crate::delivery_log::sanitize(&error.to_string(),400).0,"coordinated activation pending");
+                    }
+                }
+            }
+            tokio::select! {_=stop.changed()=>return Ok(()),_=tokio::time::sleep(std::time::Duration::from_secs(2))=>{}}
+        }
     }
 }
 

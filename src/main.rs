@@ -312,6 +312,9 @@ enum Command {
         batch: String,
         #[arg(long)]
         output: PathBuf,
+        /// Bind an independent evaluation export to the already frozen candidate.
+        #[arg(long)]
+        candidate_sha256: Option<String>,
     },
     /// Check a data-only joint candidate against one recorded observation.
     QualityPredict {
@@ -339,6 +342,15 @@ enum Command {
         /// Exclusive Unix time; defaults to now + 1 second.
         #[arg(long)]
         until: Option<i64>,
+    },
+    /// Compare scoring aggregation on frozen SMTP inputs; no provider calls or delivery.
+    ScoringCompare {
+        input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        /// Explicit counterfactual operating point, not inferred from today's settings.
+        #[arg(long)]
+        threshold: f64,
     },
     /// Encode trusted detector observations from a private learning export, offline.
     FusionExport {
@@ -733,6 +745,19 @@ async fn main() -> Result<()> {
                 "{}",
                 serde_json::to_string(&noisefence::fusion::population::predict(
                     input, model, output
+                )?)?
+            );
+            return Ok(());
+        }
+        Command::ScoringCompare {
+            input,
+            output,
+            threshold,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&noisefence::scoring::comparison::compare(
+                    input, output, *threshold
                 )?)?
             );
             return Ok(());
@@ -1294,10 +1319,18 @@ async fn main() -> Result<()> {
             username,
             batch,
             output,
+            candidate_sha256,
         } => {
             println!(
                 "{}",
-                noisefence::quality::evaluation::export(&store, username, batch, &output).await?
+                noisefence::quality::evaluation::export_for_candidate(
+                    &store,
+                    username,
+                    batch,
+                    &output,
+                    candidate_sha256
+                )
+                .await?
             );
         }
         Command::ExportPopulation {

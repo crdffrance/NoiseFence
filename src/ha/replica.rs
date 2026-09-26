@@ -86,10 +86,7 @@ impl Manifest {
             "Unresolved replica needs a body"
         );
         let scan: crate::engine::Scan = serde_json::from_value(self.scan.clone())?;
-        ensure!(
-            scan.score.is_finite() && (0.0..=100.0).contains(&scan.score),
-            "Invalid score"
-        );
+        crate::scoring::validate_transport(&scan)?;
         let mut addresses = BTreeSet::new();
         for d in &self.deliveries {
             ensure!(
@@ -251,67 +248,72 @@ pub async fn prepare(store: &Store, sender: &str, variants: &[QueueVariant]) -> 
         .clone()
         .try_acquire_owned()
         .context("Replication busy; retry SMTP")?;
-    for v in variants {
-        ensure!(
-            valid_id(&v.id) && v.raw.len() as u64 <= runtime.max_message_bytes,
-            "Invalid replica body"
-        );
-        let hash = crate::message::digest(&v.raw);
-        let deliveries = v
-            .recipients
-            .iter()
-            .map(|(r, a)| {
-                let applied = a.as_ref().map(|a| &a.action).or(v.scan.action.as_ref());
-                let action = applied.map(|a| a.effective).unwrap_or_default();
-                let held = action == crate::actions::Action::Quarantine;
-                Ok(Delivery {
-                    address: r.address.clone(),
-                    destination: r.destination.clone(),
-                    hosts: r.hosts.clone(),
-                    status: if held { "quarantined" } else { "pending" }.into(),
-                    attempts: 0,
-                    next_attempt: now(),
-                    error: None,
-                    dsn_id: None,
-                    action: match action {
-                        crate::actions::Action::Deliver => "deliver",
-                        crate::actions::Action::Tag => "tag",
-                        crate::actions::Action::Quarantine => "quarantine",
-                    }
-                    .into(),
-                    held_until: held.then(|| {
-                        now() + 86400 * i64::from(applied.map_or(14, |a| a.quarantine_days))
-                    }),
-                    released_at: None,
-                    filtering: a.as_ref().map(serde_json::to_value).transpose()?,
+    let batch = async {
+        // Validate the complete batch before creating any remote body candidate.
+        for v in variants {
+            crate::scoring::validate_transport(&v.scan)?;
+        }
+        for v in variants {
+            ensure!(
+                valid_id(&v.id) && v.raw.len() as u64 <= runtime.max_message_bytes,
+                "Invalid replica body"
+            );
+            let hash = v.raw.digest();
+            let deliveries = v
+                .recipients
+                .iter()
+                .map(|(r, a)| {
+                    let applied = a.as_ref().map(|a| &a.action).or(v.scan.action.as_ref());
+                    let action = applied.map(|a| a.effective).unwrap_or_default();
+                    let held = action == crate::actions::Action::Quarantine;
+                    Ok(Delivery {
+                        address: r.address.clone(),
+                        destination: r.destination.clone(),
+                        hosts: r.hosts.clone(),
+                        status: if held { "quarantined" } else { "pending" }.into(),
+                        attempts: 0,
+                        next_attempt: now(),
+                        error: None,
+                        dsn_id: None,
+                        action: match action {
+                            crate::actions::Action::Deliver => "deliver",
+                            crate::actions::Action::Tag => "tag",
+                            crate::actions::Action::Quarantine => "quarantine",
+                        }
+                        .into(),
+                        held_until: held.then(|| {
+                            now() + 86400 * i64::from(applied.map_or(14, |a| a.quarantine_days))
+                        }),
+                        released_at: None,
+                        filtering: a.as_ref().map(serde_json::to_value).transpose()?,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let manifest = Manifest {
-            protocol: PROTOCOL.into(),
-            owner: runtime.node_id.clone(),
-            id: v.id.clone(),
-            generation: 0,
-            confirmed: false,
-            created: now(),
-            sender: sender.into(),
-            scan: serde_json::to_value(&v.scan)?,
-            is_dsn: false,
-            body_hash: Some(hash.clone()),
-            body_bytes: v.raw.len() as u64,
-            deliveries,
-        };
-        upload(
-            runtime,
-            &v.id,
-            &hash,
-            reqwest::Body::from(v.raw.clone()),
-            v.raw.len() as u64,
-        )
-        .await?;
-        update(runtime, &manifest).await?;
-    }
-    Ok(())
+                .collect::<Result<Vec<_>>>()?;
+            let manifest = Manifest {
+                protocol: PROTOCOL.into(),
+                owner: runtime.node_id.clone(),
+                id: v.id.clone(),
+                generation: 0,
+                confirmed: false,
+                created: now(),
+                sender: sender.into(),
+                scan: serde_json::to_value(&v.scan)?,
+                is_dsn: false,
+                body_hash: Some(hash.clone()),
+                body_bytes: v.raw.len() as u64,
+                deliveries,
+            };
+            upload(runtime, &v.id, &hash, v.raw.http_body(), v.raw.len() as u64).await?;
+            update(runtime, &manifest).await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    };
+    tokio::time::timeout(
+        std::time::Duration::from_secs(runtime.settings.timeout_seconds),
+        batch,
+    )
+    .await
+    .context("Replica batch deadline exceeded; retry SMTP")?
 }
 
 pub(crate) fn read_deliveries(db: &rusqlite::Connection, id: &str) -> Result<Vec<Delivery>> {

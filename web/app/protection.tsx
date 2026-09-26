@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
 import { checkFailure } from './presentation';
+import { providerCredentialLabel, providerToggleDisabled, keySaveNotice } from './provider-credentials';
 import {
   ProviderQuotas,
   type ProviderQuota,
@@ -29,8 +30,11 @@ export type ProtectionPolicy = {
 };
 type Provider = 'crdf' | 'virustotal';
 type ProviderState = {
+  revision: number;
   available: boolean;
   keys: Record<Provider, boolean>;
+  loaded_keys?: Record<Provider, boolean>;
+  pending_keys?: Record<Provider, boolean>;
   quotas: Record<Provider, ProviderQuota> | null;
   bootstrap_quotas: Record<Provider, ProviderQuota> | null;
   usage: Record<Provider, QuotaUsage | null>;
@@ -55,10 +59,12 @@ export function ProtectionSettings({
   policy,
   onChange,
   user,
+  revision,
 }: {
   policy: ProtectionPolicy | null;
   onChange: (value: ProtectionPolicy | null) => void;
   user: User;
+  revision: number;
 }) {
   const [status, setStatus] = useState<ProviderState | null>(null),
     [error, setError] = useState(''),
@@ -80,7 +86,7 @@ export function ProtectionSettings({
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [user, revision]);
   const update = (change: Partial<ProtectionPolicy>) =>
     onChange({ ...(policy || defaults), ...change });
   async function saveKey(provider: Provider) {
@@ -88,16 +94,14 @@ export function ProtectionSettings({
     setNotice('');
     setBusy(true);
     try {
-      await api(
+      const result = await api<{staged?: boolean; active?: boolean; message?: string}>(
         `/admin/protection/keys/${provider}`,
-        { key: keys[provider] },
+        { key: keys[provider], revision: status?.revision },
         user.csrf,
       );
       setKeys((k) => ({ ...k, [provider]: '' }));
       setStatus(await api<ProviderState>('/admin/protection'));
-      setNotice(
-        "Key saved on the server. Activate the connector and then apply the settings.",
-      );
+      setNotice(keySaveNotice(result));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -300,9 +304,7 @@ export function ProtectionSettings({
                             : 'VirusTotal'}
                         </strong>
                         <small>
-                          {status.keys[provider]
-                            ? "Saved key"
-                            : "Key required"}{' '}
+                          {providerCredentialLabel(status.keys[provider], status.loaded_keys?.[provider], status.pending_keys?.[provider])}{' '}
                         </small>
                       </span>
                       <input
@@ -311,7 +313,7 @@ export function ProtectionSettings({
                         role="switch"
                         aria-checked={policy[provider]}
                         checked={policy[provider]}
-                        disabled={!status.keys[provider]}
+                        disabled={providerToggleDisabled(status.keys[provider], status.loaded_keys?.[provider], policy[provider])}
                         onChange={(e) =>
                           update({ [provider]: e.target.checked })
                         }

@@ -40,6 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install -r research/requirements.txt
       - run: python3 -m unittest discover -s tests_python -v
       - run: sudo python3 tests/systemd_learning.py
       - run: sudo python3 tests/systemd_network.py

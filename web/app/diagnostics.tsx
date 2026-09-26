@@ -3,6 +3,11 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from './client';
+import { ReceiptActivation } from './receipt-activation';
+import { ScoreAccounting, FusionAccountingView } from './scoring-view';
+import { observationState, observationRole, observationScope, observationName,
+  observationResult, observationMeasurement, sharedObservationGroups,
+  type ObservationReport } from './observations-format';
 import {
   authenticationResult,
   contribution,
@@ -91,6 +96,38 @@ function AuthenticationDetails({ auth }: { auth?: AuthenticationEvidence }) {
   );
 }
 
+function DetectorObservations({ report }: { report?: ObservationReport | null }) {
+  if (!report) return <p className="diagnostic-muted">Normalized detector observations were not recorded for this message.</p>;
+  const shared = sharedObservationGroups(report);
+  return <details className="diagnostic-disclosure">
+    <summary>Detector availability and recorded results</summary>
+    <p className="diagnostic-muted">Receipt-time observations. A completed request is not proof of safety. Missing, disabled and excluded results are not votes. Comparison and admission checks do not add to the content score.</p>
+    <section className="diagnostic-observations-scroll" aria-label="Recorded detector observations">
+      <table className="diagnostic-table">
+        <caption>Detector results · schema {report.version}</caption>
+        <thead><tr><th scope="col">Detector / scope</th><th scope="col">Availability / role</th><th scope="col">Result / original units</th></tr></thead>
+        <tbody>{report.observations.map(o => <tr key={o.id}>
+          <th scope="row">{observationName(o.id)}<div className="diagnostic-muted">{observationScope(o.scope)}</div>
+            {o.version && <div className="diagnostic-muted">{o.version}</div>}</th>
+          <td>{observationState(o.state)}<div className="diagnostic-muted">{observationRole(o.role)}</div>
+            {o.elapsed_ms != null && <div className="diagnostic-muted">{duration(o.elapsed_ms)}</div>}</td>
+          <td>{observationResult(o)}{Object.entries(o.measurements).map(([name,m]) =>
+            <div key={name} className="diagnostic-muted">{observationMeasurement(name,m)}</div>)}
+            {o.queried_at != null && <div className="diagnostic-muted">Lookup recorded {timestamp(o.queried_at)}
+              {o.cache_max_age_seconds != null && ` · cache age at lookup ≤ ${o.cache_max_age_seconds} s`}
+              {o.analysis_max_age_seconds != null ? ` · provider analysis age ≤ ${o.analysis_max_age_seconds} s` : ' · provider analysis age not attested'}</div>}
+          </td>
+        </tr>)}</tbody>
+      </table>
+    </section>
+    {shared.length > 0 && <details><summary>Shared evidence across observations</summary>
+      <p className="diagnostic-muted">These observations share a target or content family. They are not independent confirmations. Grouping documents correlations; it does not itself change the recorded score.</p>
+      <ul>{shared.map(g => <li key={g.key}>{g.observations.map(observationName).join(' · ')}{g.conflict && ' — conflicting reputation results'}</li>)}</ul>
+    </details>}
+    {report.omitted > 0 && <p className="diagnostic-muted">Bounded detail: {report.omitted} target or observation entries omitted.</p>}
+  </details>;
+}
+
 function AnalysisDetails({
   analysis,
   reasons,
@@ -130,6 +167,10 @@ function AnalysisDetails({
         </div>
       </dl>
       <p className="diagnostic-callout">{policySummary(analysis.policy)}</p>
+      <ReceiptActivation epoch={analysis.activation_epoch} />
+      <ScoreAccounting report={analysis.scoring} />
+      <FusionAccountingView report={analysis.fusion_combination} decisionSource={analysis.assessment?.decision.source} />
+      <DetectorObservations report={analysis.observations} />
       {analysis.policy && (
         <p className="diagnostic-muted">
           Policy version: <code>{analysis.policy.version}</code>.
@@ -172,8 +213,9 @@ function AnalysisDetails({
       </details>}
       {analysis.native_filter && <details className="diagnostic-disclosure">
         <summary>Native engine: composite rules, campaigns and Bayes</summary>
-        <p className="diagnostic-muted">Comparative observation without effect on delivery. Points and result Bayes are not calibrated probabilities.</p>
+        <p className="diagnostic-muted">Recorded native engine results. The mode and delivery effect below describe their role; points and Bayes output are not calibrated probabilities.</p>
         <dl className="diagnostic-facts">
+          <div><dt>Mode / delivery effect</dt><dd>{analysis.native_filter.mode} · {analysis.native_filter.affects_delivery ? "contributes to delivery policy" : "observation only"}</dd></div>
           <div><dt>Local analysis</dt><dd>{evidenceState(analysis.native_filter.status)} · {duration(analysis.native_filter.elapsed_ms)}</dd></div>
           <div><dt>Points after ceilings</dt><dd>{contribution(analysis.native_filter.score?.total)}</dd></div>
           <div><dt>OSB Bayes Classifier</dt><dd>{({untrained:"No model trained",complete:"Analysis available",scope_mismatch:"Domain outside model scope",expired:"Model expired",insufficient_features:"Insufficient evidence",incompatible:"incompatible protocol"} as Record<string,string>)[analysis.native_filter.bayes.status] ?? "Analysis not available"}</dd></div>
@@ -523,7 +565,7 @@ export default function Diagnostics({
   return (
     <section className="panel message-diagnostics" aria-labelledby={titleId}>
       <div className="diagnostic-heading">
-        <h2 id={titleId}>Message diagnostics</h2>
+        <h2 id={titleId}>Authentication and delivery trace</h2>
         <Button
           variant="outline"
           disabled={loading}
@@ -573,11 +615,10 @@ export default function Diagnostics({
       <div aria-busy={loading}>
         {data && (
           <>
-            <AnalysisDetails
-              analysis={data.analysis}
-              reasons={reasons}
-              source={source}
-            />
+            <details className="diagnostic-disclosure">
+              <summary>Score accounting and detector observations</summary>
+              <AnalysisDetails analysis={data.analysis} reasons={reasons} source={source} />
+            </details>
             <AuthenticationDetails
               auth={data.analysis.evidence?.authentication}
             />

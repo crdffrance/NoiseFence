@@ -8,6 +8,7 @@ pub mod config;
 pub mod confirmation;
 pub mod corpus;
 pub mod decision;
+pub mod decision_record;
 pub mod delivery_log;
 pub mod detection_diagnostics;
 pub mod diagnostics;
@@ -19,7 +20,9 @@ pub mod learning;
 pub mod llm;
 pub mod mailing;
 pub mod message;
+pub mod model_catalog;
 pub mod native_filter;
+pub mod observations;
 pub mod population;
 pub mod protection;
 pub mod quality;
@@ -46,10 +49,13 @@ pub mod vision;
 
 pub mod control;
 
+pub mod action_coverage;
 pub mod actions;
 pub mod quarantine;
 pub mod rules;
 mod scan_headers;
+pub mod score_boundary;
+pub mod scoring;
 pub mod search;
 
 pub mod custom_filtering;
@@ -59,7 +65,9 @@ mod content_urls;
 mod content_view;
 pub mod management;
 pub mod message_context;
+pub mod policy_trace;
 pub mod preferences;
+pub mod queue_body;
 
 pub mod reliability;
 
@@ -68,3 +76,5 @@ pub mod cluster;
 pub mod mfa;
 
 pub mod ha;
+
+pub mod credentials;

@@ -213,8 +213,17 @@ async fn select(
     }
     let mut settings = control.snapshot().settings.clone();
     settings.quality_candidate = Some(selection);
+    if control.activation_journal().await?.is_some() {
+        let journal=control.stage_activation_session(body.revision,settings,user.username,message::digest(token(&h).unwrap_or("").as_bytes())).await
+            .map_err(|_|Error(StatusCode::CONFLICT,"Unable to stage shadow candidate. Refresh the configuration and check compatibility.".into()))?;
+        return Ok(Json(
+            json!({"revision":journal.rollout().unwrap().epoch().revision,"staged":true,"observation_only":true}),
+        ));
+    }
     let revision=control.apply_session(body.revision,settings,user.username,message::digest(token(&h).unwrap_or("").as_bytes())).await.map_err(|_|Error(StatusCode::CONFLICT,"Unable to activate shadow candidate. Refresh the configuration and check compatibility.".into()))?;
-    Ok(Json(json!({"revision":revision,"observation_only":true})))
+    Ok(Json(
+        json!({"revision":revision,"staged":false,"observation_only":true}),
+    ))
 }
 async fn release_readiness(
     State(app): State<App>,

@@ -1,0 +1,24 @@
+export type ScoringReport = {
+  version: string;
+  baseline: number | null;
+  lexical: number | null;
+  semantic: number | null;
+  contributions: Array<{id:string;family:string;occurrences:number;proposed:number|null;retained:number|null;adjustment:string;subsumed_by?:string|null}>;
+  invalid_inputs: number;
+  rules_total: number | null;
+  total_logit: number | null;
+  score: number | null;
+};
+export function scoreAdjustment(value:string) {
+  return ({none:'Applied once',duplicate:'Repeated signal counted once',detector_policy:'Reconciled with the usable detector opinion',
+    conflicting_weights:'Conflicting weights — index unavailable',invalid_weight:'Invalid weight — index unavailable',
+    unavailable_evidence:'Excluded — no usable supporting result',subsumed_evidence:'Already included in the composite finding'} as Record<string,string>)[value] ?? 'Unknown adjustment';
+}
+export function scoreValue(value:number|null|undefined) {
+  return value != null && Number.isFinite(value) ? new Intl.NumberFormat('en-GB',{maximumFractionDigits:4}).format(value) : 'Not available';
+}
+
+export type FusionAccounting = {
+  version:string;model_sha256?:string|null;policy_sha256:string;bias:number;total_logit:number;
+  families:Record<string,{raw:number;retained:number;minimum:number;maximum:number}>;
+};

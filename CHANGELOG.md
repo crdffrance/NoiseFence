@@ -1,5 +1,140 @@
 # Changelog
 
+## 0.28.0-rc.9 — Simplify message diagnostics
+
+- Replace redundant message-diagnostic headers with a version 11 contract of 25 stable fields. Group score, policy, action, coverage and rule-accounting details while retaining ARC signing and bounded, privacy-safe values.
+- Rework message analysis into a decision-first summary with Spam/Ham/Pub, risk index, analysis coverage and action at receipt. Expand individual findings on demand; keep execution details and the independent Rspamd second opinion separate from the NoiseFence verdict.
+- Refresh the public GitHub documentation and examples to describe the current header contract and explain that the risk index, coverage, classification and delivery action are distinct.
+
+## 0.28.0-rc.8 — Preserve completed checks and explain calibration readiness
+
+- Preserve completed LLM, SMTP-policy, reputation and campaign results when a sibling check exhausts the shared analysis deadline. Bound authentication to two seconds and continue independent content checks after authentication or DNS-reputation errors; missing checks remain unavailable and cannot enable subject rewriting.
+- Retain provider findings together with their reports. Record bounded CRDF batch-error codes without provider content or credentials; keep target binding, quotas and backoff unchanged.
+- Clarify completed-transfer, ride-receipt and optional consent context in prompt `noisefence-classify-11`. Context does not grant sender trust or change numeric weights. The new prompt defines a new observation cohort and needs human-labelled evaluation.
+- Explain per-partition training readiness in the English console. Return an actionable failure report when protected campaign identities are missing; never silently remove protected references or fit a model on an invalid partition.
+- Preserve the complete rc.7 typed messaging policy during an unenrolled coordinator-first rollout; credential-bound activation still requires matching builds.
+- Keep Spam/Ham/Pub decisions independent of Rspamd. No recalibrated model, detection-rate claim, threshold change or enforcement activation is included. See the [filter qualification procedure](docs/filter-qualification.md).
+
+## 0.28.0-rc.7 — Spam, Ham and Pub verdicts
+
+- Standardize the primary message verdict as Spam, Ham or Pub in the console, API (`verdict`) and version 9 SMTP headers (`X-NoiseFence-Verdict`). Keep detailed threats, coverage and immutable decisions separate. Historical unresolved records use an explicitly explained neutral Ham grouping, including the Ham search filter; they remain unresolved in evaluation data. Rspamd never determines the verdict.
+
+- Verify Ham search grouping without changing original historical categories or recipient access controls. Supersedes the unpublished rc.6 validation candidate.
+
+## 0.28.0-rc.5 — Definitive decisions and independent second opinions
+
+- Present the NoiseFence verdict and delivery before the Rspamd research opinion. Explain greylisting as an unexecuted deferral, keep disagreements out of manual delivery tasks, and verify that late or failed observer results cannot change native decisions or receipts.
+
+- Make new-message decisions definitive: resolve detector abstentions by the applicable content threshold, or accept without a fabricated score when analysis is unavailable. Keep coverage, observation and delivery safeguards separate; preserve historical receipts. Remove the manual-review label and configuration toggle.
+
+- Commit a bounded private export-use journal before quality exports leave the
+  store and bind independent evaluation exports to the frozen candidate digest.
+  Concurrent, manual, failed and cross-batch repeated exports cannot
+  silently appear fresh; detect exact and nearby previously exposed campaigns.
+  Preserve known uses during fenced console recovery and require a fresh future
+  observation window. Reject missing tracking for independent-evaluation claims
+  while keeping historical comparisons readable; explain freshness in the English
+  console. This does not establish independent accuracy or change production.
+
+- Export immutable, whitelisted engine and recipient decisions for private quality
+  evaluation. Keep explicit partial-analysis verdicts, recipient overrides and
+  requested/effective actions separate; reject malformed contracts and preserve
+  missing results. Align population and paired engine comparisons, canonical score
+  diagnostics and candidate baselines. The English workbench distinguishes old
+  mixed reports, engine metrics and receipt action intentions. No model training,
+  production change or independent quality claim is included.
+
+- Unify captured SMTP authentication and DQS eligibility across scoring,
+  confirmation, LLM facts, context safeguards and diagnostics. Version 8 SMTP
+  authentication headers expose only eligible facts. Reject incompatible or
+  inactive evidence without erasing independently completed checks during partial
+  failures; keep ARC independent and apply the same domain bound everywhere.
+  Require retained positive content contributions for injected-lure confirmation.
+  Version new confirmation/decision policies and normalized reports; preserve
+  historical receipts, existing thresholds and production observation.
+
+- Share frozen CRDF/VirusTotal target eligibility between diagnostics, native
+  comparison and calibration features. Count duplicates once, exclude contradictory
+  or unavailable targets, and require distinct providers for scoped overlap.
+  Reuse retained content contributions in native comparison so raw SPF/DMARC or
+  unsupported LLM weights cannot reappear. Explain exclusions in English, version
+  the normalization and quality contracts, and preserve original history. Existing
+  quality candidates require compatible observations and requalification; no
+  production activation or detection-quality claim is included.
+
+- Add an administrator Web catalog for explicitly retained model sets, independent
+  of rollout-cache pruning. Preview and select their exact files in a coordinated
+  settings save while preserving current policy and credentials; include the
+  retained shadow candidate explicitly. Private copies are bounded and streamed,
+  survive source deletion, and can be removed without breaking staged rollouts.
+  Show model-bound fusion report checks separately from whole-pipeline quality,
+  which remains unevaluated. No enrollment, promotion or deployment is implied.
+
+- Bound each controller's active, prepared and retained engines to three runtime
+  generations, including detached native/semantic inference after cancellation.
+  Defer preparation under pressure, explain the coordinator's wait in English,
+  and allow abort to reuse the verified installed runtime without another load.
+  Idle SMTP sockets release retired models; in-flight transactions keep their
+  original engine and epoch. This is a generation bound, not a measured memory
+  budget, detection-quality improvement or production activation.
+
+- Correct calibration-readiness counts: use labelled, usable observations for
+  class-count checks and share eligibility between global and sample views.
+  Preserve all messages/annotations and explain incompatible or missing inputs
+  in the English console. Never infer an eligible count from an older API schema
+  or expose previous counts while a revised dataset is loading. Independent
+  qualification is still required; no scoring or production changes.
+
+- Add an offline `scoring-compare` command for bounded, private comparison of
+  frozen native SMTP observations. Separate historical scores from controlled
+  aggregation projections; preserve cohort identity and unavailable inputs, and
+  require explicit feature precision before reporting threshold crossings. No
+  provider calls, receipt changes, calibration or production activation.
+
+- Add evidence-aware content combination v2: require usable structured authentication, DQS and SMTP results for their retained rule weights; retain independently completed reputation hits during partial failures and exclude policy-only/error listings. Let a completed DMARC failure consume its failed SPF branch once, with an explicit receipt-time dependency. Preserve invalid-input rejection and historical v1 ledgers. Header version 7 and English diagnostics use retained contributions and adjustment codes instead of raw proposed weights. This scoring change needs fresh calibration and independent qualification; no accuracy claim or deployment.
+
+- Pin one redacted, non-serialized provider credential set per resident runtime. CRDF/VirusTotal stop rereading keys during analysis; LLM/DQS/admission consume the same snapshot. Preserve keys for in-flight work through file replacement/removal, retain shared quota/capacity state, and prepare v2 participants from the exact authenticated credential set. Bind private durable provider generations into activation bundles; stage Web key replacements across both MXs, retain exact base/candidate sets through source loss, cold startup, abort and partial-commit recovery. Validate complete sets before installation; keep secrets out of model downloads and Web projections. Require activation protocol 2. No production enrollment.
+
+- Capture the MAIL-pinned activation identity before analysis/header preparation. Receipt schema 2, diagnostic header version 6 and English details preserve configuration revision, sequence and bundle digest; replica/history reject contradictory identities. Keep schema-1 receipts readable without fabricating missing history, including unavailable indices. This does not change scoring or qualify production activation.
+
+- Retain immutable installed model files during coordinated settings/preference saves, even after original source removal or replacement. Add an administrator-only Web preview and explicit digest-bound selection of server installation models, including validation reports/encoder files. Changed bytes require a new preview; model identity is not a quality claim. Stage calibration-workbench shadow selection/removal and preserve cached selected candidates across later saves. Long-lived inactive/qualified artifact catalogs remain open.
+
+- Connect English Web settings and personal preferences to coordinated saves after explicit cluster enrollment. Show preparation, central commit, local installation and SMTP readiness separately; expose cancellation/recovery and safe persisted incidents. Recheck delegated scope, exact preference delta and account privileges before commit; do not expose global bundles or other recipients to users. Keep progress readable during SMTP write draining and preserve unsaved drafts. No production enrollment or model promotion.
+
+- Connect coordinated activation to authenticated cluster-v2 polling, immutable model transfer and an owned authority loop. Commit console revisions and activation state in one transaction; keep all participants fenced through partial application, partitions and lost responses. Add administrator session/CSRF-protected stage/status/abort/recovery APIs with privilege revalidation before commit. Legacy synchronization is not readiness and enrolled nodes cannot downgrade. The retained artifact catalog, membership changes and production qualification remain pending.
+- Load installed cached policies in CLI tools as well as daemon restarts; retain active/pending/recovery model manifests, verify streamed bytes and synchronize model directories before preparation. Lost release replies and abort-before-preparation are handled without accepting mixed policy epochs.
+
+- Add durable coordinated-activation authority/participant journals and a local runtime preparation driver. Verify model bytes before readiness, fence new SMTP acceptance until every participant applies, preserve owned disk writes across caller cancellation, and require validation before reopening after restart. Abort only before commit; partial-commit recovery uses a higher epoch. Network orchestration is described above; Web save integration is described below; production qualification remains incomplete.
+- Preserve database format guards when enabling MFA, replication or cluster support. Coordinated storage uses format 6 and starts fenced; older binaries and missing or mismatched journals must fail closed.
+
+- Record the selected score's native operating point and fusion model/calibration identity. Keep recipient content thresholds distinct from fusion logit cutoffs in frozen receipts, English details and signed diagnostic headers. Preserve native comparisons through flat/saturated mappings and full-precision header values; missing historical fusion boundaries remain unknown. No scoring formula, action or activation policy changes.
+- Enable exact JSON float round trips after replica tests exposed low-order drift in a saved fusion probability. Preserve stored numbers across queue/history serialization; allow only a few rounding units when validating calibration computations across hosts. Native cutoff comparisons remain exact. Requalify model artifacts before rollout; accepted history is not rescored.
+- Share strict score validation across replica manifests and central history. Preserve explicitly unavailable content indices and frozen receipts without fabricating zero, while rejecting inconsistent or out-of-range scores. Validate complete outbound replica batches before uploading bodies; cover confirmation, fenced restoration and atomic history rollback. Upgrade both receiving endpoints before rollout.
+- Remove the six-copy SMTP ceiling: share immutable bodies between policy variants, stream spool writes and replica uploads, and bound aggregate headers/metadata. Split copies at the existing 100-recipient replica limit; retain atomic batch acceptance and temporary deferral on resource failures. Check full-batch disk space and bound remote preparation as a whole.
+
+- Add opt-in scoped inheritance across organization, alias/domain and mailbox profiles, retaining domain preferences when a mailbox adds rules. Keep legacy ordering for existing configurations. Personal rules run before administrator rules and cannot stop them; deterministic ties use the original rule IDs.
+- Record recipient-specific profile inheritance, threshold ownership, matched/missing/stopped rules, winning effects and malware priority. Display the receipt trace in the English console without exposing rule values or changing accepted history. Scoped risk-index conditions use the same selected index as the receipt and UI.
+- Add a Web draft comparison on 1–50 explicit message IDs for one recipient. Reuse retained detector results, freeze the evaluation time and sample fingerprint, and exclude unknown comparisons from change counts. No content is sent, rescanned or modified; truncated or unavailable facts stay unknown.
+- Require fresh compatible reports from every enabled worker before scoped policy activation or edits. Refuse scoped bundles to older MX builds; retain audited support for rc.1 partial actions and rc.2 capped fusion. This is a compatibility gate, not atomic multi-node activation.
+- No production deployment, model promotion or new detection-rate claim. Independent full-pipeline qualification and coordinated activation remain required.
+
+## 0.28.0-rc.2 — Bounded fusion candidates (unreleased)
+
+- Add a version-2 learned fusion model with explicit log-odds limits per detector family. Use the same capped likelihood during fitting and the same capped calculation for calibration, threshold selection, Python evaluation and Rust runtime prediction. Keep legacy model behavior unchanged.
+- Record family contributions before and after limits, the bias, policy and model fingerprints with receipt decisions. Display the English accounting separately from legacy content-index and native-rule points.
+- Expose installed fusion mode and model-contract selection in the administrator's Web engine settings. Require matching model/configuration, version-2 independent quality/latency qualification and fresh compatible MX reports before decision activation. Keep old queue prediction JSON readable and refuse capped bundles to earlier workers.
+- Synthetic parity and regression tests validate software consistency, not detection quality. No fitted production model, new detection-rate claim or deployment accompanies this release candidate.
+
+## 0.28.0-rc.1 — Unified receipt decisions (unreleased)
+
+- Persist versioned analysis and recipient-decision snapshots before rendering SMTP copies. Preserve policy thresholds, requested/effective actions and coverage across configuration changes, queue replication and restoration.
+- Share action constraints between global and scoped policies. Split copies with different effective policies instead of merging incompatible delivery and quarantine headers.
+- Make history, search and statistics preserve receipt-time decisions; original policy absence remains explicit. Add version 5 headers and English console details for the canonical record.
+- Record bounded, normalized detector observations with availability, provenance, scope, native units and shared evidence groups. Preserve completed provider targets across partial outages; distinguish no-hit, stale, timeout and quota results. Display the receipt-time report in English diagnostics without rebuilding historical observations.
+- Add an opt-in Web policy for partial actions with recorded evidence requirements per decision. Require explicit subject-rendering readiness and retain requested/effective actions when a fallback copy cannot be tagged. Observation and Proton gates remain independent.
+- Centralize the content-index calculation in a versioned receipt-time ledger: count identical message-level signals once, reject conflicting/nonfinite weighted inputs, and reconcile stale LLM signals against the usable opinion. Show retained contributions and exact historical accounting in English diagnostics. Correlated signals with different identities still require joint calibration.
+- Refuse Web activation until every enabled registered MX has recently reported the new build; older workers retain parseable disabled settings. Preserve bounded wire variants. Qualified cross-family score combination, full-pipeline calibration and atomic coordinated rollout remain pending; no detection-rate claim or production activation.
+
 ## 0.27.0 — Evidence grounding and release qualification
 
 - Assign bounded text references in Rust and validate the LLM's declared evidence against message context and observed authentication/domain facts. Keep unsupported claims out of scoring, definite opinions, fusion and backscatter corroboration; expose the diagnostic in the console and signed headers. Reference consistency does not prove semantic correctness; expose fixed response-limit/schema diagnostics without retaining provider bodies.

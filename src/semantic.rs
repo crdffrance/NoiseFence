@@ -109,6 +109,8 @@ pub struct Hybrid {
     combination_sha256: String,
     slots: std::sync::Arc<tokio::sync::Semaphore>,
     timeout: std::time::Duration,
+    // Kept by analyze's owned worker even when its async waiter times out.
+    _generation: Option<std::sync::Arc<crate::capacity::Permit>>,
 }
 impl Hybrid {
     /// Deadline-only edits reuse immutable weights and the existing capacity
@@ -124,7 +126,11 @@ impl Hybrid {
             combination_sha256: self.combination_sha256.clone(),
             slots: self.slots.clone(),
             timeout: std::time::Duration::from_millis(settings.timeout_ms),
+            _generation: self._generation.clone(),
         })
+    }
+    pub(crate) fn bind_generation(&mut self, generation: std::sync::Arc<crate::capacity::Permit>) {
+        self._generation = Some(generation);
     }
     pub(crate) fn share_limits(&mut self, old: &Self) {
         self.slots = old.slots.clone();
@@ -179,6 +185,7 @@ impl Hybrid {
             combination_sha256: crate::message::digest(&bytes),
             slots: std::sync::Arc::new(tokio::sync::Semaphore::new(config.max_parallel)),
             timeout: std::time::Duration::from_millis(config.timeout_ms),
+            _generation: None,
         })
     }
     fn outcome(&self, status: crate::engine::SemanticStatus) -> crate::engine::SemanticResult {
@@ -355,11 +362,14 @@ mod tests {
     #[tokio::test]
     async fn timed_out_inference_keeps_its_cpu_permit_until_work_finishes() {
         let slots = Arc::new(tokio::sync::Semaphore::new(1));
+        let generations = crate::capacity::Capacity::new(1);
+        let generation = Arc::new(generations.try_acquire().unwrap());
         let worker_slots = slots.clone();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         let task = tokio::spawn(async move {
             bounded(worker_slots, Duration::from_millis(30), move || {
+                let _generation = generation;
                 started_tx.send(()).unwrap();
                 release_rx.recv().unwrap();
                 Ok(42)
@@ -372,6 +382,7 @@ mod tests {
             Err((SemanticStatus::Unavailable, SemanticFailure::Deadline))
         );
         assert_eq!(slots.available_permits(), 0);
+        assert!(generations.try_acquire().is_err());
         assert_eq!(
             bounded(slots.clone(), Duration::from_millis(30), || Ok(0)).await,
             Err((SemanticStatus::Busy, SemanticFailure::Capacity))
@@ -382,6 +393,7 @@ mod tests {
             .unwrap()
             .unwrap();
         drop(permit);
+        assert_eq!(generations.available_permits(), 1);
         assert_eq!(
             bounded(slots, Duration::from_secs(1), || Ok(7)).await,
             Ok(7)

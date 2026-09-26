@@ -138,7 +138,21 @@ impl Context {
         ]
         .iter()
         .any(|s| body.contains(s));
-        self.transaction_notice = shipment || (payment_subject && payment_body);
+        // Completed-transfer and ride-receipt context is independent of any
+        // brand or sender allowlist. A current sensitive demand still conflicts.
+        static TRANSFER: OnceLock<Regex> = OnceLock::new();
+        let transfer = TRANSFER.get_or_init(|| Regex::new(r"(?i)\b(?:virement|bank transfer|payout)\b.{0,40}\b(?:en route|on (?:its|the) way|processed|sent)\b").unwrap()).is_match(&subject)
+            && ["montant du virement", "transfer amount", "payout amount"].iter().any(|p| body.contains(p))
+            && ["compte bancaire", "bank account"].iter().any(|p| body.contains(p));
+        static TRIP: OnceLock<Regex> = OnceLock::new();
+        let trip_receipt = TRIP
+            .get_or_init(|| Regex::new(r"(?i)\byour\b.{0,40}\b(?:trip|ride)\b").unwrap())
+            .is_match(&subject)
+            && body.contains("thanks for riding")
+            && body.contains("trip fare")
+            && body.contains("payments");
+        self.transaction_notice =
+            shipment || (payment_subject && payment_body) || transfer || trip_receipt;
         self.conditional_security_notice = [
             "if this was you",
             "if it was you",
@@ -206,7 +220,6 @@ pub fn attach(scan: &mut Scan, raw: &[u8], max_bytes: usize) {
 /// Only gateway-observed aligned authentication is eligible; header claims,
 /// content-only scans and missing authentication do not qualify.
 pub fn needs_review(scan: &Scan) -> bool {
-    use crate::evidence::{AuthResult, Source, State};
     let Some(context) = &scan.message_context else {
         return false;
     };
@@ -219,10 +232,7 @@ pub fn needs_review(scan: &Scan) -> bool {
     let Some(evidence) = &scan.evidence else {
         return false;
     };
-    evidence.source != Source::ContentOnly
-        && evidence.authentication.dmarc_state == State::Complete
-        && (evidence.authentication.dmarc_spf == Some(AuthResult::Pass)
-            || evidence.authentication.dmarc_dkim == Some(AuthResult::Pass))
+    crate::evidence::eligibility::dmarc_pass(evidence)
 }
 
 #[cfg(test)]

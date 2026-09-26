@@ -5,8 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from './client';
 import { actionLabel, type DeliveryAction } from './actions';
+import { actionReason, type ActionCoverage } from './action-coverage';
+import { ActionCoverageDetails } from './action-coverage-view';
 import { SensitivitySelect } from './filter-sensitivity-control';
 import type { SensitivityLevel } from './filter-sensitivity';
+import { orderingDescription, type PolicyOrdering, type PolicyTrace } from './policy-trace';
+import { PolicyTraceDetails } from './policy-trace-view';
+import { PolicySample } from './policy-sample';
 type Category = 'spam' | 'publicity' | 'legitimate' | 'undetermined';
 type Field =
   | 'envelope_from'
@@ -55,11 +60,13 @@ type Rule = {
   stop: boolean;
 };
 export type CustomPolicy = {
+  ordering?: PolicyOrdering;
   profiles: Profile[];
   bindings: { scope: string; profile: string }[];
   rules: Rule[];
 };
 export type FilteringAssessment = {
+  trace?: PolicyTrace | null;
   policy: string;
   profile: string | null;
   threshold: number;
@@ -68,13 +75,14 @@ export type FilteringAssessment = {
   matched: { id: string; name: string; fields: Field[] }[];
   unavailable_conditions: number;
   action: {
+    coverage?: ActionCoverage | null;
     requested: DeliveryAction;
     effective: DeliveryAction;
     reason: string;
     quarantine_days: number;
   };
 };
-const empty: CustomPolicy = { profiles: [], bindings: [], rules: [] };
+const empty: CustomPolicy = { ordering: 'scoped', profiles: [], bindings: [], rules: [] };
 const fields: Record<Field, string> = {
   envelope_from: "Envelope sender",
   from_domain: "SMTP sender domain",
@@ -85,7 +93,7 @@ const fields: Record<Field, string> = {
   recipient_domain: "Recipient domain",
   size: "Size in bytes",
   score: "Risk index",
-  category: "Initial classification",
+  category: "Engine classification (before rules)",
   signal: "Signal ID",
   dmarc: "DMARC result",
 };
@@ -103,7 +111,7 @@ const categories: Record<Category, string> = {
   spam: 'Spam',
   publicity: "Marketing",
   legitimate: "Legitimate",
-  undetermined: 'Needs review',
+  undetermined: 'Automatic decision by threshold (legacy rule)',
 };
 export function FilteringDetails({ value }: { value: FilteringAssessment }) {
   return (
@@ -113,13 +121,10 @@ export function FilteringDetails({ value }: { value: FilteringAssessment }) {
       </strong>
       <p>
         {actionLabel[value.action.requested]} requested ·{' '}
-        {actionLabel[value.action.effective]} Implemented
-        {value.action.reason === 'observation'
-          ? ' (observation)'
-          : value.action.reason === 'incomplete'
-            ? " (incomplete analysis)"
-            : ''}
+        {actionLabel[value.action.effective]} effective
+        {' · '}{actionReason(value.action.reason)}
       </p>
+      <ActionCoverageDetails coverage={value.action.coverage} />
       <p className="muted small">
         Initial classification: {categories[value.original_category]} · threshold{' '}
         {value.threshold} · policy {value.policy.slice(0, 12)}
@@ -140,6 +145,7 @@ export function FilteringDetails({ value }: { value: FilteringAssessment }) {
           {value.unavailable_conditions} condition(s) without data available.
         </p>
       )}
+      <PolicyTraceDetails trace={value.trace} />
     </div>
   );
 }
@@ -220,11 +226,20 @@ export function CustomFiltering({
           <h2>A policy tailored to each recipient</h2>
         </div>
         <p className="muted">
-          The exact address takes precedence over the domain, then over the organization. aliases are taken into account. Technical checks run only once per message.
+          Profiles apply from the most specific address to its domain and organization. Alias scopes are included. Technical checks run once per message.
         </p>
+        <label>Policy inheritance and ordering
+          <select value={p.ordering ?? 'legacy_priority'} onChange={e => onChange({...p, ordering: e.target.value as PolicyOrdering})}>
+            <option value="scoped">Scoped inheritance</option>
+            <option value="legacy_priority">Legacy priority ordering</option>
+          </select>
+        </label>
+        <p className="muted small">{orderingDescription(p.ordering)}</p>
+        <p className="muted small">Scoped inheritance combines domain and mailbox preferences. A personal profile wins at the same scope; an inherited threshold falls through to the administrator profile, then broader scopes. Activation requires every enabled MX to support it. Simulate before saving.</p>
         <p className="small">
           Observation mode always transmits. Prefixes require Proton validations. Rules do not disable the priority of antivirus.
         </p>
+        <p className="muted small">Risk-index conditions use the canonical displayed index in scoped mode. Legacy rules retain the original content index. Thresholds do not change detector measurements.</p>
         <datalist id="filter-scopes">
           <option value="*">The whole organisation</option>
           {domains.map((d) => (
@@ -314,12 +329,6 @@ export function CustomFiltering({
               value={profile.publicity}
               onChange={(publicity) => updateProfile(i, { publicity })}
             />
-            <ActionSelect
-              label="Needs review"
-              value={profile.review}
-              review
-              onChange={(review) => updateProfile(i, { review })}
-            />
           </div>
           <label className="check">
             <input
@@ -383,7 +392,7 @@ export function CustomFiltering({
               onChange({
                 ...p,
                 bindings: p.bindings.map((v, n) =>
-                  n === i ? { ...v, scope: e.target.value.toLowerCase() } : v,
+                  n === i ? { ...v, scope: e.target.value } : v,
                 ),
               })
             }
@@ -447,7 +456,7 @@ export function CustomFiltering({
         </Button>
       </div>
       <p className="muted small">
-        Rules run in ascending priority. A later match can replace the previous effect unless “stop” is selected. Text matching is case-insensitive. Simulation does not open links.
+        {orderingDescription(p.ordering)} A later match can replace a previous effect. Text conditions are case-insensitive; mailbox scopes preserve case. Category conditions use the original engine classification. Simulation does not open links.
       </p>
       {p.rules.map((rule, i) => (
         <div className="panel custom-card" key={rule.id}>
@@ -468,7 +477,7 @@ export function CustomFiltering({
                 list="filter-scopes"
                 value={rule.scope}
                 onChange={(e) =>
-                  updateRule(i, { scope: e.target.value.toLowerCase() })
+                  updateRule(i, { scope: e.target.value })
                 }
               />
             </label>
@@ -690,7 +699,7 @@ export function CustomFiltering({
       >
         <div className="section-heading">
           <FlaskConical size={20} />
-          <h2>Simulate the draft</h2>
+          <h2>Test draft rules with synthetic facts</h2>
         </div>
         <p className="muted small">
           No messages sent or saved settings. DNS, antivirus and reputation controls remain unknown. This simulation checks the conditions entered, not the accuracy of the engine.
@@ -754,6 +763,7 @@ export function CustomFiltering({
         )}
         {result && <FilteringDetails value={result} />}
       </form>
+      <PolicySample policy={p} csrf={csrf} />
     </div>
   );
 }

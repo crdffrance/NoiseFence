@@ -21,6 +21,7 @@ test('an old revision restores the server legacy actions, not the active quarant
   assert.equal(restored.actions, null);
   assert.deepEqual(restored.filters.rule_weights, {});
   assert.equal(restored.filters.require_corroboration, false);
+  assert.equal(restored.filters.partial_actions, false);
   assert.equal('actions' in old, false);
   assert.equal('rule_weights' in old.filters, false);
 });
@@ -37,6 +38,7 @@ test('restoring explicit actions and rule weights preserves them exactly', () =>
       mode: 'enforce',
       require_corroboration: true,
       resolve_uncertain_by_score: true,
+      partial_actions: true,
       rule_weights: { urgency: 0 },
     },
   };

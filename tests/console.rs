@@ -225,7 +225,7 @@ async fn sensitivity_catalog_and_profiles_are_admin_only_atomic_and_persistent()
     let (status, simulated) =
         request(&app, &token, "/admin/filtering/preview", Some(preview)).await;
     assert_eq!(status, StatusCode::OK, "{simulated}");
-    assert_eq!(simulated["assessment"]["category"], "undetermined");
+    assert_eq!(simulated["assessment"]["category"], "spam");
     assert_eq!(simulated["assessment"]["threshold"], 90.0);
     assert_eq!(simulated["assessment"]["action"]["effective"], "deliver");
     settings["custom_filtering"]["profiles"][0]["threshold"] = json!(1);
@@ -1118,6 +1118,8 @@ async fn protection_credentials_stay_private_and_policy_changes_preserve_the_sco
     let (status, body) = request(&app, &admin, "/admin/protection", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["keys"]["crdf"], true);
+    assert_eq!(body["loaded_keys"]["crdf"], false);
+    assert_eq!(body["pending_keys"]["crdf"], true);
     assert!(!body.to_string().contains(key));
     for path in ["/admin/config", "/admin/audit", "/admin/revisions"] {
         let (_, body) = request(&app, &admin, path, None).await;
@@ -1144,6 +1146,36 @@ async fn protection_credentials_stay_private_and_policy_changes_preserve_the_sco
     assert_eq!(old.score, new.score);
     assert_eq!(old.features, new.features);
     assert!(new.protection.unwrap().observation_only);
+    let (_, loaded) = request(&app, &admin, "/admin/protection", None).await;
+    assert_eq!(loaded["loaded_keys"]["crdf"], true);
+    assert_eq!(loaded["pending_keys"]["crdf"], false);
+    let until = noisefence::now() + 600;
+    let db = rusqlite::Connection::open(dir.path().join("protection/reputation.sqlite3")).unwrap();
+    let credential = noisefence::message::digest(format!("crdf:{key}").as_bytes());
+    db.execute(
+        "INSERT OR REPLACE INTO cooldown(key,expires) VALUES(?1,?2)",
+        rusqlite::params![credential, until],
+    )
+    .unwrap();
+    let replacement = "synthetic-replacement-crdf-key-12345";
+    assert_eq!(
+        request(
+            &app,
+            &admin,
+            "/admin/protection/keys/crdf",
+            Some(json!({"key":replacement}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, pending) = request(&app, &admin, "/admin/protection", None).await;
+    assert_eq!(pending["keys"]["crdf"], true);
+    assert_eq!(pending["loaded_keys"]["crdf"], true);
+    assert_eq!(pending["pending_keys"]["crdf"], true);
+    assert_eq!(pending["usage"]["crdf"]["cooldown_until"], until);
+    assert!(!pending.to_string().contains(key));
+    assert!(!pending.to_string().contains(replacement));
     let resumed = Controller::load(cfg, store).await.unwrap();
     assert!(
         resumed
@@ -1269,8 +1301,32 @@ async fn publicity_filters_stats_feedback_and_bcc_obey_security_decision_and_acl
         let (code, body) = request(&app, &alice, &format!("/messages?filter={filter}"), None).await;
         assert_eq!(code, StatusCode::OK, "{body}");
         let rows = body.as_array().unwrap();
-        assert_eq!(rows.len(), 1, "{body}");
-        assert_eq!(rows[0]["category"], category);
+        if filter == "legitimate" {
+            // Ham groups fail-open history, but does not rewrite its evidence.
+            assert_eq!(rows.len(), 3, "{body}");
+            assert!(rows.iter().all(|row| row["verdict"] == "ham"));
+            assert_eq!(
+                rows.iter()
+                    .filter(|row| row["category"] == "undetermined")
+                    .count(),
+                2
+            );
+            assert_eq!(
+                rows.iter()
+                    .filter(|row| row["category"] == "legitimate")
+                    .count(),
+                1
+            );
+        } else {
+            assert_eq!(rows.len(), 1, "{body}");
+            assert_eq!(rows[0]["category"], category);
+            let verdict = match category {
+                "publicity" => "pub",
+                "spam" => "spam",
+                _ => "ham",
+            };
+            assert_eq!(rows[0]["verdict"], verdict);
+        }
         assert!(!body.to_string().contains("bob@example.test"));
     }
     let (_, stats) = request(&app, &alice, "/stats", None).await;
@@ -1364,6 +1420,7 @@ async fn held_message(store: &Store, cfg: &noisefence::config::Config) -> String
     let mut scan = extract(common::MESSAGE, 10000);
     scan.score = 99.;
     scan.action = Some(noisefence::actions::Applied {
+        coverage: None,
         requested: noisefence::actions::Action::Quarantine,
         effective: noisefence::actions::Action::Quarantine,
         reason: "category".into(),

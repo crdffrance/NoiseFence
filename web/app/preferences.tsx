@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, Save, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, type User } from './client';
+import { ActivationPanel, useActivation } from './activation-view';
+import { saveNotice, savesBlocked, type SaveResult } from './activation';
 import type { Preferences, Preference } from './management';
 import type { CustomPolicy, Profile } from './custom-filtering';
 type Rule = CustomPolicy['rules'][number];
@@ -50,6 +52,8 @@ export function MyFilters({
   user: User;
   onDirty: (dirty: boolean) => void;
 }) {
+  const activation = useActivation(user, false);
+  const blocked = savesBlocked(activation.view, activation.error);
   const [view, setView] = useState<View | null>(null);
   const [scope, setScope] = useState('');
   const [draft, setDraft] = useState<Preference>({ profile: null, rules: [] });
@@ -95,12 +99,12 @@ export function MyFilters({
     setNotice('');
   }
   async function save(reset = false) {
-    if (!view) return;
+    if (!view || blocked) return;
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      await api(
+      const result = await api<SaveResult>(
         '/preferences',
         { revision: view.revision, scope, preference: reset ? null : draft },
         user.csrf,
@@ -108,13 +112,23 @@ export function MyFilters({
       const next = await api<View>('/preferences');
       setView(next);
       setDraft(next.settings.mailboxes[scope] ?? { profile: null, rules: [] });
-      setNotice("Saved preferences for future messages.");
+      await activation.refresh();
+      setNotice(saveNotice(result));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
+  useEffect(() => {
+    if (!view || dirty || busy || !activation.view || activation.view.pending ||
+        activation.view.installed_revision === view.revision) return;
+    let active = true;
+    api<View>('/preferences').then(next => {
+      if (active) { setView(next); setDraft(next.settings.mailboxes[scope] ?? { profile: null, rules: [] }); setNotice('Installed preferences refreshed.'); }
+    }).catch(e => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [activation.view, view, dirty, busy, scope]);
   function rule(i: number, p: Partial<Rule>) {
     setDraft({
       ...draft,
@@ -123,6 +137,7 @@ export function MyFilters({
   }
   return (
     <div className="management-settings personal-filters">
+      <ActivationPanel state={activation} user={user} />
       <div className="page-title">
         <p className="eyebrow">PERSONAL SPACE</p>
         <h1>
@@ -218,7 +233,7 @@ export function MyFilters({
             </p>
           )}
           <fieldset
-            disabled={!view.settings.enabled || busy || !scope}
+            disabled={!view.settings.enabled || busy || !scope || blocked}
             className="personal-controls"
           >
             <section className="management-card">
@@ -320,13 +335,9 @@ export function MyFilters({
                       }
                     />
                   </label>
-                  {(['spam', 'publicity', 'review'] as const).map((k) => (
+                  {(['spam', 'publicity'] as const).map((k) => (
                     <label key={k}>
-                      {k === 'spam'
-                        ? "Spam detected"
-                        : k === 'publicity'
-                          ? "Marketing and newsletters"
-                          : "Needs review"}
+                      {k === 'spam' ? "Spam detected" : "Marketing and newsletters"}
                       <select
                         value={draft.profile![k]}
                         onChange={(e) =>
@@ -337,7 +348,6 @@ export function MyFilters({
                         }
                       >
                         {view.settings.allowed_actions
-                          .filter((a) => k !== 'review' || a !== 'tag')
                           .map((a) => (
                             <option key={a} value={a}>
                               {actions[a]}
@@ -590,7 +600,7 @@ export function MyFilters({
                       <option value="spam">Spam</option>
                       <option value="publicity">Marketing</option>
                       <option value="legitimate">Legitimate</option>
-                      <option value="undetermined">Needs review</option>
+                      <option value="undetermined">Automatic decision by threshold (legacy rule)</option>
                     </select>
                   </label>
                   <label>
@@ -618,7 +628,7 @@ export function MyFilters({
               <span>
                 {dirty
                   ? "Unsaved changes"
-                  : "Preferences saved"}
+                  : activation.view?.pending ? "Activation pending" : "Installed preferences"}
               </span>
               <Button
                 variant="outline"

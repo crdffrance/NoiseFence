@@ -12,7 +12,7 @@ use std::{
 /// A future release must review its typed policies before extending this window.
 pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
-        || (env!("CARGO_PKG_VERSION") == "0.27.0"
+        || (env!("CARGO_PKG_VERSION") == "0.28.0-rc.8"
             && matches!(
                 build,
                 "0.14.0"
@@ -36,7 +36,26 @@ pub fn compatible_build(build: &str) -> bool {
                     | "0.25.1"
                     | "0.25.2"
                     | "0.26.0"
+                    | "0.27.0"
+                    | "0.28.0-rc.1"
+                    | "0.28.0-rc.2"
+                    | "0.28.0-rc.3"
+                    | "0.28.0-rc.4"
+                    | "0.28.0-rc.5"
+                    | "0.28.0-rc.6"
+                    | "0.28.0-rc.7"
             ))
+}
+
+/// Capabilities audited for this release, not inferred from an arbitrary SemVer.
+pub fn supports_partial_actions(build: &str) -> bool {
+    build == env!("CARGO_PKG_VERSION") || matches!(build, "0.28.0-rc.1" | "0.28.0-rc.2")
+}
+pub fn supports_capped_fusion(build: &str) -> bool {
+    build == env!("CARGO_PKG_VERSION") || build == "0.28.0-rc.2"
+}
+pub fn supports_scoped_policy(build: &str) -> bool {
+    build == env!("CARGO_PKG_VERSION")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -53,6 +72,9 @@ pub struct Poll {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NodeStatus {
+    /// Set by the coordinator from the authenticated poll's outer build field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub research_archive: Option<crate::research_archive::Status>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,6 +138,9 @@ pub fn credential(path: &Path) -> Result<String> {
     Ok(value.into())
 }
 pub fn secrets(config: &crate::config::Config) -> Result<BTreeMap<String, String>> {
+    if let Some(keys) = &config.provider_credentials {
+        return Ok(keys.export());
+    }
     let mut secrets = BTreeMap::new();
     for provider in [
         crate::protection::providers::Provider::Crdf,

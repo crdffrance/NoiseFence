@@ -1,8 +1,11 @@
 //! Joint, versioned observations and shadow predictions. Never changes delivery.
 pub mod behavior;
+mod eligibility;
 pub mod evaluation;
+pub mod exposure;
 pub mod history;
 pub mod qualification;
+pub mod recorded;
 pub mod reservations;
 pub mod workflow;
 use crate::{engine::Scan, fusion, message, protection::Status};
@@ -61,7 +64,8 @@ pub fn specs() -> &'static [fusion::Feature] {
     })
 }
 pub fn protocol_hash() -> String {
-    message::digest(PROTOCOL)
+    static HASH: OnceLock<String> = OnceLock::new();
+    HASH.get_or_init(|| message::digest(PROTOCOL)).clone()
 }
 pub fn policy_hash(config: &crate::config::Config) -> String {
     let policy = serde_json::json!({"schema":protocol_hash(),
@@ -372,37 +376,32 @@ pub fn snapshot_bound(scan: &Scan, model: Option<&Model>, policy: Option<&str>) 
         .map(|(s, v)| (s.name.clone(), v))
         .collect();
     if let Some(protection) = &scan.protection {
-        let mut hits: BTreeMap<&str, usize> = BTreeMap::new();
-        for (name, p) in [
-            ("crdf", &protection.crdf),
-            ("virustotal", &protection.virustotal),
-        ] {
+        use crate::protection::{Provider, evidence as provider_evidence};
+        let crdf = provider_evidence::evaluate(Provider::Crdf, &protection.crdf);
+        let vt = provider_evidence::evaluate(Provider::Virustotal, &protection.virustotal);
+        for (name, p) in [("crdf", &crdf), ("virustotal", &vt)] {
             values.insert(format!("provider.{name}.{}", token(&p.status)), 1.0);
             report
                 .availability_profile
                 .push_str(&format!("/{}", token(&p.status)));
-            for observation in p.observations.iter().take(12) {
-                if !hash(&observation.indicator_sha256)
-                    || observation.queried_at > crate::now() + 60
-                    || observation.queried_at < crate::now() - 5 * 60
-                {
-                    continue;
-                }
+            for target in p.targets.iter().filter(|t| t.usable()) {
+                let observation = target.value;
                 let key = format!(
                     "provider.{name}.{}.{}",
                     observation.scope, observation.verdict
                 );
                 *values.entry(key).or_default() += 1.0;
-                if observation.verdict == "malicious" {
-                    *hits.entry(&observation.indicator_sha256).or_default() += 1;
-                }
             }
         }
         values.insert(
             "provider.shared_indicator_hits".into(),
-            hits.values().filter(|n| **n > 1).count().min(12) as f64,
+            provider_evidence::shared_malicious_targets(&crdf, &vt).min(12) as f64,
         );
         for f in &protection.findings {
+            // Provider counts above already describe this summary finding.
+            if f.id == "known_malicious_indicator" {
+                continue;
+            }
             values.insert(format!("phishing.{}", f.id), 1.0);
         }
         values.insert(

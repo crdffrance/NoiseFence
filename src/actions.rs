@@ -57,6 +57,8 @@ impl Policy {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Applied {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<crate::action_coverage::Evaluation>,
     pub requested: Action,
     pub effective: Action,
     pub reason: String,
@@ -64,6 +66,13 @@ pub struct Applied {
 }
 
 pub fn evaluate(scan: &Scan, config: &Config) -> Applied {
+    if let Some(action) = scan
+        .recipient_decision
+        .as_ref()
+        .and_then(|r| r.assessment.action.as_ref())
+    {
+        return action.clone();
+    }
     let policy = Policy::from_config(config);
     let malware = scan.antivirus.status == AntivirusStatus::Malware;
     let requested = if malware {
@@ -75,17 +84,61 @@ pub fn evaluate(scan: &Scan, config: &Config) -> Applied {
             _ => Action::Deliver,
         }
     };
+    constrain(
+        scan,
+        config,
+        crate::mailing::category(scan, config.filter.threshold),
+        requested,
+        policy.quarantine_days,
+        crate::action_coverage::Context {
+            threshold: config.filter.threshold,
+            matched_rule: false,
+            reason: if malware {
+                "malware_priority"
+            } else {
+                "category"
+            },
+        },
+    )
+}
+
+/// The common operational restrictions for global and scoped policies.
+pub fn constrain(
+    scan: &Scan,
+    config: &Config,
+    category: Category,
+    requested: Action,
+    quarantine_days: u16,
+    context: crate::action_coverage::Context<'_>,
+) -> Applied {
+    let coverage = crate::action_coverage::evaluate(scan, config, category, requested, &context);
     let (effective, reason) = if config.filter.mode == Mode::Observe {
         (Action::Deliver, "observation")
-    } else if !scan.complete && !(malware && requested == Action::Quarantine) {
-        (Action::Deliver, "incomplete")
+    } else if !coverage.eligible() {
+        (
+            Action::Deliver,
+            if coverage
+                .missing
+                .contains(&crate::action_coverage::Requirement::SubjectRewrite)
+            {
+                "subject_rewrite_unavailable"
+            } else if config.filter.partial_actions {
+                "action_requirements_unmet"
+            } else {
+                "incomplete"
+            },
+        )
+    } else if requested == Action::Tag && !matches!(category, Category::Spam | Category::Publicity)
+    {
+        (Action::Deliver, "category_without_prefix")
     } else {
-        (requested, "category")
+        (requested, context.reason)
     };
     Applied {
+        coverage: Some(coverage),
         requested,
         effective,
         reason: reason.into(),
-        quarantine_days: policy.quarantine_days,
+        quarantine_days,
     }
 }

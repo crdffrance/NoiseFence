@@ -170,9 +170,12 @@ pub async fn restore_queue(
                 "INSERT OR REPLACE INTO cluster_state VALUES('role','coordinator')",
                 [],
             )?;
+            // A checkpoint may predate later exports on the lost coordinator.
+            // Preserve known exposures but only future observations can establish freshness.
+            tx.execute("UPDATE quality_exposure_state SET tracking_since=MAX(tracking_since,?1) WHERE id=1", [crate::now()])?;
             tx.execute("DELETE FROM ha_remote", [])?;
             tx.execute("DELETE FROM ha_blobs", [])?;
-            tx.execute_batch("PRAGMA user_version=5")?;
+            crate::store::require_format(&tx, 5)?;
             tx.commit()?;
             Ok(())
         })

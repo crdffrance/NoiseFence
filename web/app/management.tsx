@@ -1,4 +1,5 @@
 'use client';
+import { keySaveNotice } from './provider-credentials';
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, FlaskConical, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,9 @@ export type Preferences = {
   mailboxes: Record<string, Preference>;
 };
 const labels: Record<string, string> = {
+  fusion: 'Learned fusion model',
+  family_caps: 'Require a model fitted with family limits',
+  mode: 'Operating mode',
   rspamd: 'Rspamd · independent comparison',
   sample_percent: 'Messages sampled (%)',
   queue_capacity: 'Waiting comparison jobs',
@@ -236,6 +240,11 @@ function Field({
         />
       </label>
     );
+  if (name === 'mode' && (value === 'observe' || value === 'decision'))
+    return <label>{label}<select value={value} onChange={e => onChange(e.target.value)}>
+      <option value="observe">Observe — comparison only</option>
+      <option value="decision">Decision — requires valid qualification</option>
+    </select></label>;
   if (typeof value === 'string')
     return (
       <label>
@@ -413,6 +422,7 @@ export function DetectionSettings({
                 This engine remains in observation. The motifs associated with an adaptive model are protected by its validation.
               </p>
             )}
+            {module === 'fusion' && <p>Family limits are fitted and validated with the installed model. The setting must match its contract; changing limits requires a new fitted model and qualification. Decision mode requires a valid validation report and compatible MX workers.</p>}
             <div className="management-grid">
               {entries.map(([name, v]) =>
                 name === 'content_rules' ? (
@@ -931,17 +941,13 @@ export function ManagedKeys({
           setError('');
           setNotice('');
           try {
-            const result = await api<{ active: boolean; message?: string }>(
+            const result = await api<{ active: boolean; staged?: boolean; message?: string }>(
               '/admin/keys',
               { revision, provider, key },
               csrf,
             );
             setKey('');
-            setNotice(
-              result.active
-                ? "Saved key. Reloaded configuration for future analyses."
-                : (result.message ?? "Key saved."),
-            );
+            setNotice(keySaveNotice(result));
             await onSaved();
           } catch (e) {
             setError((e as Error).message);

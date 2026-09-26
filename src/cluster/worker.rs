@@ -1,4 +1,4 @@
-use super::{artifacts, budget, history, protocol};
+use super::{activation::transport, artifacts, budget, history, protocol};
 use anyhow::{Context, Result, ensure};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::de::DeserializeOwned;
@@ -41,6 +41,7 @@ async fn download(
     root: &Path,
     bundle: &artifacts::Bundle,
     minimum_free: u64,
+    coordinated: bool,
 ) -> Result<()> {
     bundle.validate()?;
     let dir = artifacts::directory(root, bundle);
@@ -69,7 +70,8 @@ async fn download(
         let result = async {
             let mut response = http
                 .get(format!(
-                    "{url}/api/v1/cluster/v1/artifacts/{}",
+                    "{url}/api/v1/cluster/{}/artifacts/{}",
+                    if coordinated { "v2" } else { "v1" },
                     artifact.sha256
                 ))
                 .timeout(Duration::from_secs(180))
@@ -109,6 +111,11 @@ async fn download(
             let _ = tokio::fs::remove_file(&temporary).await;
         }
         result?;
+    }
+    if dir.exists() {
+        for path in [&dir, dir.parent().unwrap(), &root.join("cluster"), root] {
+            std::fs::File::open(path)?.sync_all()?;
+        }
     }
     Ok(())
 }
@@ -161,6 +168,7 @@ async fn poll(
             let pending_metadata =
                 db.query_row("SELECT COUNT(*) FROM cluster_dirty", [], |r| r.get(0))?;
             Ok(protocol::NodeStatus {
+                build: None,
                 research_archive,
                 replication,
                 hostname: snapshot.config.hostname.clone(),
@@ -177,21 +185,67 @@ async fn poll(
             })
         })
         .await?;
-    let request = protocol::Poll {
-        build: env!("CARGO_PKG_VERSION").into(),
-        revision: control.snapshot().revision,
-        digest: control.cluster_digest(),
-        budget: wallet,
-        records,
-        results,
-        status,
+    let request = transport::Request {
+        protocol: transport::PROTOCOL.into(),
+        acknowledgement: control.activation_receipt(),
+        poll: protocol::Poll {
+            build: env!("CARGO_PKG_VERSION").into(),
+            revision: control.snapshot().revision,
+            digest: control.cluster_digest(),
+            budget: wallet,
+            records,
+            results,
+            status,
+        },
     };
     let response = http
-        .post(format!("{url}/api/v1/cluster/v1/sync"))
+        .post(format!("{url}/api/v1/cluster/v2/sync"))
         .json(&request)
         .send()
         .await?;
-    let reply: protocol::Reply = bounded_json(response, 1024 * 1024).await?;
+    // Older API routers delegate unknown POST paths to ServeDir, which returns
+    // 405 rather than 404. Neither status permits an already enrolled downgrade.
+    let (reply, activation, generations) = if matches!(
+        response.status(),
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::METHOD_NOT_ALLOWED
+    ) {
+        ensure!(
+            control.store.activation.epoch().is_none() && control.store.activation.ready(),
+            "An enrolled node cannot downgrade to legacy synchronization"
+        );
+        let response = http
+            .post(format!("{url}/api/v1/cluster/v1/sync"))
+            .json(&request.poll)
+            .send()
+            .await?;
+        (
+            bounded_json::<protocol::Reply>(response, 1024 * 1024).await?,
+            None,
+            std::collections::BTreeMap::new(),
+        )
+    } else {
+        let reply: transport::Reply = bounded_json(response, transport::REPLY_LIMIT).await?;
+        ensure!(
+            reply.protocol == transport::PROTOCOL,
+            "Invalid activation protocol reply"
+        );
+        (reply.data, reply.activation, reply.credential_generations)
+    };
+    ensure!(
+        activation.is_some()
+            || (control.store.activation.epoch().is_none() && control.store.activation.ready()),
+        "Authority lost the coordinated activation state"
+    );
+    if let Some(journal) = &activation {
+        journal.validate()?;
+        ensure!(
+            journal
+                .bundles()
+                .iter()
+                .all(|b| b.build == env!("CARGO_PKG_VERSION")),
+            "Activation requires matching node builds"
+        );
+    }
     let settings = control
         .base
         .cluster
@@ -200,12 +254,51 @@ async fn poll(
     ensure!(
         reply.protocol == "noisefence-cluster-1"
             && reply.node_id == settings.node_id
-            && (reply.server_time - crate::now()).abs() <= 300,
+            && reply.server_time.abs_diff(crate::now()) <= 300,
         "Invalid authority reply or unsynchronized clocks"
     );
+    let expected_generations = activation
+        .as_ref()
+        .map(|j| {
+            j.bundles()
+                .iter()
+                .filter_map(|b| b.credential_generation.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    ensure!(
+        generations.len() <= 3
+            && generations
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                == expected_generations,
+        "Credential generations do not match the activation journal"
+    );
+    let generations = generations
+        .into_iter()
+        .map(|(hash, values)| {
+            let keys = crate::credentials::Snapshot::from_map(values)?;
+            ensure!(
+                keys.fingerprint() == hash,
+                "Received credential generation checksum mismatch"
+            );
+            Ok(keys)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if control.snapshot().config.credential_generation.is_some() {
+        ensure!(
+            activation.as_ref().is_some_and(|j| j
+                .bundles()
+                .iter()
+                .all(|b| b.credential_generation.is_some())),
+            "A credential-bound participant cannot downgrade to mutable source keys"
+        );
+    }
     // Acknowledge only generations this poll actually submitted, never a newer local update.
     ensure!(
         reply.receipts.iter().all(|a| request
+            .poll
             .records
             .iter()
             .any(|r| r.id == a.id && r.generation == a.generation)),
@@ -214,12 +307,48 @@ async fn poll(
     history::acknowledge(&control.store, reply.receipts).await?;
     let root = control.base.data_dir.clone();
     let secrets = reply.secrets;
+    let credentials = crate::credentials::Snapshot::from_map(secrets.clone())?;
     let credits = reply.credits;
+    let bound = !expected_generations.is_empty();
+    ensure!(
+        !bound || secrets.is_empty(),
+        "Unexpected mutable credentials in a bound activation"
+    );
     let key_hash = tokio::task::spawn_blocking(move || -> Result<String> {
+        for generation in generations {
+            crate::credentials::generations::freeze(&root, &generation)?;
+        }
         budget::install(&root, &credits, crate::now())?;
-        protocol::install_secrets(&root, &secrets)
+        if bound {
+            Ok(crate::credentials::Snapshot::default().fingerprint())
+        } else {
+            protocol::install_secrets(&root, &secrets)
+        }
     })
     .await??;
+    if let Some(journal) = activation {
+        let mut seen = std::collections::HashSet::new();
+        for bundle in journal.bundles() {
+            if seen.insert(bundle.digest.clone()) {
+                download(
+                    http,
+                    url,
+                    &control.base.data_dir,
+                    bundle,
+                    control.base.smtp.minimum_free_bytes,
+                    true,
+                )
+                .await?;
+            }
+        }
+        control
+            .synchronize_activation(journal.clone(), credentials, reply.server_time)
+            .await?;
+        let root = control.base.data_dir.clone();
+        tokio::task::spawn_blocking(move || artifacts::prune_retained(&root, &journal.bundles()))
+            .await??;
+        return history::execute(&control.store, reply.commands).await;
+    }
     let previous = control
         .store
         .read(|db| {
@@ -242,6 +371,7 @@ async fn poll(
             &control.base.data_dir,
             &reply.bundle,
             control.base.smtp.minimum_free_bytes,
+            false,
         )
         .await?;
     }
