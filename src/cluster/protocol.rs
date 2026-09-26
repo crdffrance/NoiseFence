@@ -12,7 +12,7 @@ use std::{
 /// A future release must review its typed policies before extending this window.
 pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
-        || (env!("CARGO_PKG_VERSION") == "0.28.0-rc.8"
+        || (matches!(env!("CARGO_PKG_VERSION"), "0.28.0-rc.8" | "0.28.0-rc.9")
             && matches!(
                 build,
                 "0.14.0"
@@ -44,15 +44,17 @@ pub fn compatible_build(build: &str) -> bool {
                     | "0.28.0-rc.5"
                     | "0.28.0-rc.6"
                     | "0.28.0-rc.7"
+                    | "0.28.0-rc.8"
             ))
 }
 
 /// Capabilities audited for this release, not inferred from an arbitrary SemVer.
 pub fn supports_partial_actions(build: &str) -> bool {
-    build == env!("CARGO_PKG_VERSION") || matches!(build, "0.28.0-rc.1" | "0.28.0-rc.2")
+    build == env!("CARGO_PKG_VERSION")
+        || matches!(build, "0.28.0-rc.1" | "0.28.0-rc.2" | "0.28.0-rc.8")
 }
 pub fn supports_capped_fusion(build: &str) -> bool {
-    build == env!("CARGO_PKG_VERSION") || build == "0.28.0-rc.2"
+    build == env!("CARGO_PKG_VERSION") || matches!(build, "0.28.0-rc.2" | "0.28.0-rc.8")
 }
 pub fn supports_scoped_policy(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
