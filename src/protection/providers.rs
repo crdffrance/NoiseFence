@@ -173,6 +173,24 @@ impl TransportMetrics {
             .entry(token.as_str().unwrap().into())
             .or_default() += 1;
     }
+    fn invalid_crdf_response(&self, error: &anyhow::Error) {
+        let code = match error.to_string().as_str() {
+            "CRDF target mismatch" | "CRDF mismatch" | "CRDF record target mismatch" => {
+                "crdf_target_mismatch"
+            }
+            "CRDF target missing" => "crdf_target_missing",
+            "CRDF duplicate target" => "crdf_duplicate_target",
+            "CRDF count mismatch" => "crdf_count_mismatch",
+            "CRDF error" => "crdf_provider_error",
+            _ => "crdf_invalid_schema",
+        };
+        *self
+            .failures
+            .lock()
+            .unwrap()
+            .entry(code.into())
+            .or_default() += 1;
+    }
     fn copy_to(&self, report: &mut ProviderReport) {
         report.request_count = self.requests.load(Ordering::Relaxed);
         report.http_status_counts = self.statuses.lock().unwrap().clone();
@@ -677,10 +695,13 @@ impl Client {
                 .and_then(|body| {
                     body.ok_or_else(|| anyhow::anyhow!("CRDF missing body"))
                         .and_then(|body| parse_crdf_batch(&body, indicators))
-                        .map_err(|_| TransportError {
-                            failure: Failure::InvalidResponse,
-                            cooldown: None,
-                            retryable: false,
+                        .map_err(|error| {
+                            metrics.invalid_crdf_response(&error);
+                            TransportError {
+                                failure: Failure::InvalidResponse,
+                                cooldown: None,
+                                retryable: false,
+                            }
                         })
                 });
             drop(slot);
@@ -1546,6 +1567,102 @@ mod transport_tests {
         });
         (format!("http://{address}/lookup"), task)
     }
+    #[test]
+    fn invalid_response_diagnostics_use_fixed_codes_without_provider_content() {
+        let metrics = TransportMetrics::default();
+        metrics.invalid_crdf_response(&anyhow::anyhow!("CRDF target mismatch"));
+        metrics.invalid_crdf_response(&anyhow::anyhow!("PRIVATE KEY AND MESSAGE TEXT"));
+        let mut report = ProviderReport::default();
+        metrics.copy_to(&mut report);
+        assert_eq!(report.failure_counts["crdf_target_mismatch"], 1);
+        assert_eq!(report.failure_counts["crdf_invalid_schema"], 1);
+        assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE"));
+    }
+
+    #[tokio::test]
+    async fn completed_provider_survives_cancellation_of_a_slower_peer() {
+        let root = tempfile::tempdir().unwrap();
+        for provider in [Provider::Crdf, Provider::Virustotal] {
+            save_key(root.path(), provider, "synthetic-checkpoint-credential").unwrap();
+        }
+        let settings = Settings {
+            policy: Policy {
+                crdf: true,
+                virustotal: true,
+                campaigns: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut runtime = super::super::Runtime::new(&settings, root.path()).unwrap();
+        let mut targets = Targets::default();
+        targets.domains.insert("example.com".into());
+        let (url, request) = server(
+            "200 OK",
+            serde_json::json!({"error":false,"data":[
+            {"url":"https://example.com/","error":false,"in_database":true,
+             "data":{"url":"https://example.com/","domainName":"example.com",
+                     "isBlacklisted":"1","category":"phishing"}}]})
+            .to_string(),
+            0,
+        )
+        .await;
+        Arc::get_mut(&mut runtime.providers)
+            .unwrap()
+            .endpoint_override = Some(url);
+        assert_eq!(
+            runtime
+                .providers
+                .inspect(Provider::Crdf, true, &targets, &settings.policy)
+                .await
+                .0
+                .checked,
+            1
+        );
+        request.await.unwrap();
+        let (url, request) = server("200 OK", "{}".into(), 2000).await;
+        Arc::get_mut(&mut runtime.providers)
+            .unwrap()
+            .endpoint_override = Some(url);
+        let mut scan = crate::engine::Scan {
+            protection: Some(super::super::Report {
+                crdf: ProviderReport {
+                    status: Status::NotRun,
+                    ..Default::default()
+                },
+                virustotal: ProviderReport {
+                    status: Status::NotRun,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(300),
+                runtime.observe(&mut scan, targets, &settings.policy, &[])
+            )
+            .await
+            .is_err()
+        );
+        request.abort();
+        let report = scan.protection.unwrap();
+        assert_eq!(report.crdf.status, Status::Complete);
+        assert_eq!(report.crdf.checked, 1);
+        assert_eq!(report.crdf.cache_hits, 1);
+        assert!(report.crdf.captured_at.is_some());
+        assert_eq!(report.virustotal.status, Status::NotRun);
+        assert_eq!(report.crdf.malicious, 1);
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.id == "known_malicious_indicator" && f.sources == ["crdf"])
+        );
+        assert_eq!(report.campaign_status, Status::Disabled);
+    }
+
     #[tokio::test]
     async fn runtime_credentials_survive_rotation_and_removal_without_resetting_limits() {
         let root = tempfile::tempdir().unwrap();

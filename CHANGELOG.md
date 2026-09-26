@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0-rc.8 — Preserve completed checks and explain calibration readiness
+
+- Preserve completed LLM, SMTP-policy, reputation and campaign results when a sibling check exhausts the shared analysis deadline. Bound authentication to two seconds and continue independent content checks after authentication or DNS-reputation errors; missing checks remain unavailable and cannot enable subject rewriting.
+- Retain provider findings together with their reports. Record bounded CRDF batch-error codes without provider content or credentials; keep target binding, quotas and backoff unchanged.
+- Clarify completed-transfer, ride-receipt and optional consent context in prompt `noisefence-classify-11`. Context does not grant sender trust or change numeric weights. The new prompt defines a new observation cohort and needs human-labelled evaluation.
+- Explain per-partition training readiness in the English console. Return an actionable failure report when protected campaign identities are missing; never silently remove protected references or fit a model on an invalid partition.
+- Keep Spam/Ham/Pub decisions independent of Rspamd. No recalibrated model, detection-rate claim, threshold change or enforcement activation is included. See the [filter qualification procedure](docs/filter-qualification.md).
+
 ## 0.28.0-rc.7 — Spam, Ham and Pub verdicts
 
 - Standardize the primary message verdict as Spam, Ham or Pub in the console, API (`verdict`) and version 9 SMTP headers (`X-NoiseFence-Verdict`). Keep detailed threats, coverage and immutable decisions separate. Historical unresolved records use an explicitly explained neutral Ham grouping, including the Ham search filter; they remain unresolved in evaluation data. Rspamd never determines the verdict.

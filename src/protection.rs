@@ -404,47 +404,69 @@ impl Runtime {
             context::apply(&targets.context, &resolution, policy, report);
             report.url_resolution = Some(resolution);
         }
-        let (crdf, vt, campaign) = tokio::join!(
-            self.providers
-                .inspect(Provider::Crdf, policy.crdf, &targets, policy),
-            self.providers
-                .inspect(Provider::Virustotal, policy.virustotal, &targets, policy),
-            campaign::inspect(
-                &self.root,
-                policy.campaigns,
-                scopes,
-                scan.campaign_simhash.as_deref(),
-                &scan.fingerprint,
-                scan.features.len()
-            ),
-        );
-        report.crdf = crdf.0;
-        report.virustotal = vt.0;
-        for (provider, hits) in [("crdf", crdf.1), ("virustotal", vt.1)] {
-            for (indicator, file) in hits {
-                report.add(
-                    "known_malicious_indicator",
-                    if file {
-                        "attachment"
-                    } else {
-                        "link_reputation"
-                    },
-                    &indicator,
-                    provider,
-                    "Indicator reported in an existing reputation report",
-                );
-            }
-        }
-        report.campaign_status = campaign.0;
-        report.campaign_match = campaign.1;
-        report.campaign_conflict = campaign.2;
-        if campaign.1 && !campaign.2 {
-            report.add(
-                "confirmed_campaign",
-                "campaign",
-                &scan.fingerprint,
-                "local_feedback",
-                "Similar to a campaign confirmed by an administrator in this field",
+        // A synchronous lock protects only result publication, never network I/O.
+        // Completed reports AND their findings survive cancellation of a slow peer.
+        {
+            let shared = std::sync::Mutex::new(&mut *report);
+            let publish = |provider: Provider, result, hits: Vec<(String, bool)>| {
+                let mut report = shared.lock().unwrap();
+                match provider {
+                    Provider::Crdf => report.crdf = result,
+                    Provider::Virustotal => report.virustotal = result,
+                }
+                for (indicator, file) in hits {
+                    report.add(
+                        "known_malicious_indicator",
+                        if file {
+                            "attachment"
+                        } else {
+                            "link_reputation"
+                        },
+                        &indicator,
+                        provider.name(),
+                        "Indicator reported in an existing reputation report",
+                    );
+                }
+            };
+            tokio::join!(
+                async {
+                    let (result, hits) = self
+                        .providers
+                        .inspect(Provider::Crdf, policy.crdf, &targets, policy)
+                        .await;
+                    publish(Provider::Crdf, result, hits);
+                },
+                async {
+                    let (result, hits) = self
+                        .providers
+                        .inspect(Provider::Virustotal, policy.virustotal, &targets, policy)
+                        .await;
+                    publish(Provider::Virustotal, result, hits);
+                },
+                async {
+                    let campaign = campaign::inspect(
+                        &self.root,
+                        policy.campaigns,
+                        scopes,
+                        scan.campaign_simhash.as_deref(),
+                        &scan.fingerprint,
+                        scan.features.len(),
+                    )
+                    .await;
+                    let mut report = shared.lock().unwrap();
+                    report.campaign_status = campaign.0;
+                    report.campaign_match = campaign.1;
+                    report.campaign_conflict = campaign.2;
+                    if campaign.1 && !campaign.2 {
+                        report.add(
+                            "confirmed_campaign",
+                            "campaign",
+                            &scan.fingerprint,
+                            "local_feedback",
+                            "Similar to a campaign confirmed by an administrator in this field",
+                        );
+                    }
+                }
             );
         }
         report.authenticated_sender = scan

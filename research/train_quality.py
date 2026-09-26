@@ -35,6 +35,14 @@ SPLITS = ('train', 'development', 'calibration', 'threshold', 'test')
 FRACTIONS = (.50, .65, .80, .90)
 
 
+class ProtectedCampaignsUnavailable(ValueError):
+    """No fitting is permitted when protected near-duplicate identities are missing."""
+    def __init__(self, missing, coverage):
+        super().__init__('Protected campaign provenance is unavailable')
+        self.missing = missing
+        self.coverage = coverage
+
+
 def read_jsonl(path):
     rows, digest, total = [], hashlib.sha256(), 0
     with Path(path).open('rb') as source:
@@ -104,7 +112,20 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
     if for_training:
         require(header.get('purpose')=='development', 'Only explicit development samples may be fitted')
         reserved=header.get('reserved_campaigns',[])
-        require(isinstance(reserved,list) and len(reserved)<=5000 and all(is_hex(r.get('fingerprint')) and is_hex(r.get('simhash'),16) for r in reserved), 'Protected campaign provenance is unavailable')
+        require(isinstance(reserved,list) and len(reserved)<=5000
+                and all(isinstance(r,dict) and set(r) == {'fingerprint','simhash'}
+                        and (r['fingerprint'] is None or is_hex(r['fingerprint']))
+                        and (r['simhash'] is None or is_hex(r['simhash'],16)) for r in reserved),
+                'Invalid protected campaign provenance')
+        missing = sum(r['fingerprint'] is None or r['simhash'] is None for r in reserved)
+        if missing:
+            raise ProtectedCampaignsUnavailable(missing, {
+                'retained': len(rows), 'usable': len(usable),
+                'labelled': sum(r['risk'] in ('legitimate','spam') for r in usable),
+                'unlabelled_or_uncertain': sum(r['risk'] not in ('legitimate','spam') for r in usable),
+                'protected_campaigns': len(reserved),
+                'protected_campaigns_missing_identity': missing,
+            })
         combined=usable+[dict(r,campaign=r['fingerprint']) for r in reserved]
         excluded=set()
         for group in components(combined):
@@ -274,7 +295,17 @@ def fit_kinds(parts):
 
 def train(dataset, destination, version, base_history=None):
     require(not destination.exists(),'Candidate destination already exists')
-    header, rows, coverage, artifacts, digest = load_dataset(dataset, for_training=True)
+    try:
+        header, rows, coverage, artifacts, digest = load_dataset(dataset, for_training=True)
+    except ProtectedCampaignsUnavailable as error:
+        return {'schema':'noisefence-quality-training-2','status':'failed',
+                'error_code':'protected_campaign_provenance','eligible':False,
+                'may_activate':False,'observation_only':True,'coverage':error.coverage,
+                'limitations':[
+                    f'{error.missing} protected campaign identities are incomplete; no model was fitted.',
+                    'Restore verified identities from original messages or obtain a fully auditable dataset. Do not drop protected references or fabricate missing hashes.',
+                    'Labelling can continue. Existing labels and production decisions are unchanged.']}
+
     parts, grouping = partition(rows, 'risk', header['partition_cuts'])
     kind_parts, kind_grouping = partition(rows, 'kind', header['partition_cuts'])
     availability = {'risk': readiness(parts, 'risk'), 'kind': readiness(kind_parts, 'kind')}
@@ -392,7 +423,7 @@ def main():
     require(0<len(args.version)<=100 and all(32<=ord(c)<127 for c in args.version),'Invalid model version')
     report=train(args.dataset,args.destination,args.version,args.base_history)
     print(json.dumps(report,allow_nan=False))
-    return 3 if report['status']=='insufficient_labels' else 0
+    return 2 if report['status']=='failed' else 3 if report['status']=='insufficient_labels' else 0
 
 
 if __name__=='__main__':

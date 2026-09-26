@@ -56,3 +56,28 @@ export function QualificationStatus({acceptance,exposure}:{acceptance:{passes_pi
   if (!exposureEligible(exposure)) return <p>Qualification unavailable: export freshness is not established. Recorded metrics remain visible.</p>;
   return <p>Shadow pilot: {acceptance.passes_pilot?'criteria met':'not qualified'} · Final confidence bounds: {acceptance.meets_final_confidence_bounds?'met':'not demonstrated'}.</p>;
 }
+
+
+export type FoldReadiness = Record<string, {
+  campaigns?: number; ready: boolean; labels?: Record<string, number>;
+  minimum_campaigns?: number; missing_classes?: string[];
+}>;
+export function TrainingReadiness({value,caption}:{value:FoldReadiness;caption:string}) {
+  return <div className="quality-table-scroll"><table className="quality-metrics">
+    <caption>{caption} · independent campaigns per chronological partition</caption>
+    <thead><tr><th>Partition</th><th>Campaigns</th><th>Minimum</th><th>Human labels</th><th>Missing classes</th><th>Readiness</th></tr></thead>
+    <tbody>{Object.entries(value).map(([name,fold])=><tr key={name}>
+      <th>{name}</th><td>{fold.campaigns ?? 'Not recorded'}</td><td>{fold.minimum_campaigns ?? 'Not recorded'}</td>
+      <td>{fold.labels ? Object.entries(fold.labels).map(([label,n])=>`${label}: ${n}`).join(', ') || 'None' : 'Not recorded'}</td>
+      <td>{fold.missing_classes?.join(', ') || (fold.missing_classes ? 'None' : 'Not recorded')}</td>
+      <td>{fold.ready ? 'Ready for development' : 'More labelled campaigns needed'}</td>
+    </tr>)}</tbody></table><p className="muted small">Development readiness does not establish independent qualification. Repeated messages from one campaign do not count as independent examples.</p></div>;
+}
+export function TrainingFailure({code}:{code:string}) {
+  const explanations:Record<string,string>={
+    protected_campaign_provenance:'Protected references have incomplete campaign identities. No model was fitted. Restore verified provenance; do not remove references to make training pass. You can continue labelling the sample.',
+    mixed_detector_cohorts:'This sample mixes detector versions. Create a development sample restricted to one compatible detector cohort.',
+    evaluation_sample_cannot_train:'Regression and independent evaluation samples cannot be used for training. Select a development sample.',
+  };
+  return <p role="alert" className="notice">{explanations[code] ?? 'Research job failed. Check the worker and dataset compatibility.'} No model was activated. <code>{code}</code></p>;
+}

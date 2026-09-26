@@ -936,6 +936,37 @@ impl Engine {
             Some(&self.quality_policy),
         ));
     }
+    async fn checkpoint<T>(slot: &mut Option<T>, future: impl std::future::Future<Output = T>) {
+        *slot = Some(future.await);
+    }
+
+    fn retain_checks(
+        scan: &mut Scan,
+        policy: &mut Option<crate::smtp_policy::PolicyResult>,
+        llm: &mut Option<crate::llm::LlmResult>,
+    ) {
+        if let Some(result) = policy.take() {
+            result.apply(scan);
+            scan.smtp_policy = result;
+        }
+        if let Some(result) = llm.take() {
+            Self::retain_llm(scan, result);
+        }
+    }
+
+    fn retain_llm(scan: &mut Scan, result: crate::llm::LlmResult) {
+        scan.llm = result;
+        scan.reasons.retain(|r| r.id != "llm_advisory");
+        if let Some(verdict) = &scan.llm.verdict {
+            scan.reasons.push(Signal {
+                id: "llm_advisory".into(),
+                detail: format!("Advisory LLM analysis: {}", verdict.explanation),
+                weight: scan.llm.advisory_weight(),
+            });
+        }
+        Self::check_llm(scan);
+    }
+
     pub(crate) fn check_llm(scan: &mut Scan) {
         scan.reasons.retain(|r| r.id != "llm_unsupported_evidence");
         if scan.llm.grounding.as_ref().is_some_and(|g| !g.supported) {
@@ -1479,6 +1510,10 @@ impl Engine {
                 (sender, context.2, context.3),
             );
         }
+        // Slots outlive the cancellable join: a completed independent check
+        // must survive another check exhausting the enclosing deadline.
+        let mut completed_policy = None;
+        let mut completed_llm = None;
         let work = async {
             let authenticated =
                 AuthenticatedMessage::parse(raw).context("authentication parsing failed")?;
@@ -1486,12 +1521,12 @@ impl Engine {
                 scan.smtp_policy.status = crate::smtp_policy::PolicyStatus::Unavailable;
                 scan.smtp_policy.version = crate::smtp_policy::VERSION.into();
             }
-            let policy_work = async {
+            let policy_work = Self::checkpoint(&mut completed_policy, async {
                 match &self.smtp_policy {
                     Some(policy) => policy.check(ip, helo, sender, &self.config.hostname).await,
                     None => Default::default(),
                 }
-            };
+            });
             let auth_work = async {
                 let mut results = AuthenticationResults::new(&self.config.hostname);
                 scan.evidence.as_mut().unwrap().authentication.arc_state =
@@ -1605,10 +1640,28 @@ impl Engine {
                 }
                 Ok::<_, anyhow::Error>((arc, results))
             };
-            let (auth_result, policy_result) = tokio::join!(auth_work, policy_work);
-            policy_result.apply(&mut scan);
-            scan.smtp_policy = policy_result;
-            let (arc, results) = auth_result?;
+            // Reserve time for independent content checks even when DNS stalls.
+            // Unfinished authentication remains unavailable, never a failure vote.
+            let (auth_result, ()) = tokio::join!(
+                tokio::time::timeout(Duration::from_secs(2), auth_work),
+                policy_work
+            );
+            if let Some(policy_result) = completed_policy.take() {
+                policy_result.apply(&mut scan);
+                scan.smtp_policy = policy_result;
+            }
+            let authenticated_results = match auth_result {
+                Ok(Ok(results)) => Some(results),
+                _ => {
+                    scan.complete = false;
+                    scan.reasons.push(Signal {
+                        id: "checks_unavailable".into(),
+                        detail: "Authentication incomplete or timed out; independent content checks continue.".into(),
+                        weight: 0.0,
+                    });
+                    None
+                }
+            };
             scan.sender_history = Some(
                 crate::quality::history::inspect_with_context(
                     &self.config.data_dir,
@@ -1632,8 +1685,19 @@ impl Engine {
                     )
                     .await;
             }
-            self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
-                .await?;
+            if self
+                .reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
+                .await
+                .is_err()
+            {
+                scan.complete = false;
+                scan.reasons.push(Signal {
+                    id: "checks_unavailable".into(),
+                    detail: "DNS reputation incomplete; independent content checks continue."
+                        .into(),
+                    weight: 0.0,
+                });
+            }
             self.score(&mut scan);
             let selection = self.config.llm.as_ref().map(|c| c.selection(&scan));
             let needs_llm = self.llm.is_some()
@@ -1659,7 +1723,7 @@ impl Engine {
             // Protection is advisory and does not change the LLM selection
             // score. Overlap these independent calls under the existing deadline.
             let llm_facts = crate::llm::gateway_facts(Some(&scan));
-            let (_, llm_result) = tokio::join!(
+            tokio::join!(
                 async {
                     if let (Some(runtime), Some(settings)) =
                         (&self.protection, &self.config.protection)
@@ -1671,31 +1735,32 @@ impl Engine {
                 },
                 async {
                     if needs_llm {
-                        Some(
-                            self.llm
-                                .as_ref()
-                                .unwrap()
-                                .classify_selected(raw, selection.unwrap(), Some(llm_facts))
-                                .await,
+                        Self::checkpoint(
+                            &mut completed_llm,
+                            self.llm.as_ref().unwrap().classify_selected(
+                                raw,
+                                selection.unwrap(),
+                                Some(llm_facts),
+                            ),
                         )
-                    } else {
-                        None
+                        .await;
                     }
                 }
             );
-            if let Some(result) = llm_result {
-                scan.llm = result;
-                if let Some(verdict) = &scan.llm.verdict {
-                    let weight = scan.llm.advisory_weight();
-                    scan.reasons.push(Signal {
-                        id: "llm_advisory".into(),
-                        detail: format!("Advisory LLM analysis: {}", verdict.explanation),
-                        weight,
-                    });
-                    self.score(&mut scan);
-                }
-                Self::check_llm(&mut scan);
+            if let Some(result) = completed_llm.take() {
+                Self::retain_llm(&mut scan, result);
+                self.score(&mut scan);
             }
+            let Some((arc, results)) = authenticated_results else {
+                return Ok(self.finish_unchecked(
+                    raw,
+                    scan.clone(),
+                    ip,
+                    id,
+                    started,
+                    (sender, context.2, context.3),
+                ));
+            };
             self.decide(&mut scan);
             // Header timing is the completed analysis, before wire rendering/ARC.
             scan.subject_rewrite_ready = Some(arc.can_be_sealed() && self.arc_key.is_some());
@@ -1773,6 +1838,7 @@ impl Engine {
                 Ok(variants)
             }
             _ => {
+                Self::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
                 scan.complete = false;
                 scan.tagged = false;
                 scan.pub_tagged = false;
@@ -2001,6 +2067,112 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn completed_checks_survive_sibling_cancellation_and_reach_receipt_headers() {
+        use crate::llm::{Category, LlmResult, LlmStatus, Verdict};
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        let engine = Engine::new(Arc::new(config)).unwrap();
+        let raw = b"From: notices@example.org\r\nTo: reader@example.net\r\nSubject: Receipt\r\n\r\nYour order has shipped.\r\n";
+        let mut scan = engine.offline(raw);
+        scan.llm.status = LlmStatus::Unavailable;
+        let mut completed_llm = None;
+        let mut completed_policy = None;
+        let result = tokio::time::timeout(Duration::from_millis(10), async {
+            tokio::join!(
+                Engine::checkpoint(
+                    &mut completed_llm,
+                    std::future::ready(LlmResult {
+                        status: LlmStatus::Complete,
+                        verdict: Some(Verdict {
+                            category: Category::Legitimate,
+                            spam_probability: 0.1,
+                            confidence: 0.95,
+                            explanation: "Synthetic completed receipt analysis".into()
+                        }),
+                        ..Default::default()
+                    })
+                ),
+                Engine::checkpoint(
+                    &mut completed_policy,
+                    std::future::ready(crate::smtp_policy::PolicyResult {
+                        version: crate::smtp_policy::VERSION.into(),
+                        status: crate::smtp_policy::PolicyStatus::Complete,
+                        ..Default::default()
+                    })
+                ),
+                std::future::pending::<()>(),
+            );
+        })
+        .await;
+        assert!(result.is_err());
+        Engine::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
+        Engine::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
+        assert_eq!(
+            scan.reasons
+                .iter()
+                .filter(|r| r.id == "llm_advisory")
+                .count(),
+            1
+        );
+        scan.complete = false;
+        scan.reasons.push(Signal {
+            id: "checks_unavailable".into(),
+            detail: "Synthetic interrupted sibling".into(),
+            weight: 0.,
+        });
+        let variants = engine
+            .finish_unchecked(
+                raw,
+                scan,
+                "192.0.2.1".parse().unwrap(),
+                "checkpoint-test",
+                Instant::now(),
+                ("notices@example.org", &[], None),
+            )
+            .unwrap();
+        let scan = &variants[0].scan;
+        assert_eq!(scan.llm.status, LlmStatus::Complete);
+        assert_eq!(
+            scan.smtp_policy.status,
+            crate::smtp_policy::PolicyStatus::Complete
+        );
+        assert_eq!(
+            scan.evidence.as_ref().unwrap().llm.state,
+            crate::evidence::State::Complete
+        );
+        assert!(!scan.complete && !scan.tagged && !scan.pub_tagged);
+        assert!(
+            scan.scoring
+                .as_ref()
+                .unwrap()
+                .contributions
+                .iter()
+                .any(|c| c.id == "llm_advisory" && c.retained == Some(-0.5))
+        );
+        assert!(scan.recipient_decision.is_some());
+        let wire = variants[0].raw.to_vec();
+        assert!(
+            String::from_utf8_lossy(&wire)
+                .contains("X-NoiseFence-LLM: status=complete; verdict=legitimate;")
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupted_check_does_not_publish_an_unfinished_result() {
+        let mut slot = None;
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(10),
+                Engine::checkpoint(&mut slot, std::future::pending::<crate::llm::LlmResult>())
+            )
+            .await
+            .is_err()
+        );
+        assert!(slot.is_none());
+    }
+
     #[test]
     fn runtime_generations_reserve_before_loading_and_release_failed_builds() {
         let cfg = Arc::new(Config::load(Path::new("config/development.toml")).unwrap());

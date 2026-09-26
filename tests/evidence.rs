@@ -185,12 +185,13 @@ async fn verified_authentication_preserves_alignment_and_partial_results_on_dns_
 }
 
 #[tokio::test]
-async fn total_deadline_retains_attempted_state_and_cannot_enable_tagging() {
+async fn authentication_deadline_retains_partial_evidence_and_runs_independent_checks() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = (*common::config(dir.path())).clone();
     config.filter.authentication = true;
     config.filter.mode = noisefence::config::Mode::Tag;
     config.filter.threshold = 0.;
+    config.protection = Some(Default::default());
     let mut engine = Engine::new(Arc::new(config)).unwrap();
     let (authenticator, _server) = resolver(false, true).await;
     engine.authenticator = authenticator;
@@ -205,7 +206,7 @@ async fn total_deadline_retains_attempted_state_and_cannot_enable_tagging() {
         )
         .await
         .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(8));
+    assert!(started.elapsed() < Duration::from_secs(5));
     let evidence = scan.evidence.as_ref().unwrap();
     assert_eq!(evidence.authentication.state, State::Unavailable);
     assert!(evidence.authentication.spf.is_none());
@@ -215,6 +216,18 @@ async fn total_deadline_retains_attempted_state_and_cannot_enable_tagging() {
     assert_eq!(evidence.authentication.dmarc_state, State::NotRun);
     assert_eq!(evidence.authentication.arc_state, State::Complete);
     assert!(!scan.complete && !scan.tagged && !evidence.analysis_complete);
+    let protection = scan.protection.as_ref().unwrap();
+    // Both branches execute after the auth deadline instead of remaining NotRun.
+    assert_eq!(
+        protection.crdf.status,
+        noisefence::protection::Status::Disabled
+    );
+    assert_eq!(
+        protection.virustotal.status,
+        noisefence::protection::Status::Disabled
+    );
+    assert!(scan.reasons.iter().any(|r| r.id == "checks_unavailable"
+        && r.detail.contains("independent content checks continue")));
     assert!(!String::from_utf8_lossy(&raw).contains("[SPAM]"));
 }
 

@@ -358,6 +358,25 @@ class QualityTests(unittest.TestCase):
             self.assertEqual(result['kind'],self.q.KINDS[int(kind_argmax(probe['kind_probabilities']))])
 
 
+    def test_missing_protected_identity_returns_actionable_report_without_fitting(self):
+        data=copy.deepcopy(self.data)
+        data[0]['reserved_campaigns']=[{'fingerprint':'f'*64,'simhash':None}]
+        path=self.root/'missing-protected.jsonl';self.write(path,data)
+        destination=self.root/'must-not-fit-missing-protected'
+        result=self.q.train(path,destination,'SOFTWARE-TEST-ONLY')
+        self.assertEqual(result['status'],'failed')
+        self.assertEqual(result['error_code'],'protected_campaign_provenance')
+        self.assertEqual(result['coverage']['protected_campaigns_missing_identity'],1)
+        self.assertFalse(result['eligible'])
+        self.assertFalse(result['may_activate'])
+        self.assertFalse(destination.exists())
+        self.assertNotIn('f'*64,json.dumps(result))
+        # Invalid/forged metadata is still rejected, not turned into a readiness result.
+        data[0]['reserved_campaigns'][0]['simhash']='invalid'
+        self.write(path,data)
+        with self.assertRaisesRegex(ValueError,'Invalid protected campaign'):
+            self.q.train(path,destination,'SOFTWARE-TEST-ONLY')
+
     def test_workbench_comparison_uses_humans_and_counts_provider_abstentions(self):
         from compare_quality import compare
         data=copy.deepcopy(self.data)

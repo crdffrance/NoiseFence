@@ -337,3 +337,43 @@ fn subscription_field_injection_requires_a_localized_off_site_reward_lure() {
     );
     assert!(!inspect(html.as_bytes()).injected_reward_lure);
 }
+
+#[test]
+fn completed_transfers_and_trip_receipts_supply_context_but_not_a_trust_override() {
+    for (subject, body) in [
+        (
+            "Votre virement est en route !",
+            "Montant du virement 30 EUR. Vers compte bancaire. L'argent sera disponible sous 3 jours.",
+        ),
+        (
+            "Your Friday evening trip with Example",
+            "Thanks for riding. Trip fare 30 EUR. Payments. Download the receipt.",
+        ),
+    ] {
+        let raw = format!("From: notices@example.org\r\nSubject: {subject}\r\n\r\n{body}\r\n");
+        let context = noisefence::message_context::inspect(raw.as_bytes());
+        assert!(context.transaction_notice);
+        assert!(!context.action_demand);
+        let mut scan = candidate(raw.as_bytes());
+        decision::apply(&mut scan, false);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+        aligned(&mut scan);
+        decision::apply(&mut scan, false);
+        assert_eq!(
+            scan.decision.as_ref().unwrap().outcome,
+            Outcome::Undetermined
+        );
+        assert_eq!(scan.score, 99.);
+        // An injected sensitive request defeats the apparent receipt context.
+        let lure = format!("{raw}Please verify your account and enter your password.\r\n");
+        let mut scan = candidate(lure.as_bytes());
+        aligned(&mut scan);
+        assert!(scan.message_context.as_ref().unwrap().action_demand);
+        decision::apply(&mut scan, false);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    }
+    let bare = noisefence::message_context::inspect(
+        b"Subject: Your bank transfer is on the way\r\n\r\nClick here to claim a prize.",
+    );
+    assert!(!bare.transaction_notice);
+}

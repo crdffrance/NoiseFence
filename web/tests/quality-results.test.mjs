@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 const source=await readFile(new URL('../app/quality-results.tsx',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from (["'])([^"']+)\1/g,(_,q,name)=>`from ${JSON.stringify(import.meta.resolve(name))}`);
-const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const render=(component,props)=>renderToStaticMarkup(createElement(component,props));
 const metrics={messages:2,tp:1,fp:0,review:0,recall:1,fpr:0,precision:1,fpr_ci95:[0,.5],recall_ci95:[.5,1]};
 
@@ -72,4 +72,21 @@ test('reused or untracked reports never claim current pilot qualification',()=>{
     assert.doesNotMatch(html,/criteria met|bounds: met/);
   }
   assert.match(render(ExposureNotice,{value:{...exposure,not_previously_exposed:false}}),/already exposed/);
+});
+
+
+test('training readiness shows actual missing classes and independent campaign counts',()=>{
+  const html=render(TrainingReadiness,{caption:'Risk model',value:{train:{campaigns:3,minimum_campaigns:12,labels:{legitimate:3},missing_classes:['spam'],ready:false}}});
+  assert.match(html,/>3</);assert.match(html,/>12</);assert.match(html,/legitimate: 3/);
+  assert.match(html,/>spam</);assert.match(html,/More labelled campaigns needed/);
+  assert.match(html,/does not establish independent qualification/);
+});
+test('missing readiness metadata is not displayed as zero observed classes',()=>{
+  const html=render(TrainingReadiness,{caption:'Risk model',value:{train:{ready:false}}});
+  assert.match(html,/Not recorded/);assert.doesNotMatch(html,/>0</);
+});
+test('protected provenance blocker cannot suggest dropping evaluation references',()=>{
+  const html=render(TrainingFailure,{code:'protected_campaign_provenance'});
+  assert.match(html,/No model was fitted/);assert.match(html,/do not remove references/);
+  assert.match(html,/continue labelling/);assert.match(html,/No model was activated/);
 });

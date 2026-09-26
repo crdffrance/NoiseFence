@@ -99,3 +99,17 @@ malformed individual result is unavailable and uncached while valid neighbours
 remain usable. Invalid response payloads do not impose account-wide cooldown.
 Provider authentication failures, explicit rate limits and bounded Retry-After
 continue to back off. Unavailable, timeout and unknown are not malicious results.
+
+### Completed checks and interruption
+
+Each completed provider report and its findings are published before waiting for
+other providers or campaign lookup. The enclosing analysis deadline may still
+interrupt unfinished work; it does not erase a completed peer result or convert
+an unavailable result into a clean verdict. Completed campaign observations are
+retained on the same basis. This does not extend the total analysis deadline.
+
+CRDF batch validation records fixed diagnostic counters for target mismatch,
+missing targets, duplicate targets, count mismatch, provider errors and invalid
+schema. These counters contain no response body, URL or credential. Target
+validation and per-entry error handling remain strict; diagnostics do not grant
+extra quotas or relax cooldowns.
