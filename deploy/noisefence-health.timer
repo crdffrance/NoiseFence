@@ -3,8 +3,8 @@ Description=Check NoiseFence services, queue, certificates and signature freshne
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
-RandomizedDelaySec=20
+OnUnitActiveSec=1min
+RandomizedDelaySec=5
 Unit=noisefence-health.service
 
 [Install]

@@ -25,6 +25,7 @@ Repository: [github.com/crdffrance/NoiseFence](https://github.com/crdffrance/Noi
 | Understand scores, classifications and delivery actions | [Filtering policy](docs/filter-policy.md) |
 | Read the message-header schema and remote SMTP replies | [Headers](docs/message-headers.md), [SMTP diagnostics](docs/smtp-diagnostics.md) |
 | Deploy more MX servers and protect accepted messages | [Multiple MX servers](docs/multi-mx.md), [Two-copy availability](docs/high-availability.md) |
+| Check SMTP readiness, memory pressure and recovery | [Production readiness](docs/production-readiness.md) |
 | Evaluate accuracy with human labels | [Quality](docs/quality.md), [Validation results](docs/validation-results.md) |
 | Browse the remaining guides | [Documentation index](docs/README.md) |
 

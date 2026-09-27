@@ -4,6 +4,7 @@
 
 - [Installation: Docker and Linux](installation.md)
 - [Operations and routing](operations.md)
+- [Production readiness, health monitoring and incident recovery](production-readiness.md)
 - [Web configuration](web-configuration.md)
 - [Console and access control](console.md)
 - [Multiple MX servers](multi-mx.md)

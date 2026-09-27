@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Operational readiness
+
+- Check SMTP admission and the `smtp_ready` response, replica heartbeat freshness, worker synchronization and persistent replication backlogs. HTTP 200 alone is no longer a successful readiness check.
+- Collect a private, bounded 48-hour memory/queue history approximately every minute. Report new memory-pressure events separately from historical counters and distinguish pending mail from delivery notifications.
+- Use the cluster metadata allowance for both protocol versions in Nginx and Caddy. Exercise the real proxy templates with synthetic requests in deployment CI.
+- Adjust Linux gateway memory budgets to leave room for resident models while retaining aggregate host limits. A longer production observation window is still required to assess growth.
+- Add an English production-readiness and incident-recovery guide; clarify the separate gates for operational availability and independently measured filtering quality.
+
+These deployment-tool changes do not change detector weights, model artifacts, enforcement policy or the released gateway binary.
+
 ## 0.28.0-rc.9 — Simplify message diagnostics
 
 - Replace redundant message-diagnostic headers with a version 11 contract of 25 stable fields. Group score, policy, action, coverage and rule-accounting details while retaining ARC signing and bounded, privacy-safe values.
