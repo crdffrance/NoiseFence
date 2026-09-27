@@ -18,7 +18,7 @@ import time
 
 import numpy as np
 from scipy import sparse
-from scipy.optimize import minimize
+from scipy.optimize import LinearConstraint, minimize
 from scipy.special import expit
 from sklearn.preprocessing import normalize
 
@@ -115,7 +115,7 @@ def overlaps(row, others):
     """Also exclude replay near-duplicates of feedback, even when IDs differ."""
     value = int(row['simhash'], 16)
     return any(row['fingerprint'] == r['fingerprint']
-               or (value ^ int(r['simhash'], 16)).bit_count() <= 3 for r in others)
+               or bin(value ^ int(r['simhash'], 16)).count('1') <= 3 for r in others)
 
 
 def transformed(rows, model):
@@ -132,7 +132,7 @@ def baseline_logits(matrix, rows, model, head):
 
 
 def fit_residual(x, labels, base, replay_x, replay_labels, replay_base,
-                 regularization=1., replay_weight=1.):
+                 regularization=1., replay_weight=1., preserve_replay=False):
     """Convex logistic loss in the feedback span. No intercept/IDF refit."""
     require(len(x.shape) == 2 and x.shape[0] <= MAX_FEEDBACK
             and set(labels) == {False, True}, 'Correction fitting needs both classes')
@@ -158,9 +158,30 @@ def fit_residual(x, labels, base, replay_x, replay_labels, replay_base,
         grad += replay_weight*anchor.T @ (anchor_weight*(expit(a)-replay_labels))
         grad += regularization*penalty @ beta
         return float(loss), grad
-    fitted = minimize(objective, np.zeros(len(labels)), method='L-BFGS-B', jac=True,
-                      options={'maxiter':1000, 'ftol':1e-12, 'gtol':1e-8})
+    constraints = ()
+    if preserve_replay:
+        # Only fitting anchors participate. Held-out controls never constrain
+        # the solver. Zero correction is feasible even for imperfect baselines.
+        # Preserve a fraction of each correctly classified anchor's margin,
+        # rather than asking a near-boundary sample for an impossible margin.
+        signed = np.where(replay_labels, 1., -1.)
+        margin = signed * (replay_base - THRESHOLD)
+        selected = (replay_base >= THRESHOLD) == replay_labels
+        a = signed[selected, None] * anchor[selected]
+        lower = np.minimum(margin[selected] * .5, .1) - margin[selected]
+        constraints = (LinearConstraint(a, lower, np.inf),) if len(a) else ()
+    if constraints:
+        fitted = minimize(objective, np.zeros(len(labels)), method='SLSQP', jac=True,
+                          constraints=constraints, options={'maxiter':1000,'ftol':1e-10})
+    else:
+        fitted = minimize(objective, np.zeros(len(labels)), method='L-BFGS-B', jac=True,
+                          options={'maxiter':1000, 'ftol':1e-12, 'gtol':1e-8})
     require(fitted.success and np.isfinite(fitted.x).all(), 'Correction solver did not converge')
+    if constraints:
+        after = replay_base + anchor @ fitted.x
+        require(np.all(a @ fitted.x >= lower - 1e-10)
+                and np.all((after[selected] >= THRESHOLD) == replay_labels[selected]),
+                'Replay decision constraint violated')
     delta = np.asarray(x.T @ fitted.x).ravel()
     require(np.isfinite(delta).all(), 'Non-finite correction')
     return delta
@@ -188,7 +209,8 @@ def regression_gate(report):
             'reasons':reasons, 'may_activate':False}
 
 
-def evaluate(rows, model, head, replay, regularization=1., replay_weight=1., members=None):
+def evaluate(rows, model, head, replay, regularization=1., replay_weight=1., members=None,
+             preserve_replay=False):
     require(4 <= len(rows) <= MAX_FEEDBACK, 'Need 4..256 independent feedback campaigns')
     labels = np.array([r['spam'] for r in rows], dtype=bool)
     require(min(np.sum(labels), np.sum(~labels)) >= 2, 'Need at least two campaigns per class')
@@ -207,7 +229,7 @@ def evaluate(rows, model, head, replay, regularization=1., replay_weight=1., mem
     rb = baseline_logits(rx, anchors, model, None)
     def fit(indices):
         return fit_residual(x[indices], labels[indices], base[indices], rx, ry, rb,
-                            regularization, replay_weight)
+                            regularization, replay_weight, preserve_replay)
     indices = np.arange(len(rows))
     predicted = np.empty(len(rows))
     for i in indices:
@@ -227,6 +249,7 @@ def evaluate(rows, model, head, replay, regularization=1., replay_weight=1., mem
         temporal.update(status='complete', baseline=metrics(labels[test],base[test],THRESHOLD),
                         candidate=metrics(labels[test],base[test]+x[test] @ delta,THRESHOLD))
     delta = fit(indices)
+    anchor_after = rb + rx @ delta
     cx = transformed(controls, model)
     cb = baseline_logits(cx, controls, model, None)
     candidate_control = cb + cx @ delta
@@ -239,10 +262,13 @@ def evaluate(rows, model, head, replay, regularization=1., replay_weight=1., mem
     report = {'schema':'noisefence-feedback-residual-1', 'eligible':False,
               'limitation':'Selection-biased human corrections. Campaign-out is development validation, not independent SMTP performance. Never auto-activate.',
               'threshold':95., 'score_is_probability':False,
-              'parameters':{'regularization':regularization,'replay_weight':replay_weight},
+              'parameters':{'regularization':regularization,'replay_weight':replay_weight,
+                            'preserve_replay_decisions':preserve_replay},
               'frozen':['idf','intercept','semantic_head','threshold'],
               'feedback_campaigns':len(rows),'replay_training':len(anchors),
               'replay_control':len(controls),'replay_overlap_excluded':len(replay)-len(replay_kept),
+              'replay_training_decisions':{'baseline':metrics(ry,rb,THRESHOLD),
+                                           'candidate':metrics(ry,anchor_after,THRESHOLD)},
               'campaign_out':{'baseline':metrics(labels,base,THRESHOLD),
                               'candidate':metrics(labels,predicted,THRESHOLD)},
               'temporal':temporal,'lexical_replay_controls':control_reports,
@@ -262,6 +288,8 @@ def main():
     parser.add_argument('--semantic-head', type=Path)
     parser.add_argument('--regularization', type=float, default=1.)
     parser.add_argument('--replay-weight', type=float, default=1.)
+    parser.add_argument('--preserve-replay-decisions', action='store_true',
+                        help='Constrain correct replay TRAIN decisions; controls remain evaluation-only')
     args = parser.parse_args()
     os.umask(0o077)
     require(not args.output.exists(), 'Candidate output already exists')
@@ -271,7 +299,8 @@ def main():
     require(all(r['observed_at'] <= r['labelled_at'] <= now for r in raw), 'Invalid annotation chronology')
     rows, grouping = group_rows(raw)
     replay = load_replay(args.replay)
-    candidate, report = evaluate(rows,model,head,replay,args.regularization,args.replay_weight,raw)
+    candidate, report = evaluate(rows,model,head,replay,args.regularization,args.replay_weight,raw,
+                                 args.preserve_replay_decisions)
     report.update(grouping=grouping, corpus_sha256=corpus_hash,
                   replay_sha256=digest(args.replay), baseline_sha256=digest(args.baseline),
                   semantic_head_sha256=digest(args.semantic_head) if args.semantic_head else None,

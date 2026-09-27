@@ -48,6 +48,26 @@ class FeedbackAdaptation(unittest.TestCase):
         # There is no sender/domain bypass and no arbitrary overwrite of logits.
         self.assertGreater((base+strong)[0],0)
 
+    def test_hard_guard_preserves_correct_anchor_decisions(self):
+        x=sparse.eye(2,format='csr')
+        labels=np.array([False,True]);base=np.array([6.,-3.])
+        replay_labels=~labels
+        replay_base=np.array([self.m.THRESHOLD+.02,self.m.THRESHOLD-.02])
+        unconstrained=self.m.fit_residual(x,labels,base,x,replay_labels,replay_base)
+        guarded=self.m.fit_residual(x,labels,base,x,replay_labels,replay_base,preserve_replay=True)
+        self.assertLess((replay_base+unconstrained)[0],self.m.THRESHOLD)
+        self.assertGreater((replay_base+guarded)[0],self.m.THRESHOLD)
+        self.assertLess((replay_base+guarded)[1],self.m.THRESHOLD)
+        self.assertLess(guarded[0],0)
+        self.assertGreater(guarded[1],0)
+
+    def test_guard_does_not_freeze_incorrect_anchor_decisions(self):
+        x=sparse.eye(2,format='csr');labels=np.array([False,True])
+        base=np.array([6.,-3.])
+        guarded=self.m.fit_residual(x,labels,base,x,labels,base,preserve_replay=True)
+        original=self.m.fit_residual(x,labels,base,x,labels,base)
+        np.testing.assert_allclose(guarded,original)
+
     def test_transitive_campaign_dates_and_conflicts_are_preserved(self):
         rows=[]
         for i,h in enumerate((0,7,63)):
@@ -161,7 +181,7 @@ class FeedbackAdaptation(unittest.TestCase):
         x=self.m.transformed(rows,model)
         base=self.m.baseline_logits(x,rows,model,None)
         y=np.array([False,True])
-        delta=self.m.fit_residual(x,y,base,x,y,base)
+        delta=self.m.fit_residual(x,y,base,x,y,base,preserve_replay=True)
         candidate={**model,'weights':(np.array(model['weights'])+delta).tolist()}
         head={k:self.m.PROTOCOL[k] for k in ('encoder','revision','text_schema','max_tokens')}
         head.update(schema='noisefence-hybrid-1',version='synthetic-head',head_weights=[.1]*384,
