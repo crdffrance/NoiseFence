@@ -13,6 +13,7 @@ pub mod mfa;
 pub mod nodes;
 pub mod outbox;
 pub mod policies;
+pub mod population;
 pub mod quality;
 pub mod research;
 pub mod research_worker;

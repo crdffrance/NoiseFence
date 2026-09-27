@@ -134,8 +134,17 @@ cover the Rust protocol against PostgreSQL and the Python adapter against an
 actual child process. Production management configuration and cutover are still
 unavailable, so the installed CLI cannot bind this central repository yet. The
 complete native/Python/PostgreSQL training pipeline through production bootstrap
-remains a release gate, as do the complete-population audit exporter, remaining
-periodic training consumers and historical metadata import.
+remains a release gate, as do remaining periodic training consumers and historical
+metadata import.
+
+The complete retained-population audit exporter also reads PostgreSQL. Its
+projection and counters are shared with SQLite; it includes unlabelled,
+conflicting and unusable records instead of filtering them out of evaluation.
+Votes are rechecked against current grants in the same snapshot and Bcc
+recipients do not multiply messages. Bounded streaming retains the 50,000-row /
+512 MiB limits. Publishing is private and atomic, and refuses to replace an
+existing snapshot, including a racing file creator. Tests compare both backends,
+including invalid typed scan data and ignored votes from revoked users.
 
 ## Integration tests
 

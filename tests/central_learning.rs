@@ -144,6 +144,59 @@ async fn streaming_learning_exports_preserve_population_counters_privacy_and_ato
         .with_management(f.central.clone())
         .await
         .unwrap();
+    let population_since = time - 1;
+    let population_until = noisefence::now() + 1;
+    for invalid_capture in [i64::MIN, i64::MAX, 0] {
+        assert!(
+            f.central
+                .population_export(
+                    &root.path().join("invalid-capture.jsonl"),
+                    population_since,
+                    population_until,
+                    invalid_capture
+                )
+                .await
+                .is_err()
+        );
+    }
+    let population_legacy = root.path().join("population-legacy.jsonl");
+    let population_central = root.path().join("population-central.jsonl");
+    let a = noisefence::population::export(
+        &local,
+        &population_legacy,
+        population_since,
+        population_until,
+    )
+    .await
+    .unwrap();
+    let b = noisefence::population::export(
+        &central,
+        &population_central,
+        population_since,
+        population_until,
+    )
+    .await
+    .unwrap();
+    assert_eq!(a, b);
+    assert_eq!(b.considered, 23);
+    assert_eq!(b.exported, 22);
+    assert_eq!(b.automatic_dsn, 1);
+    assert_eq!(b.ignored_feedback, 2);
+    assert_eq!(b.unlabelled, 2);
+    assert_eq!(b.conflicting_labels, 1);
+    assert_population_equal(&population_legacy, &population_central);
+    let frozen = std::fs::read(&population_central).unwrap();
+    assert!(
+        noisefence::population::export(
+            &central,
+            &population_central,
+            population_since,
+            population_until
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(frozen, std::fs::read(&population_central).unwrap());
     let output = root.path().join("central.jsonl");
     let reference = root.path().join("legacy.jsonl");
     for semantic in [false, true] {
@@ -260,6 +313,48 @@ async fn streaming_learning_exports_preserve_population_counters_privacy_and_ato
     assert_eq!(before, std::fs::read(&output).unwrap());
     assert!(learning::export(&local, &reference, false).await.is_ok());
     f.resume().await;
+    let id = ids[23].clone();
+    local.run(move |db|{db.execute("UPDATE messages SET scan=json_set(scan,'$.subject',123,'$.features',json('[[1,0.5]]')) WHERE id=?1",[id])?;Ok(())}).await.unwrap();
+    let old_invalid = root.path().join("population-invalid-legacy.jsonl");
+    let new_invalid = root.path().join("population-invalid-central.jsonl");
+    let a =
+        noisefence::population::export(&local, &old_invalid, population_since, population_until)
+            .await
+            .unwrap();
+    let b =
+        noisefence::population::export(&central, &new_invalid, population_since, population_until)
+            .await
+            .unwrap();
+    assert_eq!(a, b);
+    assert_eq!(b.invalid_scan, 1);
+    assert_population_equal(&old_invalid, &new_invalid);
+
     drop(pg);
     f.finish().await;
+}
+
+fn assert_population_equal(a: &std::path::Path, b: &std::path::Path) {
+    let parse = |p: &std::path::Path| {
+        let mut rows: Vec<serde_json::Value> = std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        rows[0].as_object_mut().unwrap().remove("captured_at");
+        rows
+    };
+    assert_eq!(parse(a), parse(b));
+    let text = std::fs::read_to_string(b).unwrap();
+    for private in [
+        "private@example.org",
+        "alice@example.test",
+        "Rendez-vous",
+        "\"features\"",
+    ] {
+        assert!(!text.contains(private));
+    }
+    assert_eq!(
+        std::fs::metadata(b).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 }
