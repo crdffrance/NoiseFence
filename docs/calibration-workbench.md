@@ -1,5 +1,15 @@
 # Calibration workbench
 
+## Paired engine comparisons
+
+Comparison schema `noisefence-quality-comparison-2` adds a `paired` section. The console presents this section first: both engines are measured on exactly the same human-labelled messages, with a recorded NoiseFence verdict and a completed Rspamd analysis. Missing or interrupted analyses are counted separately by human class and excluded from paired rates. A completed `greylist`, `soft reject` or custom Rspamd action remains a non-final decision, counted as review rather than a spam detection.
+
+Paired metrics use the recorded NoiseFence engine verdict, without recipient overrides. A positively observed threat can remain unwanted despite incomplete optional coverage; the paired comparator preserves that verdict. The separate full-sample conservative baseline retains the existing incomplete-analysis safeguard and recipient policies. Neither report changes delivery or makes an incomplete scan eligible for enforcement.
+
+Each paired campaign uses the same earliest eligible representative for both engines. Campaign conflicts are checked before pairing, including labelled members without a Rspamd result. Missing campaign identities and detector-profile pairs are reported. Inspect campaign metrics alongside message counts: repeated messages are not independent trials, and mixed historical versions are not a replay of the current engines.
+
+The table includes spam and legitimate denominators, class-specific review counts and confidence intervals. The small-sample notice below 20 paired labelled spams is a warning, not an activation or accuracy qualification threshold. All results remain descriptive until an independent, representative evaluation establishes the required confidence bounds. Rspamd predictions never supply training labels.
+
 NoiseFence 0.25 adds a reproducible research workflow under **Filter quality**. It does not claim perfect filtering or Rspamd-equivalent accuracy. A regression fix, agreement with Rspamd and a passing software test are different from measured performance on future mail.
 
 ## Prepare the data

@@ -23,7 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const VERSION: &str = "smtp-policy-1";
+pub const VERSION: &str = "smtp-policy-2";
 const MAX_RECORDS: usize = 32;
 const MAX_PTR: usize = 4;
 
@@ -259,20 +259,43 @@ impl<R: Resolver> Policy<R> {
         }
         answer.records
     }
-    async fn addresses(&self, name: &str) -> std::result::Result<Vec<IpAddr>, ()> {
-        let (a, aaaa) = tokio::join!(
-            self.lookup(Query::A(name.into())),
-            self.lookup(Query::Aaaa(name.into()))
-        );
-        // An error in either family cannot prove an identity mismatch or missing route.
-        Ok(a?
-            .into_iter()
-            .chain(aaaa?)
-            .filter_map(|r| match r {
-                Record::Ip(ip) => Some(ip.to_canonical()),
-                _ => None,
-            })
-            .collect())
+    async fn peer_addresses(
+        &self,
+        name: &str,
+        peer: IpAddr,
+    ) -> std::result::Result<Vec<Record>, ()> {
+        // Only the peer's address family can confirm its identity. A failing
+        // AAAA lookup must not erase a verified IPv4 address (and vice versa).
+        self.lookup(if peer.is_ipv4() {
+            Query::A(name.into())
+        } else {
+            Query::Aaaa(name.into())
+        })
+        .await
+    }
+    async fn has_address(&self, name: &str) -> std::result::Result<bool, ()> {
+        // Either family can prove that an implicit MX exists. An absent route
+        // requires successful empty answers from both. Drop the other future
+        // immediately on a positive answer; no background DNS work survives.
+        let a = self.lookup(Query::A(name.into()));
+        let aaaa = self.lookup(Query::Aaaa(name.into()));
+        tokio::pin!(a, aaaa);
+        let (first, second) = tokio::select! {
+            first = &mut a => {
+                if first.as_ref().is_ok_and(|r| !r.is_empty()) { return Ok(true); }
+                (first, aaaa.await)
+            }
+            first = &mut aaaa => {
+                if first.as_ref().is_ok_and(|r| !r.is_empty()) { return Ok(true); }
+                (first, a.await)
+            }
+        };
+        if second.as_ref().is_ok_and(|r| !r.is_empty()) {
+            return Ok(true);
+        }
+        first?;
+        second?;
+        Ok(false)
     }
     pub async fn check(
         &self,
@@ -291,32 +314,44 @@ impl<R: Resolver> Policy<R> {
             result.status = PolicyStatus::Busy;
             return result;
         };
-        // No queued background work survives this timeout or the enclosing engine deadline.
-        let work = async {
-            let (helo, reverse, sender) = tokio::join!(
-                self.helo(ip.to_canonical(), helo, hostname),
-                self.reverse(ip.to_canonical()),
-                self.sender(sender),
-            );
-            let mut checks = vec![helo?, reverse?, sender?];
-            let candidate: f64 = checks.iter().map(|s| s.weight).sum();
-            // HELO and PTR are correlated. Verified DNS is only a small credit, never a bypass.
-            let candidate = candidate.clamp(-0.25, 1.5);
-            checks.retain(|s| !s.id.is_empty());
-            Ok::<_, ()>((checks, candidate))
-        };
-        match tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), work).await {
-            Ok(Ok((checks, candidate))) => {
-                result.status = PolicyStatus::Complete;
-                result.checks = checks;
-                result.candidate_weight = candidate;
-                result.applied_weight = if self.config.contribute_to_score {
-                    candidate
-                } else {
-                    0.0
-                };
+        // Share one absolute deadline while retaining completed observations.
+        // Missing checks remain explicitly unavailable, never adverse evidence.
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(self.config.timeout_ms);
+        let (helo, reverse, sender) = tokio::join!(
+            tokio::time::timeout_at(deadline, self.helo(ip.to_canonical(), helo, hostname)),
+            tokio::time::timeout_at(deadline, self.reverse(ip.to_canonical())),
+            tokio::time::timeout_at(deadline, self.sender(sender)),
+        );
+        result.status = PolicyStatus::Complete;
+        for (name, check) in [("helo", helo), ("ptr", reverse), ("sender", sender)] {
+            match check {
+                Ok(Ok(signal)) => result.checks.push(signal),
+                missing => {
+                    result.status = PolicyStatus::Unavailable;
+                    result.checks.push(signal(
+                        &format!("{name}_dns_unavailable"),
+                        if missing.is_err() {
+                            "SMTP identity check exceeded its DNS deadline"
+                        } else {
+                            "SMTP identity check has incomplete DNS evidence"
+                        },
+                        0.0,
+                    ));
+                }
             }
-            _ => result.status = PolicyStatus::Unavailable,
+        }
+        if result.status == PolicyStatus::Complete {
+            let candidate: f64 = result.checks.iter().map(|s| s.weight).sum();
+            // HELO and PTR are correlated. Verified DNS is only a small credit, never a bypass.
+            result.candidate_weight = candidate.clamp(-0.25, 1.5);
+            if self.config.contribute_to_score {
+                result.applied_weight = result.candidate_weight;
+            }
+        } else {
+            // Retain the successful facts without applying a partial score.
+            for check in &mut result.checks {
+                check.weight = 0.0;
+            }
         }
         result.elapsed_ms = started.elapsed().as_millis() as u64;
         result
@@ -356,14 +391,14 @@ impl<R: Resolver> Policy<R> {
                 0.75,
             ));
         }
-        let addresses = self.addresses(&name).await?;
-        Ok(if addresses.contains(&ip) {
+        let addresses = self.peer_addresses(&name, ip).await?;
+        Ok(if addresses.contains(&Record::Ip(ip)) {
             signal(
                 "helo_verified",
                 "HELO DNS resolution matches the connecting IP",
                 -0.15,
             )
-        } else if addresses.is_empty() {
+        } else if addresses.is_empty() && !self.has_address(&name).await? {
             signal("helo_no_address", "HELO has no A/AAAA address", 0.5)
         } else {
             signal(
@@ -383,6 +418,7 @@ impl<R: Resolver> Policy<R> {
             return Err(());
         }
         let mut unknown = false;
+        let mut names = Vec::new();
         for record in records {
             let Record::Host(name) = record else {
                 return Err(());
@@ -391,17 +427,45 @@ impl<R: Resolver> Policy<R> {
                 unknown = true;
                 continue;
             };
-            match self.addresses(&name).await {
-                Ok(ips) if ips.contains(&ip) => {
-                    return Ok(signal(
-                        "ptr_verified",
-                        "Reverse DNS PTR is confirmed by A/AAAA resolution",
-                        -0.15,
-                    ));
-                }
-                Ok(_) => (),
-                Err(()) => unknown = true,
+            if !names.contains(&name) {
+                names.push(name);
             }
+        }
+        // At most MAX_PTR forward checks. A stale first PTR must not consume
+        // the whole deadline before a second, valid PTR can be confirmed.
+        let mut queries: Vec<_> = names
+            .iter()
+            .map(|name| Box::pin(self.peer_addresses(name, ip)))
+            .collect();
+        let confirmed = std::future::poll_fn(|cx| {
+            use std::task::Poll;
+            let mut confirmed = false;
+            queries.retain_mut(|query| match query.as_mut().poll(cx) {
+                Poll::Pending => true,
+                Poll::Ready(Ok(ips)) => {
+                    confirmed |= ips.contains(&Record::Ip(ip));
+                    false
+                }
+                Poll::Ready(Err(())) => {
+                    unknown = true;
+                    false
+                }
+            });
+            if confirmed {
+                Poll::Ready(true)
+            } else if queries.is_empty() {
+                Poll::Ready(false)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        if confirmed {
+            return Ok(signal(
+                "ptr_verified",
+                "Reverse DNS PTR is confirmed by A/AAAA resolution",
+                -0.15,
+            ));
         }
         if unknown {
             return Err(());
@@ -428,7 +492,7 @@ impl<R: Resolver> Policy<R> {
         };
         let records = self.lookup(Query::Mx(domain.clone())).await?;
         if records.is_empty() {
-            return Ok(if self.addresses(&domain).await?.is_empty() {
+            return Ok(if !self.has_address(&domain).await? {
                 signal(
                     "sender_no_mail_route",
                     "Envelope domain has no MX or A/AAAA fallback",

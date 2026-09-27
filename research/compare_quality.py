@@ -14,6 +14,55 @@ def rspamd_outcome(row):
             'add header':'spam','rewrite subject':'spam'}.get(report.get('action'),'review')
 
 
+def engine_outcome(row):
+    """Recorded engine verdict, without recipient overrides or score reinterpretation."""
+    return {'unwanted':'spam','legitimate':'legitimate'}.get(
+        (row.get('legacy_decision') or {}).get('outcome'),'review')
+
+
+def paired_comparison(rows):
+    """Compare identical human-labelled observations; missing is not a prediction."""
+    labelled=[r for r in rows if r.get('risk') in ('legitimate','spam')]
+    native_present=lambda r:(r.get('legacy_decision') or {}).get('outcome') in ('unwanted','legitimate','undetermined')
+    other_present=lambda r:(r.get('rspamd') or {}).get('status')=='complete'
+    paired=[r for r in labelled if native_present(r) and other_present(r)]
+    def measure(group):
+        labels=[int(r['risk']=='spam') for r in group]
+        return {'messages':len(group),'baseline':outcomes(labels,[engine_outcome(r) for r in group]),
+                'rspamd':outcomes(labels,[rspamd_outcome(r) for r in group])}
+    # Group before pairing: a conflicting label in a missing-analysis row
+    # must not disappear and leave its campaign looking consistently labelled.
+    identified=[dict(r,campaign=r['fingerprint']) for r in labelled if r.get('fingerprint') and r.get('simhash')]
+    representatives=[];conflicts=0
+    for indexes in components(identified):
+        group=[identified[i] for i in indexes]
+        if len({r['risk'] for r in group})>1:
+            conflicts+=1;continue
+        eligible=[r for r in group if native_present(r) and other_present(r)]
+        if eligible:representatives.append(min(eligible,key=lambda r:(r['observed_at'],r['id'])))
+    result=measure(paired)
+    result['coverage']={'labelled':len(labelled),'paired':len(paired),
+        'native_missing':sum(not native_present(r) for r in labelled),
+        'rspamd_missing':sum(not other_present(r) for r in labelled),
+        'paired_legitimate':sum(r['risk']=='legitimate' for r in paired),
+        'paired_spam':sum(r['risk']=='spam' for r in paired),
+        'paired_core_incomplete':sum(r.get('baseline_complete') is False for r in paired),
+        'campaign_identity_missing':sum(not r.get('fingerprint') or not r.get('simhash') for r in paired)}
+    result['campaigns']={**measure(representatives),'count':len(representatives),'conflicting':conflicts}
+    result['outcome_pairs']=[{'noisefence':a,'rspamd':b,'messages':n} for (a,b),n in sorted(
+        Counter((engine_outcome(r),rspamd_outcome(r)) for r in paired).items())]
+    result['availability_by_label']={risk:dict(Counter(
+        (r.get('rspamd') or {}).get('status') or 'missing' for r in labelled if r['risk']==risk))
+        for risk in ('legitimate','spam')}
+    # The native artifact digest also binds the application and decision policy.
+    result['profiles']=[{'native':native,'rspamd':other,'messages':n} for (native,other),n in sorted(Counter(
+        (((r.get('quality') or {}).get('artifacts_sha256') or 'missing'),
+         ((r.get('rspamd') or {}).get('settings_sha256') or 'missing')) for r in paired).items())]
+    result['capture_comparison_supported']=result['coverage']['paired_spam']>=20
+    result['independent_validation']=False
+    return result
+
+
 def compare(dataset):
     header,usable,coverage,_,digest=load_dataset(dataset,allow_multiple_artifacts=True)
     records,again=read_jsonl(dataset)
@@ -40,7 +89,8 @@ def compare(dataset):
         representatives.append(min(group,key=lambda r:r['id']))
     cy=[int(r['risk']=='spam') for r in representatives]
     latency=sorted(r['pipeline_elapsed_ms'] for r in rows if type(r.get('pipeline_elapsed_ms')) in (int,float) and 0<=r['pipeline_elapsed_ms']<=3600000)
-    report={'schema':'noisefence-quality-comparison-1','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
+    report={'schema':'noisefence-quality-comparison-2','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
+      'paired':paired_comparison(rows),
       'coverage':{**coverage,'labelled':len(labelled),'unlabelled_or_uncertain':len(rows)-len(labelled)},
       'baseline':outcomes(y,native),'rspamd':outcomes(y,other),'legacy_score_calibration':lexical,
       'campaigns':{'count':len(representatives),'conflicting':conflicts,
@@ -51,6 +101,11 @@ def compare(dataset):
         'scope':'recorded_end_to_end_including_external_services','native_p95_ms':None},
       'slices':{},'observation_only':True,'may_activate':False,
       'limitations':['Human labels are the reference; Rspamd actions are predictions.',
+        'Paired results use recorded engine verdicts on the same labelled messages; recipient overrides are excluded.',
+        'Population totals retain missing analyses as review for coverage accounting, not a head-to-head accuracy claim.',
+        'Greylisting and custom Rspamd actions are non-final decisions, not spam detections.',
+        'Incomplete core coverage does not erase a recorded threat verdict; enforcement remains a separate policy.',
+        'Fewer than 20 paired human-labelled spams cannot support a useful capture comparison; more data and confidence bounds remain necessary.',
         'Message intervals assume independent observations; also inspect campaign metrics.',
         'A previously examined sample is a regression set, not independent qualification.',
         'Recorded total latency cannot establish native warm-cache performance.']}
