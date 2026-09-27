@@ -33,6 +33,7 @@ pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Incomplete-Reasons",
     "X-NoiseFence-Supplementary-Gaps",
     "X-NoiseFence-Arbitration",
+    "X-NoiseFence-Score-Resolution",
     "X-NoiseFence-Rules",
     "X-NoiseFence-LLM",
     "X-NoiseFence-Antivirus",
@@ -174,6 +175,22 @@ pub(crate) fn render(
         mail_parser::DateTime::from_timestamp(crate::now()).to_rfc822()
     ));
     let report = assessment::assess(scan, config.filter.threshold);
+    if let Some(r) = &report.score_resolution {
+        h.field(
+            "X-NoiseFence-Score-Resolution",
+            format!(
+                "policy={}; score={}; threshold={}; previous={}; outcome={}; partial={};",
+                token(&r.version).unwrap_or("unknown"),
+                number(r.score),
+                number(Some(r.threshold)),
+                word(&r.previous.outcome),
+                word(&r.decision.outcome),
+                yes(r.partial)
+            ),
+        );
+    } else {
+        h.field("X-NoiseFence-Score-Resolution", "none");
+    }
     h.field(
         "X-NoiseFence-Supplementary-Gaps",
         if report.supplementary_gaps.is_empty() {

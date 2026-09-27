@@ -206,16 +206,20 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1")
+                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2")
                 || self.settings.quality_candidate.is_none(),
             "Upgrade every MX before selecting a managed shadow candidate"
+        );
+        ensure!(
+            build == env!("CARGO_PKG_VERSION") || !self.settings.filters.resolve_uncertain_by_score,
+            "Upgrade every MX before enabling automatic score resolution"
         );
         // Fallback delivery must not silently differ across an older MX.
         ensure!(
             (build == env!("CARGO_PKG_VERSION")
                 || matches!(
                     build,
-                    "0.21.0" | "0.22.0" | "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1"
+                    "0.21.0" | "0.22.0" | "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1" | "0.25.2"
                 ))
                 || self
                     .settings
@@ -226,7 +230,7 @@ impl Bundle {
         );
         ensure!(
             (build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1"))
+                || matches!(build, "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1" | "0.25.2"))
                 || self
                     .settings
                     .domains
@@ -236,7 +240,7 @@ impl Bundle {
         );
         ensure!(
             build == env!("CARGO_PKG_VERSION")
-                || matches!(build, "0.25.0" | "0.25.1")
+                || matches!(build, "0.25.0" | "0.25.1" | "0.25.2")
                 || !self
                     .settings
                     .filters
@@ -257,6 +261,7 @@ impl Bundle {
                     | "0.24.0"
                     | "0.25.0"
                     | "0.25.1"
+                    | "0.25.2"
             )
         {
             bundle.settings.research_archive = None;
@@ -280,6 +285,7 @@ impl Bundle {
                     | "0.24.0"
                     | "0.25.0"
                     | "0.25.1"
+                    | "0.25.2"
             )
         {
             // Comparison is not available on older workers. Keep their policy
@@ -292,7 +298,14 @@ impl Bundle {
         if build != env!("CARGO_PKG_VERSION")
             && !matches!(
                 build,
-                "0.20.3" | "0.21.0" | "0.22.0" | "0.23.0" | "0.24.0" | "0.25.0" | "0.25.1"
+                "0.20.3"
+                    | "0.21.0"
+                    | "0.22.0"
+                    | "0.23.0"
+                    | "0.24.0"
+                    | "0.25.0"
+                    | "0.25.1"
+                    | "0.25.2"
             )
             && let Some(detection) = &mut bundle.settings.detection
         {

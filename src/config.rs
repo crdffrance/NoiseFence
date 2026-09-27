@@ -107,6 +107,8 @@ pub enum Mode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resolve_uncertain_by_score: bool,
     #[serde(default)]
     pub rule_weights: BTreeMap<String, f64>,
     #[serde(default)]

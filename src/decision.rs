@@ -10,6 +10,123 @@ pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
 pub const OBSERVED_THREAT_REASON: &str = "observed_threat_partial";
+pub const SCORE_RESOLUTION_REASON: &str = "score_threshold_resolution";
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ScoreResolution {
+    pub version: String,
+    pub previous: Decision,
+    pub decision: Decision,
+    pub threshold: f64,
+    pub score: Option<f64>,
+    pub partial: bool,
+    pub previous_category: Option<crate::mailing::Category>,
+    #[serde(default)]
+    pub projected: bool,
+}
+
+fn restore_score_resolution(scan: &mut Scan) {
+    if let Some(previous) = scan.score_resolution.take()
+        && scan.decision.as_ref() == Some(&previous.decision)
+    {
+        scan.decision = Some(previous.previous);
+        scan.delivery_classification = previous.previous_category;
+    }
+    scan.reasons.retain(|r| r.id != SCORE_RESOLUTION_REASON);
+}
+
+/// SQL projection for the same opt-in historical classification used by the
+/// console. Only fixed SQL and a caller-owned threshold placeholder are used.
+/// Access-control predicates and stored decisions/actions remain unchanged.
+pub(crate) fn project_sql(sql: &str, threshold: &str) -> String {
+    let outcome = "json_extract(m.scan,'$.decision.outcome')";
+    let category = "json_extract(m.scan,'$.delivery_classification')";
+    let recorded_threshold = format!(
+        "COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,{threshold})"
+    );
+    let selected = format!(
+        "CASE WHEN COALESCE(json_extract(m.scan,'$.features_complete'),1)!=0 AND json_extract(m.scan,'$.score') BETWEEN 0 AND 100 AND json_extract(m.scan,'$.score')>={recorded_threshold} THEN 'unwanted' ELSE 'legitimate' END"
+    );
+    let resolved = format!(
+        "CASE WHEN COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' AND (COALESCE({outcome}='undetermined',json_extract(m.scan,'$.complete')=0) OR {category}='undetermined') THEN {selected} ELSE {outcome} END"
+    );
+    let category_resolved = format!(
+        "CASE WHEN {category}='undetermined' AND COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' THEN NULL ELSE {category} END"
+    );
+    // Substitutions are simultaneous: generated expressions must not be rewritten.
+    sql.replace(category, "__NF_POLICY_CATEGORY__")
+        .replace(outcome, &resolved)
+        .replace("__NF_POLICY_CATEGORY__", &category_resolved)
+}
+
+pub fn project_history(scan: &mut Scan, enabled: bool, fallback_threshold: f64) {
+    // Already resolved records retain the policy used at receipt time.
+    if !enabled || scan.score_resolution.is_some() {
+        return;
+    }
+    let threshold = crate::assessment::recorded_threshold(scan).unwrap_or(fallback_threshold);
+    resolve_by_score(scan, true, threshold);
+    if let Some(resolution) = &mut scan.score_resolution {
+        resolution.projected = true;
+    }
+}
+
+/// Explicit operator policy: resolve an abstention using the content index and
+/// configured content threshold. This is not independent corroboration, a new
+/// calibrated model, or permission to rewrite partially analysed messages.
+pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
+    restore_score_resolution(scan);
+    if !enabled || crate::assessment::valid_score(Some(threshold)).is_none() {
+        return;
+    }
+    let previous = scan
+        .decision
+        .clone()
+        .unwrap_or_else(|| Decision::legacy(scan, threshold));
+    if previous.source == DecisionSource::Antivirus
+        || (previous.outcome != Outcome::Undetermined
+            && scan.delivery_classification != Some(crate::mailing::Category::Undetermined))
+    {
+        return;
+    }
+    // A failed extraction's placeholder is not a measured zero. Missing scores
+    // fail open instead of inventing a risk value or creating a manual backlog.
+    let score = (scan.features_complete != Some(false))
+        .then(|| crate::assessment::valid_score(Some(scan.score)))
+        .flatten();
+    let decision = Decision {
+        source: DecisionSource::Legacy,
+        outcome: if score.is_some_and(|s| s >= threshold) {
+            Outcome::Unwanted
+        } else {
+            Outcome::Legitimate
+        },
+        score,
+        model: scan.model.clone(),
+    };
+    let previous_category = scan.delivery_classification;
+    if previous_category == Some(crate::mailing::Category::Undetermined) {
+        scan.delivery_classification = None;
+    }
+    scan.decision = Some(decision.clone());
+    scan.score_resolution = Some(ScoreResolution {
+        version: "score-resolution-1".into(),
+        previous,
+        decision,
+        threshold,
+        score,
+        partial: !scan.complete,
+        previous_category,
+        projected: false,
+    });
+    scan.reasons.push(Signal {
+        id: SCORE_RESOLUTION_REASON.into(),
+        detail: score.map_or_else(
+            || "No usable content score: automatic fail-open classification; analysis remains unavailable.".into(),
+            |score| format!("Automatic classification by configured policy: content index {score:.2} compared with threshold {threshold:.2}. Detector uncertainty remains recorded; no manual review is required.")),
+        weight: 0.0,
+    });
+}
 
 /// Successfully observed threats survive unrelated optional-check failures.
 /// Direct extortion still needs observed failed authentication and a second
@@ -136,6 +253,7 @@ fn arbitrate(scan: &mut Scan) -> Option<Arbitration> {
 /// An unrelated failure never erases that observation, but `complete = false`
 /// still prevents every subject prefix. No artificial probability is assigned.
 pub fn apply(scan: &mut Scan, require_corroboration: bool) {
+    restore_score_resolution(scan);
     let context_reviewed = scan.reasons.iter().any(|r| r.id == CONTEXT_REASON);
     // Re-evaluate from the saved input when applying recipient policies. Never
     // treat our own abstention as new evidence or accumulate explanation rows.

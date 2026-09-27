@@ -75,6 +75,7 @@ type Domain = {
   aliases: Record<string, string>;
 };
 type Filters = {
+  resolve_uncertain_by_score?: boolean;
   mode: 'observe' | 'tag' | 'enforce';
   rule_weights: Record<string, number>;
   threshold: number;
@@ -233,7 +234,7 @@ type FilterSection = (typeof filterSections)[number]['id'];
 const modules: {
   key: keyof Omit<
     Filters,
-    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights'
+    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights' | 'resolve_uncertain_by_score'
   >;
   title: string;
   description: string;
@@ -1158,8 +1159,14 @@ export function AdminConsole({
                 </label>
               </div>
               <Toggle
+                label="Resolve uncertain results using the score"
+                description="Replace Needs review with a classification using the content index and configured threshold. Detector disagreements and missing checks remain visible. Existing history uses its recorded threshold; completed deliveries stay unchanged. Upgrade every MX before enabling."
+                checked={Boolean(draft.filters.resolve_uncertain_by_score)}
+                onChange={(v) => filterAt('resolve_uncertain_by_score', v)}
+              />
+              <Toggle
                 label="Require corroboration before classifying spam"
-                description="A high content score needs corroboration to become a spam classification. This reduces model-only false positives but can leave spam under review. Validated fusion uses its own policy."
+                description={draft.filters.resolve_uncertain_by_score ? "Missing corroboration is recorded, then the configured threshold resolves the classification automatically." : "A high content score needs corroboration to become a spam classification. This reduces model-only false positives but can leave spam under review. Validated fusion uses its own policy."}
                 checked={Boolean(draft.filters.require_corroboration)}
                 onChange={(v) => filterAt('require_corroboration', v)}
               />

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.0 — Explicit automatic score resolution
+
+- Add an opt-in Web policy that resolves uncertain classifications using the available content index and applicable threshold, while retaining original opinions, partial coverage, malware priority and delivery guards.
+- Keep historical projections consistent across lists, search, statistics and diagnostics without rewriting receipt-time records or completed deliveries. Add a signed score-resolution diagnostic header.
+- Require every MX to support the policy before serving enabled settings to workers. Document calibration limits and the final release qualification plan. No detection-rate improvement or production activation is claimed.
+
+
 ## 0.25.2 — LLM request context and action-link inspection
 
 - Separate current message text from bounded quoted history, normalize Latin invisible-character obfuscation, and preserve the existing shared LLM text cap. Quotation boundaries remain untrusted hints.

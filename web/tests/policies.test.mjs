@@ -36,6 +36,7 @@ test('restoring explicit actions and rule weights preserves them exactly', () =>
     filters: {
       mode: 'enforce',
       require_corroboration: true,
+      resolve_uncertain_by_score: true,
       rule_weights: { urgency: 0 },
     },
   };

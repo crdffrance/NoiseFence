@@ -480,3 +480,44 @@ fn recipient_profiles_reapply_arbitration_with_their_own_threshold() {
         assert_eq!(result.action.effective, Action::Deliver);
     }
 }
+
+#[test]
+fn automatic_resolution_uses_recipient_threshold_and_keeps_partial_delivery_safe() {
+    use noisefence::fusion::runtime::Decision;
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.resolve_uncertain_by_score = true;
+    cfg.filter.mode = Mode::Enforce;
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    for complete in [false, true] {
+        let mut scan = Scan {
+            score: 96.,
+            complete,
+            features_complete: Some(true),
+            ..Default::default()
+        };
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        noisefence::decision::apply(&mut scan, true);
+        noisefence::decision::resolve_by_score(&mut scan, true, 95.);
+        for (threshold, expected) in [(90., Category::Spam), (98., Category::Legitimate)] {
+            let result = assess(
+                &level_policy(threshold),
+                &cfg,
+                &scan,
+                &Facts::default(),
+                &recipient,
+                100,
+            );
+            assert_eq!(result.category, expected);
+            assert_eq!(result.threshold, threshold);
+            assert_eq!(
+                result.action.effective,
+                if complete && expected == Category::Spam {
+                    Action::Quarantine
+                } else {
+                    Action::Deliver
+                }
+            );
+        }
+    }
+}

@@ -309,9 +309,15 @@ async fn search_messages(
     let user = authenticated(&app, &h).await?;
     q.validate()
         .map_err(|e| Error(StatusCode::BAD_REQUEST, e.to_string()))?;
+    let config = app.effective();
     Ok(Json(
         app.store
-            .search_messages(user.username, q, app.effective().filter.threshold)
+            .search_messages_with_policy(
+                user.username,
+                q,
+                config.filter.threshold,
+                config.filter.resolve_uncertain_by_score,
+            )
             .await?,
     ))
 }
@@ -329,8 +335,15 @@ async fn diagnostics(
     if id.len() > 128 {
         return Err(Error(StatusCode::NOT_FOUND, "Message not found.".into()));
     }
+    let config = app.effective();
     app.store
-        .diagnostics_for(user.username, id, query.delivery_id)
+        .diagnostics_for_with_policy(
+            user.username,
+            id,
+            query.delivery_id,
+            config.filter.resolve_uncertain_by_score,
+            config.filter.threshold,
+        )
         .await?
         .map(Json)
         .ok_or_else(|| Error(StatusCode::NOT_FOUND, "Message not found.".into()))
@@ -415,10 +428,12 @@ async fn stats(
     }
     let config = app.effective();
     let threshold = config.filter.threshold;
+    let resolve_uncertain_by_score = config.filter.resolve_uncertain_by_score;
     let domain = q.domain;
-    let mut result=app.store.read(move|db|{let (received,flagged,pending,publicity,quarantined)=db.query_row(&format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,?3)) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,?3)) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL),params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
+    let mut result=app.store.read(move|db|{let query=format!("SELECT COUNT(DISTINCT m.id),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification')='spam',json_extract(m.scan,'$.decision.outcome')='unwanted',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')>=COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,?3)) THEN m.id END),COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END),COUNT(DISTINCT CASE WHEN COALESCE(json_extract(m.scan,'$.delivery_classification') IN ('legitimate','publicity'),json_extract(m.scan,'$.decision.outcome')='legitimate',json_extract(m.scan,'$.complete')=1 AND json_extract(m.scan,'$.score')<COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,?3)) AND {publicity} THEN m.id END),COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?4='' OR lower(substr(d.address,-length(?4)-1))='@'||lower(?4) OR lower(substr(d.destination,-length(?4)-1))='@'||lower(?4))",publicity=crate::mailing::PUBLICITY_SQL); let query=if resolve_uncertain_by_score {crate::decision::project_sql(&query,"?3")} else {query}; let (received,flagged,pending,publicity,quarantined)=db.query_row(&query,params![username,now()-30*86400,threshold,domain],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))}).await?;
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
+    result["resolve_uncertain_by_score"] = json!(resolve_uncertain_by_score);
     result["decision_source"] = json!(if config
         .fusion
         .as_ref()

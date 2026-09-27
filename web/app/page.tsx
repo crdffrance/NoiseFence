@@ -220,6 +220,7 @@ type Mail = {
   };
 };
 type Stats = {
+  resolve_uncertain_by_score?: boolean;
   received: number;
   flagged: number;
   publicity: number;
@@ -1050,7 +1051,7 @@ function Home() {
                     <MessageScoreDetails mail={selected} />
                     {selected.arbitration && (
                       <p className="notice">
-                        {arbitrationExplanation(selected.arbitration)?.detail}{' '}
+                        {arbitrationExplanation(selected.arbitration, selected.assessment?.score_resolution)?.detail}{' '}
                         Historical index:{' '}
                         {selected.arbitration.baseline.score?.toFixed(1) ?? '—'}{' '}
                         / 100.
@@ -1624,7 +1625,7 @@ function Home() {
                             More filters
                           </option>
                           <option value="pending">Pending</option>
-                          <option value="review">Needs review</option>
+                          {!stats?.resolve_uncertain_by_score && <option value="review">Needs review</option>}
                           <option value="publicity_signal">
                             Marketing signals, all classifications
                           </option>

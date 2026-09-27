@@ -72,6 +72,8 @@ pub struct SemanticResult {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score_resolution: Option<crate::decision::ScoreResolution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_context: Option<crate::message_context::Context>,
     /// Independent, post-acceptance metadata; never a feature or a decision input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -848,6 +850,7 @@ impl Engine {
                 && r.id != crate::decision::REVIEW_REASON
         });
         scan.arbitration = None;
+        scan.score_resolution = None;
         Self::refresh_evidence(scan);
         scan.decision = Some(crate::fusion::runtime::Decision::legacy(
             scan,
@@ -857,6 +860,11 @@ impl Engine {
             fusion.apply(scan);
         }
         crate::decision::apply(scan, self.config.filter.require_corroboration);
+        crate::decision::resolve_by_score(
+            scan,
+            self.config.filter.resolve_uncertain_by_score,
+            self.config.filter.threshold,
+        );
         if let (Some(runtime), Some(mut observation)) =
             (&self.native_filter, scan.native_filter.take())
         {

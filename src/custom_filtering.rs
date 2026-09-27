@@ -471,12 +471,13 @@ pub fn assess_prepared(
     });
     let threshold = override_threshold.unwrap_or(cfg.filter.threshold);
     let mut category = original;
-    if scan.complete
+    if (scan.complete || cfg.filter.resolve_uncertain_by_score)
         && let Some(p) = profile
     {
         let mut candidate = scan.clone();
         if override_threshold.is_some() {
             candidate.arbitration = None;
+            candidate.score_resolution = None;
             candidate.delivery_classification = None;
             candidate.decision = Some(crate::fusion::runtime::Decision::legacy(scan, threshold));
         }
@@ -485,6 +486,11 @@ pub fn assess_prepared(
             cfg.filter.require_corroboration
                 || p.require_corroboration
                 || override_threshold.is_some(),
+        );
+        crate::decision::resolve_by_score(
+            &mut candidate,
+            cfg.filter.resolve_uncertain_by_score,
+            threshold,
         );
         category = crate::mailing::category(&candidate, threshold);
     }
@@ -537,7 +543,15 @@ pub fn assess_prepared(
             continue;
         }
         if let Some(c) = r.category {
-            category = c;
+            category = if c == Category::Undetermined && cfg.filter.resolve_uncertain_by_score {
+                let mut candidate = scan.clone();
+                candidate.score_resolution = None;
+                candidate.delivery_classification = Some(Category::Undetermined);
+                crate::decision::resolve_by_score(&mut candidate, true, threshold);
+                crate::mailing::category(&candidate, threshold)
+            } else {
+                c
+            };
             requested = choose(category);
         }
         if let Some(a) = r.action {

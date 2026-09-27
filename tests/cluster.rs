@@ -1444,7 +1444,7 @@ fn llm_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout(
         .modules
         .insert("semantic".into(), json!({"timeout_ms":1500}));
     bundle.digest = bundle.hash().unwrap();
-    for build in ["0.25.0", "0.25.1"] {
+    for build in ["0.25.0", "0.25.1", "0.25.2"] {
         let old = bundle.for_build(build).unwrap();
         assert_eq!(
             serde_json::to_value(&old.settings).unwrap(),
@@ -1460,4 +1460,17 @@ fn llm_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout(
         old.validate().unwrap();
     }
     assert!(bundle.for_build("0.25.3").is_err());
+}
+
+#[test]
+fn score_resolution_cannot_be_enabled_while_older_workers_use_another_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let mut settings = noisefence::control::Settings::from_config(&cfg);
+    settings.filters.resolve_uncertain_by_score = true;
+    let bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    for build in ["0.25.0", "0.25.1", "0.25.2"] {
+        assert!(bundle.for_build(build).is_err());
+    }
 }
