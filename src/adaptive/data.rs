@@ -84,6 +84,9 @@ pub fn read(path: &Path) -> Result<(Vec<Example>, String)> {
 }
 
 pub async fn labels(store: &Store, user: String, id: String) -> Result<Value> {
+    if let Some(central) = store.management() {
+        return central.adaptive_labels(&user, &id).await;
+    }
     store.read(move |db| {
         let mut q = db.prepare("SELECT DISTINCT lower(substr(d.destination,instr(d.destination,'@')+1)),l.class
           FROM deliveries d JOIN messages m ON m.id=d.message_id JOIN console_access a ON a.delivery_id=d.id
@@ -105,6 +108,9 @@ pub async fn label(
         crate::config::valid_domain(&domain) && domain == domain.to_ascii_lowercase(),
         "invalid adaptive domain"
     );
+    if let Some(central) = store.management() {
+        return central.adaptive_label(&user, &id, &domain, class).await;
+    }
     store.run(move |db| {
         let tx = db.transaction()?;
         let allowed: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM deliveries d JOIN messages m ON m.id=d.message_id
@@ -135,7 +141,10 @@ pub async fn export(store: &Store, user: String, scope: String, output: &Path) -
         crate::config::valid_domain(&scope) && scope == scope.to_ascii_lowercase(),
         "invalid export domain"
     );
-    let (rows, excluded) = store.read(move |db| {
+    let (rows, excluded) = if let Some(central) = store.management() {
+        central.adaptive_export(&user, &scope).await?
+    } else {
+        store.read(move |db| {
         let admin: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&user],|r| r.get(0))?;
         ensure!(admin,"adaptive export requires an enabled administrator");
         let protected=crate::quality::reservations::Reserved::load(db)?;
@@ -153,17 +162,13 @@ pub async fn export(store: &Store, user: String, scope: String, output: &Path) -
             let min: String=row.get(3)?; let max: String=row.get(4)?;
             if min != max { excluded+=1; continue; }
             let scan: crate::engine::Scan = serde_json::from_str(&row.get::<_,String>(2)?)?;
-            if protected.contains(&scan) {excluded+=1;continue;}
-            let Some(native) = scan.native_filter else {excluded+=1;continue;};
-            let (Some(features),Some(vector),Some(report)) = (native.features,native.adaptive_vector,native.report.adaptive) else {excluded+=1;continue;};
-            if !scan.complete || native.report.status != crate::native_filter::Status::Complete || vector.len()!=WIDTH {excluded+=1;continue;}
-            let class: Class = serde_json::from_value(json!(min))?;
-            let row = Example { schema:SCHEMA.into(),scope:scope.clone(),id:crate::message::digest(row.get::<_,String>(0)?.as_bytes()),
-                observed_at:row.get(1)?,labelled_at:row.get(5)?,class,protocol_sha256:report.protocol_sha256,features,vector };
-            row.validate()?; rows.push(row);
+            match export_example(&protected, &scope, &row.get::<_,String>(0)?, row.get(1)?, row.get(5)?, &min, scan)? {
+                Some(example) => rows.push(example), None => excluded += 1,
+            }
         }
         Ok((rows,excluded))
-    }).await?;
+    }).await?
+    };
     let mut file = private_file(output)?;
     let mut classes = [0usize; 5];
     for row in &rows {
@@ -175,4 +180,49 @@ pub async fn export(store: &Store, user: String, scope: String, output: &Path) -
     Ok(
         json!({"exported":rows.len(),"excluded":excluded,"classes":classes,"contains_bodies":false,"observation_only":true}),
     )
+}
+
+/// Shared projection prevents backend-specific eligibility or privacy drift.
+pub(crate) fn export_example(
+    protected: &crate::quality::reservations::Reserved,
+    scope: &str,
+    id: &str,
+    observed_at: i64,
+    labelled_at: i64,
+    class: &str,
+    scan: crate::engine::Scan,
+) -> Result<Option<Example>> {
+    if protected.contains(&scan) {
+        return Ok(None);
+    }
+    let Some(native) = scan.native_filter else {
+        return Ok(None);
+    };
+    let (Some(features), Some(vector), Some(report)) = (
+        native.features,
+        native.adaptive_vector,
+        native.report.adaptive,
+    ) else {
+        return Ok(None);
+    };
+    if !scan.complete
+        || native.report.status != crate::native_filter::Status::Complete
+        || vector.len() != WIDTH
+    {
+        return Ok(None);
+    }
+    let class: Class = serde_json::from_value(json!(class))?;
+    let row = Example {
+        schema: SCHEMA.into(),
+        scope: scope.into(),
+        id: crate::message::digest(id.as_bytes()),
+        observed_at,
+        labelled_at,
+        class,
+        protocol_sha256: report.protocol_sha256,
+        features,
+        vector,
+    };
+    row.validate()?;
+    Ok(Some(row))
 }

@@ -78,3 +78,7 @@ pub mod mfa;
 pub mod ha;
 
 pub mod credentials;
+
+pub mod central;
+
+pub mod onboarding;

@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 pub const SCHEMA: &str = "noisefence-quality-exposure-1";
-const LIMIT: usize = 50_000;
+pub(crate) const LIMIT: usize = 50_000;
 const WORK_LIMIT: usize = 1_000_000;
 
 #[derive(Serialize)]
@@ -19,20 +19,20 @@ pub struct Exposure {
     pub related_campaign_seen: bool,
 }
 
-struct Index {
+pub(crate) struct Index {
     exact: HashSet<String>,
     buckets: HashMap<(u8, u16), Vec<u64>>,
     work: usize,
 }
 impl Index {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             exact: HashSet::new(),
             buckets: HashMap::new(),
             work: 0,
         }
     }
-    fn add(&mut self, fingerprint: String, simhash: Option<u64>) {
+    pub(crate) fn add(&mut self, fingerprint: String, simhash: Option<u64>) {
         self.exact.insert(fingerprint);
         if let Some(hash) = simhash {
             for part in 0..4u8 {
@@ -43,7 +43,7 @@ impl Index {
             }
         }
     }
-    fn contains(&mut self, fingerprint: &str, hash: Option<u64>) -> Result<bool> {
+    pub(crate) fn contains(&mut self, fingerprint: &str, hash: Option<u64>) -> Result<bool> {
         if self.exact.contains(fingerprint) {
             return Ok(true);
         }
@@ -68,7 +68,7 @@ impl Index {
         Ok(false)
     }
 }
-fn simhash(value: &str) -> Option<u64> {
+pub(crate) fn simhash(value: &str) -> Option<u64> {
     (value.len() == 16 && value.bytes().all(|b| b.is_ascii_hexdigit()))
         .then(|| u64::from_str_radix(value, 16).ok())
         .flatten()

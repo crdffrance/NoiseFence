@@ -10,6 +10,33 @@ concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: noisefence_test
+          POSTGRES_PASSWORD: synthetic-ci-only-password
+        ports:
+          - 15432:5432
+        options: >-
+          --memory=512m --cpus=1
+          --health-cmd="pg_isready -U postgres -d noisefence_test"
+          --health-interval=5s --health-timeout=3s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.98.0'
+      - name: Exercise central persistence with synthetic accounts and messages
+        env:
+          NOISEFENCE_TEST_PG_PASSWORD_FILE: ${{ runner.temp }}/noisefence-test-pg-password
+        run: |
+          umask 077
+          printf '%s' 'synthetic-ci-only-password' > "$NOISEFENCE_TEST_PG_PASSWORD_FILE"
+          trap 'rm -f "$NOISEFENCE_TEST_PG_PASSWORD_FILE"' EXIT
+          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning -- --ignored
   container:
     strategy:
       matrix:
@@ -45,7 +72,7 @@ jobs:
           python-version: '3.11'
       - run: python3 -m pip install -r research/requirements.txt
       - run: python3 -m unittest discover -s tests_python -v
-      - name: Verify v1 and v2 metadata limits through Nginx and Caddy
+      - name: Verify v1, v2 and v3 metadata limits through Nginx and Caddy
         run: python3 tests/proxy_smoke.py
       - run: sudo python3 tests/systemd_learning.py
       - run: sudo python3 tests/systemd_network.py

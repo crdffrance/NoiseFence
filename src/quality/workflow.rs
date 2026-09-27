@@ -41,7 +41,7 @@ pub struct Request {
     pub operation: String,
     pub candidate: Option<String>,
 }
-pub async fn enqueue(store: &Store, user: String, request: Request) -> Result<String> {
+pub(crate) fn validate_request(request: &Request) -> Result<()> {
     ensure!(
         valid_id(&request.batch)
             && matches!(request.operation.as_str(), "train" | "compare" | "evaluate"),
@@ -55,6 +55,13 @@ pub async fn enqueue(store: &Store, user: String, request: Request) -> Result<St
         },
         "Evaluation requires a prepared candidate"
     );
+    Ok(())
+}
+pub async fn enqueue(store: &Store, user: String, request: Request) -> Result<String> {
+    validate_request(&request)?;
+    if let Some(central) = store.management() {
+        return central.quality_enqueue(&user, &request).await;
+    }
     store.run(move|db| {
         let tx=db.transaction()?;
         let admin:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&user],|r|r.get(0))?;
@@ -78,6 +85,9 @@ pub async fn enqueue(store: &Store, user: String, request: Request) -> Result<St
     }).await
 }
 pub async fn list(store: &Store, user: String) -> Result<Value> {
+    if let Some(central) = store.management() {
+        return central.quality_jobs(&user).await;
+    }
     store.read(move|db|{
         let worker:Option<Value>=db.query_row("SELECT heartbeat,build FROM quality_worker_status WHERE id=1",[],|r|Ok(json!({"heartbeat":r.get::<_,i64>(0)?,"build":r.get::<_,String>(1)?}))).optional()?;
         let mut q=db.prepare("SELECT id,batch_id,operation,candidate_id,status,created,started,finished,report,model_sha256 FROM quality_jobs WHERE username=?1 AND created>=?2 ORDER BY created DESC,id DESC LIMIT 100")?;
@@ -89,6 +99,9 @@ pub async fn list(store: &Store, user: String) -> Result<Value> {
     }).await
 }
 pub async fn cancel(store: &Store, user: String, id: String) -> Result<()> {
+    if let Some(central) = store.management() {
+        return central.quality_cancel(&user, &id).await;
+    }
     store.run(move|db|{
         ensure!(db.execute("UPDATE quality_jobs SET status='cancelled',finished=?3 WHERE id=?1 AND username=?2 AND status='queued'",params![id,user,now()])?==1,"Only queued jobs can be cancelled");
         db.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'quality_cancel',?3)",params![now(),user,id])?;Ok(())
@@ -97,9 +110,9 @@ pub async fn cancel(store: &Store, user: String, id: String) -> Result<()> {
 pub async fn candidate(store: &Store, root: &Path, user: String, id: String) -> Result<Selection> {
     ensure!(valid_id(&id), "Invalid candidate identifier");
     let key = id.clone();
-    let sha=store.read(move|db|{
+    let sha=if let Some(central)=store.management() {central.quality_candidate(&user,&id).await?} else {store.read(move|db|{
         Ok(db.query_row("SELECT model_sha256 FROM quality_jobs WHERE id=?1 AND username=?2 AND status='complete' AND operation='train' AND created>=?3",params![key,user,now()-30*86400],|r|r.get::<_,Option<String>>(0)).optional()?.flatten())
-    }).await?.ok_or_else(||anyhow::anyhow!("Prepared candidate not found"))?;
+    }).await?}.ok_or_else(||anyhow::anyhow!("Prepared candidate not found"))?;
     let selection = Selection {
         job: Some(id),
         sha256: Some(sha.clone()),
@@ -120,6 +133,9 @@ pub async fn candidate(store: &Store, root: &Path, user: String, id: String) -> 
 }
 
 pub async fn cohorts(store: &Store, user: String) -> Result<Value> {
+    if let Some(central) = store.management() {
+        return central.quality_cohorts(&user).await;
+    }
     store.read(move|db|{
         let mut q=db.prepare("SELECT json_extract(m.scan,'$.quality.artifacts_sha256'),COUNT(*),MIN(m.created),MAX(m.created) FROM messages m WHERE m.is_dsn=0 AND m.created>=?2 AND json_extract(m.scan,'$.quality.protocol_sha256')=?3 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) GROUP BY 1 ORDER BY MAX(m.created) DESC LIMIT 100")?;
         let rows=q.query_map(params![user,now()-30*86400,super::protocol_hash()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"messages":r.get::<_,usize>(1)?,"since":r.get::<_,i64>(2)?,"until":r.get::<_,i64>(3)?})))?.collect::<rusqlite::Result<Vec<_>>>()?;

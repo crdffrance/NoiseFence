@@ -448,7 +448,7 @@ impl Controller {
     }
     pub fn cluster_ready(&self) -> bool {
         self.store.activation.ready()
-            && (!crate::cluster::is_worker(&self.base)
+            && (!(crate::cluster::is_worker(&self.base) || self.store.management().is_some())
                 || self
                     .cluster_until
                     .load(std::sync::atomic::Ordering::Acquire)
@@ -643,17 +643,36 @@ impl Controller {
                 ))
             })
             .await?;
-        let saved = store
-            .run(|db| {
-                Ok(db
-                    .query_row(
-                        "SELECT id,settings FROM console_revisions ORDER BY id DESC LIMIT 1",
-                        [],
-                        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
-                    )
-                    .optional()?)
-            })
-            .await?;
+        // Once central authority is selected, local console_revisions are never
+        // a source of management policy. A verified participant journal may
+        // bootstrap the cached runtime; its existing freshness fence still applies.
+        let authority = if let Some(central) = store.management() {
+            if participant.is_some() {
+                None
+            } else {
+                let identity = store
+                    .read(|db| crate::central::outbox::identity(db))
+                    .await?;
+                Some(central.policy_journal(&identity).await?)
+            }
+        } else {
+            authority
+        };
+        let saved = if store.management().is_some() {
+            None
+        } else {
+            store
+                .run(|db| {
+                    Ok(db
+                        .query_row(
+                            "SELECT id,settings FROM console_revisions ORDER BY id DESC LIMIT 1",
+                            [],
+                            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+                        )
+                        .optional()?)
+                })
+                .await?
+        };
         let (revision, mut settings): (i64, Settings) = match saved {
             Some((id, raw)) => (id, serde_json::from_str(&raw)?),
             None => (0, Settings::from_config(&base)),
@@ -864,6 +883,10 @@ impl Controller {
         username: String,
         delegated: Option<(String, String)>,
     ) -> Result<i64> {
+        ensure!(
+            self.store.management().is_none(),
+            "Use coordinated activation for central policy management"
+        );
         ensure!(
             !crate::cluster::is_worker(&self.base),
             "Change the settings from the center console."

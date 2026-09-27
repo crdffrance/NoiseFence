@@ -133,6 +133,12 @@ async fn authenticated(app: &App, h: &HeaderMap) -> ApiResult<User> {
     let hash = token(h)
         .map(|t| message::digest(t.as_bytes()))
         .ok_or(Error(StatusCode::UNAUTHORIZED, "Sign in required.".into()))?;
+    if let Some(central) = app.store.management() {
+        return central
+            .session(&hash)
+            .await?
+            .ok_or(Error(StatusCode::UNAUTHORIZED, "Sign in required.".into()));
+    }
     app.store.run(move|db|{
         let user=db.query_row("SELECT u.username,u.admin,s.csrf FROM sessions s JOIN users u ON u.username=s.username WHERE s.token_hash=?1 AND s.expires>?2 AND u.disabled=0 AND (NOT EXISTS(SELECT 1 FROM mfa_credentials m WHERE m.username=u.username AND m.enabled=1) OR EXISTS(SELECT 1 FROM mfa_sessions v WHERE v.token_hash=s.token_hash))",params![hash,now()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,String>(2)?))).optional()?;
         let Some((username,admin,csrf))=user else{return Ok(None);};
@@ -184,18 +190,21 @@ async fn login(
         }
     }
     let username = body.username.clone();
-    let saved = app
-        .store
-        .run(move |db| {
-            Ok(db
-                .query_row(
-                    "SELECT password FROM users WHERE username=?1 AND disabled=0",
-                    [username],
-                    |r| r.get::<_, String>(0),
-                )
-                .optional()?)
-        })
-        .await?;
+    let saved = if let Some(central) = app.store.management() {
+        central.password_hash(&username).await?
+    } else {
+        app.store
+            .run(move |db| {
+                Ok(db
+                    .query_row(
+                        "SELECT password FROM users WHERE username=?1 AND disabled=0",
+                        [username],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?)
+            })
+            .await?
+    };
     let hash = saved.clone().unwrap_or_else(|| app.dummy_hash.to_string());
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
@@ -233,7 +242,22 @@ async fn login(
     })?;
     let code = body.code;
     let password_hash = saved.unwrap();
-    let factor_ok=app.store
+    let factor_ok = if let Some(central) = app.store.management() {
+        central
+            .create_session(
+                crate::central::accounts::Login {
+                    username: &username,
+                    verified_password_hash: &password_hash,
+                    code: &code,
+                    token_hash: &token_hash,
+                    csrf: &csrf_token,
+                    previous_token_hash: previous.as_deref(),
+                },
+                &mfa_key,
+            )
+            .await?
+    } else {
+        app.store
         .run(move |db| {
             if !crate::mfa::attempt(db,&username,now())? {return Ok(false);}
             let tx = db.transaction()?;
@@ -256,7 +280,8 @@ async fn login(
             tx.commit()?;
             Ok(true)
         })
-        .await?;
+        .await?
+    };
     if !factor_ok {
         return Err(Error(StatusCode::UNAUTHORIZED,"Security code required, incorrect, already used or too many attempts. Try again with a new code or emergency code.".into()));
     }
@@ -280,12 +305,16 @@ async fn logout(State(app): State<App>, h: HeaderMap) -> ApiResult<Response> {
     let user = authenticated(&app, &h).await?;
     csrf(&user, &h)?;
     let token_hash = message::digest(token(&h).unwrap().as_bytes());
-    app.store
-        .run(move |db| {
-            db.execute("DELETE FROM sessions WHERE token_hash=?1", [token_hash])?;
-            Ok(())
-        })
-        .await?;
+    if let Some(central) = app.store.management() {
+        central.delete_session(&token_hash).await?;
+    } else {
+        app.store
+            .run(move |db| {
+                db.execute("DELETE FROM sessions WHERE token_hash=?1", [token_hash])?;
+                Ok(())
+            })
+            .await?;
+    }
     Ok((
         [(header::SET_COOKIE, cookie(&app, "", 0))],
         Json(json!({"ok":true})),
@@ -430,11 +459,15 @@ async fn stats(
     let threshold = config.filter.threshold;
     let resolve_uncertain_by_score = true;
     let domain = q.domain;
-    let mut result = app.store.read(move |db| {
+    let mut result = if let Some(central) = app.store.management() {
+        central.stats(&username, &domain).await?
+    } else {
+        app.store.read(move |db| {
         let query = format!("SELECT COUNT(DISTINCT m.id), COUNT(DISTINCT CASE WHEN ({category})='spam' THEN m.id END), COUNT(DISTINCT CASE WHEN d.status IN ('pending','sending') THEN m.id END), COUNT(DISTINCT CASE WHEN ({category})='publicity' THEN m.id END), COUNT(DISTINCT CASE WHEN d.status='quarantined' THEN m.id END) FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE g.username=?1 AND (m.created>=?2 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1)) AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))", category=crate::assessment::verdict_category_sql());
         let (received, flagged, pending, publicity, quarantined) = db.query_row(&query, params![username, now()-30*86400, domain], |r| Ok((r.get::<_,i64>(0)?, r.get::<_,i64>(1)?, r.get::<_,i64>(2)?, r.get::<_,i64>(3)?, r.get::<_,i64>(4)?)))?;
         Ok(json!({"received":received,"flagged":flagged,"pending":pending,"publicity":publicity,"quarantined":quarantined}))
-    }).await?;
+    }).await?
+    };
     result["mode"] = serde_json::to_value(config.filter.mode).unwrap();
     result["threshold"] = json!(threshold);
     result["resolve_uncertain_by_score"] = json!(resolve_uncertain_by_score);
@@ -470,16 +503,23 @@ async fn password(
         ));
     }
     let name = user.username.clone();
-    let old = app
-        .store
-        .run(move |db| {
-            Ok(db.query_row(
-                "SELECT password FROM users WHERE username=?1",
-                [name],
-                |r| r.get::<_, String>(0),
-            )?)
-        })
-        .await?;
+    let old = if let Some(central) = app.store.management() {
+        central
+            .password_hash(&name)
+            .await?
+            .ok_or_else(|| Error(StatusCode::UNAUTHORIZED, "Sign in required.".into()))?
+    } else {
+        app.store
+            .run(move |db| {
+                Ok(db.query_row(
+                    "SELECT password FROM users WHERE username=?1",
+                    [name],
+                    |r| r.get::<_, String>(0),
+                )?)
+            })
+            .await?
+    };
+    let verified_hash = old.clone();
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
@@ -504,18 +544,31 @@ async fn password(
             "Incorrect current password.".into(),
         )
     })?;
-    app.store
-        .run(move |db| {
-            let tx = db.transaction()?;
-            tx.execute(
-                "UPDATE users SET password=?2 WHERE username=?1",
-                params![user.username, hash],
-            )?;
-            tx.execute("DELETE FROM sessions WHERE username=?1", [user.username])?;
-            tx.commit()?;
-            Ok(())
-        })
-        .await?;
+    if let Some(central) = app.store.management() {
+        let session = message::digest(token(&h).unwrap().as_bytes());
+        if !central
+            .change_password(&user.username, &session, &verified_hash, &hash)
+            .await?
+        {
+            return Err(Error(
+                StatusCode::CONFLICT,
+                "Account or session changed; sign in again.".into(),
+            ));
+        }
+    } else {
+        app.store
+            .run(move |db| {
+                let tx = db.transaction()?;
+                tx.execute(
+                    "UPDATE users SET password=?2 WHERE username=?1",
+                    params![user.username, hash],
+                )?;
+                tx.execute("DELETE FROM sessions WHERE username=?1", [user.username])?;
+                tx.commit()?;
+                Ok(())
+            })
+            .await?;
+    }
     Ok(Json(json!({"ok":true})))
 }
 async fn health(State(app): State<App>) -> Json<Value> {

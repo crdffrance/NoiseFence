@@ -232,7 +232,10 @@ async fn revision(
     Ok(Json(json!(settings)))
 }
 async fn users(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
+    let actor = administrator(&app, &h, false).await?;
+    if let Some(central) = app.store.management() {
+        return Ok(Json(json!(central.accounts(&actor.username).await?)));
+    }
     let data=app.store.read(|db| {
         let mut q=db.prepare("SELECT u.username,u.admin,u.disabled,COALESCE(v.version,0) FROM users u LEFT JOIN console_user_versions v ON v.username=u.username ORDER BY u.username LIMIT 1000")?;
         let mut rows=q.query([])?;let mut out=Vec::new();
@@ -296,7 +299,23 @@ async fn save_user(
         None
     };
     let target = body.username.clone();
-    app.store.run(move|db| {
+    if let Some(central) = app.store.management() {
+        central
+            .save_account(
+                &actor.username,
+                crate::central::admin::Account {
+                    username: &body.username,
+                    admin: body.admin,
+                    disabled: body.disabled,
+                    addresses: &body.addresses,
+                    password_hash: hash.as_deref(),
+                    version: body.version,
+                },
+            )
+            .await
+            .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+    } else {
+        app.store.run(move|db| {
         let tx=db.transaction()?;
         let authorized:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&actor.username],|r|r.get(0))?;
         ensure!(authorized,"Administrator rights revoked.");
@@ -319,17 +338,28 @@ async fn save_user(
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'account',?3)",params![now(),actor.username,body.username])?;
         tx.commit()?;Ok(())
     }).await.map_err(|e|Error(StatusCode::CONFLICT,e.to_string()))?;
+    }
     Ok(Json(json!({"ok":true,"username":target})))
 }
 async fn audit(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
+    let actor = administrator(&app, &h, false).await?;
+    if let Some(central) = app.store.management() {
+        return Ok(Json(json!(central.audit(&actor.username).await?)));
+    }
     Ok(Json(json!(app.store.read(|db|{
         let mut q=db.prepare("SELECT created,username,action,object_id FROM audit ORDER BY id DESC LIMIT 200")?;
         Ok(q.query_map([],|r|Ok(json!({"created":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"action":r.get::<_,String>(2)?,"object":r.get::<_,String>(3)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await?)))
 }
 async fn queue(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
+    let actor = administrator(&app, &h, false).await?;
+    if let Some(central) = app.store.management() {
+        let node = app
+            .store
+            .read(|db| Ok(crate::central::outbox::identity(db)?.node))
+            .await?;
+        return Ok(Json(json!(central.queue(&actor.username, &node).await?)));
+    }
     Ok(Json(json!(app.store.read(|db|{
         let mut q=db.prepare("SELECT d.id,d.message_id,d.address,d.status,d.attempts,d.next_attempt,d.error,m.created,o.node_id,EXISTS(SELECT 1 FROM cluster_commands c WHERE c.message_id=m.id AND c.recipient=d.address AND c.finished IS NULL) FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN cluster_origin o ON o.message_id=m.id WHERE d.status IN ('pending','sending','failed') ORDER BY m.created LIMIT 200")?;
         Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"message_id":r.get::<_,String>(1)?,"address":r.get::<_,String>(2)?,"status":r.get::<_,String>(3)?,"attempts":r.get::<_,i64>(4)?,"next_attempt":r.get::<_,i64>(5)?,"error":r.get::<_,Option<String>>(6)?,"created":r.get::<_,i64>(7)?,"node_id":r.get::<_,Option<String>>(8)?,"pending_command":r.get::<_,bool>(9)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -346,7 +376,16 @@ async fn retry(
     Json(body): Json<Retry>,
 ) -> ApiResult<Json<Value>> {
     let actor = administrator(&app, &h, true).await?;
-    let command = app.store
+    let command = if let Some(central) = app.store.management() {
+        let session = message::digest(token(&h).unwrap().as_bytes());
+        Some(
+            central
+                .queue_retry(&actor.username, &session, body.id)
+                .await
+                .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?,
+        )
+    } else {
+        app.store
         .run(move |db| {
             let tx = db.transaction()?;
             let allowed: bool = tx.query_row(
@@ -383,7 +422,8 @@ async fn retry(
             Ok(None)
         })
         .await
-        .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+        .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?
+    };
     Ok(Json(
         json!({"ok":true,"status":if command.is_some(){"queued"}else{"done"},"command_id":command}),
     ))

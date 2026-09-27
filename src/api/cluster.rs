@@ -7,6 +7,16 @@ pub(super) fn routes(app: App) -> Router<App> {
     let nodes = Router::new()
         .route("/cluster/v1/sync", post(sync))
         .route("/cluster/v2/sync", post(sync_v2))
+        .route(
+            "/cluster/v3/sync",
+            post(central_sync).layer(DefaultBodyLimit::max(65536)),
+        )
+        .route("/cluster/v3/history", post(central_history))
+        .route("/cluster/v3/logs", post(central_logs))
+        .route(
+            "/cluster/v3/commands",
+            post(central_commands).layer(DefaultBodyLimit::max(16384)),
+        )
         .route("/cluster/v2/artifacts/{hash}", get(activation_artifact))
         .route(
             "/cluster/v1/admission",
@@ -242,6 +252,16 @@ async fn node(app: &App, h: &HeaderMap) -> ApiResult<String> {
     let id = id.to_owned();
     let query = id.clone();
     let hash = crate::message::digest(key.as_bytes());
+    if let Some(central) = app.store.management() {
+        return if central.authenticate_node(&id, &hash).await?.is_some() {
+            Ok(id)
+        } else {
+            Err(Error(
+                StatusCode::UNAUTHORIZED,
+                "Identity of node refused.".into(),
+            ))
+        };
+    }
     let expected = app
         .store
         .read(move |db| {
@@ -287,6 +307,181 @@ async fn node_guard(State(app): State<App>, request: Request, next: Next) -> Res
         )
         .into_response(),
     }
+}
+async fn central_node(app: &App, h: &HeaderMap) -> ApiResult<crate::central::nodes::Authenticated> {
+    let id = node(app, h).await?;
+    let central = app.store.management().ok_or(Error(
+        StatusCode::CONFLICT,
+        "Central management is not active".into(),
+    ))?;
+    let hash = message::digest(
+        h.get(header::AUTHORIZATION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .strip_prefix("Bearer ")
+            .unwrap()
+            .as_bytes(),
+    );
+    central.authenticate_node(&id, &hash).await?.ok_or(Error(
+        StatusCode::UNAUTHORIZED,
+        "Node identity revoked".into(),
+    ))
+}
+async fn central_sync(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(request): Json<crate::central::transport::PolicyPoll>,
+) -> ApiResult<Json<crate::central::transport::PolicyReply>> {
+    let node = central_node(&app, &h).await?;
+    if request.protocol != crate::central::transport::PROTOCOL
+        || request.epoch != node.identity().epoch
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Management protocol or spool epoch mismatch".into(),
+        ));
+    }
+    let journal = app
+        .store
+        .management()
+        .unwrap()
+        .exchange_policy(&node, &request.request)
+        .await?;
+    let control = coordinator(&app)?;
+    let publication = control.publication().await?;
+    let bundle = journal.current().clone();
+    let hashes = journal
+        .bundles()
+        .iter()
+        .filter_map(|b| b.credential_generation.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let root = app.store.root.clone();
+    let config = publication.config.clone();
+    let budget = request.request.poll.budget;
+    let owner = node.identity().node.clone();
+    let (credits, credential_generations, secrets) =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            let generations = hashes
+                .into_iter()
+                .map(|hash| {
+                    Ok((
+                        hash.clone(),
+                        crate::credentials::generations::load(&root, &hash)?.export(),
+                    ))
+                })
+                .collect::<anyhow::Result<std::collections::BTreeMap<_, _>>>()?;
+            let secrets = if config.credential_generation.is_some() {
+                Default::default()
+            } else {
+                protocol::secrets(&config)?
+            };
+            Ok((
+                crate::cluster::budget::grant(&config, &owner, &budget, now())?,
+                generations,
+                secrets,
+            ))
+        })
+        .await
+        .map_err(anyhow::Error::from)??;
+    central_node(&app, &h).await?;
+    Ok(Json(crate::central::transport::PolicyReply {
+        protocol: crate::central::transport::PROTOCOL.into(),
+        identity: node.identity().clone(),
+        reply: crate::cluster::activation::transport::Reply {
+            protocol: crate::cluster::activation::transport::PROTOCOL.into(),
+            credential_generations,
+            data: protocol::Reply {
+                protocol: "noisefence-cluster-1".into(),
+                node_id: node.identity().node.clone(),
+                server_time: now(),
+                bundle,
+                receipts: Vec::new(),
+                commands: Vec::new(),
+                credits,
+                secrets,
+            },
+            activation: journal.rollout().is_some().then_some(journal),
+        },
+    }))
+}
+async fn central_history(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(mut request): Json<crate::central::transport::History>,
+) -> ApiResult<Json<crate::central::transport::HistoryReceipt>> {
+    let node = central_node(&app, &h).await?;
+    if request.protocol != crate::central::transport::PROTOCOL
+        || request.epoch != node.identity().epoch
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Management protocol or spool epoch mismatch".into(),
+        ));
+    }
+    let receipts = app
+        .store
+        .management()
+        .unwrap()
+        .ingest_from_node(&node, &mut request.events)
+        .await?;
+    Ok(Json(crate::central::transport::Receipt {
+        protocol: crate::central::transport::PROTOCOL.into(),
+        identity: node.identity().clone(),
+        receipts,
+    }))
+}
+async fn central_logs(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(mut request): Json<crate::central::transport::Logs>,
+) -> ApiResult<Json<crate::central::transport::LogReceipt>> {
+    let node = central_node(&app, &h).await?;
+    if request.protocol != crate::central::transport::PROTOCOL
+        || request.epoch != node.identity().epoch
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Management protocol or spool epoch mismatch".into(),
+        ));
+    }
+    let receipts = app
+        .store
+        .management()
+        .unwrap()
+        .ingest_logs_from_node(&node, &mut request.events)
+        .await?;
+    Ok(Json(crate::central::transport::Receipt {
+        protocol: crate::central::transport::PROTOCOL.into(),
+        identity: node.identity().clone(),
+        receipts,
+    }))
+}
+async fn central_commands(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(request): Json<crate::central::transport::CommandPoll>,
+) -> ApiResult<Json<crate::central::transport::CommandReply>> {
+    let node = central_node(&app, &h).await?;
+    if request.protocol != crate::central::transport::PROTOCOL
+        || request.epoch != node.identity().epoch
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Management protocol or spool epoch mismatch".into(),
+        ));
+    }
+    let central = app.store.management().unwrap();
+    central
+        .acknowledge_commands_for_node(&node, &request.receipts)
+        .await?;
+    let commands = central.pending_commands_for_node(&node).await?;
+    Ok(Json(crate::central::transport::CommandReply {
+        protocol: crate::central::transport::PROTOCOL.into(),
+        identity: node.identity().clone(),
+        receipts: request.receipts,
+        commands,
+    }))
 }
 async fn sync(
     State(app): State<App>,
@@ -353,6 +548,12 @@ async fn sync_exchange(
     acknowledgement: Option<crate::cluster::activation::Acknowledgement>,
 ) -> ApiResult<(protocol::Reply, Option<crate::cluster::activation::Journal>)> {
     use crate::cluster::activation::{Journal, Phase, transport::Peer};
+    if app.store.management().is_some() {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Central management requires the v3 protocol".into(),
+        ));
+    }
     let id = node(&app, &h).await?;
     let credential = message::digest(
         h.get(header::AUTHORIZATION)
@@ -573,8 +774,11 @@ async fn artifact(
         .into_response())
 }
 async fn overview(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    super::admin::administrator(&app, &h, false).await?;
-    let nodes=app.store.read(|db|{
+    let actor = super::admin::administrator(&app, &h, false).await?;
+    let (nodes, commands) = if let Some(central) = app.store.management() {
+        central.node_overview(&actor.username).await?
+    } else {
+        let nodes=app.store.read(|db|{
         let mut q=db.prepare("SELECT id,name,enabled,created,last_seen,applied_revision,applied_digest,status,version FROM cluster_nodes ORDER BY id")?;
         let mut rows=q.query([])?;let mut out=Vec::new();
         while let Some(r)=rows.next()? {
@@ -583,10 +787,12 @@ async fn overview(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>
         }
         Ok(out)
     }).await?;
-    let commands=app.store.read(|db|{
+        let commands=app.store.read(|db|{
         let mut q=db.prepare("SELECT id,node_id,recipient,command,created,result,finished FROM cluster_commands ORDER BY created DESC LIMIT 50")?;
         Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"node_id":r.get::<_,String>(1)?,"recipient":r.get::<_,String>(2)?,"command":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?,"result":r.get::<_,Option<String>>(5)?,"finished":r.get::<_,Option<i64>>(6)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await?;
+        (nodes, commands)
+    };
     let publication = if app
         .config
         .cluster
@@ -637,6 +843,25 @@ async fn save_node(
     let secret = (body.version < 0 || body.rotate).then(random_token);
     let hash = secret.as_ref().map(|s| message::digest(s.as_bytes()));
     let session_hash = message::digest(token(&h).unwrap().as_bytes());
+    if let Some(central) = app.store.management() {
+        let version = central
+            .edit_node(
+                &actor.username,
+                &session_hash,
+                crate::central::nodes::Edit {
+                    id: &body.id,
+                    name: &body.name,
+                    enabled: body.enabled,
+                    version: body.version,
+                    token_hash: hash.as_deref(),
+                },
+            )
+            .await
+            .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+        return Ok(Json(
+            json!({"id":body.id,"version":version,"credential":secret}),
+        ));
+    }
     let id = body.id.clone();
     let version=app.store.run(move|db| {
         let tx=db.transaction()?;

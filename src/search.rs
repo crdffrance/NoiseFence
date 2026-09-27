@@ -52,12 +52,17 @@ pub struct Page {
     pub has_more: bool,
 }
 pub struct Term {
-    literal: String,
+    pub(crate) literal: String,
     fts: String,
+}
+impl Term {
+    pub(crate) fn prefix(&self) -> bool {
+        self.fts.ends_with('*')
+    }
 }
 
 // Quote every term: user text can never introduce FTS operators or column names.
-fn terms(text: &str) -> Result<Vec<Term>> {
+pub(crate) fn terms(text: &str) -> Result<Vec<Term>> {
     ensure!(
         text.len() <= 600 && !text.chars().any(char::is_control),
         "Search limited to 600 bytes, without control characters."

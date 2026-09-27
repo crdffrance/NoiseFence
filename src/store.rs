@@ -43,6 +43,7 @@ pub struct Store {
     db: Arc<Mutex<Connection>>,
     delivery_ready: Arc<tokio::sync::Notify>,
     console_reads: Arc<tokio::sync::Semaphore>,
+    management: Option<Arc<crate::central::Central>>,
     pub(crate) replication: Arc<std::sync::OnceLock<Arc<crate::ha::Runtime>>>,
     pub(crate) admission: Arc<crate::smtp_admission::runtime::Runtime>,
 }
@@ -109,6 +110,82 @@ pub struct VisibleMail {
     pub fusion: crate::fusion::runtime::Observation,
     pub quality: Option<serde_json::Value>,
 }
+/// One presentation path for local and central metadata repositories.
+pub(crate) struct MailMetadata {
+    pub id: String,
+    pub created: i64,
+    pub sender: String,
+    pub feedback: Option<bool>,
+    pub feedback_category: Option<crate::mailing::FeedbackCategory>,
+    pub recipients: Vec<VisibleRecipient>,
+    pub origin: Option<(String, i64)>,
+}
+impl MailMetadata {
+    pub(crate) fn visible(self, s: Scan) -> VisibleMail {
+        let Self {
+            id,
+            created,
+            sender,
+            feedback,
+            feedback_category,
+            recipients,
+            origin,
+        } = self;
+        let assessment = crate::assessment::historical(&s);
+        let category = assessment.category;
+        let decision = assessment.decision.clone();
+        let complete = assessment.complete;
+        let action = assessment.action.clone();
+        let delivery_classification = s
+            .recipient_decision
+            .as_ref()
+            .map(|r| r.assessment.category)
+            .or(s.delivery_classification);
+        VisibleMail {
+            verdict: assessment.verdict(),
+            recipient_decision: s.recipient_decision,
+            rspamd: s.rspamd.map(crate::rspamd::Report::visible),
+            assessment,
+            node_id: origin.as_ref().map(|o| o.0.clone()),
+            node_updated_at: origin.map(|o| o.1),
+            adaptive: s
+                .native_filter
+                .as_ref()
+                .and_then(|n| n.report.adaptive.clone()),
+            delivery_classification,
+            quality: s.quality.as_ref().map(crate::quality::Report::public),
+            action,
+            id,
+            created,
+            sender,
+            subject: s.subject,
+            score: s.score,
+            tagged: s.tagged,
+            pub_tagged: s.pub_tagged,
+            category,
+            complete,
+            model: s.model,
+            reasons: s.reasons,
+            recipients,
+            feedback,
+            feedback_category,
+            antivirus: s.antivirus,
+            signatures: s.signatures,
+            llm: s.llm,
+            semantic: s.semantic.into(),
+            smtp_policy: s.smtp_policy,
+            early_rbl: s.early_rbl,
+            smtp_admission: s.smtp_admission,
+            vision: s.vision,
+            protection: s.protection,
+            mailing: s.mailing,
+            evidence: s.evidence,
+            decision,
+            arbitration: s.arbitration,
+            fusion: s.fusion,
+        }
+    }
+}
 #[derive(Serialize)]
 pub struct VisibleSemantic {
     pub status: crate::engine::SemanticStatus,
@@ -134,6 +211,17 @@ pub struct User {
     pub addresses: Vec<String>,
 }
 impl Store {
+    /// Selects the central management repository for an explicitly migrated
+    /// embedding. The production bootstrap must validate its activation record
+    /// before using this constructor; configuration support is not enabled yet.
+    pub async fn with_management(mut self, central: crate::central::Central) -> Result<Self> {
+        central.validate_mfa_key(&self.root).await?;
+        self.management = Some(Arc::new(central));
+        Ok(self)
+    }
+    pub fn management(&self) -> Option<&crate::central::Central> {
+        self.management.as_deref()
+    }
     pub fn open(root: &Path) -> Result<Self> {
         fs::create_dir_all(root)?;
         fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
@@ -191,6 +279,7 @@ impl Store {
         .initialize(&mut db)?;
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         Ok(Self {
+            management: None,
             activation,
             archive: Arc::new(crate::research_archive::Runtime::new(root)),
             root: root.into(),
@@ -684,6 +773,12 @@ impl Store {
         threshold: f64,
         _resolve_uncertain_by_score: bool,
     ) -> Result<crate::search::Page> {
+        if let Some(central) = self.management() {
+            let node = self
+                .read(|db| Ok(crate::central::outbox::identity(db)?.node))
+                .await?;
+            return central.search_messages(&username, &options, &node).await;
+        }
         let terms = options.validate()?;
         let crate::search::Search {
             filter,
@@ -716,16 +811,10 @@ impl Store {
             for row in rows {
                 let (id,created,sender,scan,feedback,feedback_category)=row?;
                 let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
-                let assessment=crate::assessment::historical(&s);
-                let category=assessment.category;
-                let decision=assessment.decision.clone();
-                let complete=assessment.complete;
-                let action=assessment.action.clone();
-                let delivery_classification=s.recipient_decision.as_ref().map(|r| r.assessment.category).or(s.delivery_classification);
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment,(SELECT c.id FROM cluster_commands c WHERE c.message_id=d.message_id AND c.recipient=d.address AND c.finished IS NULL AND c.expires>unixepoch()) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
                 let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{pending_command:r.get(6)?,filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 let origin:Option<(String,i64)>=db.query_row("SELECT node_id,updated FROM cluster_origin WHERE message_id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-                out.push(VisibleMail{verdict:assessment.verdict(),recipient_decision:s.recipient_decision,rspamd:s.rspamd.map(crate::rspamd::Report::visible),assessment,node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,smtp_admission:s.smtp_admission,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
+                out.push(MailMetadata {id,created,sender,feedback,feedback_category,recipients,origin}.visible(s));
             }Ok(crate::search::Page { comparison, has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
         }).await
     }
@@ -753,6 +842,9 @@ impl Store {
         spam: bool,
         category: Option<crate::mailing::FeedbackCategory>,
     ) -> Result<()> {
+        if let Some(central) = self.management() {
+            return central.record_feedback(&user, &id, spam, category).await;
+        }
         self.run(move|db| {
             let tx=db.transaction()?;
             let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id JOIN messages m ON m.id=d.message_id WHERE d.message_id=?1 AND g.username=?2 AND m.created>=?3)",params![id,user,now()-30*86400],|r|r.get(0))?;

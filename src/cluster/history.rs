@@ -49,16 +49,7 @@ pub async fn export(store: &Store) -> Result<Vec<Record>> {
         let ids=db.prepare("SELECT c.message_id,c.generation FROM cluster_dirty c JOIN messages m ON m.id=c.message_id WHERE NOT EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id) ORDER BY c.generation LIMIT 12")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         let mut records=Vec::new();let mut size=0;
         for (id,generation) in ids {
-            let (created,sender,scan,is_dsn,raw_present)=db.query_row("SELECT created,sender,scan,is_dsn,raw_present FROM messages WHERE id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?,r.get::<_,String>(2)?,r.get(3)?,r.get(4)?)))?;
-            let mut deliveries=Vec::new();
-            let mut query=db.prepare("SELECT d.id,d.address,d.destination,d.status,d.attempts,d.next_attempt,d.error,p.action,p.held_until,p.released_at,f.assessment FROM deliveries d LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 ORDER BY d.id")?;
-            let mut rows=query.query([&id])?;
-            while let Some(r)=rows.next()? {
-                let delivery_id:i64=r.get(0)?;
-                let logs=db.prepare("SELECT attempt,trace FROM delivery_attempts WHERE delivery_id=?1 ORDER BY id DESC LIMIT 5")?.query_map([delivery_id],|r|Ok((r.get::<_,u32>(0)?,r.get::<_,String>(1)?)))?.map(|r| {let (attempt,raw)=r?;Ok(Log{attempt,trace:serde_json::from_str(&raw)?})}).collect::<Result<Vec<_>>>()?;
-                deliveries.push(Delivery{address:r.get(1)?,destination:r.get(2)?,status:r.get(3)?,attempts:r.get(4)?,next_attempt:r.get(5)?,error:r.get(6)?,action:r.get(7)?,held_until:r.get(8)?,released_at:r.get(9)?,filtering:r.get::<_,Option<String>>(10)?.map(|s|serde_json::from_str(&s)).transpose()?,logs});
-            }
-            let record=Record{id,generation,created,sender,scan:serde_json::from_str(&scan)?,is_dsn,raw_present,deliveries};
+            let record=snapshot(db,id,generation,true)?;
             let bytes=serde_json::to_vec(&record)?.len();
             ensure!(bytes<=3*1024*1024,"An analysis exceeds the synchronization limit of 3 Mio.");
             if size+bytes>3*1024*1024 {break;}
@@ -66,6 +57,64 @@ pub async fn export(store: &Store) -> Result<Vec<Record>> {
         }
         Ok(records)
     }).await
+}
+/// Caller holds a consistent SQLite read transaction for receipt and contents.
+pub(crate) fn snapshot(
+    db: &Connection,
+    id: String,
+    generation: i64,
+    include_logs: bool,
+) -> Result<Record> {
+    let (created, sender, scan, is_dsn, raw_present) = db.query_row(
+        "SELECT created,sender,scan,is_dsn,raw_present FROM messages WHERE id=?1",
+        [&id],
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get::<_, String>(2)?,
+                r.get(3)?,
+                r.get(4)?,
+            ))
+        },
+    )?;
+    let mut deliveries = Vec::new();
+    let mut query=db.prepare("SELECT d.id,d.address,d.destination,d.status,d.attempts,d.next_attempt,d.error,p.action,p.held_until,p.released_at,f.assessment FROM deliveries d LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 ORDER BY d.id")?;
+    let mut rows = query.query([&id])?;
+    while let Some(r) = rows.next()? {
+        let delivery_id: i64 = r.get(0)?;
+        let logs = if include_logs {
+            db.prepare("SELECT attempt,trace FROM delivery_attempts WHERE delivery_id=?1 ORDER BY id DESC LIMIT 5")?.query_map([delivery_id],|r|Ok((r.get::<_,u32>(0)?,r.get::<_,String>(1)?)))?.map(|r| {let (attempt,raw)=r?;Ok(Log{attempt,trace:serde_json::from_str(&raw)?})}).collect::<Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
+        deliveries.push(Delivery {
+            address: r.get(1)?,
+            destination: r.get(2)?,
+            status: r.get(3)?,
+            attempts: r.get(4)?,
+            next_attempt: r.get(5)?,
+            error: r.get(6)?,
+            action: r.get(7)?,
+            held_until: r.get(8)?,
+            released_at: r.get(9)?,
+            filtering: r
+                .get::<_, Option<String>>(10)?
+                .map(|s| serde_json::from_str(&s))
+                .transpose()?,
+            logs,
+        });
+    }
+    Ok(Record {
+        id,
+        generation,
+        created,
+        sender,
+        scan: serde_json::from_str(&scan)?,
+        is_dsn,
+        raw_present,
+        deliveries,
+    })
 }
 pub async fn acknowledge(store: &Store, receipts: Vec<Receipt>) -> Result<()> {
     store
@@ -296,27 +345,93 @@ pub struct CommandResult {
 }
 pub async fn execute(store: &Store, commands: Vec<Command>) -> Result<Vec<CommandResult>> {
     ensure!(commands.len() <= 32, "Too many commands");
-    let results=store.run(move|db| {
-        let tx=db.transaction()?;let mut results=Vec::new();
-        for c in commands {
-            ensure!(uuid::Uuid::parse_str(&c.id).is_ok() && uuid::Uuid::parse_str(&c.message_id).is_ok() && crate::config::valid_address(&c.recipient) && c.username.len()<=100,"Invalid command");
-            if let Some(result)=tx.query_row("SELECT result FROM cluster_command_receipts WHERE id=?1",[&c.id],|r|r.get::<_,String>(0)).optional()? {results.push(CommandResult{id:c.id,result});continue;}
-            let now=crate::now();
-            let item:Option<i64>=tx.query_row("SELECT d.id FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE m.id=?1 AND d.address=?2 AND ((?4=1 AND d.status='pending') OR (?4=0 AND d.status='quarantined' AND p.held_until>?3)) AND m.raw_present=1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id)",params![c.message_id,c.recipient,now,matches!(c.command,Operation::Retry)],|r|r.get(0)).optional()?;
-            let result=if c.expires<now {"expired"} else if let Some(id)=item {
-                ensure!(c.expires<=now+600,"Command validity too long");
-                let status=match c.command {Operation::Release|Operation::Retry=>"pending",Operation::Delete=>"discarded"};
-                tx.execute("UPDATE deliveries SET status=?2,next_attempt=?3,error=NULL WHERE id=?1",params![id,status,now])?;
-                if matches!(c.command,Operation::Release) {tx.execute("UPDATE delivery_policy SET released_at=?2 WHERE delivery_id=?1",params![id,now])?;}
-                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,?3,?4)",params![now,c.username,format!("cluster_{:?}",c.command).to_lowercase(),c.id])?;
-                "done"
-            } else {"conflict"};
-            tx.execute("INSERT INTO cluster_command_receipts VALUES(?1,?2,?3)",params![c.id,result,now])?;
-            results.push(CommandResult{id:c.id,result:result.into()});
-        }
-        tx.execute("DELETE FROM cluster_command_receipts WHERE created<?1",[crate::now()-30*86400])?;
-        tx.commit()?;Ok(results)
-    }).await?;
+    let results = store
+        .run(move |db| {
+            let tx = db.transaction()?;
+            let results = execute_transaction(&tx, commands)?;
+            tx.commit()?;
+            Ok(results)
+        })
+        .await?;
     store.notify_delivery();
+    Ok(results)
+}
+
+/// The caller supplies one SQLite transaction so additional receipt binding and
+/// the actual queue mutation can be committed atomically.
+pub(crate) fn execute_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    commands: Vec<Command>,
+) -> Result<Vec<CommandResult>> {
+    ensure!(commands.len() <= 32, "Too many commands");
+    let mut results = Vec::new();
+    for c in commands {
+        ensure!(
+            uuid::Uuid::parse_str(&c.id).is_ok()
+                && uuid::Uuid::parse_str(&c.message_id).is_ok()
+                && crate::config::valid_address(&c.recipient)
+                && c.username.len() <= 100,
+            "Invalid command"
+        );
+        if let Some(result) = tx
+            .query_row(
+                "SELECT result FROM cluster_command_receipts WHERE id=?1",
+                [&c.id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+        {
+            results.push(CommandResult { id: c.id, result });
+            continue;
+        }
+        let now = crate::now();
+        let item:Option<i64>=tx.query_row("SELECT d.id FROM deliveries d JOIN messages m ON m.id=d.message_id LEFT JOIN delivery_policy p ON p.delivery_id=d.id WHERE m.id=?1 AND d.address=?2 AND ((?4=1 AND d.status='pending') OR (?4=0 AND d.status='quarantined' AND p.held_until>?3)) AND m.raw_present=1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=m.id)",params![c.message_id,c.recipient,now,matches!(c.command,Operation::Retry)],|r|r.get(0)).optional()?;
+        let result = if c.expires < now {
+            "expired"
+        } else if let Some(id) = item {
+            ensure!(c.expires <= now + 600, "Command validity too long");
+            let status = match c.command {
+                Operation::Release | Operation::Retry => "pending",
+                Operation::Delete => "discarded",
+            };
+            tx.execute(
+                "UPDATE deliveries SET status=?2,next_attempt=?3,error=NULL WHERE id=?1",
+                params![id, status, now],
+            )?;
+            if matches!(c.command, Operation::Release) {
+                tx.execute(
+                    "UPDATE delivery_policy SET released_at=?2 WHERE delivery_id=?1",
+                    params![id, now],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,?3,?4)",
+                params![
+                    now,
+                    c.username,
+                    format!("cluster_{:?}", c.command).to_lowercase(),
+                    c.id
+                ],
+            )?;
+            "done"
+        } else {
+            "conflict"
+        };
+        tx.execute(
+            "INSERT INTO cluster_command_receipts VALUES(?1,?2,?3)",
+            params![c.id, result, now],
+        )?;
+        results.push(CommandResult {
+            id: c.id,
+            result: result.into(),
+        });
+    }
+    let central:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='management_command_bindings')",[],|r|r.get(0))?;
+    let cleanup = if central {
+        "DELETE FROM cluster_command_receipts WHERE created<?1 AND NOT EXISTS(SELECT 1 FROM management_command_bindings b WHERE b.id=cluster_command_receipts.id AND b.acknowledged=0)"
+    } else {
+        "DELETE FROM cluster_command_receipts WHERE created<?1"
+    };
+    tx.execute(cleanup, [crate::now() - 30 * 86400])?;
     Ok(results)
 }

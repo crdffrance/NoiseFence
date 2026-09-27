@@ -21,7 +21,7 @@ pub struct Cohort {
     pub exclusions: BTreeMap<Exclusion, usize>,
 }
 impl Cohort {
-    fn record(&mut self, label: Option<&str>, eligibility: Result<(), Exclusion>) {
+    pub(crate) fn record(&mut self, label: Option<&str>, eligibility: Result<(), Exclusion>) {
         self.messages += 1;
         let usable = eligibility.is_ok();
         if let Err(reason) = eligibility {
@@ -78,7 +78,23 @@ fn blockers(cohort: Option<&Cohort>) -> Vec<&'static str> {
     result
 }
 
+pub(crate) fn summarize(current: String, cohorts: BTreeMap<String, Cohort>) -> Readiness {
+    let blockers = blockers(cohorts.get(&current));
+    Readiness {
+        schema: "noisefence-release-readiness-2",
+        current_cohort: current,
+        cohorts,
+        minimum_wanted_test_messages: 10000,
+        minimum_unwanted_test_messages: 2000,
+        qualification_required: true,
+        blockers,
+    }
+}
+
 pub async fn inspect(store: &Store, username: String, current: String) -> Result<Readiness> {
+    if let Some(central) = store.management() {
+        return central.quality_qualification(&username, current).await;
+    }
     store.read(move |db| {
         let sql = format!("SELECT {}, {}, json_extract(m.scan,'$.fingerprint'), json_extract(m.scan,'$.campaign_simhash'), q.risk
             FROM messages m LEFT JOIN quality_labels q ON q.message_id=m.id AND q.username=?1
@@ -100,12 +116,7 @@ pub async fn inspect(store: &Store, username: String, current: String) -> Result
             let eligible = eligibility::inspect(observation.as_deref(), &artifact, fingerprint.as_deref(), simhash.as_deref());
             cohorts.entry(eligibility::cohort(&artifact)).or_default().record(label.as_deref(), eligible);
         }
-        let blockers = blockers(cohorts.get(&current));
-        Ok(Readiness {
-            schema:"noisefence-release-readiness-2", current_cohort:current, cohorts,
-            minimum_wanted_test_messages:10000, minimum_unwanted_test_messages:2000,
-            qualification_required:true, blockers,
-        })
+        Ok(summarize(current,cohorts))
     }).await
 }
 

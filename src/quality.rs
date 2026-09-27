@@ -1,6 +1,6 @@
 //! Joint, versioned observations and shadow predictions. Never changes delivery.
 pub mod behavior;
-mod eligibility;
+pub(crate) mod eligibility;
 pub mod evaluation;
 pub mod exposure;
 pub mod history;

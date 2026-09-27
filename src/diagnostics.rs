@@ -167,6 +167,9 @@ impl Store {
         _resolve_uncertain_by_score: bool,
         _threshold: f64,
     ) -> Result<Option<MessageDiagnostics>> {
+        if let Some(central) = self.management() {
+            return central.diagnostics(&username, &id, delivery_id).await;
+        }
         self.read(move |db| {
             // The same read snapshot checks both message visibility and every
             // recipient. Knowing a queue id never grants transcript access.

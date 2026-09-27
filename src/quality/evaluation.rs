@@ -82,6 +82,21 @@ pub async fn sample_with_purpose(
             && (domain.is_empty() || crate::config::valid_domain(&domain)),
         "invalid sample window"
     );
+    if let Some(central) = store.management() {
+        return central
+            .quality_sample(
+                &username,
+                crate::central::quality::Sample {
+                    since,
+                    until,
+                    count,
+                    domain: &domain,
+                    purpose,
+                    cohort: &cohort,
+                },
+            )
+            .await;
+    }
     store.run(move |db| {
         let tx=db.transaction()?;
         let mut q=tx.prepare("SELECT m.id FROM messages m WHERE m.is_dsn=0 AND m.created>=?2 AND m.created<?3
@@ -112,6 +127,9 @@ pub async fn label(
     risk: Risk,
     kind: Option<Kind>,
 ) -> Result<()> {
+    if let Some(central) = store.management() {
+        return central.quality_label(&username, &id, risk, kind).await;
+    }
     store.run(move |db| {
         let tx=db.transaction()?;
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM messages m JOIN deliveries d ON d.message_id=m.id JOIN console_access g ON g.delivery_id=d.id WHERE m.id=?1 AND g.username=?2 AND m.created>=?3 AND m.is_dsn=0)",params![id,username,now()-30*86400],|r|r.get(0))?;
@@ -122,6 +140,9 @@ pub async fn label(
     }).await
 }
 pub async fn batches(store: &Store, username: String) -> Result<Vec<Value>> {
+    if let Some(central) = store.management() {
+        return central.quality_batches(&username).await;
+    }
     store.read(move |db| {
         let mut q=db.prepare("SELECT b.id,b.created,b.since,b.until,b.domain,b.population,b.selected,
           (SELECT COUNT(*) FROM quality_members x JOIN messages m ON m.id=x.message_id WHERE x.batch_id=b.id AND m.created>=?2 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1)),
@@ -133,6 +154,9 @@ pub async fn batches(store: &Store, username: String) -> Result<Vec<Value>> {
 }
 /// Start of the recent collection period, independent of scores and completeness.
 pub async fn observation_start(store: &Store, username: String) -> Result<Option<i64>> {
+    if let Some(central) = store.management() {
+        return central.quality_observation_start(&username).await;
+    }
     store.read(move |db| {
         Ok(db.query_row("SELECT MIN(m.created) FROM messages m WHERE m.is_dsn=0 AND m.created>=?2
           AND CASE WHEN json_valid(m.scan) THEN json_extract(m.scan,'$.quality.protocol_sha256')=?3 AND substr(json_extract(m.scan,'$.evidence.artifacts.application'),-69)='-nf1.'||?4 ELSE 0 END
@@ -144,9 +168,61 @@ pub async fn members(store: &Store, username: String, batch: String) -> Result<V
     members_page(store, username, batch, 0).await
 }
 
+#[derive(Default)]
+pub(crate) struct ReadinessCounts {
+    available: usize,
+    labelled: usize,
+    risk_labels: usize,
+    kind_labels: usize,
+    risk_observed: usize,
+    kind_observed: usize,
+    missing: usize,
+    cohorts: std::collections::BTreeSet<String>,
+    exclusions: std::collections::BTreeMap<super::eligibility::Exclusion, usize>,
+}
+impl ReadinessCounts {
+    pub(crate) fn add(
+        &mut self,
+        risk: Option<&str>,
+        kind: Option<&str>,
+        observation: Option<&str>,
+        artifact: &str,
+        fingerprint: Option<&str>,
+        simhash: Option<&str>,
+    ) -> Result<()> {
+        self.available += 1;
+        ensure!(
+            self.available <= 50000,
+            "Readiness population exceeds capacity"
+        );
+        let eligibility = super::eligibility::inspect(observation, artifact, fingerprint, simhash);
+        let observed = eligibility.is_ok();
+        if let Err(reason) = eligibility {
+            *self.exclusions.entry(reason).or_default() += 1;
+        }
+        self.labelled += usize::from(risk.is_some());
+        let certain = matches!(risk, Some("legitimate" | "spam"));
+        self.risk_labels += usize::from(certain);
+        self.kind_labels += usize::from(kind.is_some());
+        self.risk_observed += usize::from(certain && observed);
+        self.kind_observed += usize::from(kind.is_some() && observed);
+        self.missing += usize::from(!observed);
+        if observed {
+            self.cohorts.insert(artifact.to_owned());
+        }
+        Ok(())
+    }
+    pub(crate) fn finish(self, selected: usize) -> Value {
+        json!({"selected":selected,"available":self.available,"labelled":self.labelled,"risk_labels":self.risk_labels,"kind_labels":self.kind_labels,"risk_with_observations":self.risk_observed,"kind_with_observations":self.kind_observed,"missing_or_incompatible_observations":self.missing,"detector_cohorts":self.cohorts.len(),"exclusions":self.exclusions,"training_validated":false,"observation_only":true})
+    }
+}
+
 /// Counts only, with the same current access checks as annotation. This does
 /// not claim that chronological folds, campaigns or both classes are sufficient.
 pub async fn readiness(store: &Store, username: String, batch: String) -> Result<Value> {
+    if let Some(central) = store.management() {
+        return central.quality_readiness(&username, &batch).await;
+    }
     store.read(move |db| {
         let selected: Option<usize> = db.query_row("SELECT selected FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3",
             params![batch,username,now()-30*86400], |r|r.get(0)).optional()?;
@@ -159,34 +235,14 @@ pub async fn readiness(store: &Store, username: String, batch: String) -> Result
           super::eligibility::OBSERVATION_SQL, super::eligibility::COHORT_SQL);
         let mut query = db.prepare(&sql)?;
         let mut rows = query.query(params![username,batch,now()-30*86400])?;
-        let (mut available, mut labelled, mut risk_labels, mut kind_labels, mut risk_observed, mut kind_observed, mut missing) = (0usize,0usize,0usize,0usize,0usize,0usize,0usize);
-        let mut cohorts = std::collections::BTreeSet::new();
-        let mut exclusions = std::collections::BTreeMap::new();
-        while let Some(row) = rows.next()? {
-            available += 1;
-            ensure!(available <= 50000, "Readiness population exceeds capacity");
-            let risk: Option<String> = row.get(0)?;
-            let kind: Option<String> = row.get(1)?;
-            let observation: Option<String> = row.get(2)?;
-            let artifact: String = row.get(3)?;
-            let fingerprint: Option<String> = row.get(4)?;
-            let simhash: Option<String> = row.get(5)?;
-            let eligibility = super::eligibility::inspect(observation.as_deref(), &artifact, fingerprint.as_deref(), simhash.as_deref());
-            let observed = eligibility.is_ok();
-            if let Err(reason) = eligibility { *exclusions.entry(reason).or_insert(0usize) += 1; }
-            labelled += usize::from(risk.is_some());
-            let certain = matches!(risk.as_deref(),Some("legitimate"|"spam"));
-            risk_labels += usize::from(certain);
-            kind_labels += usize::from(kind.is_some());
-            risk_observed += usize::from(certain && observed);
-            kind_observed += usize::from(kind.is_some() && observed);
-            missing += usize::from(!observed);
-            if observed { cohorts.insert(artifact); }
+        let mut counts=ReadinessCounts::default();
+        while let Some(row)=rows.next()? {
+            let risk:Option<String>=row.get(0)?;let kind:Option<String>=row.get(1)?;
+            let observation:Option<String>=row.get(2)?;let artifact:String=row.get(3)?;
+            let fingerprint:Option<String>=row.get(4)?;let simhash:Option<String>=row.get(5)?;
+            counts.add(risk.as_deref(),kind.as_deref(),observation.as_deref(),&artifact,fingerprint.as_deref(),simhash.as_deref())?;
         }
-        Ok(json!({"selected":selected,"available":available,"labelled":labelled,"risk_labels":risk_labels,
-            "kind_labels":kind_labels,"risk_with_observations":risk_observed,"kind_with_observations":kind_observed,
-            "missing_or_incompatible_observations":missing,"detector_cohorts":cohorts.len(),"exclusions":exclusions,
-            "training_validated":false,"observation_only":true}))
+        Ok(counts.finish(selected))
     }).await
 }
 pub async fn members_page(
@@ -196,6 +252,9 @@ pub async fn members_page(
     offset: usize,
 ) -> Result<Vec<Value>> {
     ensure!(offset <= 50000, "invalid page");
+    if let Some(central) = store.management() {
+        return central.quality_members(&username, &batch, offset).await;
+    }
     store.read(move |db| {
         let allowed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM quality_batches WHERE id=?1 AND username=?2 AND created>=?3)",params![batch,username,now()-30*86400],|r|r.get(0))?;
         ensure!(allowed,"sample not found");
@@ -203,6 +262,26 @@ pub async fn members_page(
           WHERE x.batch_id=?2 AND m.created>=?3 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) ORDER BY x.rank LIMIT 200 OFFSET ?4")?;
         Ok(q.query_map(params![username,batch,now()-30*86400,offset],|r|Ok(json!({"id":r.get::<_,String>(0)?,"created":r.get::<_,i64>(1)?,"sender":r.get::<_,String>(2)?,"subject":r.get::<_,String>(3)?,"risk":r.get::<_,Option<String>>(4)?,"kind":r.get::<_,Option<String>>(5)?,"joint_observations":r.get::<_,bool>(6)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
     }).await
+}
+
+pub(crate) fn export_row(
+    id: &str,
+    created: i64,
+    scan: crate::engine::Scan,
+    risk: Option<String>,
+    kind: Option<String>,
+    labelled: Option<i64>,
+) -> Value {
+    let decisions = super::recorded::snapshot(&scan);
+    let engine = decisions["engine"].clone();
+    let quality = scan.quality.map(|mut q| {
+        q.sender.key = None;
+        if let Some(b) = &mut q.sender.behavior {
+            b.sample = None;
+        }
+        q
+    });
+    json!({"type":"row","id":crate::message::digest(id.as_bytes()),"observed_at":created,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":risk,"kind":kind,"labelled_at":labelled,"legacy_decision":engine,"baseline_complete":decisions["engine"]["complete"],"delivery_classification":decisions["final"]["category"],"decision_snapshot":decisions,"quality":quality,"rspamd":scan.rspamd.map(|r|json!({"status":r.status,"action":r.action,"score":r.score,"profile":r.profile,"settings_sha256":r.settings_sha256})),"legacy_score":engine["raw_score"],"pipeline_elapsed_ms":scan.elapsed_ms})
 }
 
 /// Server-side private export; snapshots contain no body, subject or mailbox identity.
@@ -226,7 +305,13 @@ pub async fn export_for_candidate(
         candidate_sha256.as_deref().is_none_or(super::hash),
         "Invalid candidate digest"
     );
-    let rows=store.run(move |db| {
+    let rows = if let Some(central) = store.management() {
+        ensure!(!store.read(|db|Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='worker')",[],|r|r.get::<_,bool>(0))?)).await?,"Quality exports run on the coordinator only");
+        central
+            .quality_export_rows(&username, &batch, candidate_sha256)
+            .await?
+    } else {
+        store.run(move |db| {
         let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let db=&tx;
         let worker:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='worker')",[],|r|r.get(0))?;
@@ -251,10 +336,7 @@ pub async fn export_for_candidate(
         let mut rows=q.query(params![username,batch,now()-30*86400])?;
         while let Some(row)=rows.next()? {
             let scan:crate::engine::Scan=serde_json::from_str(&row.get::<_,String>(2)?)?;
-            let decisions=super::recorded::snapshot(&scan);
-            let engine=decisions["engine"].clone();
-            let quality=scan.quality.map(|mut q| {q.sender.key=None;if let Some(b)=&mut q.sender.behavior { b.sample=None; }q});
-            out.push(json!({"type":"row","id":crate::message::digest(row.get::<_,String>(0)?.as_bytes()),"observed_at":row.get::<_,i64>(1)?,"fingerprint":scan.fingerprint,"simhash":scan.campaign_simhash,"risk":row.get::<_,Option<String>>(3)?,"kind":row.get::<_,Option<String>>(4)?,"labelled_at":row.get::<_,Option<i64>>(5)?,"legacy_decision":engine,"baseline_complete":decisions["engine"]["complete"],"delivery_classification":decisions["final"]["category"],"decision_snapshot":decisions,"quality":quality,"rspamd":scan.rspamd.map(|r|json!({"status":r.status,"action":r.action,"score":r.score,"profile":r.profile,"settings_sha256":r.settings_sha256})),"legacy_score":engine["raw_score"],"pipeline_elapsed_ms":scan.elapsed_ms}));
+            out.push(export_row(&row.get::<_,String>(0)?,row.get(1)?,scan,row.get(3)?,row.get(4)?,row.get(5)?));
         }
         drop(rows);drop(q);drop(reserved);
         let mut exposure=super::exposure::record(&tx,&batch,&out[1..],now())?;
@@ -263,7 +345,8 @@ pub async fn export_for_candidate(
         out[0]["exposure_tracking"]=serde_json::to_value(exposure)?;
         out.push(json!({"type":"footer","rows":out.len()-1}));
         tx.commit()?;Ok(out)
-    }).await?;
+    }).await?
+    };
     let parent = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())

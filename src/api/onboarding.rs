@@ -10,38 +10,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/filtering/preview", post(preview))
         .route("/admin/filtering/sample", post(sample))
 }
-pub(super) fn grants(cfg: &Config, username: &str, addresses: &mut Vec<String>) -> Result<()> {
-    ensure!(
-        !username.is_empty()
-            && username.len() <= 100
-            && username
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._-@".contains(&b)),
-        "Identifiant invalide."
-    );
-    ensure!(addresses.len() <= 1000, "Too many access grants.");
-    for address in addresses.iter_mut() {
-        let (local, domain) = address
-            .rsplit_once('@')
-            .ok_or_else(|| anyhow::anyhow!("Invalid address."))?;
-        ensure!(
-            cfg.domains
-                .iter()
-                .any(|d| d.name.eq_ignore_ascii_case(domain)),
-            "Domain not configured."
-        );
-        *address = if local == "*" {
-            format!("*@{}", domain.to_ascii_lowercase())
-        } else {
-            cfg.recipient(address)
-                .ok_or_else(|| anyhow::anyhow!("Recipient not configured."))?
-                .destination
-        };
-    }
-    addresses.sort();
-    addresses.dedup();
-    Ok(())
-}
+pub(super) use crate::onboarding::grants;
 fn invalid() -> Error {
     Error(
         StatusCode::BAD_REQUEST,
@@ -98,7 +67,23 @@ async fn create(
     let id = uuid::Uuid::new_v4().to_string();
     let saved = id.clone();
     let expires = now() + i64::from(body.days) * 86400;
-    app.store.run(move|db| {
+    if let Some(central) = app.store.management() {
+        central
+            .create_invitation(
+                &actor.username,
+                crate::central::invitations::Invitation {
+                    id: &saved,
+                    token_hash: &digest,
+                    username: &body.username,
+                    admin: body.admin,
+                    addresses: &body.addresses,
+                    expires,
+                },
+            )
+            .await
+            .map_err(|e| Error(StatusCode::CONFLICT, e.to_string()))?;
+    } else {
+        app.store.run(move|db| {
         let tx=db.transaction()?;let version=authorized(&tx,&actor.username)?;
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1)",[&body.username],|r|r.get(0))?;
         ensure!(!exists,"This account already exists. Use account management.");
@@ -110,12 +95,16 @@ async fn create(
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'invitation_create',?3)",params![now(),actor.username,saved])?;
         tx.commit()?;Ok(())
     }).await.map_err(|e|Error(StatusCode::CONFLICT,e.to_string()))?;
+    }
     Ok(Json(
         json!({"id":id,"expires":expires,"url":format!("{}/#invite={token}",app.config.web.public_origin.trim_end_matches('/'))}),
     ))
 }
 async fn list(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    admin::administrator(&app, &h, false).await?;
+    let actor = admin::administrator(&app, &h, false).await?;
+    if let Some(central) = app.store.management() {
+        return Ok(Json(json!(central.invitations(&actor.username).await?)));
+    }
     Ok(Json(json!(app.store.read(|db| {
         let mut q=db.prepare("SELECT i.id,i.username,i.admin,i.addresses,i.created,i.expires,i.version,CASE WHEN i.accepted IS NOT NULL THEN 'accepted' WHEN i.revoked IS NOT NULL OR NOT EXISTS(SELECT 1 FROM users u LEFT JOIN console_user_versions v ON u.username=v.username WHERE u.username=i.creator AND u.admin=1 AND u.disabled=0 AND COALESCE(v.version,0)=i.creator_version) THEN 'revoked' WHEN i.expires<=?1 THEN 'expired' ELSE 'pending' END FROM console_invitations i ORDER BY i.created DESC,i.id LIMIT 1000")?;
         Ok(q.query_map([now()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"username":r.get::<_,String>(1)?,"admin":r.get::<_,bool>(2)?,"addresses":serde_json::from_str::<Value>(&r.get::<_,String>(3)?).unwrap_or_default(),"created":r.get::<_,i64>(4)?,"expires":r.get::<_,i64>(5)?,"version":r.get::<_,i64>(6)?,"status":r.get::<_,String>(7)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -133,11 +122,23 @@ async fn revoke(
     Json(body): Json<Revoke>,
 ) -> ApiResult<Json<Value>> {
     let actor = admin::administrator(&app, &h, true).await?;
-    app.store.run(move|db| {let tx=db.transaction()?;authorized(&tx,&actor.username)?;
+    if let Some(central) = app.store.management() {
+        central
+            .revoke_invitation(&actor.username, &body.id, body.version)
+            .await
+            .map_err(|_| {
+                Error(
+                    StatusCode::CONFLICT,
+                    "Invitation modified or already used. Reload the list.".into(),
+                )
+            })?;
+    } else {
+        app.store.run(move|db| {let tx=db.transaction()?;authorized(&tx,&actor.username)?;
         let changed=tx.execute("UPDATE console_invitations SET revoked=?3,version=version+1 WHERE id=?1 AND version=?2 AND accepted IS NULL AND revoked IS NULL",params![body.id,body.version,now()])?;
         ensure!(changed==1,"Amended or already used invitation.");
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'invitation_revoke',?3)",params![now(),actor.username,body.id])?;tx.commit()?;Ok(())
     }).await.map_err(|_|Error(StatusCode::CONFLICT,"Invitation modified or already used. Reload the list.".into()))?;
+    }
     Ok(Json(json!({"ok":true})))
 }
 #[derive(Deserialize)]
@@ -145,12 +146,7 @@ async fn revoke(
 struct Token {
     token: String,
 }
-struct Claim {
-    id: String,
-    username: String,
-    admin: bool,
-    addresses: Vec<String>,
-}
+use crate::central::invitations::Claim;
 fn claim(db: &rusqlite::Connection, hash: &str) -> Result<Claim> {
     let (id,username,admin,addresses):(String,String,bool,String)=db.query_row("SELECT i.id,i.username,i.admin,i.addresses FROM console_invitations i JOIN users u ON u.username=i.creator LEFT JOIN console_user_versions v ON v.username=u.username WHERE i.token_hash=?1 AND i.revoked IS NULL AND i.accepted IS NULL AND i.expires>?2 AND u.admin=1 AND u.disabled=0 AND COALESCE(v.version,0)=i.creator_version AND NOT EXISTS(SELECT 1 FROM users target WHERE target.username=i.username)",params![hash,now()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
     Ok(Claim {
@@ -166,11 +162,17 @@ async fn check(
     Json(body): Json<Token>,
 ) -> ApiResult<Json<Value>> {
     let hash = rate(&app, &h, &body.token)?;
-    let c = app
-        .store
-        .read(move |db| claim(db, &hash))
-        .await
-        .map_err(|_| invalid())?;
+    let c = if let Some(central) = app.store.management() {
+        central
+            .invitation_claim(&hash)
+            .await
+            .map_err(|_| invalid())?
+    } else {
+        app.store
+            .read(move |db| claim(db, &hash))
+            .await
+            .map_err(|_| invalid())?
+    };
     Ok(Json(
         json!({"username":c.username,"admin":c.admin,"addresses":c.addresses}),
     ))
@@ -195,10 +197,17 @@ async fn accept(
         ));
     }
     let verify_hash = hash.clone();
-    app.store
-        .read(move |db| claim(db, &verify_hash))
-        .await
-        .map_err(|_| invalid())?;
+    if let Some(central) = app.store.management() {
+        central
+            .invitation_claim(&verify_hash)
+            .await
+            .map_err(|_| invalid())?;
+    } else {
+        app.store
+            .read(move |db| claim(db, &verify_hash))
+            .await
+            .map_err(|_| invalid())?;
+    }
     let permit = app.hashing.clone().try_acquire_owned().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
@@ -217,7 +226,13 @@ async fn accept(
     } else {
         (app.config.clone(), None)
     };
-    let username=app.store.run(move|db| {
+    let username = if let Some(central) = app.store.management() {
+        central
+            .accept_invitation(&hash, &password, &cfg, revision)
+            .await
+            .map_err(|_| invalid())?
+    } else {
+        app.store.run(move|db| {
         let tx=db.transaction()?;let mut c=claim(&tx,&hash)?;
         if let Some(expected)=revision {let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;ensure!(current==expected,"Modified configuration, try again.");}
         let intended=c.addresses.clone();grants(&cfg,&c.username,&mut c.addresses)?;
@@ -229,7 +244,8 @@ async fn accept(
         tx.execute("UPDATE console_invitations SET accepted=?2,version=version+1 WHERE id=?1",params![c.id,now()])?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'invitation_accept',?3)",params![now(),c.username,c.id])?;
         tx.commit()?;Ok(c.username)
-    }).await.map_err(|_|invalid())?;
+    }).await.map_err(|_|invalid())?
+    };
     Ok(Json(json!({"ok":true,"username":username})))
 }
 #[derive(Deserialize)]

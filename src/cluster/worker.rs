@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{path::Path, sync::Arc, time::Duration};
 use tokio::io::AsyncWriteExt;
 
-async fn bounded_json<T: DeserializeOwned>(
+pub(crate) async fn bounded_json<T: DeserializeOwned>(
     mut response: reqwest::Response,
     limit: usize,
 ) -> Result<T> {
@@ -125,21 +125,26 @@ async fn poll(
     url: &str,
     last_error: Option<String>,
     results: Vec<history::CommandResult>,
+    remote_management: bool,
 ) -> Result<Vec<history::CommandResult>> {
     let snapshot = control.snapshot();
     let root = control.base.data_dir.clone();
     let wallet =
         tokio::task::spawn_blocking(move || budget::request(&root, crate::now())).await??;
     // Metadata incidents must not prevent policy renewal or credit synchronization.
-    let (records, last_error) = match history::export(&control.store).await {
-        Ok(records) => (records, last_error),
-        Err(error) => (
-            Vec::new(),
-            Some(format!(
-                "Unsynchronized history: {}",
-                crate::delivery_log::sanitize(&error.to_string(), 280).0
-            )),
-        ),
+    let (records, last_error) = if remote_management {
+        (Vec::new(), last_error)
+    } else {
+        match history::export(&control.store).await {
+            Ok(records) => (records, last_error),
+            Err(error) => (
+                Vec::new(),
+                Some(format!(
+                    "Unsynchronized history: {}",
+                    crate::delivery_log::sanitize(&error.to_string(), 280).0
+                )),
+            ),
+        }
     };
     let free_bytes = crate::store::available_bytes(&control.base.data_dir)?;
     let replication = if control.base.replication.is_some() {
@@ -165,8 +170,12 @@ async fn poll(
                 [],
                 |r| r.get(0),
             )?;
-            let pending_metadata =
-                db.query_row("SELECT COUNT(*) FROM cluster_dirty", [], |r| r.get(0))?;
+            let pending_metadata = if remote_management {
+                let s = crate::central::outbox::status(db)?;
+                s.pending.saturating_add(s.pending_logs)
+            } else {
+                db.query_row("SELECT COUNT(*) FROM cluster_dirty", [], |r| r.get(0))?
+            };
             Ok(protocol::NodeStatus {
                 build: None,
                 research_archive,
@@ -198,11 +207,24 @@ async fn poll(
             status,
         },
     };
-    let response = http
-        .post(format!("{url}/api/v1/cluster/v2/sync"))
-        .json(&request)
-        .send()
-        .await?;
+    let central_identity = if remote_management {
+        Some(
+            control
+                .store
+                .read(|db| crate::central::outbox::identity(db))
+                .await?,
+        )
+    } else {
+        None
+    };
+    let response = if let Some(identity) = &central_identity {
+        http.post(format!("{url}/api/v1/cluster/v3/sync")).json(&serde_json::json!({"protocol":crate::central::transport::PROTOCOL,"epoch":identity.epoch,"request":&request})).send().await?
+    } else {
+        http.post(format!("{url}/api/v1/cluster/v2/sync"))
+            .json(&request)
+            .send()
+            .await?
+    };
     // Older API routers delegate unknown POST paths to ServeDir, which returns
     // 405 rather than 404. Neither status permits an already enrolled downgrade.
     let (reply, activation, generations) = if matches!(
@@ -210,7 +232,9 @@ async fn poll(
         reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::METHOD_NOT_ALLOWED
     ) {
         ensure!(
-            control.store.activation.epoch().is_none() && control.store.activation.ready(),
+            !remote_management
+                && control.store.activation.epoch().is_none()
+                && control.store.activation.ready(),
             "An enrolled node cannot downgrade to legacy synchronization"
         );
         let response = http
@@ -224,7 +248,22 @@ async fn poll(
             std::collections::BTreeMap::new(),
         )
     } else {
-        let reply: transport::Reply = bounded_json(response, transport::REPLY_LIMIT).await?;
+        let reply: transport::Reply = if let Some(identity) = &central_identity {
+            let central: crate::central::transport::PolicyReply =
+                bounded_json(response, transport::REPLY_LIMIT).await?;
+            ensure!(
+                central.protocol == crate::central::transport::PROTOCOL
+                    && &central.identity == identity,
+                "Central policy authority identity mismatch"
+            );
+            ensure!(
+                central.reply.data.commands.is_empty() && central.reply.data.receipts.is_empty(),
+                "Central metadata must use its dedicated journals"
+            );
+            central.reply
+        } else {
+            bounded_json(response, transport::REPLY_LIMIT).await?
+        };
         ensure!(
             reply.protocol == transport::PROTOCOL,
             "Invalid activation protocol reply"
@@ -423,16 +462,37 @@ pub async fn run(
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(20))
         .build()?;
-    let mut last_error = None;
-    let mut results = Vec::new();
-    loop {
-        tokio::select! {
-            _=stop.changed()=>return Ok(()),
-            response=poll(&control,&http,url,last_error.clone(),results.clone())=>match response {
-                Ok(ack)=>{results=ack;last_error=None;},
-                Err(error)=>{let safe=crate::delivery_log::sanitize(&error.to_string(),400).0;tracing::warn!(error=%safe,"cluster synchronization incomplete");last_error=Some(safe);}
-            }
+    let remote_management = crate::central::transport::remote_enabled(&control.store).await?;
+    let management_stop = stop.clone();
+    let management_store = control.store.clone();
+    let management_http = http.clone();
+    let management_url = url.to_owned();
+    let management = async move {
+        if remote_management {
+            crate::central::transport::run_remote(
+                management_store,
+                management_http,
+                management_url,
+                management_stop,
+            )
+            .await
+        } else {
+            std::future::pending::<Result<()>>().await
         }
-        tokio::select! {_=stop.changed()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(settings.poll_seconds))=>{}}
-    }
+    };
+    let policy = async {
+        let mut last_error = None;
+        let mut results = Vec::new();
+        loop {
+            tokio::select! {
+                _=stop.changed()=>return Ok(()),
+                response=poll(&control,&http,url,last_error.clone(),results.clone(),remote_management)=>match response {
+                    Ok(ack)=>{results=ack;last_error=None;},
+                    Err(error)=>{let safe=crate::delivery_log::sanitize(&error.to_string(),400).0;tracing::warn!(error=%safe,"cluster synchronization incomplete");last_error=Some(safe);}
+                }
+            }
+            tokio::select! {_=stop.changed()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(settings.poll_seconds))=>{}}
+        }
+    };
+    tokio::select! {result=policy=>result,result=management=>result}
 }

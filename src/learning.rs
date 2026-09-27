@@ -99,21 +99,13 @@ impl Drop for Partial {
 }
 
 pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Result<ExportReport> {
+    if let Some(central) = store.management() {
+        return central.learning_export(output, require_semantic).await;
+    }
     let output = output.to_owned();
     store
         .run(move |db| {
-            let parent = output
-                .parent()
-                .filter(|p| !p.as_os_str().is_empty())
-                .unwrap_or(Path::new("."));
-            let temporary = parent.join(format!(".learning-{}.partial", uuid::Uuid::new_v4()));
-            let file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            let partial = Partial(temporary);
-            let mut writer = BufWriter::new(file);
+            let mut writer=AtomicExport::new(&output)?;
             let mut report = ExportReport::default();
             // A single SQLite read transaction gives a coherent label snapshot in WAL.
             // Re-check current grants; expired metadata and automatic DSNs are excluded.
@@ -132,138 +124,199 @@ pub async fn export(store: &Store, output: &Path, require_semantic: bool) -> Res
                 )?;
                 let mut rows = query.query([crate::now() - 30 * 86400])?;
                 while let Some(row) = rows.next()? {
-                    report.considered += 1;
-                    let min: i64 = row.get(3)?;
-                    let max: i64 = row.get(4)?;
-                    ensure!(
-                        (0..=1).contains(&min) && (0..=1).contains(&max),
-                        "invalid human label"
-                    );
-                    if min != max {
-                        report.conflicting += 1;
-                        continue;
-                    }
-                    let first: Option<String> = row.get(6)?;
-                    let last: Option<String> = row.get(7)?;
-                    let explicit: i64 = row.get(8)?;
-                    let votes: i64 = row.get(9)?;
-                    let category = if min == 1 {
-                        Some(crate::mailing::FeedbackCategory::Spam)
-                    } else if first != last {
-                        report.conflicting_categories += 1;
-                        None
-                    } else if explicit == votes {
-                        first.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?
-                    } else { None };
-                    let scan: crate::engine::Scan =
-                        serde_json::from_str(&row.get::<_, String>(2)?)?;
-                    if protected.contains(&scan) { report.protected_campaigns+=1;continue; }
-                    // External availability must not select the local training data.
-                    // Old incomplete rows remain excluded: their extraction state is unknown.
-                    if !scan.features_complete.unwrap_or(scan.complete) || scan.features.is_empty()
-                    {
-                        report.incomplete += 1;
-                        continue;
-                    }
-                    if scan.feature_version != features::VERSION {
-                        report.unsupported_features += 1;
-                        continue;
-                    }
-                    let Some(simhash) = scan.campaign_simhash else {
-                        report.missing_campaign += 1;
-                        continue;
-                    };
-                    ensure!(
-                        hex(&scan.fingerprint, 64) && hex(&simhash, 16),
-                        "invalid campaign fingerprint"
-                    );
-                    let mut indices = HashSet::new();
-                    ensure!(
-                        scan.features.len() <= features::DIMENSION
-                            && scan.features.iter().all(|(i, x)| *i < features::DIMENSION
-                                && x.is_finite()
-                                && *x > 0.0
-                                && *x <= 1.0
-                                && indices.insert(*i)),
-                        "invalid lexical learning vector"
-                    );
-                    ensure!(
-                        (scan.features.iter().map(|(_, x)| x * x).sum::<f64>() - 1.0).abs() < 0.001,
-                        "lexical learning vector is not normalized"
-                    );
-                    let semantic = if scan.semantic.status == SemanticStatus::Complete
-                        && scan.semantic.protocol.as_ref() == Some(&SemanticProtocol::pinned())
-                        && scan.semantic.encoder == ENCODER_ID
-                    {
-                        let vector = scan.semantic.features;
-                        ensure!(
-                            vector.len() == DIMENSION
-                                && vector.iter().all(|x| x.is_finite() && x.abs() <= 1.0)
-                                && (vector.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>()
-                                    - 1.0)
-                                    .abs()
-                                    < 0.001,
-                            "invalid semantic learning vector"
-                        );
-                        report.semantic_exported += 1;
-                        Some(SemanticExample {
-                            protocol: SemanticProtocol::pinned(),
-                            features: vector,
-                        })
-                    } else {
-                        if require_semantic {
-                            report.missing_semantic_protocol += 1;
-                            continue;
-                        }
-                        None
-                    };
-                    let id: String = row.get(0)?;
-                    let evidence = match scan.evidence {
-                        Some(evidence)
-                            if evidence.source == crate::evidence::Source::SmtpSession =>
-                        {
-                            evidence.validate()?;
-                            report.evidence_exported += 1;
-                            Some(evidence)
-                        }
-                        Some(_) => {
-                            report.non_smtp_evidence += 1;
-                            None
-                        }
-                        None => {
-                            report.missing_evidence += 1;
-                            None
-                        }
-                    };
-                    let example = LearningExample {
-                        schema: "noisefence-learning-1",
-                        source: "local_human_feedback",
-                        id: message::digest(id.as_bytes()),
-                        observed_at: row.get(1)?,
-                        labelled_at: row.get(5)?,
-                        feature_version: scan.feature_version,
-                        spam: min == 1,
-                        category,
-                        fingerprint: scan.fingerprint,
-                        simhash,
-                        features: scan.features,
-                        semantic,
-                        evidence,
-                        protection: scan.protection,
-                        mailing: scan.mailing,
-                    };
-                    serde_json::to_writer(&mut writer, &example)?;
-                    writer.write_all(b"\n")?;
-                    report.exported += 1;
-                    report.exported_with_incomplete_checks += usize::from(!scan.complete);
+                    let input=FeedbackRow {id:row.get(0)?,observed_at:row.get(1)?,scan:row.get(2)?,min:row.get(3)?,max:row.get(4)?,labelled_at:row.get(5)?,first:row.get(6)?,last:row.get(7)?,explicit:row.get(8)?,votes:row.get(9)?};
+                    if let Some(example)=project(input,&protected,require_semantic,&mut report)? { writer.write(&example)?; }
+
                 }
             }
             tx.commit()?;
-            writer.flush()?;
-            writer.get_ref().sync_all()?;
-            fs::rename(&partial.0, &output)?;
-            File::open(parent)?.sync_all()?;
+            writer.finish()?;
             Ok(report)
         })
         .await
+}
+
+pub(crate) struct FeedbackRow {
+    pub id: String,
+    pub observed_at: i64,
+    pub scan: String,
+    pub min: i64,
+    pub max: i64,
+    pub labelled_at: i64,
+    pub first: Option<String>,
+    pub last: Option<String>,
+    pub explicit: i64,
+    pub votes: i64,
+}
+pub(crate) fn project(
+    row: FeedbackRow,
+    protected: &crate::quality::reservations::Reserved,
+    require_semantic: bool,
+    report: &mut ExportReport,
+) -> Result<Option<LearningExample>> {
+    report.considered += 1;
+    let min: i64 = row.min;
+    let max: i64 = row.max;
+    ensure!(
+        (0..=1).contains(&min) && (0..=1).contains(&max),
+        "invalid human label"
+    );
+    if min != max {
+        report.conflicting += 1;
+        return Ok(None);
+    }
+    let first: Option<String> = row.first;
+    let last: Option<String> = row.last;
+    let explicit: i64 = row.explicit;
+    let votes: i64 = row.votes;
+    let category = if min == 1 {
+        Some(crate::mailing::FeedbackCategory::Spam)
+    } else if first != last {
+        report.conflicting_categories += 1;
+        None
+    } else if explicit == votes {
+        first
+            .as_deref()
+            .map(crate::mailing::FeedbackCategory::parse)
+            .transpose()?
+    } else {
+        None
+    };
+    let scan: crate::engine::Scan = serde_json::from_str(&row.scan)?;
+    if protected.contains(&scan) {
+        report.protected_campaigns += 1;
+        return Ok(None);
+    }
+    // External availability must not select the local training data.
+    // Old incomplete rows remain excluded: their extraction state is unknown.
+    if !scan.features_complete.unwrap_or(scan.complete) || scan.features.is_empty() {
+        report.incomplete += 1;
+        return Ok(None);
+    }
+    if scan.feature_version != features::VERSION {
+        report.unsupported_features += 1;
+        return Ok(None);
+    }
+    let Some(simhash) = scan.campaign_simhash else {
+        report.missing_campaign += 1;
+        return Ok(None);
+    };
+    ensure!(
+        hex(&scan.fingerprint, 64) && hex(&simhash, 16),
+        "invalid campaign fingerprint"
+    );
+    let mut indices = HashSet::new();
+    ensure!(
+        scan.features.len() <= features::DIMENSION
+            && scan.features.iter().all(|(i, x)| *i < features::DIMENSION
+                && x.is_finite()
+                && *x > 0.0
+                && *x <= 1.0
+                && indices.insert(*i)),
+        "invalid lexical learning vector"
+    );
+    ensure!(
+        (scan.features.iter().map(|(_, x)| x * x).sum::<f64>() - 1.0).abs() < 0.001,
+        "lexical learning vector is not normalized"
+    );
+    let semantic = if scan.semantic.status == SemanticStatus::Complete
+        && scan.semantic.protocol.as_ref() == Some(&SemanticProtocol::pinned())
+        && scan.semantic.encoder == ENCODER_ID
+    {
+        let vector = scan.semantic.features;
+        ensure!(
+            vector.len() == DIMENSION
+                && vector.iter().all(|x| x.is_finite() && x.abs() <= 1.0)
+                && (vector.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>() - 1.0).abs() < 0.001,
+            "invalid semantic learning vector"
+        );
+        report.semantic_exported += 1;
+        Some(SemanticExample {
+            protocol: SemanticProtocol::pinned(),
+            features: vector,
+        })
+    } else {
+        if require_semantic {
+            report.missing_semantic_protocol += 1;
+            return Ok(None);
+        }
+        None
+    };
+    let id: String = row.id;
+    let evidence = match scan.evidence {
+        Some(evidence) if evidence.source == crate::evidence::Source::SmtpSession => {
+            evidence.validate()?;
+            report.evidence_exported += 1;
+            Some(evidence)
+        }
+        Some(_) => {
+            report.non_smtp_evidence += 1;
+            None
+        }
+        None => {
+            report.missing_evidence += 1;
+            None
+        }
+    };
+    let example = LearningExample {
+        schema: "noisefence-learning-1",
+        source: "local_human_feedback",
+        id: message::digest(id.as_bytes()),
+        observed_at: row.observed_at,
+        labelled_at: row.labelled_at,
+        feature_version: scan.feature_version,
+        spam: min == 1,
+        category,
+        fingerprint: scan.fingerprint,
+        simhash,
+        features: scan.features,
+        semantic,
+        evidence,
+        protection: scan.protection,
+        mailing: scan.mailing,
+    };
+    report.exported += 1;
+    report.exported_with_incomplete_checks += usize::from(!scan.complete);
+    Ok(Some(example))
+}
+
+/// Only the fully processed, validated snapshot may replace an earlier export.
+pub(crate) struct AtomicExport {
+    output: PathBuf,
+    parent: PathBuf,
+    partial: Partial,
+    writer: BufWriter<File>,
+}
+impl AtomicExport {
+    pub(crate) fn new(output: &Path) -> Result<Self> {
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."))
+            .to_owned();
+        let temporary = parent.join(format!(".learning-{}.partial", uuid::Uuid::new_v4()));
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)?;
+        Ok(Self {
+            output: output.to_owned(),
+            parent,
+            partial: Partial(temporary),
+            writer: BufWriter::new(file),
+        })
+    }
+    pub(crate) fn write(&mut self, example: &impl Serialize) -> Result<()> {
+        serde_json::to_writer(&mut self.writer, example)?;
+        self.writer.write_all(b"\n")?;
+        Ok(())
+    }
+    pub(crate) fn finish(mut self) -> Result<()> {
+        self.writer.flush()?;
+        self.writer.get_ref().sync_all()?;
+        fs::rename(&self.partial.0, &self.output)?;
+        File::open(&self.parent)?.sync_all()?;
+        Ok(())
+    }
 }

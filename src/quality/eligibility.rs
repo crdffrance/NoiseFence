@@ -30,7 +30,7 @@ struct Observation {
     values: Vec<f64>,
 }
 
-pub(super) fn cohort(value: &str) -> String {
+pub(crate) fn cohort(value: &str) -> String {
     if super::hash(value) {
         value.into()
     } else {
@@ -38,7 +38,7 @@ pub(super) fn cohort(value: &str) -> String {
     }
 }
 
-pub(super) fn inspect(
+pub(crate) fn inspect(
     encoded: Option<&str>,
     artifact: &str,
     fingerprint: Option<&str>,

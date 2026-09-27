@@ -49,7 +49,10 @@ pub async fn export(
         crate::config::valid_domain(&scope) && scope == scope.to_ascii_lowercase(),
         "invalid native export domain"
     );
-    let (rows,report)=store.read(move |db| {
+    let (rows, report) = if let Some(central) = store.management() {
+        central.native_export(&username, &scope).await?
+    } else {
+        store.read(move |db| {
         let admin:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
         ensure!(admin,"native domain model export requires an enabled administrator");
         let now=crate::now();
@@ -65,20 +68,12 @@ pub async fn export(
         let mut rows=Vec::new();let mut report=ExportReport::default();
         for (index,row) in query.query_map(params![now-30*86400,now,scope,username],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?,r.get::<_,i64>(5)?)))?.enumerate() {
             ensure!(index<50_000,"native export exceeds 50000 messages");
-            let (id,observed_at,scan,min,max,labelled_at)=row?;
-            ensure!((0..=1).contains(&min) && (0..=1).contains(&max),"invalid native human label");
-            if min!=max {report.conflicting_labels+=1;continue;}
-            let scan:crate::engine::Scan=serde_json::from_str(&scan)?;
-            if protected.contains(&scan) {report.protected_campaigns+=1;continue;}
-            let Some(observation)=scan.native_filter else {report.missing_features+=1;continue;};
-            if observation.report.status!=super::Status::Complete {report.incomplete+=1;continue;}
-            let Some(features)=observation.features else {report.missing_features+=1;continue;};
-            if features.protocol!=super::input::PROTOCOL {report.incompatible_features+=1;continue;}
-            let row=Example {scope:scope.clone(),id:crate::message::digest(id.as_bytes()),observed_at,labelled_at,spam:min==1,features};row.validate()?;
-            rows.push(row);report.exported+=1;
+            if let Some(example)=export_example(row?,&scope,&protected,&mut report)? {rows.push(example);}
+
         }
         Ok((rows,report))
-    }).await?;
+    }).await?
+    };
     let mut file = private_file(output)?;
     for row in rows {
         serde_json::to_writer(&mut file, &row)?;
@@ -86,6 +81,56 @@ pub async fn export(
     }
     file.sync_all()?;
     Ok(report)
+}
+
+pub(crate) type ExportRow = (String, i64, String, i64, i64, i64);
+pub(crate) fn export_example(
+    row: ExportRow,
+    scope: &str,
+    protected: &crate::quality::reservations::Reserved,
+    report: &mut ExportReport,
+) -> Result<Option<Example>> {
+    let (id, observed_at, scan, min, max, labelled_at) = row;
+    ensure!(
+        (0..=1).contains(&min) && (0..=1).contains(&max),
+        "invalid native human label"
+    );
+    if min != max {
+        report.conflicting_labels += 1;
+        return Ok(None);
+    }
+    let scan: crate::engine::Scan = serde_json::from_str(&scan)?;
+    if protected.contains(&scan) {
+        report.protected_campaigns += 1;
+        return Ok(None);
+    }
+    let Some(observation) = scan.native_filter else {
+        report.missing_features += 1;
+        return Ok(None);
+    };
+    if observation.report.status != super::Status::Complete {
+        report.incomplete += 1;
+        return Ok(None);
+    }
+    let Some(features) = observation.features else {
+        report.missing_features += 1;
+        return Ok(None);
+    };
+    if features.protocol != super::input::PROTOCOL {
+        report.incompatible_features += 1;
+        return Ok(None);
+    }
+    let row = Example {
+        scope: scope.to_owned(),
+        id: crate::message::digest(id.as_bytes()),
+        observed_at,
+        labelled_at,
+        spam: min == 1,
+        features,
+    };
+    row.validate()?;
+    report.exported += 1;
+    Ok(Some(row))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

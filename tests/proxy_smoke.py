@@ -71,6 +71,9 @@ for proxy in ('nginx', 'caddy'):
     for path, size, expected in [('/api/v1/cluster/v1/sync', 262144, 200),
                                  ('/api/v1/cluster/v2/sync', 262144, 200),
                                  ('/api/v1/cluster/v2/sync', 5*1024*1024, 413),
+                                 ('/api/v1/cluster/v3/history', 3*1024*1024, 200),
+                                 ('/api/v1/cluster/v3/logs', 3*1024*1024, 200),
+                                 ('/api/v1/cluster/v3/history', 5*1024*1024, 413),
                                  ('/api/v1/settings', 262144, 413)]:
         deadline = time.monotonic() + 15
         while True:

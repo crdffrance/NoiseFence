@@ -17,6 +17,9 @@ impl Reserved {
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        Self::from_pairs(rows)
+    }
+    pub(crate) fn from_pairs(rows: Vec<(Option<String>, Option<String>)>) -> Result<Self> {
         ensure!(rows.len() <= 5000, "Protected campaign capacity exceeded");
         let mut exact = HashSet::new();
         let mut hashes = Vec::new();

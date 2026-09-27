@@ -164,6 +164,11 @@ impl Journal {
         ensure!(Self::read(tx)?.is_none(), "Activation already initialized");
         ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='node_id' AND value=?1) AND EXISTS(SELECT 1 FROM cluster_state WHERE key='role' AND value='coordinator')", [owner], |r| r.get::<_, bool>(0))?,
             "Activation authority does not match this storage identity");
+        let state = Self::initial(owner, active)?;
+        state.save(tx)?;
+        Ok(state)
+    }
+    pub(crate) fn initial(owner: &str, active: Bundle) -> Result<Self> {
         let state = Self {
             version: 1,
             owner: owner.into(),
@@ -172,7 +177,7 @@ impl Journal {
             current_sequence: 0,
             rollout: None,
         };
-        state.save(tx)?;
+        state.validate()?;
         Ok(state)
     }
     pub(crate) fn validate(&self) -> Result<()> {
@@ -276,7 +281,17 @@ impl Journal {
         participants: Vec<String>,
         at: i64,
     ) -> Result<Self> {
-        let mut state = Self::load(tx)?;
+        let state = Self::load(tx)?.proposed(candidate, participants, at)?;
+        state.save(tx)?;
+        Ok(state)
+    }
+    pub(crate) fn proposed(
+        mut self,
+        candidate: Bundle,
+        participants: Vec<String>,
+        at: i64,
+    ) -> Result<Self> {
+        let state = &mut self;
         ensure!(
             state.released(),
             "Finish or explicitly recover the current activation"
@@ -289,8 +304,8 @@ impl Journal {
             );
         }
         state.start(candidate, nodes, at, None)?;
-        state.save(tx)?;
-        Ok(state)
+        self.validate()?;
+        Ok(self)
     }
     fn start(
         &mut self,
@@ -327,7 +342,17 @@ impl Journal {
         ack: &Acknowledgement,
         at: i64,
     ) -> Result<Self> {
-        let mut state = Self::load(tx)?;
+        let state = Self::load(tx)?.acknowledged(node, ack, at)?;
+        state.save(tx)?;
+        Ok(state)
+    }
+    pub(crate) fn acknowledged(
+        mut self,
+        node: &str,
+        ack: &Acknowledgement,
+        at: i64,
+    ) -> Result<Self> {
+        let state = &mut self;
         let r = state.checked_rollout(&ack.epoch, at)?;
         let previous = r
             .participants
@@ -344,12 +369,17 @@ impl Journal {
         );
         *previous = (*previous).max(ack.progress); // duplicate/late receipts never downgrade readiness
         r.updated = at;
-        state.save(tx)?;
-        Ok(state)
+        self.validate()?;
+        Ok(self)
     }
     /// Caller commits the console revision in this same SQLite transaction.
     pub fn commit(tx: &Transaction<'_>, epoch: &Epoch, at: i64) -> Result<Self> {
-        let mut state = Self::load(tx)?;
+        let state = Self::load(tx)?.committed(epoch, at)?;
+        state.save(tx)?;
+        Ok(state)
+    }
+    pub(crate) fn committed(mut self, epoch: &Epoch, at: i64) -> Result<Self> {
+        let state = &mut self;
         let r = state.checked_rollout(epoch, at)?;
         ensure!(
             r.phase != Phase::Aborted && r.participants.values().all(|p| *p >= Progress::Prepared),
@@ -361,11 +391,16 @@ impl Journal {
         r.updated = at;
         state.current = r.candidate.clone();
         state.current_sequence = epoch.sequence;
+        self.validate()?;
+        Ok(self)
+    }
+    pub fn release(tx: &Transaction<'_>, epoch: &Epoch, at: i64) -> Result<Self> {
+        let state = Self::load(tx)?.released_at(epoch, at)?;
         state.save(tx)?;
         Ok(state)
     }
-    pub fn release(tx: &Transaction<'_>, epoch: &Epoch, at: i64) -> Result<Self> {
-        let mut state = Self::load(tx)?;
+    pub(crate) fn released_at(mut self, epoch: &Epoch, at: i64) -> Result<Self> {
+        let state = &mut self;
         let r = state.checked_rollout(epoch, at)?;
         ensure!(
             matches!(r.phase, Phase::Committed | Phase::Released)
@@ -374,11 +409,16 @@ impl Journal {
         );
         r.phase = Phase::Released;
         r.updated = at;
+        self.validate()?;
+        Ok(self)
+    }
+    pub fn abort(tx: &Transaction<'_>, epoch: &Epoch, at: i64) -> Result<Self> {
+        let state = Self::load(tx)?.aborted(epoch, at)?;
         state.save(tx)?;
         Ok(state)
     }
-    pub fn abort(tx: &Transaction<'_>, epoch: &Epoch, at: i64) -> Result<Self> {
-        let mut state = Self::load(tx)?;
+    pub(crate) fn aborted(mut self, epoch: &Epoch, at: i64) -> Result<Self> {
+        let state = &mut self;
         let r = state.checked_rollout(epoch, at)?;
         ensure!(
             r.abortable() || r.phase == Phase::Aborted,
@@ -386,8 +426,8 @@ impl Journal {
         );
         r.phase = Phase::Aborted;
         r.updated = at;
-        state.save(tx)?;
-        Ok(state)
+        self.validate()?;
+        Ok(self)
     }
     /// Recovery of a partially committed activation is another fenced rollout,
     /// never an in-place rewind. The exact previous policy/model set is required.
@@ -397,7 +437,12 @@ impl Journal {
         rollback: Bundle,
         at: i64,
     ) -> Result<Self> {
-        let mut state = Self::load(tx)?;
+        let state = Self::load(tx)?.recovered(epoch, rollback, at)?;
+        state.save(tx)?;
+        Ok(state)
+    }
+    pub(crate) fn recovered(mut self, epoch: &Epoch, rollback: Bundle, at: i64) -> Result<Self> {
+        let state = &mut self;
         let r = state.checked_rollout(epoch, at)?;
         ensure!(
             r.phase == Phase::Committed && r.recovery_of.is_none(),
@@ -415,7 +460,7 @@ impl Journal {
             .map(|n| (n.clone(), Progress::Waiting))
             .collect();
         state.start(rollback, nodes, at, Some(epoch.clone()))?;
-        state.save(tx)?;
-        Ok(state)
+        self.validate()?;
+        Ok(self)
     }
 }

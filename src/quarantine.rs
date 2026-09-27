@@ -31,6 +31,11 @@ impl Store {
         recipient: String,
         command: Command,
     ) -> Result<Change> {
+        if let Some(central) = self.management() {
+            return central
+                .queue_quarantine(&username, &token_hash, &message, &recipient, command)
+                .await;
+        }
         let result = self.run(move |db| {
             let tx = db.transaction()?;
             let item: Option<HeldDelivery> = tx.query_row(

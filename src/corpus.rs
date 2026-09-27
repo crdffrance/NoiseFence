@@ -339,35 +339,45 @@ pub fn activate(candidate: &Path, report: &Path, destination: &Path) -> Result<(
     Ok(())
 }
 pub async fn export_feedback(store: &crate::store::Store, output: &Path) -> Result<usize> {
+    if let Some(central) = store.management() {
+        return central.corpus_export(output).await;
+    }
     let (rows,protected)=store.run(|db|{
         let tx=db.transaction()?;
         let protected=crate::quality::reservations::Reserved::load(&tx)?;
         let mut q=tx.prepare("SELECT m.scan,MIN(f.spam),MAX(f.spam) FROM messages m JOIN training_feedback f ON f.message_id=m.id JOIN users u ON u.username=f.username AND u.disabled=0
             WHERE m.created>=?1 AND m.is_dsn=0 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=m.id AND g.username=f.username)
-            GROUP BY m.id HAVING MIN(f.spam)=MAX(f.spam)")?;
+            GROUP BY m.id HAVING MIN(f.spam)=MAX(f.spam) ORDER BY m.id")?;
         let rows=q.query_map([crate::now()-30*86400],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok((rows,protected))
     }).await?;
-    let mut f = File::create(output)?;
+    let mut f = crate::learning::AtomicExport::new(output)?;
     let mut count = 0;
     for (scan, spam) in rows {
         let scan: Scan = serde_json::from_str(&scan)?;
-        if scan.complete && !scan.features.is_empty() && !protected.contains(&scan) {
-            writeln!(
-                f,
-                "{}",
-                serde_json::to_string(&Example {
-                    feature_version: scan.feature_version,
-                    spam,
-                    fingerprint: scan.fingerprint,
-                    features: scan.features
-                })?
-            )?;
+        if let Some(row) = feedback_example(scan, spam, &protected) {
+            f.write(&row)?;
             count += 1;
         }
     }
-    f.sync_all()?;
+    f.finish()?;
     Ok(count)
+}
+pub(crate) fn feedback_example(
+    scan: Scan,
+    spam: bool,
+    protected: &crate::quality::reservations::Reserved,
+) -> Option<Example> {
+    if scan.complete && !scan.features.is_empty() && !protected.contains(&scan) {
+        Some(Example {
+            feature_version: scan.feature_version,
+            spam,
+            fingerprint: scan.fingerprint,
+            features: scan.features,
+        })
+    } else {
+        None
+    }
 }
 pub fn benchmark(input: &Path, iterations: usize) -> Result<serde_json::Value> {
     ensure!(

@@ -156,7 +156,34 @@ fn membership(tx: &Transaction<'_>, journal: &Journal) -> Result<()> {
     Ok(())
 }
 impl Controller {
+    async fn central_identity(&self) -> Result<crate::central::outbox::Identity> {
+        self.store
+            .read(|db| crate::central::outbox::identity(db))
+            .await
+    }
+    async fn approve_activation(
+        &self,
+        actor: String,
+        token: String,
+        scope: Option<String>,
+    ) -> Result<i64> {
+        if let Some(central) = self.store.management() {
+            central
+                .policy_approval(&actor, &token, scope.as_deref())
+                .await
+        } else {
+            self.store
+                .run(move |db| approval(&db.transaction()?, &actor, Some(&token), scope.as_deref()))
+                .await
+        }
+    }
     pub async fn activation_journal(&self) -> Result<Option<Journal>> {
+        if let Some(central) = self.store.management() {
+            return central
+                .policy_journal(&self.central_identity().await?)
+                .await
+                .map(Some);
+        }
         self.store
             .run(|db| {
                 let tx = db.transaction()?;
@@ -175,6 +202,17 @@ impl Controller {
         // This is observed progress, never an authorization to mutate state.
         let installed = self.snapshot().revision;
         let ready = self.cluster_ready();
+        if let Some(central) = self.store.management() {
+            return central
+                .policy_view(
+                    &self.central_identity().await?,
+                    &actor,
+                    administrator,
+                    installed,
+                    ready,
+                )
+                .await;
+        }
         let coordinator = self
             .base
             .cluster
@@ -490,7 +528,7 @@ impl Controller {
             let _serial=this.activation_serial.clone().lock_owned().await;
             let _applying=this.applying.clone().acquire_owned().await?;
             let a=actor.clone();let t=token_hash.clone();let grant=scope.clone();
-            this.store.run(move|db| {let tx=db.transaction()?;approval(&tx,&a,Some(&t),grant.as_deref())}).await?;
+            this.approve_activation(a,t,grant).await?;
             let current=this.snapshot();
             ensure!(current.revision==revision, "Configuration changed; reload before staging");
             settings.hydrate(&this.base);
@@ -523,6 +561,12 @@ impl Controller {
                 artifacts::freeze(&root,&next,reserve)?;
                 Ok::<_,anyhow::Error>((next.bundle, source.bundle))
             }).await??;
+            if let Some(central)=this.store.management() {
+                return central.stage_policy(&this.central_identity().await?,crate::central::policies::Proposal {
+                    revision,base_digest:bound_source.digest,candidate,actor:&actor,session_hash:&token_hash,scope:scope.as_deref(),
+                    max_stale_seconds:this.base.cluster.as_ref().unwrap().max_stale_seconds,
+                }).await;
+            }
             let stale=crate::now()-this.base.cluster.as_ref().unwrap().max_stale_seconds;
             this.store.run(move|db| {
                 let tx=db.transaction()?;
@@ -559,6 +603,9 @@ impl Controller {
         let this = self.clone();
         tokio::spawn(async move {
             let _serial=this.activation_serial.clone().lock_owned().await;
+            if let Some(central)=this.store.management() {
+                return central.abort_policy(&this.central_identity().await?,&epoch,&actor,&token_hash).await;
+            }
             this.store.run(move|db| {
                 let tx=db.transaction()?;admin(&tx,&actor,&token_hash)?;
                 let journal=Journal::abort(&tx,&epoch,crate::now())?;
@@ -577,6 +624,11 @@ impl Controller {
         let this = self.clone();
         tokio::spawn(async move {
             let _serial = this.activation_serial.clone().lock_owned().await;
+            if let Some(central) = this.store.management() {
+                return central
+                    .recover_policy(&this.central_identity().await?, &epoch, &actor, &token_hash)
+                    .await;
+            }
             this.store
                 .run(move |db| {
                     let tx = db.transaction()?;
@@ -647,7 +699,20 @@ impl Controller {
                 } else { ActivationProblem::RuntimePreparationFailed };
                 error.context(problem)
             })?;
-            let updated=this.store.run(move|db| {
+            let updated=if let Some(central)=this.store.management() {
+                let identity=this.central_identity().await?;
+                let mut j=if let Some(ack)=acknowledgement {
+                    central.acknowledge_policy(&identity,&ack).await?
+                } else { central.policy_journal(&identity).await? };
+                let r=j.rollout().context("Missing activation rollout")?;
+                let epoch=r.epoch().clone();
+                if r.phase()==Phase::Preparing && r.participants().values().all(|p|*p>=Progress::Prepared) {
+                    j=central.commit_policy(&identity,&epoch).await?;
+                } else if r.phase()==Phase::Committed && r.participants().values().all(|p|*p==Progress::Applied) {
+                    j=central.release_policy(&identity,&epoch).await?;
+                }
+                j
+            } else { this.store.run(move|db| {
                 let tx=db.transaction()?;
                 let mut j=Journal::read(&tx)?.context("Missing activation state")?;
                 membership(&tx,&j).context(ActivationProblem::MembershipChanged)?;
@@ -672,7 +737,7 @@ impl Controller {
                     j=Journal::release(&tx,&epoch,crate::now())?;
                 }
                 tx.commit()?;Ok(j)
-            }).await?;
+            }).await? };
             let retained=updated.clone();let root=this.base.data_dir.clone();
             tokio::task::spawn_blocking(move||artifacts::prune_retained(&root,&retained.bundles())).await??;
             Ok(Some(updated))

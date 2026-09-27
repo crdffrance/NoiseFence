@@ -137,18 +137,32 @@ pub async fn run(
     if is_worker(&control.base) {
         worker::run(control, stop).await
     } else {
-        let mut stop = stop;
-        loop {
-            tokio::select! {
-                _=stop.changed()=>return Ok(()),
-                result=control.advance_activation()=>{
-                    if let Err(error)=result {
-                        tracing::warn!(error=%crate::delivery_log::sanitize(&error.to_string(),400).0,"coordinated activation pending");
+        let management_stop = stop.clone();
+        let management_store = control.store.clone();
+        let central = control.store.management().cloned();
+        let management = async move {
+            if let Some(central) = central {
+                crate::central::transport::run_local(management_store, central, management_stop)
+                    .await
+            } else {
+                std::future::pending::<Result<()>>().await
+            }
+        };
+        let policy = async {
+            let mut stop = stop;
+            loop {
+                tokio::select! {
+                    _=stop.changed()=>return Ok(()),
+                    result=control.advance_activation()=>{
+                        if let Err(error)=result {
+                            tracing::warn!(error=%crate::delivery_log::sanitize(&error.to_string(),400).0,"coordinated activation pending");
+                        }
                     }
                 }
+                tokio::select! {_=stop.changed()=>return Ok(()),_=tokio::time::sleep(std::time::Duration::from_secs(2))=>{}}
             }
-            tokio::select! {_=stop.changed()=>return Ok(()),_=tokio::time::sleep(std::time::Duration::from_secs(2))=>{}}
-        }
+        };
+        tokio::select! {result=policy=>result,result=management=>result}
     }
 }
 
