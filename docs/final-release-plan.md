@@ -60,3 +60,21 @@ Test queue persistence, required peer copies before SMTP acceptance, worker rest
 A finite test cannot establish perfect detection against every future message. Version 1.0 should mean the declared functional and statistical contracts have passed, with known limits and monitoring, rather than a 100% capture promise. Freeze the evaluation protocol before observing the final holdout; if it is used for a repair, reserve a new final set.
 
 References: [Rspamd actions and scores](https://docs.rspamd.com/configuration/metrics/), [NIST exact binomial confidence limits](https://itl.nist.gov/div898/software/dataplot/refman2/auxillar/exacbino.htm).
+
+## Candidate 0.27.0: implemented qualification safeguards
+
+- Prompt 10 requests bounded evidence references and a separate mail kind. Rust assigns identifiers to exact bounded text records and validates references against the actual request, current versus quoted text, observed authentication failures and supplied domain relationships. Unsupported declared ownership/attachment claims have no LLM scoring weight or definite opinion and are unavailable inputs to fusion. This is a consistency check on declared evidence, not proof that a quote entails a verdict, nor a prompt-injection guarantee.
+- Conditional security notices are evaluated as context; neither a brand name nor successful authentication grants a sender an allowlist. Synthetic counterexamples retain explicit malicious requests.
+- The quality page exposes read-only, recipient-scoped current-cohort label and coverage counts. These include development samples and do not certify accuracy or trigger training/activation. The existing promotion contract requires at least 10,000 wanted and 2,000 unwanted test messages, in addition to independence and confidence-bound gates; the statistical illustration above does not relax it.
+- CRDF preserves valid targets within a structurally valid mixed batch. Invalid target responses are unavailable and uncached. An invalid response does not impose account-wide backoff; authentication/rate-limit responses still do.
+- URL inspection can follow complete early meta redirects from a bounded oversized-page prefix. A truncated page without a usable redirect remains incomplete. Reaching HTTP 2xx, resolving the full chain and scanning a complete page remain distinct diagnostics. SSRF, DNS revalidation, hop and time limits are unchanged.
+
+### Operator procedure
+
+1. Keep **Filters → observation** and freeze detector/model/policy digests. Upgrade all MX software before collecting a new qualification cohort; mixed-version rolling-upgrade traffic is not one evaluation cohort.
+2. Open **Filter quality**, inspect **Evidence before activation**, and create distinct development and regression samples from the current cohort. Label messages without using engine scores as truth. Put previously corrected examples in regression, not the final holdout.
+3. Use the existing calibration workbench to export/train an observation-only candidate. Preserve rejected preparation reports when classes, campaigns, provenance or profiles are insufficient; do not force a fit or lower the statistical gates to obtain a model.
+4. Compare frozen NoiseFence and Rspamd results on the same human-labelled messages. Report missing analyses, unresolved actions, campaign denominators and results by mail kind/coverage. LLM-only regressions and reconstructed excerpts are separate experiments, never gateway accuracy results.
+5. Reserve a new prospective holdout after all prompt/rule changes. Qualify native and external latency separately on the reference hardware. Only activate actions after the independent promotion gates pass; keep the prior artifact and policy revision for rollback.
+
+No sample count, passing software test or selected regression result alone qualifies version 1.0. Historical arrival decisions and user delivery policies are not rewritten by this candidate.

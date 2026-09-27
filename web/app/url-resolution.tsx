@@ -7,6 +7,8 @@ export type UrlResolutionReport = {
   chains: {
     source_sha256: string;
     complete: boolean;
+    reached_http_success?: boolean;
+    body_truncated?: boolean;
     detail: string | null;
     hops: { url_sha256: string; site: string; code: number }[];
   }[];
@@ -48,6 +50,8 @@ export function UrlResolutionDetails({
                 .map((hop) => `${hop.site} (${hop.code})`)
                 .join(' → ') || "No HTTP response received"}
             </p>
+            {chain.body_truncated && <p>A bounded page prefix was inspected; the full page was not scanned.</p>}
+            {!chain.complete && chain.reached_http_success && <p>An HTTP success response was received, but the final destination could not be established.</p>}
             {chain.detail && (
               <p>
                 {(

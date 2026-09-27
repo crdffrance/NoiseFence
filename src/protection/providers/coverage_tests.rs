@@ -11,7 +11,7 @@ fn batches_bind_every_response_once_and_reject_foreign_or_duplicate_targets() {
     let b = unknown("https://second.example.com/");
     assert_eq!(
         parse_crdf_batch(&json!({"error":false,"data":[b,a]}), &names).unwrap(),
-        vec![Verdict::Unknown; 2]
+        vec![Some(Verdict::Unknown); 2]
     );
     for entries in [
         json!([a]),
@@ -208,5 +208,63 @@ async fn a_provider_retry_after_survives_restart_without_automatic_resubmission(
     assert_eq!(report.status, Status::Unavailable);
     assert_eq!(report.failure_counts.get("provider_backoff"), Some(&1));
     assert_eq!(report.request_count, 0);
+    server.abort();
+}
+
+#[test]
+fn one_invalid_target_preserves_other_batch_results_without_inventing_a_hit() {
+    let names = vec!["good.example.com".into(), "bad.example.com".into()];
+    let body = json!({"error":false,"data":[unknown("https://good.example.com/"),{"url":"https://bad.example.com/","error":true}]});
+    assert_eq!(
+        parse_crdf_batch(&body, &names).unwrap(),
+        vec![Some(Verdict::Unknown), None]
+    );
+}
+
+#[tokio::test]
+async fn a_bad_batch_entry_does_not_poison_cache_or_block_the_account() {
+    let app = axum::Router::new().fallback(axum::routing::post(|axum::Json(input): axum::Json<serde_json::Value>| async move {
+        axum::Json(json!({"error":false,"data":input["urls"].as_array().unwrap().iter().map(|s| {
+            if s.as_str().unwrap().contains("bad.example.org") { json!({"url":s,"error":true}) } else { unknown(s.as_str().unwrap()) }
+        }).collect::<Vec<_>>()}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/lookup", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = tempfile::tempdir().unwrap();
+    let mut client = Client::new(&Settings::default(), root.path()).unwrap();
+    client.endpoint_override = Some(endpoint);
+    save_key(
+        root.path(),
+        Provider::Crdf,
+        "synthetic-key-mixed-batch-1234",
+    )
+    .unwrap();
+    let mut targets = Targets::default();
+    targets
+        .domains
+        .extend(["good.example.org".into(), "bad.example.org".into()]);
+    let (first, hits) = client
+        .inspect(Provider::Crdf, true, &targets, &Policy::default())
+        .await;
+    assert_eq!(first.checked, 1);
+    assert_eq!(first.failure_counts.get("invalid_response"), Some(&1));
+    assert!(hits.is_empty());
+    assert!(
+        quota_usage(root.path(), Provider::Crdf)
+            .unwrap()
+            .cooldown_until
+            .is_none()
+    );
+    targets.domains.remove("bad.example.org");
+    targets.domains.insert("another.example.org".into());
+    let (second, hits) = client
+        .inspect(Provider::Crdf, true, &targets, &Policy::default())
+        .await;
+    assert_eq!(second.status, Status::Complete);
+    assert_eq!(second.cache_hits, 1);
+    assert_eq!(second.checked, 2);
+    assert_eq!(second.request_count, 1);
+    assert!(hits.is_empty());
     server.abort();
 }

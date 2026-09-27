@@ -85,3 +85,25 @@ These diagnostics exclude bodies, subjects, full URLs, recipient/Bcc addresses, 
 All generated diagnostic fields are included in the ARC signing inventory when sealing succeeds. The unsealed fallback still adds diagnostics without claiming they are authenticated. A signature does not establish that the upstream trusts this intermediary. See [RFC 5322](https://www.rfc-editor.org/rfc/rfc5322.html#section-2.2.3), [RFC 8617](https://www.rfc-editor.org/rfc/rfc8617.html) and the [Proton validation guide](proton-validation.md).
 
 As of 0.21.0, `X-NoiseFence-LLM` includes `coherent=yes|no|not_recorded` and `opinion=legitimate|unwanted|undetermined|none`. A completed response can still be inconsistent and supply no definite opinion. No explanation text or authentication identity is exported in this field. A corroborated threat can have `Decision: unwanted` and `Status: incomplete` together; the partial index and missing-check reasons remain separate from delivery policy.
+
+### LLM citation diagnostics (0.27.0)
+
+`X-NoiseFence-LLM` includes `grounding=supported`, `unsupported` or `not_recorded`.
+`status=complete` means a provider response was received and parsed; it does not
+imply useful evidence. With unsupported citations the LLM has zero advisory
+weight, no definite opinion and unavailable fusion inputs. `supported` means the
+declared citations passed bounded consistency checks, not that the verdict is
+correct or that its confidence is calibrated. Older observations are
+`not_recorded`, never retrospectively certified. The header contains no message
+excerpts, private URL paths, provider keys or model explanation text; it remains
+part of the existing signed internal-header set.
+
+`response-issue=output_limit|invalid_envelope|unsupported_completion|invalid_json|model_mismatch|schema_or_verdict|none`
+distinguishes a rejected provider response without storing its body or exception
+text. The same fixed diagnostic is available in the API and message detail.
+
+Prompt 10 supplies Rust-generated text record IDs and accepts references to those
+records, rather than asking the provider to reproduce quotes. The indexed records
+contain each bounded source field exactly once; indexing does not increase the
+12,000-byte content allowance. A model can still misunderstand a valid referenced
+passage. Reference validity must not be presented as calibrated accuracy.

@@ -878,6 +878,10 @@ impl Engine {
         ));
     }
     pub(crate) fn check_llm(scan: &mut Scan) {
+        scan.reasons.retain(|r| r.id != "llm_unsupported_evidence");
+        if scan.llm.grounding.as_ref().is_some_and(|g| !g.supported) {
+            scan.reasons.push(Signal { id: "llm_unsupported_evidence".into(), detail: "The LLM cited unsupported evidence. Its advice supplies no weight or confirmed verdict; observed content and other checks remain available.".into(), weight: 0.0 });
+        }
         scan.reasons.retain(|r| r.id != "llm_inconsistent");
         if scan.llm.inconsistent() {
             scan.reasons.push(Signal {

@@ -445,6 +445,15 @@ impl Evidence {
             self.llm.reported_probability = Some(verdict.spam_probability);
             self.llm.reported_confidence = Some(verdict.confidence);
         }
+        if scan.llm.grounding.as_ref().is_some_and(|g| !g.supported) {
+            // Raw provider output remains on Scan. Unsupported advice is an
+            // unavailable model feature, never benign evidence or a second vote.
+            self.llm.state = State::Unavailable;
+            self.llm.outcome = Some(llm::LlmStatus::Unavailable);
+            self.llm.category = None;
+            self.llm.reported_probability = None;
+            self.llm.reported_confidence = None;
+        }
     }
 
     pub fn validate(&self) -> Result<()> {

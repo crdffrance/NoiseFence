@@ -607,3 +607,49 @@ async fn a_stalled_chain_does_not_starve_other_urls_within_the_same_deadline() {
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn oversized_prefix_can_follow_a_complete_meta_but_never_a_partial_tag() {
+    for (prefix, follows) in [
+        (
+            "<meta http-equiv='refresh' content='0;url=/final'>".to_owned(),
+            true,
+        ),
+        ("<p>No redirect</p>".to_owned(), false),
+        (
+            format!(
+                "<p>{}</p><meta http-equiv='refresh' content='0;url=/final'>",
+                "x".repeat(65510)
+            ),
+            false,
+        ),
+    ] {
+        let body = Box::leak(format!("{prefix}{}", "x".repeat(65537)).into_boxed_str());
+        let (resolver, captured, server) = fixture(vec![
+            ("/", 200, vec![("content-type", "text/html")], body),
+            (
+                "/final",
+                200,
+                vec![("content-type", "text/html")],
+                "<p>final</p>",
+            ),
+        ])
+        .await;
+        let (report, _) = resolver
+            .inspect(&["http://start.example.com/".into()], false)
+            .await;
+        let chain = &report.chains[0];
+        assert!(chain.reached_http_success && chain.body_truncated);
+        assert_eq!(chain.complete, follows);
+        assert_eq!(captured.lock().unwrap().len(), if follows { 2 } else { 1 });
+        assert_eq!(
+            chain.detail,
+            if follows {
+                None
+            } else {
+                Some(Detail::BodyLimit)
+            }
+        );
+        server.abort();
+    }
+}

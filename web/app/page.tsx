@@ -1,4 +1,5 @@
 'use client';
+import {groundingSummary, responseIssueLabel, type LlmGrounding} from './llm-evidence';
 import { RspamdComparison, RspamdOverview } from './rspamd-comparison';
 import type { RspamdReport, ComparisonSummary } from './rspamd-format';
 import type { Assessment } from './assessment';
@@ -179,6 +180,8 @@ type Mail = {
   };
   llm?: {
     coherent?: boolean | null;
+    grounding?: LlmGrounding | null;
+    response_issue?: string | null;
     failure?: string | null;
     status:
       | 'disabled'
@@ -1205,6 +1208,8 @@ function Home() {
                               complete: "completed",
                             }[selected.llm.status]
                           }
+                          {selected.llm.response_issue && <> · {responseIssueLabel(selected.llm.response_issue)}</>}
+                          {selected.llm.grounding && <> · <strong>{groundingSummary(selected.llm.grounding)?.label}</strong>: {groundingSummary(selected.llm.grounding)?.detail}</>}
                           {selected.llm.coherent === false &&
                             ' · Inconsistent category and risk estimate; no scoring weight'}
                           {selected.llm.status === 'complete' &&

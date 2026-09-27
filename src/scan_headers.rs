@@ -356,7 +356,7 @@ pub(crate) fn render(
     h.field(
         "X-NoiseFence-LLM",
         format!(
-            "status={}; verdict={}; coherent={}; opinion={}; failure={}; elapsed-ms={}; advisory=yes;",
+            "status={}; verdict={}; coherent={}; opinion={}; grounding={}; response-issue={}; failure={}; elapsed-ms={}; advisory=yes;",
             word(&scan.llm.status),
             scan.llm
                 .verdict
@@ -365,6 +365,8 @@ pub(crate) fn render(
                 .unwrap_or_else(|| "none".into()),
             scan.llm.coherent.map(yes).unwrap_or("not_recorded"),
             scan.llm.opinion().map(|v| word(&v)).unwrap_or_else(|| "none".into()),
+            scan.llm.grounding.as_ref().map(|g| if g.supported {"supported"} else {"unsupported"}).unwrap_or("not_recorded"),
+            scan.llm.response_issue.as_ref().map(word).unwrap_or_else(||"none".into()),
             scan.llm
                 .failure
                 .as_ref()

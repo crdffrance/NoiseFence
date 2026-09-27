@@ -867,3 +867,92 @@ async fn calibration_jobs_enforce_purpose_ownership_capacity_and_immutable_candi
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn release_readiness_is_scoped_cohort_specific_and_never_an_activation_certificate() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    account(&store, "bob", false, "bob@example.test").await;
+    let mut scan = observed(&cfg);
+    scan.quality = Some(quality::snapshot(&scan, None));
+    let cohort = scan.quality.as_ref().unwrap().artifacts_sha256.clone();
+    let id = insert(&store, &scan, "alice@example.test", noisefence::now()).await;
+    evaluation::label(&store, "alice".into(), id, Risk::Legitimate, None)
+        .await
+        .unwrap();
+    insert(&store, &scan, "bob@example.test", noisefence::now()).await;
+    insert(
+        &store,
+        &scan,
+        "alice@example.test",
+        noisefence::now() - 31 * 86400,
+    )
+    .await;
+    let dsn = insert(&store, &scan, "alice@example.test", noisefence::now()).await;
+    store
+        .run(move |db| {
+            db.execute("UPDATE messages SET is_dsn=1 WHERE id=?1", [dsn])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    scan.quality.as_mut().unwrap().artifacts_sha256 = digest(b"old");
+    insert(&store, &scan, "alice@example.test", noisefence::now()).await;
+    let r = quality::qualification::inspect(&store, "alice".into(), cohort.clone())
+        .await
+        .unwrap();
+    assert_eq!(r.cohorts.len(), 2);
+    assert_eq!(r.cohorts[&cohort].messages, 1);
+    assert_eq!(r.cohorts[&cohort].wanted, 1);
+    assert_eq!(r.cohorts[&cohort].usable, 1);
+    assert!(r.qualification_required && r.blockers.contains(&"independent_evaluation_required"));
+    let bob = quality::qualification::inspect(&store, "bob".into(), cohort.clone())
+        .await
+        .unwrap();
+    assert_eq!(bob.cohorts.len(), 1);
+    assert_eq!(bob.cohorts[&cohort].wanted, 0);
+    assert_eq!(bob.cohorts[&cohort].unlabelled, 1);
+    assert!(
+        !serde_json::to_string(&r)
+            .unwrap()
+            .contains("private-correspondent")
+    );
+}
+
+#[test]
+fn unsupported_llm_claims_are_diagnostic_only_and_do_not_enter_joint_features() {
+    use noisefence::{evidence::State, llm};
+    let root = tempfile::tempdir().unwrap();
+    let mut scan = observed(&common::config(root.path()));
+    scan.llm = llm::LlmResult {
+        status: llm::LlmStatus::Complete,
+        verdict: Some(llm::Verdict {
+            category: llm::Category::Phishing,
+            spam_probability: 0.99,
+            confidence: 0.99,
+            explanation: "Invented domain ownership".into(),
+        }),
+        grounding: Some(llm::grounding::Report {
+            version: "llm-grounding-1".into(),
+            supported: false,
+            mail_kind: Kind::Notification,
+            accepted_citations: 0,
+            issues: vec![llm::grounding::Issue::OwnershipNotObserved],
+        }),
+        ..Default::default()
+    };
+    assert_eq!(scan.llm.advisory_weight(), 0.);
+    assert_eq!(
+        scan.llm.opinion(),
+        Some(noisefence::fusion::runtime::Outcome::Undetermined)
+    );
+    let mut evidence = scan.evidence.take().unwrap();
+    evidence.refresh(&scan);
+    assert_eq!(evidence.llm.state, State::Unavailable);
+    assert!(evidence.llm.category.is_none());
+    assert!(evidence.llm.reported_probability.is_none());
+    assert!(evidence.llm.reported_confidence.is_none());
+    assert_eq!(scan.llm.status, llm::LlmStatus::Complete);
+}

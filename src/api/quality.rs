@@ -216,12 +216,28 @@ async fn select(
     let revision=control.apply_session(body.revision,settings,user.username,message::digest(token(&h).unwrap_or("").as_bytes())).await.map_err(|_|Error(StatusCode::CONFLICT,"Unable to activate shadow candidate. Refresh the configuration and check compatibility.".into()))?;
     Ok(Json(json!({"revision":revision,"observation_only":true})))
 }
+async fn release_readiness(
+    State(app): State<App>,
+    h: HeaderMap,
+) -> ApiResult<Json<crate::quality::qualification::Readiness>> {
+    let user = authenticated(&app, &h).await?;
+    let current = if let Some(control) = &app.control {
+        control.snapshot().engine.quality_artifacts_sha256()
+    } else {
+        String::new()
+    };
+    Ok(Json(
+        crate::quality::qualification::inspect(&app.store, user.username, current).await?,
+    ))
+}
+
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/quality/jobs", get(jobs).post(enqueue))
         .route("/quality/jobs/{id}/cancel", post(cancel))
         .route("/quality/candidate", post(select))
         .route("/quality/reliability", get(reliability))
+        .route("/quality/release-readiness", get(release_readiness))
         .route("/quality/samples", get(list).post(create))
         .route("/quality/samples/{id}", get(members))
         .route("/quality/samples/{id}/readiness", get(readiness))
