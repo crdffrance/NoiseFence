@@ -1,11 +1,11 @@
 # Configure the real hostname and its DNS before starting Caddy.
 noisefence.example.org {
     encode zstd gzip
-    @cluster path /api/v1/cluster/v1/*
+    @cluster path /api/v1/cluster/*
     request_body @cluster {
         max_size 4MB
     }
-    @console not path /api/v1/cluster/v1/*
+    @console not path /api/v1/cluster/*
     request_body @console {
         max_size 128KB
     }
