@@ -1,7 +1,64 @@
 #!/usr/bin/env python3
 """Run one durable calibration job offline. Never modifies delivery or active models."""
-import argparse,fcntl,hashlib,json,os,shutil,sqlite3,stat,subprocess,tempfile,time,tomllib,uuid
+import argparse,contextlib,select,fcntl,hashlib,json,os,shutil,sqlite3,stat,subprocess,tempfile,time,tomllib,uuid
 from pathlib import Path
+
+
+class CentralSession:
+    """The Rust child owns a single fenced database connection until close."""
+    def __init__(self,binary,config):
+        self.process=subprocess.Popen([str(binary),'--config',str(config),'quality-worker-session'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0)
+        self.buffer=bytearray();self.current=None
+        try:
+            ready=self.read()
+            if ready!={'schema':'noisefence-research-worker-1','ready':True}:raise ValueError('Unsupported research worker protocol')
+        except BaseException:
+            self.close();raise
+
+    def read(self):
+        deadline=time.monotonic()+15
+        while b'\n' not in self.buffer:
+            remaining=deadline-time.monotonic()
+            if remaining<=0 or not select.select([self.process.stdout],[],[],remaining)[0]:raise TimeoutError('Research worker response deadline')
+            chunk=os.read(self.process.stdout.fileno(),65536)
+            if not chunk:raise RuntimeError('Research database session closed')
+            self.buffer.extend(chunk)
+            if len(self.buffer)>1024*1024:raise ValueError('Oversized research worker response')
+        line,_,tail=self.buffer.partition(b'\n');self.buffer=bytearray(tail)
+        return json.loads(line)
+
+    def request(self,command,**fields):
+        payload=(json.dumps(dict(command=command,**fields),allow_nan=False)+'\n').encode()
+        if len(payload)>600*1024:raise ValueError('Oversized research request')
+        # Requests are bounded, but a dead child must not block a pipe write.
+        fd=self.process.stdin.fileno();os.set_blocking(fd,False)
+        deadline=time.monotonic()+15;offset=0
+        while offset<len(payload):
+            remaining=deadline-time.monotonic()
+            if remaining<=0 or not select.select([],[fd],[],remaining)[1]:raise TimeoutError('Research worker request deadline')
+            try:offset+=os.write(fd,payload[offset:])
+            except BlockingIOError:continue
+        response=self.read()
+        if response.get('ok') is not True:raise RuntimeError('Research request failed')
+        return response.get('result')
+
+    def close(self):
+        if self.process.stdin:self.process.stdin.close()
+        try:self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.terminate()
+            try:self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=5)
+        if self.process.stdout:self.process.stdout.close()
+
+
+def open_database(config,binary,path):
+    if config.get('management'):
+        return CentralSession(binary,path)
+    db=sqlite3.connect(Path(config['data_dir'])/'state.sqlite3',timeout=10)
+    db.execute('PRAGMA foreign_keys=ON');db.execute('PRAGMA synchronous=FULL')
+    with db:db.execute('INSERT OR REPLACE INTO quality_worker_status VALUES(1,?,?)',(int(time.time()),binary.parent.name))
+    return db
 
 
 def identifier(value):
@@ -18,6 +75,11 @@ def private_directory(path):
 
 
 def claim(db):
+    if isinstance(db,CentralSession):
+        db.current=db.request('claim')
+        if db.current is None:return None
+        row=db.current
+        return row['id'],row['username'],row['batch'],row['operation'],row['candidate']
     now=int(time.time())
     with db:
         db.execute('BEGIN IMMEDIATE')
@@ -31,10 +93,13 @@ def claim(db):
 
 def cleanup(root,db):
     # Keep aggregate models referenced by retained revisions for explicit rollback.
-    retained={r[0] for r in db.execute('SELECT id FROM quality_jobs')}
-    for (raw,) in db.execute('SELECT settings FROM console_revisions'):
-        selection=json.loads(raw).get('quality_candidate') or {}
-        if selection.get('job'):retained.add(selection['job'])
+    if isinstance(db,CentralSession):
+        retained=set(db.request('retained'))
+    else:
+        retained={r[0] for r in db.execute('SELECT id FROM quality_jobs')}
+        for (raw,) in db.execute('SELECT settings FROM console_revisions'):
+            selection=json.loads(raw).get('quality_candidate') or {}
+            if selection.get('job'):retained.add(selection['job'])
     for path in root.iterdir():
         if path.is_dir() and not path.is_symlink() and len(path.name)==36 and identifier(path.name) and path.name not in retained and path.stat().st_mtime<time.time()-30*86400:shutil.rmtree(path)
 
@@ -46,61 +111,62 @@ def run(a):
     binary=a.binary.resolve(strict=True)
     with os.fdopen(os.open(root/'worker.lock',os.O_CREAT|os.O_WRONLY|os.O_NOFOLLOW,0o600),'w') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        db=sqlite3.connect(Path(config['data_dir'])/'state.sqlite3',timeout=10)
-        db.execute('PRAGMA foreign_keys=ON');db.execute('PRAGMA synchronous=FULL')
-        with db:
-            db.execute('INSERT OR REPLACE INTO quality_worker_status VALUES(1,?,?)',(int(time.time()),binary.parent.name))
-        cleanup(root,db)
-        row=claim(db)
-        if row is None:
-            db.close();return {'status':'idle'}
-        job,user,batch,operation,candidate=row
-        result={'status':'failed','may_activate':False};model_hash=None;state='failed'
-        try:
-            if not identifier(job) or not identifier(batch) or operation not in ('train','compare','evaluate'):raise ValueError('Invalid job')
-            candidate_path=None;candidate_hash=None
-            if operation=='evaluate':
-                if not identifier(candidate):raise ValueError('Invalid candidate')
-                saved=db.execute("SELECT model_sha256 FROM quality_jobs WHERE id=? AND username=? AND operation='train' AND status='complete'",(candidate,user)).fetchone()
-                candidate_path=root/candidate/'candidate'
-                if not saved or hashlib.sha256((candidate_path/'model.json').read_bytes()).hexdigest()!=saved[0]:raise ValueError('Candidate changed')
-                candidate_hash=saved[0]
-            scratch=Path(os.environ['RUNTIME_DIRECTORY']) if os.environ.get('RUNTIME_DIRECTORY') else None
-            with tempfile.TemporaryDirectory(prefix='quality-',dir=scratch) as temporary:
-                snapshot=Path(temporary)/'dataset.jsonl'
-                export_command=[str(binary),'--config',str(a.config),'quality-export','--username',user,'--batch',batch]
-                if candidate_hash:export_command+=['--candidate-sha256',candidate_hash]
-                export_command+=['--output',str(snapshot)]
-                subprocess.run(export_command,check=True,capture_output=True,timeout=120)
-                command=[str(a.python),str(binary.parent/'research/run_quality.py'),str(snapshot),str(root/job),'--operation',operation]
-                if candidate_path:command+=['--candidate',str(candidate_path)]
-                subprocess.run(command,check=True,capture_output=True,timeout=1800,env=dict(os.environ,OPENBLAS_NUM_THREADS='2',OMP_NUM_THREADS='2'))
-                raw=(root/job/'report.json').read_bytes()
-                if len(raw)>512*1024:raise ValueError('Oversized aggregate report')
-                result=json.loads(raw);state=result['status'] if result.get('status') in ('insufficient_labels','failed') else 'complete'
-                if operation=='train' and state=='complete':
-                    model_path=root/job/'candidate/model.json'
-                    model_hash=hashlib.sha256(model_path.read_bytes()).hexdigest()
-                    # The same immutable Rust release must agree with every Python probe.
-                    probes=json.loads((model_path.parent/'parity.json').read_text())
-                    if not probes:raise ValueError('Native parity probes missing')
-                    for n,probe in enumerate(probes):
-                        observation=Path(temporary)/f'probe-{n}.json';observation.write_text(json.dumps(probe['observation']))
-                        native=subprocess.run([str(binary),'quality-predict','--model',str(model_path),'--observation',str(observation)],capture_output=True,text=True,check=True,timeout=30)
-                        prediction=json.loads(native.stdout)
-                        if abs(prediction['risk_probability']-probe['risk_probability'])>1e-8:raise ValueError('Native risk parity failed')
-                        if len(prediction['kind_probabilities'])!=len(probe['kind_probabilities']) or any(abs(x-y)>1e-8 for x,y in zip(prediction['kind_probabilities'],probe['kind_probabilities'])):raise ValueError('Native kind parity failed')
-                    (model_path.parent/'parity.json').unlink()
-                    result['native_parity']='passed'
-            result['may_activate']=False;result['observation_only']=True
-        except Exception as error:
-            # No exception text: exporters or libraries may include message-derived data.
-            result={'status':'failed','error_code':type(error).__name__,'may_activate':False,'observation_only':True}
-            state='failed';model_hash=None
-        with db:
-            db.execute("UPDATE quality_jobs SET status=?,finished=?,report=?,model_sha256=? WHERE id=? AND status='running'",(state,int(time.time()),json.dumps(result,allow_nan=False),model_hash,job))
-            db.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?,?,'quality_result',?)",(int(time.time()),user,job))
-        db.close();return {'job':job,'status':state,'activated':False}
+        with contextlib.closing(open_database(config,binary,a.config)) as db:
+            cleanup(root,db)
+            row=claim(db)
+            if row is None:
+                return {'status':'idle'}
+            job,user,batch,operation,candidate=row
+            result={'status':'failed','may_activate':False};model_hash=None;state='failed'
+            try:
+                if not identifier(job) or not identifier(batch) or operation not in ('train','compare','evaluate'):raise ValueError('Invalid job')
+                candidate_path=None;candidate_hash=None
+                if operation=='evaluate':
+                    if not identifier(candidate):raise ValueError('Invalid candidate')
+                    saved=(db.current["candidate_sha256"],) if isinstance(db,CentralSession) else db.execute("SELECT model_sha256 FROM quality_jobs WHERE id=? AND username=? AND operation='train' AND status='complete'",(candidate,user)).fetchone()
+                    candidate_path=root/candidate/'candidate'
+                    if not saved or hashlib.sha256((candidate_path/'model.json').read_bytes()).hexdigest()!=saved[0]:raise ValueError('Candidate changed')
+                    candidate_hash=saved[0]
+                scratch=Path(os.environ['RUNTIME_DIRECTORY']) if os.environ.get('RUNTIME_DIRECTORY') else None
+                with tempfile.TemporaryDirectory(prefix='quality-',dir=scratch) as temporary:
+                    snapshot=Path(temporary)/'dataset.jsonl'
+                    export_command=[str(binary),'--config',str(a.config),'quality-export','--username',user,'--batch',batch]
+                    if candidate_hash:export_command+=['--candidate-sha256',candidate_hash]
+                    export_command+=['--output',str(snapshot)]
+                    subprocess.run(export_command,check=True,capture_output=True,timeout=120)
+                    command=[str(a.python),str(binary.parent/'research/run_quality.py'),str(snapshot),str(root/job),'--operation',operation]
+                    if candidate_path:command+=['--candidate',str(candidate_path)]
+                    subprocess.run(command,check=True,capture_output=True,timeout=1800,env=dict(os.environ,OPENBLAS_NUM_THREADS='2',OMP_NUM_THREADS='2'))
+                    raw=(root/job/'report.json').read_bytes()
+                    if len(raw)>512*1024:raise ValueError('Oversized aggregate report')
+                    result=json.loads(raw);state=result['status'] if result.get('status') in ('insufficient_labels','failed') else 'complete'
+                    if operation=='train' and state=='complete':
+                        model_path=root/job/'candidate/model.json'
+                        model_hash=hashlib.sha256(model_path.read_bytes()).hexdigest()
+                        # The same immutable Rust release must agree with every Python probe.
+                        probes=json.loads((model_path.parent/'parity.json').read_text())
+                        if not probes:raise ValueError('Native parity probes missing')
+                        for n,probe in enumerate(probes):
+                            observation=Path(temporary)/f'probe-{n}.json';observation.write_text(json.dumps(probe['observation']))
+                            native=subprocess.run([str(binary),'quality-predict','--model',str(model_path),'--observation',str(observation)],capture_output=True,text=True,check=True,timeout=30)
+                            prediction=json.loads(native.stdout)
+                            if abs(prediction['risk_probability']-probe['risk_probability'])>1e-8:raise ValueError('Native risk parity failed')
+                            if len(prediction['kind_probabilities'])!=len(probe['kind_probabilities']) or any(abs(x-y)>1e-8 for x,y in zip(prediction['kind_probabilities'],probe['kind_probabilities'])):raise ValueError('Native kind parity failed')
+                        (model_path.parent/'parity.json').unlink()
+                        result['native_parity']='passed'
+                result['may_activate']=False;result['observation_only']=True
+            except Exception as error:
+                # No exception text: exporters or libraries may include message-derived data.
+                result={'status':'failed','error_code':type(error).__name__,'may_activate':False,'observation_only':True}
+                state='failed';model_hash=None
+            if isinstance(db,CentralSession):
+                saved=db.request('finish',job=job,outcome={'status':state,'report':result,'model_sha256':model_hash})
+                state=saved['status']
+            else:
+                with db:
+                    db.execute("UPDATE quality_jobs SET status=?,finished=?,report=?,model_sha256=? WHERE id=? AND status='running'",(state,int(time.time()),json.dumps(result,allow_nan=False),model_hash,job))
+                    db.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?,?,'quality_result',?)",(int(time.time()),user,job))
+            return {'job':job,'status':state,'activated':False}
 
 
 def main():

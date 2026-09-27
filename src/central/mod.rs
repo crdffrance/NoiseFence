@@ -15,6 +15,7 @@ pub mod outbox;
 pub mod policies;
 pub mod quality;
 pub mod research;
+pub mod research_worker;
 pub mod search;
 mod settings;
 pub mod transport;

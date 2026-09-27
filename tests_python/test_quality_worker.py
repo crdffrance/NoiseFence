@@ -1,5 +1,5 @@
 """Offline worker recovery, authorization, privacy and publication contracts."""
-import importlib.util,json,os,sqlite3,subprocess,tempfile,time,types,unittest,uuid
+import importlib.util,json,os,sys,sqlite3,subprocess,tempfile,time,types,unittest,uuid
 from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
@@ -74,6 +74,53 @@ class WorkerTests(unittest.TestCase):
                 self.worker.run(types.SimpleNamespace(config=config,binary=root/'binary',python=root/'python'))
             target=root/'target';target.mkdir(mode=0o700);link=root/'link';link.symlink_to(target)
             with self.assertRaises(ValueError):self.worker.private_directory(link)
+
+    def test_central_runner_uses_private_protocol_without_opening_sqlite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);job=str(uuid.uuid4());batch=str(uuid.uuid4())
+            binary=root/'release/noisefence';binary.parent.mkdir()
+            receipt=root/'result.json'
+            script="""import json,sys
+print(json.dumps({'schema':'noisefence-research-worker-1','ready':True}),flush=True)
+for line in sys.stdin:
+ r=json.loads(line)
+ if r['command']=='retained':result=[JOB]
+ elif r['command']=='claim':result={'id':JOB,'username':'admin','batch':BATCH,'operation':'compare','candidate':None,'candidate_sha256':None}
+ elif r['command']=='finish':
+  with open(RECEIPT,'w') as f:json.dump(r,f)
+  result={'status':'complete'}
+ else:raise RuntimeError('Unexpected command')
+ print(json.dumps({'ok':True,'result':result}),flush=True)
+"""
+            binary.write_text('#!'+sys.executable+'\n'+f'JOB={job!r}\nBATCH={batch!r}\nRECEIPT={str(receipt)!r}\n'+script);binary.chmod(0o700)
+            config=root/'config.toml';config.write_text('data_dir = '+json.dumps(str(root))+'\n[management]\nbackend="postgresql"\n')
+            args=types.SimpleNamespace(config=config,binary=binary,python=Path('/trusted/python'))
+            snapshots=[]
+            def execute(command,**kwargs):
+                if 'quality-export' in command:
+                    path=Path(command[-1]);snapshots.append(path);path.write_text('private fixture')
+                else:
+                    directory=Path(command[3]);directory.mkdir(mode=0o700)
+                    (directory/'report.json').write_text(json.dumps({'status':'complete','may_activate':True}))
+                return subprocess.CompletedProcess(command,0,'')
+            with patch.object(self.worker.sqlite3,'connect',side_effect=AssertionError('SQLite fallback forbidden')),patch.object(self.worker.subprocess,'run',side_effect=execute):
+                result=self.worker.run(args)
+            self.assertEqual(result['status'],'complete');self.assertFalse(result['activated'])
+            saved=json.loads(receipt.read_text());self.assertEqual(saved['job'],job)
+            self.assertFalse(saved['outcome']['report']['may_activate'])
+            self.assertTrue(saved['outcome']['report']['observation_only'])
+            self.assertNotIn('private fixture',receipt.read_text())
+            self.assertTrue(all(not p.exists() for p in snapshots))
+            self.assertFalse((root/'state.sqlite3').exists())
+
+    def test_central_protocol_failure_never_falls_back_to_sqlite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);binary=root/'noisefence'
+            binary.write_text('#!'+sys.executable+'\nprint(dict(),flush=True)\n');binary.chmod(0o700)
+            config={'management':{'backend':'postgresql'},'data_dir':str(root)}
+            with patch.object(self.worker.sqlite3,'connect',side_effect=AssertionError('SQLite fallback forbidden')):
+                with self.assertRaises(ValueError):self.worker.open_database(config,binary,root/'config.toml')
+            self.assertFalse((root/'state.sqlite3').exists())
 
     @unittest.skipUnless(os.environ.get('NOISEFENCE_BINARY'),'Requires a native binary and research dependencies')
     def test_real_export_train_and_rust_parity_pipeline(self):

@@ -304,6 +304,8 @@ enum Command {
         #[arg(long, default_value = "")]
         cohort: String,
     },
+    /// Private central research-worker protocol; requires activated management storage.
+    QualityWorkerSession,
     /// Export an annotated sample privately on the server; no content or delivery.
     QualityExport {
         #[arg(long)]
@@ -1314,6 +1316,25 @@ async fn main() -> Result<()> {
                 )
                 .await?
             );
+        }
+        Command::QualityWorkerSession => {
+            ensure!(
+                config
+                    .cluster
+                    .as_ref()
+                    .is_none_or(|c| c.role != noisefence::cluster::Role::Worker),
+                "Calibration runs on the coordinator only"
+            );
+            let central = store
+                .management()
+                .ok_or_else(|| anyhow::anyhow!("Central management is not activated"))?;
+            noisefence::central::research_worker::serve(
+                central,
+                env!("CARGO_PKG_VERSION"),
+                tokio::io::BufReader::new(tokio::io::stdin()),
+                tokio::io::stdout(),
+            )
+            .await?;
         }
         Command::QualityExport {
             username,

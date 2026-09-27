@@ -118,10 +118,24 @@ JSON cap in the PostgreSQL repository. Counts and exported rows are tested again
 SQLite, including conflicting categories, protocol omissions, revoked accounts,
 protected campaigns and supplementary-check failures.
 
-The Python research worker still requires migration; central job persistence
-alone is not a working central research runner. The complete-population audit exporter, periodic training consumers and
-historical metadata import are also release gates. This repository support does not yet
-make the complete training workflow ready for a production backend switch.
+The Python research worker now has a central adapter using the private Rust
+`quality-worker-session` stdio protocol. The Rust child owns a dedicated database
+connection and a session advisory lock; the connection is never recycled into
+the pool. Periodic heartbeats detect lost ownership even during Python training.
+Another runner cannot claim work while the owning session is connected. After a
+connection loss, abandoned jobs become interrupted; their old session cannot
+publish a late result. Claiming rechecks administrator, sample purpose and
+candidate eligibility. Final publication rechecks the administrator and always
+records observation-only results.
+
+Protocol requests and responses have size/deadline limits and accept only typed
+operations, never arbitrary SQL. The Python path has no SQLite fallback. Tests
+cover the Rust protocol against PostgreSQL and the Python adapter against an
+actual child process. Production management configuration and cutover are still
+unavailable, so the installed CLI cannot bind this central repository yet. The
+complete native/Python/PostgreSQL training pipeline through production bootstrap
+remains a release gate, as do the complete-population audit exporter, remaining
+periodic training consumers and historical metadata import.
 
 ## Integration tests
 
@@ -139,7 +153,7 @@ run:
 NOISEFENCE_TEST_PG_PASSWORD_FILE=/absolute/private/test-password \
   cargo test --locked --test central_postgres --test central_console \
     --test central_search --test central_logs --test central_commands \
-    --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning -- --ignored
+    --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning --test central_research_worker -- --ignored
 cargo test --locked --test central_outbox
 cargo test --locked --lib central::settings::tests
 cargo test --locked --test cluster --test replication

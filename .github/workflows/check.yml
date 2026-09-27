@@ -36,7 +36,7 @@ jobs:
           umask 077
           printf '%s' 'synthetic-ci-only-password' > "$NOISEFENCE_TEST_PG_PASSWORD_FILE"
           trap 'rm -f "$NOISEFENCE_TEST_PG_PASSWORD_FILE"' EXIT
-          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning -- --ignored
+          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning --test central_research_worker -- --ignored
   container:
     strategy:
       matrix:
