@@ -49,5 +49,13 @@ class IsolationHardening(unittest.TestCase):
         self.assertIn('MemoryHigh=3000M',small)
         self.assertNotIn('MemoryOOMGroup=yes',small)
 
+    def test_gateway_memory_budget_leaves_room_for_resident_models(self):
+        path='/etc/systemd/system/noisefence.service.d/90-hardening.conf'
+        for small,high,maximum in [(True,'1800M','2G'),(False,'2500M','3G')]:
+            with self.subTest(small=small):
+                unit=isolation.files(small,'enforce')[path]
+                self.assertIn('MemoryHigh='+high+'\n',unit)
+                self.assertIn('MemoryMax='+maximum+'\n',unit)
+
 
 if __name__=='__main__':unittest.main()
