@@ -163,12 +163,84 @@ def audit_groups(rows, history):
                                         'uncertain': uncertain, 'duplicates_removed': duplicates}
 
 
+def validate_combination(policy):
+    require(isinstance(policy, dict) and set(policy) == {'schema', 'families'}
+            and policy['schema'] == 'noisefence-fusion-family-caps-1'
+            and isinstance(policy['families'], dict) and set(policy['families']) == set(FAMILIES),
+            'Invalid fusion family-cap contract')
+    for limit in policy['families'].values():
+        require(isinstance(limit, dict) and set(limit) == {'minimum', 'maximum'}
+                and numeric(limit['minimum']) and numeric(limit['maximum'])
+                and -32 <= limit['minimum'] <= 0 <= limit['maximum'] <= 32,
+                'Family limits must contain zero within -32..32 log-odds')
+
+
+def combined_logits(matrix, weights, bias, policy=None):
+    if policy is None:
+        return matrix @ weights + bias
+    validate_combination(policy)
+    result = np.full(len(matrix), bias, dtype=float)
+    for family in FAMILIES:
+        mask = np.array([f['family'] == family for f in PROTOCOL['features']])
+        limit = policy['families'][family]
+        result += np.clip(matrix[:, mask] @ weights[mask], limit['minimum'], limit['maximum'])
+    return result
+
+
+def capped_objective(parameters, matrix, labels, c, families, policy):
+    """Fit the same capped family sums used by Rust, including L2 regularization.
+
+    Raw native features are scaled (not centred) during optimization. This keeps
+    the family origin at zero and exports exactly weights/scale with one bias.
+    """
+    weights, bias = parameters[:-1], parameters[-1]
+    parts = []
+    logits = np.full(len(matrix), bias, dtype=float)
+    for family in FAMILIES:
+        mask = np.array([name == family for name in families])
+        if not mask.any():
+            continue
+        limit = policy['families'][family]
+        raw = matrix[:, mask] @ weights[mask]
+        logits += np.clip(raw, limit['minimum'], limit['maximum'])
+        active = ((raw >= limit['minimum']) & (raw <= limit['maximum'])
+                  & (limit['minimum'] != limit['maximum']))
+        parts.append((mask, active))
+    error = expit(logits) - labels
+    penalty = 1. / (c * len(labels))
+    loss = np.mean(np.logaddexp(0, logits) - labels * logits) + penalty * np.dot(weights, weights) / 2
+    gradient = penalty * weights
+    for mask, active in parts:
+        gradient[mask] += matrix[:, mask].T @ (error * active) / len(labels)
+    return loss, np.r_[gradient, error.mean()]
+
+
+def fit_capped(matrix, labels, c, mask, policy):
+    validate_combination(policy)
+    values = matrix[:, mask]
+    scale = StandardScaler(with_mean=False).fit(values).scale_
+    values = values / scale
+    families = [f['family'] for f, selected in zip(PROTOCOL['features'], mask) if selected]
+    initial = np.zeros(values.shape[1] + 1)
+    fraction = float(labels.mean())
+    initial[-1] = math.log(fraction / (1 - fraction))
+    result = minimize(capped_objective, initial, args=(values, labels, c, families, policy),
+                      jac=True, method='L-BFGS-B', options={'maxiter': 2000, 'ftol': 1e-12, 'gtol': 1e-8})
+    require(result.success and np.isfinite(result.x).all(), 'Capped fusion fitting did not converge')
+    weights = np.zeros(len(mask))
+    weights[mask] = result.x[:-1] / scale
+    return weights, float(result.x[-1])
+
+
 def load_experiment(manifest_path):
     raw = bound_bytes(manifest_path, 64 * 1024)
     manifest = decode(raw)
-    require(set(manifest) == {'schema', 'version', 'purpose', 'protocol_sha256', 'vectors',
-                             'annotations', 'base_history', 'sampling'}, 'Unsupported manifest fields')
-    require(manifest['schema'] == 'noisefence-fusion-experiment-1' and manifest['purpose'] == 'research'
+    capped = manifest.get('schema') == 'noisefence-fusion-experiment-2'
+    expected = {'schema', 'version', 'purpose', 'protocol_sha256', 'vectors', 'annotations', 'base_history', 'sampling'}
+    require(set(manifest) == expected | ({'combination'} if capped else set()), 'Unsupported manifest fields')
+    if capped:
+        validate_combination(manifest['combination'])
+    require(manifest['schema'] in ('noisefence-fusion-experiment-1', 'noisefence-fusion-experiment-2') and manifest['purpose'] == 'research'
             and manifest['protocol_sha256'] == PROTOCOL_HASH and token(manifest['version']), 'Invalid experiment contract')
     sampling = manifest['sampling']
     require(isinstance(sampling, dict) and set(sampling) == {'kind', 'description', 'authorization', 'start_at', 'end_at'}
@@ -340,7 +412,10 @@ def calibration_metrics(labels, probabilities):
 
 def model_predictions(model, rows):
     matrix = np.array([r['values'] for r in rows], dtype=float)
-    logits = matrix @ np.array(model['weights']) + model['bias']
+    policy = model.get('combination')
+    require((model['schema'] == 'noisefence-fusion-model-1' and policy is None) or
+            (model['schema'] == 'noisefence-fusion-model-2' and policy is not None), 'Model/combination mismatch')
+    logits = combined_logits(matrix, np.array(model['weights']), model['bias'], policy)
     cal = model['calibration']
     probabilities = expit(cal['slope'] * logits + cal['intercept'])
     eligible = np.array([r['tag_eligible'] and r['availability_profile'] in model['supported_profiles'] for r in rows])
@@ -371,6 +446,7 @@ def fit(manifest_path, output):
     # Calibration coverage must not affect hyperparameter selection on development.
     eligible['development'] = np.array([r['tag_eligible'] and r['availability_profile'] in training_profiles
                                         for r in parts['development']])
+    policy = manifest.get('combination')
     choices, hashes = {}, {}
     for variant, families in VARIANTS.items():
         mask = np.array([f['family'] in families for f in PROTOCOL['features']])
@@ -378,26 +454,32 @@ def fit(manifest_path, output):
         train = scaler.transform(matrices['train'][:, mask])
         candidates = []
         for c in GRID:
-            with warnings.catch_warnings():
-                warnings.simplefilter('error', ConvergenceWarning)
-                estimator = LogisticRegression(C=c, solver='lbfgs', max_iter=2000, tol=1e-8)
-                estimator.fit(train, labels['train'])
-            weights = np.zeros(len(mask))
-            weights[mask] = estimator.coef_[0]/scaler.scale_
-            bias = float(estimator.intercept_[0] - np.dot(weights[mask], scaler.mean_))
-            dev = matrices['development'] @ weights + bias
+            if policy is not None:
+                weights, bias = fit_capped(matrices['train'], labels['train'], c, mask, policy)
+            else:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', ConvergenceWarning)
+                    estimator = LogisticRegression(C=c, solver='lbfgs', max_iter=2000, tol=1e-8)
+                    estimator.fit(train, labels['train'])
+                weights = np.zeros(len(mask))
+                weights[mask] = estimator.coef_[0]/scaler.scale_
+                bias = float(estimator.intercept_[0] - np.dot(weights[mask], scaler.mean_))
+            dev = combined_logits(matrices['development'], weights, bias, policy)
             cutoff = choose_cutoff(labels['development'], dev, eligible['development'])
             result = metrics(labels['development'], eligible['development'] & (dev >= cutoff))
             candidates.append((result, c, weights, bias))
         selected = max(candidates, key=lambda v: (v[0]['recall'], -v[0]['fpr'], -v[1]))
         _, c, weights, bias = selected
-        logits = {s: matrices[s] @ weights + bias for s in SPLITS[:-1]}
+        logits = {s: combined_logits(matrices[s], weights, bias, policy) for s in SPLITS[:-1]}
         model = {'schema': 'noisefence-fusion-model-1', 'version': manifest['version']+'-'+variant,
                  'purpose': 'research', 'protocol_sha256': PROTOCOL_HASH, 'artifacts': artifacts,
                  'weights': weights.tolist(), 'bias': bias,
                  'calibration': calibrate(logits['calibration'], labels['calibration']),
                  'cutoff': choose_cutoff(labels['threshold'], logits['threshold'], eligible['threshold']),
                  'supported_profiles': profiles, 'manifest_sha256': manifest_hash}
+        if policy is not None:
+            model['schema'] = 'noisefence-fusion-model-2'
+            model['combination'] = policy
         require(token(model['version']) and all(math.isfinite(v) and abs(v) <= 1e6 for v in [bias, model['cutoff'], *weights]),
                 'Model exceeds native contract bounds')
         private_json(output / (variant+'.json'), model)

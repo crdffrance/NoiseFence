@@ -19,7 +19,23 @@ These are conservative example budgets, not provider entitlements. Saved Web set
 <a id="console-et-clés"></a>
 ## Console and credentials
 
-Under **Filters → Protection & reputation**, save an authorized CRDF/VirusTotal key, select the intended connector, then **Review and apply**. Keys are private server files under `data_dir/protection/`, mode 0600 in a 0700 directory. They are not returned by subsequent API reads, exported, recorded in policy revisions or included in logs. Key saves require an active administrator session, the configured origin and CSRF protection; audit records omit the value. Rotation applies to future calls.
+Under **Filters → Protection & reputation**, save an authorized CRDF/VirusTotal key, select the intended connector, then **Review and apply**. Keys are private server files under `data_dir/protection/`, mode 0600 in a 0700 directory. They are not returned by browser API reads, included in message exports, recorded in policy revisions or included in logs. Authenticated MX synchronization transfers authorized provider keys separately from public configuration. Key saves require an active administrator session, the configured origin and CSRF protection; audit records omit the value. Provider credentials are captured when a runtime is built or prepared. Save the
+key, then apply the configuration to load it for future SMTP transactions. Already
+started analyses retain their runtime's keys; replacing or removing a file does
+not change a request halfway through analysis. CRDF/VirusTotal, the LLM and DQS
+use the same captured set. A missing key in that set never falls back to newer
+files or environment values. Shared quota counters and capacity gates survive
+reload; provider caches/cooldowns remain credential-scoped.
+
+The runtime snapshot is memory-only, omitted from serialized configurations and
+redacted from Debug output. The console distinguishes a saved key from one
+captured by the current configuration and reports unapplied changes. Its cooldown
+status uses the current runtime key; replacing a source file does not display the
+new key's cooldown as though it were active. Disabling an enabled connector stays
+possible even when its source key file is missing. It is not yet a durable versioned credential rollout:
+coordinated staging, generation retention, abort/recovery and Web activation status
+for key changes remain required before production enrollment. See
+[coordinated activation](coordinated-activation.md).
 
 Identity checks, links, campaign checks, providers, URL following, protected names and reply/tracking exceptions are revisioned Web policies. An exception applies only to the named heuristic and exact domain; it does not bypass authentication, antivirus or the classifier.
 
@@ -83,3 +99,17 @@ malformed individual result is unavailable and uncached while valid neighbours
 remain usable. Invalid response payloads do not impose account-wide cooldown.
 Provider authentication failures, explicit rate limits and bounded Retry-After
 continue to back off. Unavailable, timeout and unknown are not malicious results.
+
+### Completed checks and interruption
+
+Each completed provider report and its findings are published before waiting for
+other providers or campaign lookup. The enclosing analysis deadline may still
+interrupt unfinished work; it does not erase a completed peer result or convert
+an unavailable result into a clean verdict. Completed campaign observations are
+retained on the same basis. This does not extend the total analysis deadline.
+
+CRDF batch validation records fixed diagnostic counters for target mismatch,
+missing targets, duplicate targets, count mismatch, provider errors and invalid
+schema. These counters contain no response body, URL or credential. Target
+validation and per-entry error handling remain strict; diagnostics do not grant
+extra quotas or relax cooldowns.

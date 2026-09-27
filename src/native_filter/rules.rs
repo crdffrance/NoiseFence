@@ -482,35 +482,52 @@ pub fn context(scan: &crate::engine::Scan) -> Vec<Symbol> {
             absorbed_by: vec![],
         })
     };
-    if let Some(logit) = scan.evidence.as_ref().and_then(|e| e.lexical_logit) {
-        add("NF_LEXICAL", "Lexical model", Lexical, logit);
-    }
-    if scan.semantic.status == crate::engine::SemanticStatus::Complete
-        && let Some(weight) = scan.semantic.contribution
+    // Reuse the receipt-time ledger. Never revive excluded inputs via the raw
+    // reason list, or reinterpret a historical ledger under today's policy.
+    if let Some(ledger) = scan
+        .scoring
+        .as_ref()
+        .filter(|l| l.version == crate::scoring::VERSION)
     {
-        add("NF_SEMANTIC", "Semantic model", Semantic, weight);
-    }
-    for reason in &scan.reasons {
-        let (id, family) = match reason.id.as_str() {
-            "spf_fail" | "dmarc_fail" => (reason.id.as_str(), Authentication),
-            "ip_reputation" | "domain_reputation" | "abused_domain_body" => {
-                (reason.id.as_str(), Reputation)
-            }
-            "idn_url" | "ip_url" | "reply_to" | "caps_subject" => (reason.id.as_str(), Content),
-            "llm_advisory" => ("NF_LLM", Llm),
-            "smtp_policy_contribution" => ("NF_SMTP", Smtp),
-            _ => continue,
-        };
-        // Do not expose untrusted provider excerpts through the new report.
-        add(id, id, family, reason.weight);
+        if let Some(weight) = ledger.lexical.filter(|v| v.is_finite() && *v != 0.) {
+            add("NF_LEXICAL", "Lexical model", Lexical, weight);
+        }
+        if let Some(weight) = ledger.semantic.filter(|v| v.is_finite() && *v != 0.) {
+            add("NF_SEMANTIC", "Semantic model", Semantic, weight);
+        }
+        for entry in &ledger.contributions {
+            let Some(weight) = entry.retained.filter(|v| v.is_finite() && *v != 0.) else {
+                continue;
+            };
+            let (id, family) = match entry.id.as_str() {
+                "spf_fail" | "dmarc_fail" => (entry.id.as_str(), Authentication),
+                "ip_reputation" | "domain_reputation" | "abused_domain_body" => {
+                    (entry.id.as_str(), Reputation)
+                }
+                "idn_url" | "ip_url" | "reply_to" | "caps_subject" => (entry.id.as_str(), Content),
+                "llm_advisory" => ("NF_LLM", Llm),
+                "smtp_policy_contribution" => ("NF_SMTP", Smtp),
+                _ => continue,
+            };
+            // Composite matching uses symbol presence, so zero/excluded inputs
+            // must not appear as usable facts, even with a zero weight.
+            add(id, id, family, weight);
+        }
     }
     if let Some(report) = &scan.protection {
-        if report.findings.iter().any(|f| {
-            matches!(
-                f.id.as_str(),
-                "known_phishing_url" | "known_malicious_indicator"
-            )
-        }) {
+        use crate::protection::{Provider, Status, evidence};
+        let crdf = evidence::evaluate(Provider::Crdf, &report.crdf);
+        let vt = evidence::evaluate(Provider::Virustotal, &report.virustotal);
+        let provider_hit = crdf
+            .targets
+            .iter()
+            .chain(&vt.targets)
+            .any(|t| t.malicious());
+        let feed_hit = matches!(report.feed_status, Status::Complete | Status::Limited)
+            && report.findings.iter().any(|f| {
+                f.id == "known_phishing_url" && crate::compatibility::valid_hash(&f.indicator)
+            });
+        if provider_hit || feed_hit {
             add(
                 "NF_MALICIOUS_INDICATOR",
                 "Malignant reputation indicator",

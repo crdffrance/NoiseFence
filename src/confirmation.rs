@@ -2,11 +2,14 @@
 use crate::{
     antivirus::AntivirusStatus,
     engine::{Scan, Signal},
-    evidence::{self, AuthResult, State},
+    evidence::{
+        AuthResult, Dataset,
+        eligibility::{self, AuthCheck},
+    },
     fusion::runtime::{DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "confirmation-3";
+pub const VERSION: &str = "confirmation-4";
 pub const REVIEW_REASON: &str = "confirmation_missing";
 
 /// Additional observations, not statistically independent votes. Weak SMTP
@@ -23,7 +26,7 @@ pub fn corroborated(scan: &Scan) -> bool {
     };
     // Transport observations require actual envelope context; imported headers
     // and local content-only scans cannot supply authentication or reputation.
-    if e.source == evidence::Source::ContentOnly {
+    if eligibility::context(e).is_err() {
         return false;
     }
     // A tightly scoped content pattern can corroborate a high content score;
@@ -33,15 +36,18 @@ pub fn corroborated(scan: &Scan) -> bool {
         .message_context
         .as_ref()
         .is_some_and(|c| c.injected_reward_lure)
-        && scan
-            .reasons
-            .iter()
-            .any(|r| r.id == "injected_reward_lure" && r.weight > 0.0)
+        && scan.scoring.as_ref().is_some_and(|ledger| {
+            ledger.version == crate::scoring::VERSION
+                && ledger.contributions.iter().any(|r| {
+                    r.id == "injected_reward_lure"
+                        && r.retained.is_some_and(|v| v.is_finite() && v > 0.)
+                })
+        })
     {
         return true;
     }
     let auth = &e.authentication;
-    if auth.dmarc_state == State::Complete
+    if eligibility::authentication(e, AuthCheck::Dmarc).is_ok()
         && auth.dmarc_spf == Some(AuthResult::Fail)
         && auth.dmarc_dkim == Some(AuthResult::Fail)
     {
@@ -49,14 +55,14 @@ pub fn corroborated(scan: &Scan) -> bool {
     }
     let ip = &e.reputation.ip;
     // PBL / policy listings (10, 11) are not evidence of malicious content.
-    if ip.state == State::Complete && evidence::malicious_ip(&ip.codes) {
+    if eligibility::malicious_query(e, ip, Dataset::Zen) {
         return true;
     }
-    e.reputation.domains.iter().any(|d| {
-        d.result.state == State::Complete
-            && evidence::dqs_codes(&d.result.codes, evidence::Dataset::Dbl).is_ok()
-            && evidence::malicious_domain(&d.result.codes)
-    })
+    e.reputation
+        .domains
+        .iter()
+        .take(12)
+        .any(|d| eligibility::malicious_query(e, &d.result, Dataset::Dbl))
 }
 
 /// Apply only to a fresh, complete legacy decision. A separately validated

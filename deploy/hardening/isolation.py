@@ -163,7 +163,7 @@ TasksMax=256
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 OOMScoreAdjust=-300
-'''+('MemoryHigh=1300M\nMemoryMax=1700M\nCPUQuota=150%\n' if small else 'MemoryHigh=1600M\nMemoryMax=2G\nCPUQuota=350%\n')
+'''+('MemoryHigh=1800M\nMemoryMax=2G\nCPUQuota=150%\n' if small else 'MemoryHigh=2500M\nMemoryMax=3G\nCPUQuota=350%\n')
     nginx=common+'''NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

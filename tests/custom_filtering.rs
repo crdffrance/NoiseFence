@@ -56,7 +56,7 @@ fn level_policy(threshold: f64) -> Policy {
 }
 
 #[test]
-fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
+fn sensitivity_levels_are_monotonic_with_mandatory_threshold_resolution() {
     use noisefence::evidence::{Artifacts, AuthResult, Evidence, Source, State};
     let tmp = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(tmp.path())).clone();
@@ -64,6 +64,7 @@ fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
     let recipient = cfg.recipient("alice@example.test").unwrap();
     let mut evidence = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
     evidence.source = Source::SmtpSession;
+    evidence.authentication.state = State::Complete;
     evidence.authentication.dmarc_state = State::Complete;
     evidence.authentication.dmarc_spf = Some(AuthResult::Fail);
     evidence.authentication.dmarc_dkim = Some(AuthResult::Fail);
@@ -90,10 +91,8 @@ fn sensitivity_levels_are_monotonic_and_never_confirm_an_isolated_score() {
                 let result = assess(&policy, &cfg, &scan, &Facts::default(), &recipient, 100);
                 let expected = if score < level.threshold {
                     Category::Legitimate
-                } else if confirmed {
-                    Category::Spam
                 } else {
-                    Category::Undetermined
+                    Category::Spam
                 };
                 assert_eq!(
                     result.category, expected,
@@ -192,9 +191,10 @@ fn levels_cannot_bypass_fusion_malware_or_incomplete_analysis() {
         model: "fixture".into(),
     });
     let result = assess(&policy, &cfg, &s, &Facts::default(), &recipient, 100);
-    assert_eq!(result.category, Category::Undetermined);
+    assert_eq!(result.category, Category::Spam);
     assert_eq!(result.threshold, cfg.filter.threshold);
     cfg.fusion = Some(noisefence::fusion::runtime::Settings {
+        family_caps: false,
         model: "fixture".into(),
         mode: noisefence::fusion::runtime::Mode::Decision,
         validation_report: None,
@@ -378,7 +378,7 @@ async fn durable_batch_rolls_back_every_variant_and_preserves_existing_spool() {
     let mk = |id: String| QueueVariant {
         id,
         scan: scan(),
-        raw: common::MESSAGE.to_vec(),
+        raw: common::MESSAGE.to_vec().into(),
         recipients: vec![(cfg.recipient("alice@example.test").unwrap(), None)],
     };
     store
@@ -447,8 +447,8 @@ fn recipient_profiles_reapply_arbitration_with_their_own_threshold() {
         Outcome::Undetermined
     );
     for (threshold, expected) in [
-        (None, Category::Undetermined),
-        (Some(90.), Category::Undetermined),
+        (None, Category::Spam),
+        (Some(90.), Category::Spam),
         (Some(100.), Category::Legitimate),
     ] {
         let policy = Policy {
@@ -510,6 +510,14 @@ fn automatic_resolution_uses_recipient_threshold_and_keeps_partial_delivery_safe
             );
             assert_eq!(result.category, expected);
             assert_eq!(result.threshold, threshold);
+            let mut receipt = scan.clone();
+            noisefence::decision_record::record_recipient(&mut receipt, &cfg, Some(&result), 100);
+            let boundary = noisefence::assessment::historical(&receipt)
+                .score_boundary
+                .unwrap();
+            assert_eq!(boundary.source, noisefence::score_boundary::Source::Content);
+            assert_eq!(boundary.cutoff, threshold);
+            assert_eq!(boundary.above, 96. >= threshold);
             assert_eq!(
                 result.action.effective,
                 if complete && expected == Category::Spam {

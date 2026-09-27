@@ -144,7 +144,7 @@ async fn confirm(
         tx.execute("DELETE FROM sessions WHERE username=?1",[&user.username])?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'mfa_enabled','')",params![now(),user.username])?;
         // Older binaries must fail closed instead of silently bypassing the second factor.
-        tx.execute_batch("PRAGMA user_version=4")?;tx.commit()?;Ok(true)
+        crate::store::require_format(&tx, 4)?;tx.commit()?;Ok(true)
     }).await?;
     if !success {
         return Err(Error(

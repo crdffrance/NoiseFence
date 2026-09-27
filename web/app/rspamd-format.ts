@@ -16,8 +16,9 @@ export type ComparisonSummary = {
 };
 export function comparisonLabel(report?: RspamdReport | null) {
   if (!report) return 'Not compared';
+  if (report.status === 'complete' && ['greylist', 'soft reject'].includes(report.action ?? '')) return 'Rspamd proposes deferral';
   if (report.status === 'complete') return {
-    agreement: 'Engines agree', disagreement: 'Engines disagree', inconclusive: 'No comparable verdict',
+    agreement: 'Engines agree', disagreement: 'Engines disagree', inconclusive: 'Second opinion recorded',
   }[report.comparison];
   return {
     pending: 'Comparison pending', busy: 'Comparison capacity reached', timeout: 'Comparison timed out',
@@ -31,4 +32,12 @@ export function comparisonPoints(value: number | null | undefined) {
 export function agreementRate(summary: ComparisonSummary) {
   const comparable = summary.agreements + summary.disagreements;
   return comparable > 0 ? `${(100 * summary.agreements / comparable).toFixed(1)}%` : '—';
+}
+
+export function comparisonExplanation(report?: RspamdReport | null) {
+  if (report?.status === 'complete' && ['greylist', 'soft reject'].includes(report.action ?? ''))
+    return 'Rspamd proposes a temporary deferral, not a spam or legitimate verdict. This proposal is not executed and is excluded from binary agreement statistics.';
+  if (report?.status === 'complete' && report.comparison === 'inconclusive')
+    return 'The recorded opinions do not support a binary comparison. This does not make the NoiseFence decision pending.';
+  return 'This second opinion is retained for research. Agreement or disagreement never changes the NoiseFence verdict or delivery.';
 }

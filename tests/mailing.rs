@@ -258,7 +258,7 @@ async fn mailing_does_not_change_security_and_incomplete_never_becomes_pub() {
         .unwrap();
     assert_eq!(mailing::category(&scan, 95.), Category::Publicity);
     assert!(!scan.pub_tagged && !scan.tagged);
-    assert!(String::from_utf8_lossy(&wire).contains("X-NoiseFence-Category: publicity"));
+    assert!(String::from_utf8_lossy(&wire).contains("X-NoiseFence-Verdict: pub"));
     assert_eq!(
         mail_parser::MessageParser::default()
             .parse(&raw)

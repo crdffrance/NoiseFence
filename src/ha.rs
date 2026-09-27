@@ -150,7 +150,7 @@ pub async fn initialize(store: &crate::store::Store, config: &crate::config::Con
             let tx = db.transaction()?;
             tx.execute("INSERT OR REPLACE INTO cluster_state VALUES('ha_required','1')", [])?;
             tx.execute("INSERT OR IGNORE INTO ha_local(message_id,generation,acked) SELECT id,1,0 FROM messages WHERE raw_present=1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=messages.id)", [])?;
-            tx.execute_batch("PRAGMA user_version=5")?;
+            crate::store::require_format(&tx, 5)?;
             tx.commit()?; Ok(())
         }).await?;
     } else {

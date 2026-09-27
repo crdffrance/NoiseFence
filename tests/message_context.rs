@@ -32,7 +32,9 @@ fn candidate(raw: &[u8]) -> Scan {
 fn aligned(scan: &mut Scan) {
     let e = scan.evidence.as_mut().unwrap();
     e.source = Source::SmtpSession;
+    e.authentication.state = State::Complete;
     e.authentication.dmarc_state = State::Complete;
+    e.authentication.dmarc_dkim = Some(AuthResult::None);
     e.authentication.dmarc_spf = Some(AuthResult::Pass);
 }
 #[test]
@@ -92,7 +94,8 @@ fn encrypted_original_keeps_a_numeric_diagnostic_but_not_a_complete_content_clai
     assert!(!scan.complete);
     assert!(scan.score.is_finite());
     assert!(scan.reasons.iter().any(|r| r.id == "encrypted_content"));
-    assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+    assert!(scan.score_resolution.is_some());
 }
 #[test]
 fn semantic_deadline_is_web_editable_but_model_paths_are_not() {
@@ -225,7 +228,8 @@ fn opaque_mail_cannot_inherit_an_extreme_content_model_score() {
         let e = scan.evidence.unwrap();
         assert_eq!(e.lexical_state, State::Limited);
         assert!(e.lexical_logit.is_none());
-        assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+        assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+        assert!(scan.score_resolution.is_some());
         assert!(!scan.reasons.iter().any(|r| r.id == "model_contribution"));
         assert!(scan.reasons.iter().any(|r| r.id == "content_model_skipped"));
     }
@@ -288,7 +292,8 @@ async fn opaque_content_keeps_bounded_transport_checks_without_reenabling_conten
         scan.evidence.unwrap().authentication.arc_state,
         State::Complete
     );
-    assert_eq!(scan.decision.unwrap().outcome, Outcome::Undetermined);
+    assert_eq!(scan.decision.unwrap().outcome, Outcome::Legitimate);
+    assert!(scan.score_resolution.is_some());
     assert!(!scan.tagged && !String::from_utf8_lossy(&wire).contains("[SPAM]"));
 }
 
@@ -331,4 +336,44 @@ fn subscription_field_injection_requires_a_localized_off_site_reward_lure() {
         "From: service@example.org\r\nSubject: Incident\r\nContent-Type: text/html\r\n\r\n<blockquote>{body}</blockquote>"
     );
     assert!(!inspect(html.as_bytes()).injected_reward_lure);
+}
+
+#[test]
+fn completed_transfers_and_trip_receipts_supply_context_but_not_a_trust_override() {
+    for (subject, body) in [
+        (
+            "Votre virement est en route !",
+            "Montant du virement 30 EUR. Vers compte bancaire. L'argent sera disponible sous 3 jours.",
+        ),
+        (
+            "Your Friday evening trip with Example",
+            "Thanks for riding. Trip fare 30 EUR. Payments. Download the receipt.",
+        ),
+    ] {
+        let raw = format!("From: notices@example.org\r\nSubject: {subject}\r\n\r\n{body}\r\n");
+        let context = noisefence::message_context::inspect(raw.as_bytes());
+        assert!(context.transaction_notice);
+        assert!(!context.action_demand);
+        let mut scan = candidate(raw.as_bytes());
+        decision::apply(&mut scan, false);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+        aligned(&mut scan);
+        decision::apply(&mut scan, false);
+        assert_eq!(
+            scan.decision.as_ref().unwrap().outcome,
+            Outcome::Undetermined
+        );
+        assert_eq!(scan.score, 99.);
+        // An injected sensitive request defeats the apparent receipt context.
+        let lure = format!("{raw}Please verify your account and enter your password.\r\n");
+        let mut scan = candidate(lure.as_bytes());
+        aligned(&mut scan);
+        assert!(scan.message_context.as_ref().unwrap().action_demand);
+        decision::apply(&mut scan, false);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    }
+    let bare = noisefence::message_context::inspect(
+        b"Subject: Your bank transfer is on the way\r\n\r\nClick here to claim a prize.",
+    );
+    assert!(!bare.transaction_notice);
 }

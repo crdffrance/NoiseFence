@@ -1,5 +1,9 @@
 # Linux operations
 
+For admission checks, replication freshness, memory history and outage recovery,
+start with [production readiness](production-readiness.md). An HTTP 200 alone
+does not establish that SMTP can accept mail.
+
 <a id="contrôles-réseau-et-diagnostics"></a>
 ## Network controls and diagnostics
 
@@ -7,7 +11,7 @@ The SMTP service allows `AF_NETLINK` for local interface inventory (`getifaddrs`
 
 New reports show separately the availability of this inventory. Connector and LLM errors expose a limited cause, without copying a remote response. Unlimited quotas still enforce time and concurrency limits. `protection.max_parallel` limits provider network queries for all messages; each report processes no more than three indicators at a time. The omissions counter includes the non-result indicators after interruption, in addition to the work ceiling per message.
 
-OCR's unavailability does not exempt other security checks. The message remains explicitly incomplete and is not prefixed. The "PUB Indices" filter finds the promotions/newsletters detected, including those whose decision remains Spam or To be checked; it does not constitute a list of secure messages.
+OCR unavailability remains visible in analysis coverage and does not exempt other security checks. Classification remains Spam, Ham or Pub; coverage and delivery actions are separate. A marketing signal is not evidence that a message is safe. See the [filtering policy](filter-policy.md) for precedence and action gates.
 
 The acceptance of all addresses in a domain in NoiseFence must correspond to the configuration of the downstream receiving server. A `550 5.1.1` to `RCPT TO` reports a recipient refused by this server; it should not be turned into a success, nor silently transfer addresses to another box. Check the supplier's aliases and catch-all reception. `RCPT` tests followed by `RSET` do not require sending a message.
 

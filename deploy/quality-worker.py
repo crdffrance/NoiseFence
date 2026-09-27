@@ -58,16 +58,20 @@ def run(a):
         result={'status':'failed','may_activate':False};model_hash=None;state='failed'
         try:
             if not identifier(job) or not identifier(batch) or operation not in ('train','compare','evaluate'):raise ValueError('Invalid job')
-            candidate_path=None
+            candidate_path=None;candidate_hash=None
             if operation=='evaluate':
                 if not identifier(candidate):raise ValueError('Invalid candidate')
                 saved=db.execute("SELECT model_sha256 FROM quality_jobs WHERE id=? AND username=? AND operation='train' AND status='complete'",(candidate,user)).fetchone()
                 candidate_path=root/candidate/'candidate'
                 if not saved or hashlib.sha256((candidate_path/'model.json').read_bytes()).hexdigest()!=saved[0]:raise ValueError('Candidate changed')
+                candidate_hash=saved[0]
             scratch=Path(os.environ['RUNTIME_DIRECTORY']) if os.environ.get('RUNTIME_DIRECTORY') else None
             with tempfile.TemporaryDirectory(prefix='quality-',dir=scratch) as temporary:
                 snapshot=Path(temporary)/'dataset.jsonl'
-                subprocess.run([str(binary),'--config',str(a.config),'quality-export','--username',user,'--batch',batch,'--output',str(snapshot)],check=True,capture_output=True,timeout=120)
+                export_command=[str(binary),'--config',str(a.config),'quality-export','--username',user,'--batch',batch]
+                if candidate_hash:export_command+=['--candidate-sha256',candidate_hash]
+                export_command+=['--output',str(snapshot)]
+                subprocess.run(export_command,check=True,capture_output=True,timeout=120)
                 command=[str(a.python),str(binary.parent/'research/run_quality.py'),str(snapshot),str(root/job),'--operation',operation]
                 if candidate_path:command+=['--candidate',str(candidate_path)]
                 subprocess.run(command,check=True,capture_output=True,timeout=1800,env=dict(os.environ,OPENBLAS_NUM_THREADS='2',OMP_NUM_THREADS='2'))

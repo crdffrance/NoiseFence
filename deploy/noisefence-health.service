@@ -8,7 +8,7 @@ User=noisefence
 Group=noisefence
 Environment=TZ=UTC
 ExecStart=/usr/bin/python3 /usr/local/libexec/noisefence-health --config /etc/noisefence/config.toml --output /var/lib/noisefence/operational-health.json
-TimeoutStartSec=45
+TimeoutStartSec=90
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict

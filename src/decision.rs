@@ -5,7 +5,7 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-6";
+pub const VERSION: &str = "decision-policy-8";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -35,33 +35,10 @@ fn restore_score_resolution(scan: &mut Scan) {
     scan.reasons.retain(|r| r.id != SCORE_RESOLUTION_REASON);
 }
 
-/// SQL projection for the same opt-in historical classification used by the
-/// console. Only fixed SQL and a caller-owned threshold placeholder are used.
-/// Access-control predicates and stored decisions/actions remain unchanged.
-pub(crate) fn project_sql(sql: &str, threshold: &str) -> String {
-    let outcome = "json_extract(m.scan,'$.decision.outcome')";
-    let category = "json_extract(m.scan,'$.delivery_classification')";
-    let recorded_threshold = format!(
-        "COALESCE(CASE WHEN json_extract(m.scan,'$.analysis_policy.threshold') BETWEEN 0 AND 100 THEN json_extract(m.scan,'$.analysis_policy.threshold') END,{threshold})"
-    );
-    let selected = format!(
-        "CASE WHEN COALESCE(json_extract(m.scan,'$.features_complete'),1)!=0 AND json_extract(m.scan,'$.score') BETWEEN 0 AND 100 AND json_extract(m.scan,'$.score')>={recorded_threshold} THEN 'unwanted' ELSE 'legitimate' END"
-    );
-    let resolved = format!(
-        "CASE WHEN COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' AND (COALESCE({outcome}='undetermined',json_extract(m.scan,'$.complete')=0) OR {category}='undetermined') THEN {selected} ELSE {outcome} END"
-    );
-    let category_resolved = format!(
-        "CASE WHEN {category}='undetermined' AND COALESCE(json_extract(m.scan,'$.decision.source'),'legacy')!='antivirus' THEN NULL ELSE {category} END"
-    );
-    // Substitutions are simultaneous: generated expressions must not be rewritten.
-    sql.replace(category, "__NF_POLICY_CATEGORY__")
-        .replace(outcome, &resolved)
-        .replace("__NF_POLICY_CATEGORY__", &category_resolved)
-}
-
+/// Explicit simulation only. Normal history reads preserve receipt-time decisions.
 pub fn project_history(scan: &mut Scan, enabled: bool, fallback_threshold: f64) {
     // Already resolved records retain the policy used at receipt time.
-    if !enabled || scan.score_resolution.is_some() {
+    if !enabled || scan.score_resolution.is_some() || scan.recipient_decision.is_some() {
         return;
     }
     let threshold = crate::assessment::recorded_threshold(scan).unwrap_or(fallback_threshold);
@@ -128,10 +105,16 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
     });
 }
 
+/// Delivery policy always terminates; individual detector opinions may abstain.
+/// The legacy switch is retained only for historical contracts and simulations.
+pub fn finalize(scan: &mut Scan, threshold: f64) {
+    resolve_by_score(scan, true, threshold);
+}
+
 /// Successfully observed threats survive unrelated optional-check failures.
 /// Direct extortion still needs observed failed authentication and a second
 /// content signal; no raw score or unavailable check supplies confirmation.
-fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
+pub(crate) fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
     use crate::evidence::{AuthResult, Source, State};
     let Some(context) = &scan.message_context else {
         return false;
@@ -158,7 +141,7 @@ fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
         || !scan.reasons.iter().any(|r| allowed_missing(&r.id))
         || scan.reasons.iter().any(|r| crate::assessment::INCOMPLETE_REASONS.contains(&r.id.as_str()) && !allowed_missing(&r.id))
         || !((signature && llm) || (context.direct_extortion && (signature || llm)))
-        // A contradictory available opinion still requires human review.
+        // A contradictory opinion remains an internal abstention until final policy.
         || scan.llm.opinion() == Some(Outcome::Legitimate)
     {
         return false;
@@ -166,6 +149,18 @@ fn observed_threat_with_partial_coverage(scan: &Scan) -> bool {
     let Some(e) = &scan.evidence else {
         return false;
     };
+    use crate::evidence::eligibility::{self, AuthCheck};
+    if [
+        AuthCheck::Spf,
+        AuthCheck::Dkim,
+        AuthCheck::Dmarc,
+        AuthCheck::Arc,
+    ]
+    .into_iter()
+    .any(|check| eligibility::authentication(e, check).is_err())
+    {
+        return false;
+    }
     let a = &e.authentication;
     e.source == Source::SmtpSession
         && a.state == State::Complete
@@ -232,9 +227,9 @@ fn arbitrate(scan: &mut Scan) -> Option<Arbitration> {
         scan.reasons.push(Signal {
             id: REVIEW_REASON.into(),
             detail: if resolution == Resolution::Disagreement {
-                "The historical ranking and the second opinion contradict each other: message to be checked. The raw score is kept as a diagnosis; neither opinion alone proves the legitimacy or undesirableness of the message."
+                "The historical ranking and the second opinion contradict each other: automatic policy determines the final classification. The raw score is kept as a diagnosis; neither opinion alone proves the legitimacy or undesirableness of the message."
             } else {
-                "The second opinion is ambiguous or insufficiently assured: message to be checked. Uncertainty does not constitute a spam detection or proof of legitimacy."
+                "The second opinion is ambiguous or insufficiently assured: automatic policy determines the final classification. Uncertainty does not constitute a spam detection or proof of legitimacy."
             }.into(),
             weight: 0.0,
         });
@@ -305,9 +300,9 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
         scan.reasons.push(Signal {
             id: OBSERVED_THREAT_REASON.into(),
             detail: if scan.message_context.as_ref().is_some_and(|c| c.direct_extortion) {
-                "Explicit compromise, disclosure threat and cryptocurrency payment demand are corroborated by observed failed authentication and a phishing signature or strong phishing analysis. Coverage remains incomplete and automatic enforcement stays disabled."
+                "Explicit compromise, disclosure threat and cryptocurrency payment demand are corroborated by observed failed authentication and a phishing signature or strong phishing analysis. Coverage remains incomplete; the action policy evaluates its own requirements."
             } else {
-                "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted, coverage remains incomplete, and automatic enforcement stays disabled."
+                "Phishing signature, coherent phishing analysis and observed unauthenticated sender evidence agree. The SMTP/DNS consistency check is unavailable; risk remains unwanted and coverage remains incomplete. The action policy evaluates its own requirements."
             }.into(),
             weight: 0.0,
         });
@@ -329,7 +324,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
             scan.pub_tagged = false;
             scan.reasons.push(Signal {
                 id: CONTEXT_REASON.into(),
-                detail: "Authenticated threat-report or transaction context conflicts with an uncorroborated content score. Review required; context is not proof of legitimacy.".into(),
+                detail: "Authenticated threat-report or transaction context conflicts with an uncorroborated content score. Automatic policy will resolve the classification; context is not proof of legitimacy.".into(),
                 weight: 0.0,
             });
         }

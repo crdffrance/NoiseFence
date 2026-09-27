@@ -793,3 +793,14 @@
 .shell .mobile-message .score-caption {
   font-size: 11px;
 }
+
+.activation-panel { margin: 1rem 0; }
+.activation-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.activation-heading h2 { margin: .35rem 0 .8rem; font-size: 1.1rem; }
+.activation-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.activation-facts dt { color: var(--muted-foreground); font-size: .8rem; }
+.activation-facts dd { margin: .35rem 0 0; font-weight: 600; }
+.activation-members { display: flex; flex-wrap: wrap; gap: .75rem; padding: 0; list-style: none; }
+.activation-members li { border: 1px solid var(--border); border-radius: .6rem; padding: .65rem .9rem; display: flex; flex-direction: column; gap: .3rem; }
+.activation-members span { font-size: .85rem; }
+.activation-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }

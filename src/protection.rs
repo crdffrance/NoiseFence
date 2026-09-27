@@ -1,6 +1,7 @@
 //! Additional detectors are observations, never an uncalibrated change to delivery.
 mod campaign;
 mod context;
+pub mod evidence;
 mod local;
 pub(crate) mod providers;
 pub use providers::Failure as ProviderFailure;
@@ -180,6 +181,9 @@ pub struct Finding {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProviderReport {
     pub status: Status,
+    /// Frozen completion time for target eligibility, never the history-read time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<i64>,
     pub checked: usize,
     pub malicious: usize,
     pub suspicious: usize,
@@ -280,10 +284,25 @@ pub struct Runtime {
 }
 impl Runtime {
     pub fn new(config: &Settings, root: &Path) -> Result<Self> {
+        Self::with_credentials(
+            config,
+            root,
+            Arc::new(crate::credentials::Snapshot::protection(root)),
+        )
+    }
+    pub(crate) fn with_credentials(
+        config: &Settings,
+        root: &Path,
+        credentials: Arc<crate::credentials::Snapshot>,
+    ) -> Result<Self> {
         config.validate()?;
         Ok(Self {
             redirects: redirects::Resolver::new(config.url_resolution.clone())?,
-            providers: Arc::new(providers::Client::new(config, root)?),
+            providers: Arc::new(providers::Client::with_credentials(
+                config,
+                root,
+                credentials,
+            )?),
             root: root.into(),
             feed: Arc::new(std::sync::Mutex::new((
                 Instant::now(),
@@ -291,10 +310,14 @@ impl Runtime {
             ))),
         })
     }
-    pub(crate) fn reconfigure(&self, config: &Settings) -> Result<Self> {
+    pub(crate) fn reconfigure(
+        &self,
+        config: &Settings,
+        credentials: Arc<crate::credentials::Snapshot>,
+    ) -> Result<Self> {
         config.validate()?;
         Ok(Self {
-            providers: Arc::new(self.providers.reconfigure(config)?),
+            providers: Arc::new(self.providers.reconfigure(config, credentials)?),
             root: self.root.clone(),
             feed: self.feed.clone(),
             redirects: self.redirects.reconfigure(config.url_resolution.clone())?,
@@ -381,53 +404,75 @@ impl Runtime {
             context::apply(&targets.context, &resolution, policy, report);
             report.url_resolution = Some(resolution);
         }
-        let (crdf, vt, campaign) = tokio::join!(
-            self.providers
-                .inspect(Provider::Crdf, policy.crdf, &targets, policy),
-            self.providers
-                .inspect(Provider::Virustotal, policy.virustotal, &targets, policy),
-            campaign::inspect(
-                &self.root,
-                policy.campaigns,
-                scopes,
-                scan.campaign_simhash.as_deref(),
-                &scan.fingerprint,
-                scan.features.len()
-            ),
-        );
-        report.crdf = crdf.0;
-        report.virustotal = vt.0;
-        for (provider, hits) in [("crdf", crdf.1), ("virustotal", vt.1)] {
-            for (indicator, file) in hits {
-                report.add(
-                    "known_malicious_indicator",
-                    if file {
-                        "attachment"
-                    } else {
-                        "link_reputation"
-                    },
-                    &indicator,
-                    provider,
-                    "Indicator reported in an existing reputation report",
-                );
-            }
-        }
-        report.campaign_status = campaign.0;
-        report.campaign_match = campaign.1;
-        report.campaign_conflict = campaign.2;
-        if campaign.1 && !campaign.2 {
-            report.add(
-                "confirmed_campaign",
-                "campaign",
-                &scan.fingerprint,
-                "local_feedback",
-                "Similar to a campaign confirmed by an administrator in this field",
+        // A synchronous lock protects only result publication, never network I/O.
+        // Completed reports AND their findings survive cancellation of a slow peer.
+        {
+            let shared = std::sync::Mutex::new(&mut *report);
+            let publish = |provider: Provider, result, hits: Vec<(String, bool)>| {
+                let mut report = shared.lock().unwrap();
+                match provider {
+                    Provider::Crdf => report.crdf = result,
+                    Provider::Virustotal => report.virustotal = result,
+                }
+                for (indicator, file) in hits {
+                    report.add(
+                        "known_malicious_indicator",
+                        if file {
+                            "attachment"
+                        } else {
+                            "link_reputation"
+                        },
+                        &indicator,
+                        provider.name(),
+                        "Indicator reported in an existing reputation report",
+                    );
+                }
+            };
+            tokio::join!(
+                async {
+                    let (result, hits) = self
+                        .providers
+                        .inspect(Provider::Crdf, policy.crdf, &targets, policy)
+                        .await;
+                    publish(Provider::Crdf, result, hits);
+                },
+                async {
+                    let (result, hits) = self
+                        .providers
+                        .inspect(Provider::Virustotal, policy.virustotal, &targets, policy)
+                        .await;
+                    publish(Provider::Virustotal, result, hits);
+                },
+                async {
+                    let campaign = campaign::inspect(
+                        &self.root,
+                        policy.campaigns,
+                        scopes,
+                        scan.campaign_simhash.as_deref(),
+                        &scan.fingerprint,
+                        scan.features.len(),
+                    )
+                    .await;
+                    let mut report = shared.lock().unwrap();
+                    report.campaign_status = campaign.0;
+                    report.campaign_match = campaign.1;
+                    report.campaign_conflict = campaign.2;
+                    if campaign.1 && !campaign.2 {
+                        report.add(
+                            "confirmed_campaign",
+                            "campaign",
+                            &scan.fingerprint,
+                            "local_feedback",
+                            "Similar to a campaign confirmed by an administrator in this field",
+                        );
+                    }
+                }
             );
         }
-        report.authenticated_sender = scan.evidence.as_ref().is_some_and(|e| {
-            e.authentication.dmarc_spf == Some(crate::evidence::AuthResult::Pass)
-                || e.authentication.dmarc_dkim == Some(crate::evidence::AuthResult::Pass)
-        });
+        report.authenticated_sender = scan
+            .evidence
+            .as_ref()
+            .is_some_and(crate::evidence::eligibility::dmarc_pass);
         report.elapsed_ms += started.elapsed().as_millis() as u64;
     }
 }

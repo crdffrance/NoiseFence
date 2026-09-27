@@ -203,3 +203,6 @@
     animation: none;
   }
 }
+.diagnostic-observations-scroll { max-width: 100%; overflow-x: auto; }
+.diagnostic-observations-scroll .diagnostic-table { min-width: 38rem; }
+.diagnostic-observations-scroll th[scope="row"] { font-weight: 500; text-align: left; }

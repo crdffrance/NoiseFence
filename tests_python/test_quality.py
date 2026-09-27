@@ -237,7 +237,7 @@ class QualityTests(unittest.TestCase):
         _,counts=self.q.partition(risk,'risk')
         self.assertEqual(counts['conflicting_campaigns'],1)
 
-    def test_runtime_rejects_malformed_models_and_incomplete_baselines(self):
+    def test_runtime_rejects_malformed_models_and_preserves_explicit_partial_verdicts(self):
         from quality_runtime import load_model
         from evaluate_quality import baseline
         original=json.loads((self.root/'candidate/model.json').read_text())
@@ -249,7 +249,7 @@ class QualityTests(unittest.TestCase):
             with self.subTest(key=key),self.assertRaises(ValueError):load_model(path)
         row={'legacy_decision':{'source':'legacy','outcome':'unwanted'},
              'baseline_complete':False,'delivery_classification':'spam'}
-        self.assertEqual(baseline(row),'review')
+        self.assertEqual(baseline(row),'spam')
         row['legacy_decision']['source']='antivirus'
         self.assertEqual(baseline(row),'spam')
 
@@ -307,6 +307,10 @@ class QualityTests(unittest.TestCase):
             self.q.train(path,candidate,'SOFTWARE-PROSPECTIVE',history)
         fresh=copy.deepcopy(self.data)
         fresh[0]["purpose"]="holdout"
+        fresh[0]["previously_examined"]=False
+        fresh[0]['exposure_tracking']={'schema':'noisefence-quality-exposure-1',
+            'candidate_sha256':hashlib.sha256((candidate/'model.json').read_bytes()).hexdigest(),
+            'tracking_since':fresh[0]['since']-1,'previously_exported':False,'related_campaign_seen':False}
         for i,row in enumerate(fresh[1:-1]):
             identity=hashlib.sha256(('separate-evaluation-'+str(i)).encode()).hexdigest()
             row.update(id=identity,fingerprint=identity,simhash=identity[:16],legacy_decision={'source':'legacy','outcome':'unwanted'},baseline_complete=True)
@@ -316,8 +320,21 @@ class QualityTests(unittest.TestCase):
         self.assertTrue(report['acceptance']['passes_pilot'])
         self.assertFalse(report['acceptance']['meets_final_confidence_bounds'])
         self.assertEqual(report['candidate']['fp'],0)
+        self.assertEqual(report['recorded_policy']['records'],1020)
+        self.assertEqual(report['evaluation_scope'],'shadow_engine_with_antivirus_guard_not_recipient_policy_replay')
         self.assertEqual(report['candidate']['tp'],report['baseline']['tp'])
         self.assertNotIn('separate-evaluation',json.dumps(report))
+        for field in ('previously_exported','related_campaign_seen','candidate_sha256'):
+            reused=copy.deepcopy(fresh)
+            reused[0]['exposure_tracking'][field]='f'*64 if field=='candidate_sha256' else True
+            self.write(path,reused)
+            rejected=evaluate(path,candidate/'model.json',candidate/'training-manifest.json')
+            self.assertFalse(rejected['acceptance']['independent'])
+            self.assertFalse(rejected['acceptance']['passes_pilot'])
+        untracked=copy.deepcopy(fresh);del untracked[0]['exposure_tracking']
+        self.write(path,untracked)
+        self.assertFalse(evaluate(path,candidate/'model.json',candidate/'training-manifest.json')['acceptance']['independent'])
+
         fresh[1]['quality']=None
         fresh[2]['risk']=None;fresh[2]['kind']=None;fresh[2]['labelled_at']=None
         self.write(path,fresh)
@@ -341,6 +358,25 @@ class QualityTests(unittest.TestCase):
             self.assertEqual(result['kind'],self.q.KINDS[int(kind_argmax(probe['kind_probabilities']))])
 
 
+    def test_missing_protected_identity_returns_actionable_report_without_fitting(self):
+        data=copy.deepcopy(self.data)
+        data[0]['reserved_campaigns']=[{'fingerprint':'f'*64,'simhash':None}]
+        path=self.root/'missing-protected.jsonl';self.write(path,data)
+        destination=self.root/'must-not-fit-missing-protected'
+        result=self.q.train(path,destination,'SOFTWARE-TEST-ONLY')
+        self.assertEqual(result['status'],'failed')
+        self.assertEqual(result['error_code'],'protected_campaign_provenance')
+        self.assertEqual(result['coverage']['protected_campaigns_missing_identity'],1)
+        self.assertFalse(result['eligible'])
+        self.assertFalse(result['may_activate'])
+        self.assertFalse(destination.exists())
+        self.assertNotIn('f'*64,json.dumps(result))
+        # Invalid/forged metadata is still rejected, not turned into a readiness result.
+        data[0]['reserved_campaigns'][0]['simhash']='invalid'
+        self.write(path,data)
+        with self.assertRaisesRegex(ValueError,'Invalid protected campaign'):
+            self.q.train(path,destination,'SOFTWARE-TEST-ONLY')
+
     def test_workbench_comparison_uses_humans_and_counts_provider_abstentions(self):
         from compare_quality import compare
         data=copy.deepcopy(self.data)
@@ -359,6 +395,29 @@ class QualityTests(unittest.TestCase):
         self.assertIsNone(result['pipeline_latency']['native_p95_ms'])
         self.assertFalse(result['may_activate'])
         self.assertNotIn(data[1]['id'],json.dumps(result))
+        from test_recorded_decisions import receipt
+        for r in data[1:-1]:r['decision_snapshot']=receipt()
+        self.write(path,data)
+        separated=compare(path)
+        self.assertEqual(separated['baseline']['fp'],510)
+        self.assertEqual(separated['recorded_policy']['classification']['fp'],0)
+        self.assertEqual(separated['recorded_policy']['effective_actions']['legitimate'],{'deliver':510})
+        self.assertEqual(separated['paired']['baseline']['fp'],separated['baseline']['fp'])
+
+
+    def test_recorded_contract_is_validated_before_missing_features_and_does_not_feed_training(self):
+        from test_recorded_decisions import receipt
+        from recorded_decisions import SCHEMA
+        data=copy.deepcopy(self.data)
+        data[0]['decision_contract']=SCHEMA
+        for row in data[1:-1]:row['decision_snapshot']=receipt()
+        path=self.root/'receipts.jsonl';self.write(path,data)
+        _,rows,_,_,_=self.q.load_dataset(path)
+        self.assertEqual([r['values'] for r in rows], [r['quality']['values'] for r in self.data[1:-1]])
+        data[1]['quality']=None
+        del data[1]['decision_snapshot']
+        self.write(path,data)
+        with self.assertRaisesRegex(ValueError,'Missing recorded'):self.q.load_dataset(path)
 
     def test_training_never_uses_protected_or_near_campaigns(self):
         data=copy.deepcopy(self.data)

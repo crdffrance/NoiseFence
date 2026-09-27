@@ -1,4 +1,5 @@
 //! Dataset readiness is not an activation certificate or an accuracy estimate.
+use super::eligibility::{self, Exclusion};
 use crate::store::Store;
 use anyhow::{Result, ensure};
 use rusqlite::params;
@@ -13,6 +14,39 @@ pub struct Cohort {
     pub unwanted: usize,
     pub uncertain: usize,
     pub unlabelled: usize,
+    pub usable_wanted: usize,
+    pub usable_unwanted: usize,
+    pub usable_uncertain: usize,
+    pub usable_unlabelled: usize,
+    pub exclusions: BTreeMap<Exclusion, usize>,
+}
+impl Cohort {
+    fn record(&mut self, label: Option<&str>, eligibility: Result<(), Exclusion>) {
+        self.messages += 1;
+        let usable = eligibility.is_ok();
+        if let Err(reason) = eligibility {
+            *self.exclusions.entry(reason).or_default() += 1;
+        }
+        self.usable += usize::from(usable);
+        match label {
+            Some("legitimate") => {
+                self.wanted += 1;
+                self.usable_wanted += usize::from(usable);
+            }
+            Some("spam") => {
+                self.unwanted += 1;
+                self.usable_unwanted += usize::from(usable);
+            }
+            Some("uncertain") => {
+                self.uncertain += 1;
+                self.usable_uncertain += usize::from(usable);
+            }
+            _ => {
+                self.unlabelled += 1;
+                self.usable_unlabelled += usize::from(usable);
+            }
+        }
+    }
 }
 #[derive(Serialize)]
 pub struct Readiness {
@@ -24,27 +58,80 @@ pub struct Readiness {
     pub qualification_required: bool,
     pub blockers: Vec<&'static str>,
 }
+fn blockers(cohort: Option<&Cohort>) -> Vec<&'static str> {
+    let mut result = Vec::new();
+    if cohort.is_none_or(|c| c.messages == 0) {
+        result.push("no_current_cohort");
+    }
+    if cohort.is_none_or(|c| c.usable_wanted < 10000) {
+        result.push("insufficient_wanted_labels");
+    }
+    if cohort.is_none_or(|c| c.usable_unwanted < 2000) {
+        result.push("insufficient_unwanted_labels");
+    }
+    if cohort.is_some_and(|c| c.usable < c.messages) {
+        result.push("incomplete_observations");
+    }
+    // Usable labels still do not establish reserved test membership, campaign
+    // independence, chronological folds, calibrated quality or latency.
+    result.push("independent_evaluation_required");
+    result
+}
+
 pub async fn inspect(store: &Store, username: String, current: String) -> Result<Readiness> {
     store.read(move |db| {
-        let mut q = db.prepare("SELECT COALESCE(json_extract(m.scan,'$.quality.artifacts_sha256'),'unrecorded'), COALESCE(json_extract(m.scan,'$.quality.complete_features'),0), json_extract(m.scan,'$.quality.source'), q.risk FROM messages m LEFT JOIN quality_labels q ON q.message_id=m.id AND q.username=?1 WHERE m.is_dsn=0 AND m.created>=?2 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) LIMIT 50001")?;
-        let mut cohorts = BTreeMap::<String,Cohort>::new();
+        let sql = format!("SELECT {}, {}, json_extract(m.scan,'$.fingerprint'), json_extract(m.scan,'$.campaign_simhash'), q.risk
+            FROM messages m LEFT JOIN quality_labels q ON q.message_id=m.id AND q.username=?1
+            WHERE m.is_dsn=0 AND m.created>=?2 AND EXISTS(SELECT 1 FROM deliveries d
+            JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?1) LIMIT 50001",
+            eligibility::COHORT_SQL, eligibility::OBSERVATION_SQL);
+        let mut query = db.prepare(&sql)?;
+        let mut rows = query.query(params![username,crate::now()-30*86400])?;
+        let mut cohorts = BTreeMap::<String, Cohort>::new();
         let mut count = 0;
-        for row in q.query_map(params![username,crate::now()-30*86400], |r| Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?)))? {
-            let (key, complete, source, label) = row?;
-            count += 1; ensure!(count<=50000, "Readiness population exceeds capacity");
-            let c=cohorts.entry(key).or_default(); c.messages+=1;
-            if complete && source.as_deref()==Some("smtp_session") {c.usable+=1;}
-            match label.as_deref() { Some("legitimate")=>c.wanted+=1, Some("spam")=>c.unwanted+=1, Some("uncertain")=>c.uncertain+=1, _=>c.unlabelled+=1 }
+        while let Some(row) = rows.next()? {
+            count += 1;
+            ensure!(count <= 50000, "Readiness population exceeds capacity");
+            let artifact: String = row.get(0)?;
+            let observation: Option<String> = row.get(1)?;
+            let fingerprint: Option<String> = row.get(2)?;
+            let simhash: Option<String> = row.get(3)?;
+            let label: Option<String> = row.get(4)?;
+            let eligible = eligibility::inspect(observation.as_deref(), &artifact, fingerprint.as_deref(), simhash.as_deref());
+            cohorts.entry(eligibility::cohort(&artifact)).or_default().record(label.as_deref(), eligible);
         }
-        let c=cohorts.get(&current);
-        let mut blockers=Vec::new();
-        if c.is_none_or(|c| c.messages==0) {blockers.push("no_current_cohort");}
-        if c.is_none_or(|c| c.wanted<10000) {blockers.push("insufficient_wanted_labels");}
-        if c.is_none_or(|c| c.unwanted<2000) {blockers.push("insufficient_unwanted_labels");}
-        if c.is_some_and(|c| c.usable<c.messages) {blockers.push("incomplete_observations");}
-        // Even sufficient message counts do not prove campaign independence,
-        // held-out chronology, calibration, confidence bounds or latency.
-        blockers.push("independent_evaluation_required");
-        Ok(Readiness { schema:"noisefence-release-readiness-1",current_cohort:current,cohorts,minimum_wanted_test_messages:10000,minimum_unwanted_test_messages:2000,qualification_required:true,blockers })
+        let blockers = blockers(cohorts.get(&current));
+        Ok(Readiness {
+            schema:"noisefence-release-readiness-2", current_cohort:current, cohorts,
+            minimum_wanted_test_messages:10000, minimum_unwanted_test_messages:2000,
+            qualification_required:true, blockers,
+        })
     }).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn label_minima_require_usable_intersections_and_never_certify_activation() {
+        let mut cohort = Cohort {
+            messages: 12000,
+            wanted: 10000,
+            unwanted: 2000,
+            ..Default::default()
+        };
+        let missing = blockers(Some(&cohort));
+        assert!(missing.contains(&"insufficient_wanted_labels"));
+        assert!(missing.contains(&"insufficient_unwanted_labels"));
+        cohort.usable = 12000;
+        cohort.usable_wanted = 10000;
+        cohort.usable_unwanted = 2000;
+        assert_eq!(
+            blockers(Some(&cohort)),
+            vec!["independent_evaluation_required"]
+        );
+        cohort.usable_wanted -= 1;
+        cohort.usable -= 1;
+        assert!(blockers(Some(&cohort)).contains(&"insufficient_wanted_labels"));
+    }
 }

@@ -17,12 +17,27 @@ use std::{
 pub struct QueueVariant {
     pub id: String,
     pub scan: Scan,
-    pub raw: Vec<u8>,
+    pub raw: crate::queue_body::WireBody,
     pub recipients: Vec<(Recipient, Option<crate::custom_filtering::Assessment>)>,
+}
+
+/// Database safety guards only advance: enabling an older feature must never
+/// let an older binary bypass protections installed by a newer one.
+pub(crate) fn require_format(tx: &rusqlite::Transaction<'_>, minimum: i64) -> Result<()> {
+    let current: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    ensure!(
+        (1..=6).contains(&minimum) && current <= 6,
+        "Unsupported database format"
+    );
+    if current < minimum {
+        tx.pragma_update(None, "user_version", minimum)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
 pub struct Store {
+    pub activation: Arc<crate::cluster::activation::gate::Gate>,
     pub archive: Arc<crate::research_archive::Runtime>,
     pub root: PathBuf,
     db: Arc<Mutex<Connection>>,
@@ -54,6 +69,8 @@ pub struct VisibleRecipient {
 }
 #[derive(Serialize)]
 pub struct VisibleMail {
+    pub verdict: &'static str,
+    pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     pub rspamd: Option<crate::rspamd::Report>,
     pub assessment: crate::assessment::Assessment,
     pub node_id: Option<String>,
@@ -126,7 +143,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version <= 5, "database is newer than this binary");
+        ensure!(version <= 6, "database is newer than this binary");
         if version == 0 {
             let tx = db.transaction()?;
             tx.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER NOT NULL,sender TEXT NOT NULL,scan TEXT NOT NULL,is_dsn INTEGER NOT NULL DEFAULT 0,raw_present INTEGER NOT NULL DEFAULT 1);
@@ -150,6 +167,22 @@ impl Store {
         }
         crate::search::migrate(&migration)?;
         migration.execute_batch(crate::mfa::SCHEMA)?;
+        let journal = crate::cluster::activation::Journal::read(&migration)?;
+        let participant = crate::cluster::activation::participant::Local::read(&migration)?;
+        ensure!(
+            (journal.is_none() && participant.is_none()) || version == 6,
+            "Activation journal requires the coordinated database format"
+        );
+        let activation = if version == 6 {
+            let epoch = participant
+                .as_ref()
+                .map(|p| p.installed_epoch().clone())
+                .or_else(|| journal.as_ref().map(|j| j.current_epoch()))
+                .ok_or_else(|| anyhow::anyhow!("Coordinated activation journal missing"))?;
+            crate::cluster::activation::gate::Gate::recovering(Some(epoch))?
+        } else {
+            crate::cluster::activation::gate::Gate::legacy()
+        };
         migration.commit()?;
         crate::smtp_admission::Admission::new(crate::smtp_admission::Settings {
             enabled: true,
@@ -158,6 +191,7 @@ impl Store {
         .initialize(&mut db)?;
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         Ok(Self {
+            activation,
             archive: Arc::new(crate::research_archive::Runtime::new(root)),
             root: root.into(),
             db: Arc::new(Mutex::new(db)),
@@ -288,7 +322,7 @@ impl Store {
             vec![QueueVariant {
                 id,
                 scan,
-                raw,
+                raw: raw.into(),
                 recipients: recipients.into_iter().map(|r| (r, None)).collect(),
             }],
         )
@@ -300,11 +334,48 @@ impl Store {
         sender: String,
         variants: Vec<QueueVariant>,
     ) -> Result<()> {
+        self.enqueue_variants_with_reserve(sender, variants, 0)
+            .await
+    }
+    pub async fn enqueue_variants_with_reserve(
+        &self,
+        sender: String,
+        variants: Vec<QueueVariant>,
+        minimum_free_bytes: u64,
+    ) -> Result<()> {
         ensure!(
-            !variants.is_empty() && variants.len() <= 6,
+            !variants.is_empty() && variants.len() <= crate::queue_body::MAX_VARIANTS,
             "invalid queue batch"
         );
+        let epoch = variants[0].scan.activation_epoch.as_ref();
+        ensure!(
+            variants
+                .iter()
+                .all(|v| v.scan.activation_epoch.as_ref() == epoch),
+            "Mixed policy epochs in queue batch"
+        );
+        let acceptance = self.activation.enter(epoch)?;
+        let mut budget = crate::queue_body::Budget::default();
+        let mut recipients = 0usize;
+        let mut required = minimum_free_bytes;
+        let mut ids = std::collections::HashSet::new();
         for v in &variants {
+            ensure!(ids.insert(&v.id), "duplicate queue identifier");
+            ensure!(
+                !v.recipients.is_empty()
+                    && v.recipients.len() <= crate::queue_body::MAX_RECIPIENTS_PER_VARIANT,
+                "invalid variant recipient count"
+            );
+            recipients += v.recipients.len();
+            ensure!(
+                recipients <= crate::queue_body::MAX_VARIANTS,
+                "queue recipient capacity exceeded"
+            );
+            budget.metadata(&(&v.scan, &v.recipients))?;
+            budget.headers(&v.raw)?;
+            required = required
+                .checked_add(v.raw.len() as u64)
+                .ok_or_else(|| anyhow::anyhow!("queue size overflow"))?;
             ensure!(
                 !v.id.is_empty()
                     && v.id.len() <= 100
@@ -321,17 +392,25 @@ impl Store {
                 );
             }
         }
+        ensure!(
+            available_bytes(&self.root)? >= required,
+            "insufficient space for complete queue batch"
+        );
         crate::ha::replica::prepare(self, &sender, &variants).await?;
         let root = self.root.clone();
         let db = self.db.clone();
         // One owned blocking operation cannot be cancelled between persistence and commit.
         tokio::task::spawn_blocking(move || -> Result<()> {
+            // Ownership follows the uncancellable write, not the SMTP task. A
+            // disconnected/cancelled caller must not falsely drain this barrier.
+            let _acceptance = acceptance;
             let mut written=Vec::new();
             let result=(|| -> Result<()> {
+                ensure!(available_bytes(&root)? >= required,"insufficient space for complete queue batch");
                 for v in &variants {
                     let path=root.join("spool").join(format!("{}.eml",v.id));
                     let mut f=OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
-                    written.push(path); f.write_all(&v.raw)?; f.sync_all()?;
+                    written.push(path); v.raw.write_to(&mut f)?; f.sync_all()?;
                 }
                 File::open(root.join("spool"))?.sync_all()?;
                 let mut db=db.lock().map_err(|_|anyhow::anyhow!("database lock poisoned"))?;
@@ -535,6 +614,8 @@ impl Store {
                 [now() - 30 * 86400],
             )?;
             db.execute("DELETE FROM audit WHERE created<?1", [now() - 30 * 86400])?;
+            db.execute("DELETE FROM quality_export_campaigns WHERE exposed_at<?1", [now()-30*86400])?;
+            db.execute("DELETE FROM quality_export_batches WHERE exposed_at<?1", [now()-30*86400])?;
             db.execute(
                 "DELETE FROM quality_batches WHERE created<?1",
                 [now() - 30 * 86400],
@@ -601,7 +682,7 @@ impl Store {
         username: String,
         options: crate::search::Search,
         threshold: f64,
-        resolve_uncertain_by_score: bool,
+        _resolve_uncertain_by_score: bool,
     ) -> Result<crate::search::Page> {
         let terms = options.validate()?;
         let crate::search::Search {
@@ -621,8 +702,7 @@ impl Store {
         ];
         let search_sql = options.predicate(&terms, &mut values);
         self.read(move|db| {
-            let predicate=format!(include_str!("search-filter.sql"), publicity=crate::mailing::PUBLICITY_SQL,signal=crate::mailing::SIGNAL_SQL,search=search_sql);
-            let predicate=if resolve_uncertain_by_score {crate::decision::project_sql(&predicate,"?5")} else {predicate};
+            let predicate=format!(include_str!("search-filter.sql"), category=crate::assessment::category_sql(),signal=crate::mailing::SIGNAL_SQL,search=search_sql);
             let total=db.query_row(&format!("SELECT COUNT(*) FROM messages m WHERE {predicate} AND ?3>=0"),rusqlite::params_from_iter(&values),|r|r.get::<_,u64>(0))?;
             let comparison = if options.filter.starts_with("rspamd_") {
                 let scope = predicate.replace("?2='all'", "(?2='all' OR ?2 LIKE 'rspamd_%')");
@@ -635,15 +715,17 @@ impl Store {
             let mut out=Vec::new();
             for row in rows {
                 let (id,created,sender,scan,feedback,feedback_category)=row?;
-                let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let mut s:Scan=serde_json::from_str(&scan)?;
-                crate::decision::project_history(&mut s, resolve_uncertain_by_score, threshold);
-                let assessment=crate::assessment::assess(&s,threshold);
+                let feedback_category=feedback_category.as_deref().map(crate::mailing::FeedbackCategory::parse).transpose()?;let s:Scan=serde_json::from_str(&scan)?;
+                let assessment=crate::assessment::historical(&s);
                 let category=assessment.category;
                 let decision=assessment.decision.clone();
+                let complete=assessment.complete;
+                let action=assessment.action.clone();
+                let delivery_classification=s.recipient_decision.as_ref().map(|r| r.assessment.category).or(s.delivery_classification);
                 let mut recipients=db.prepare("SELECT DISTINCT d.address,d.status,p.held_until,p.released_at,p.action,f.assessment,(SELECT c.id FROM cluster_commands c WHERE c.message_id=d.message_id AND c.recipient=d.address AND c.finished IS NULL AND c.expires>unixepoch()) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id LEFT JOIN delivery_policy p ON p.delivery_id=d.id LEFT JOIN delivery_filtering f ON f.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3='' OR lower(substr(d.address,-length(?3)-1))='@'||lower(?3) OR lower(substr(d.destination,-length(?3)-1))='@'||lower(?3))")?;
                 let recipients=recipients.query_map(params![id,username,domain],|r|Ok(VisibleRecipient{pending_command:r.get(6)?,filtering:r.get::<_,Option<String>>(5)?.and_then(|s|serde_json::from_str(&s).ok()),address:r.get(0)?,status:r.get(1)?,held_until:r.get(2)?,released_at:r.get(3)?,action:r.get(4)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 let origin:Option<(String,i64)>=db.query_row("SELECT node_id,updated FROM cluster_origin WHERE message_id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-                out.push(VisibleMail{rspamd:s.rspamd.map(crate::rspamd::Report::visible),assessment,node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification:s.delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action:s.action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete:s.complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,smtp_admission:s.smtp_admission,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
+                out.push(VisibleMail{verdict:assessment.verdict(),recipient_decision:s.recipient_decision,rspamd:s.rspamd.map(crate::rspamd::Report::visible),assessment,node_id:origin.as_ref().map(|o|o.0.clone()),node_updated_at:origin.map(|o|o.1),adaptive:s.native_filter.as_ref().and_then(|n|n.report.adaptive.clone()),delivery_classification,quality:s.quality.as_ref().map(crate::quality::Report::public),action,id,created,sender,subject:s.subject,score:s.score,tagged:s.tagged,pub_tagged:s.pub_tagged,category,complete,model:s.model,reasons:s.reasons,recipients,feedback,feedback_category,antivirus:s.antivirus,signatures:s.signatures,llm:s.llm,semantic:s.semantic.into(),smtp_policy:s.smtp_policy,early_rbl:s.early_rbl,smtp_admission:s.smtp_admission,vision:s.vision,protection:s.protection,mailing:s.mailing,evidence:s.evidence,decision,arbitration:s.arbitration,fusion:s.fusion});
             }Ok(crate::search::Page { comparison, has_more: u64::from(offset)+(out.len() as u64)<total, messages: out, total, offset })
         }).await
     }

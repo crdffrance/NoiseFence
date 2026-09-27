@@ -111,3 +111,13 @@ Since 0.5.0, native entries and their availability complete the candidate. The t
 
 
 Since 0.6.0, the thresholds use the exact numbers of the reserved period: `floor(legitimate_count × 0,001)` false positives and `floor(spam_count × 0.01)` false negatives maximum over this period. The upper threshold is the lowest permissible starting from 0.5, with a digital guard of 10−9 for the Python/Rust parity; the lower threshold extends the legitimate coverage up to 0.5 with the same guard. Inclusive and tied values comparisons are counted. A saturation at 0 or 1 that makes these constraints impossible interrupt the preparation; a removal cannot be indicated separately. This empirical choice does not validate a rate in the traffic: independent testing, coverage, intervals and activation rules remain necessary. See [coverage and behavioral memory](capture-coverage.md).
+
+## Provider evidence contract migration
+
+`provider-target-evidence-1` binds quality vectors to frozen request-time
+eligibility, per-provider target deduplication and scoped cross-provider agreement.
+This changes the protocol digest without changing the vector layout. Older quality
+models fail compatibility validation; do not edit their declared digest or reuse
+old vectors with the new digest. Retain old history, collect compatible observations,
+and refit and independently evaluate before selecting a candidate. No promotion is
+automatic. See [shared eligibility](unified-decisions.md#shared-provider-eligibility-and-native-accounting).

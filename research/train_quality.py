@@ -19,6 +19,8 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import expit, softmax
 from quality_metrics import interval, metrics, kind_argmax
+from recorded_decisions import SCHEMA as DECISION_SCHEMA, validate_snapshot, engine_decision
+from quality_exposure import validate as validate_exposure
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
@@ -31,6 +33,14 @@ PROTOCOL_HASH = hashlib.sha256(PROTOCOL_BYTES).hexdigest()
 KINDS = PROTOCOL['kinds']
 SPLITS = ('train', 'development', 'calibration', 'threshold', 'test')
 FRACTIONS = (.50, .65, .80, .90)
+
+
+class ProtectedCampaignsUnavailable(ValueError):
+    """No fitting is permitted when protected near-duplicate identities are missing."""
+    def __init__(self, missing, coverage):
+        super().__init__('Protected campaign provenance is unavailable')
+        self.missing = missing
+        self.coverage = coverage
 
 
 def read_jsonl(path):
@@ -63,6 +73,8 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
             and type(header.get('captured_at')) is int
             and 0 < header['since'] < header['until'] <= header['captured_at'] <= time.time() + 60
             and is_hex(header.get('seed_sha256')), 'Invalid sampling provenance')
+    require(header.get('decision_contract') in (None, DECISION_SCHEMA), 'Unsupported recorded decision contract')
+    validate_exposure(header)
     minimum = np.array([f['minimum'] for f in PROTOCOL['features']])
     maximum = np.array([f['maximum'] for f in PROTOCOL['features']])
     ids, artifacts, counts = set(), set(), Counter()
@@ -72,6 +84,7 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
                 and type(row.get('observed_at')) is int and header['since'] <= row['observed_at'] < header['until']
                 and row.get('risk') in (None, 'legitimate', 'spam', 'uncertain')
                 and row.get('kind') in (None, *KINDS), 'Invalid human quality row')
+        validate_snapshot(row, required=header.get('decision_contract') is not None)
         ids.add(row['id'])
         if row['risk'] is not None or row['kind'] is not None:
             require(type(row.get('labelled_at')) is int and row['observed_at'] <= row['labelled_at'] <= header['captured_at'], 'Invalid annotation time')
@@ -99,7 +112,20 @@ def load_dataset(path, allow_multiple_artifacts=False, for_training=False):
     if for_training:
         require(header.get('purpose')=='development', 'Only explicit development samples may be fitted')
         reserved=header.get('reserved_campaigns',[])
-        require(isinstance(reserved,list) and len(reserved)<=5000 and all(is_hex(r.get('fingerprint')) and is_hex(r.get('simhash'),16) for r in reserved), 'Protected campaign provenance is unavailable')
+        require(isinstance(reserved,list) and len(reserved)<=5000
+                and all(isinstance(r,dict) and set(r) == {'fingerprint','simhash'}
+                        and (r['fingerprint'] is None or is_hex(r['fingerprint']))
+                        and (r['simhash'] is None or is_hex(r['simhash'],16)) for r in reserved),
+                'Invalid protected campaign provenance')
+        missing = sum(r['fingerprint'] is None or r['simhash'] is None for r in reserved)
+        if missing:
+            raise ProtectedCampaignsUnavailable(missing, {
+                'retained': len(rows), 'usable': len(usable),
+                'labelled': sum(r['risk'] in ('legitimate','spam') for r in usable),
+                'unlabelled_or_uncertain': sum(r['risk'] not in ('legitimate','spam') for r in usable),
+                'protected_campaigns': len(reserved),
+                'protected_campaigns_missing_identity': missing,
+            })
         combined=usable+[dict(r,campaign=r['fingerprint']) for r in reserved]
         excluded=set()
         for group in components(combined):
@@ -269,7 +295,17 @@ def fit_kinds(parts):
 
 def train(dataset, destination, version, base_history=None):
     require(not destination.exists(),'Candidate destination already exists')
-    header, rows, coverage, artifacts, digest = load_dataset(dataset, for_training=True)
+    try:
+        header, rows, coverage, artifacts, digest = load_dataset(dataset, for_training=True)
+    except ProtectedCampaignsUnavailable as error:
+        return {'schema':'noisefence-quality-training-2','status':'failed',
+                'error_code':'protected_campaign_provenance','eligible':False,
+                'may_activate':False,'observation_only':True,'coverage':error.coverage,
+                'limitations':[
+                    f'{error.missing} protected campaign identities are incomplete; no model was fitted.',
+                    'Restore verified identities from original messages or obtain a fully auditable dataset. Do not drop protected references or fabricate missing hashes.',
+                    'Labelling can continue. Existing labels and production decisions are unchanged.']}
+
     parts, grouping = partition(rows, 'risk', header['partition_cuts'])
     kind_parts, kind_grouping = partition(rows, 'kind', header['partition_cuts'])
     availability = {'risk': readiness(parts, 'risk'), 'kind': readiness(kind_parts, 'kind')}
@@ -318,7 +354,7 @@ def train(dataset, destination, version, base_history=None):
             report['ablations'][name]=fit_risk(parts,selected)[4]
         except NoFeasibleThreshold:
             report['ablations'][name]={'status':'no_feasible_threshold','test':None}
-    report['baseline']=dict(Counter((r.get('legacy_decision') or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
+    report['baseline']=dict(Counter((engine_decision(r) or {}).get('outcome','missing')+'|'+r['risk'] for r in parts['test']))
     report['slices']={}
     y=matrix(parts['test'])[1]
     supported={r['quality']['availability_profile'] for r in parts['train']}
@@ -387,7 +423,7 @@ def main():
     require(0<len(args.version)<=100 and all(32<=ord(c)<127 for c in args.version),'Invalid model version')
     report=train(args.dataset,args.destination,args.version,args.base_history)
     print(json.dumps(report,allow_nan=False))
-    return 3 if report['status']=='insufficient_labels' else 0
+    return 2 if report['status']=='failed' else 3 if report['status']=='insufficient_labels' else 0
 
 
 if __name__=='__main__':

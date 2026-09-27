@@ -68,9 +68,32 @@ fn current_code(encoded: &str) -> String {
 }
 #[tokio::test]
 async fn enrollment_revokes_cookies_requires_factor_and_consumes_recovery_once() {
+    enrollment_lifecycle(false).await;
+}
+#[tokio::test]
+async fn enrollment_preserves_the_coordinated_activation_format_guard() {
+    enrollment_lifecycle(true).await;
+}
+async fn enrollment_lifecycle(coordinated: bool) {
     let dir = tempfile::tempdir().unwrap();
     let cfg = common::config(dir.path());
     let store = Store::open(dir.path()).unwrap();
+    if coordinated {
+        let bundle = noisefence::cluster::artifacts::capture(
+            &cfg,
+            noisefence::control::Settings::from_config(&cfg),
+            0,
+        )
+        .unwrap()
+        .bundle;
+        store.run(move |db| {
+            let tx = db.transaction()?;
+            tx.execute_batch("INSERT INTO cluster_state VALUES('role','coordinator'); INSERT INTO cluster_state VALUES('node_id','mx1');")?;
+            noisefence::cluster::activation::Journal::initialize(&tx, "mx1", bundle)?;
+            tx.commit()?;
+            Ok(())
+        }).await.unwrap();
+    }
     api::create_user(&store, "admin".into(), PASSWORD.into(), vec![], true)
         .await
         .unwrap();
@@ -196,10 +219,10 @@ async fn enrollment_revokes_cookies_requires_factor_and_consumes_recovery_once()
         StatusCode::UNAUTHORIZED
     );
     let raw = store
-        .run(|db| {
+        .run(move |db| {
             assert_eq!(
                 db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
-                4
+                if coordinated { 6 } else { 4 }
             );
             Ok(db.query_row(
                 "SELECT secret FROM mfa_credentials WHERE username='admin'",

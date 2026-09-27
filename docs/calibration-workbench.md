@@ -2,9 +2,9 @@
 
 ## Paired engine comparisons
 
-Comparison schema `noisefence-quality-comparison-2` adds a `paired` section. The console presents this section first: both engines are measured on exactly the same human-labelled messages, with a recorded NoiseFence verdict and a completed Rspamd analysis. Missing or interrupted analyses are counted separately by human class and excluded from paired rates. A completed `greylist`, `soft reject` or custom Rspamd action remains a non-final decision, counted as review rather than a spam detection.
+Comparison schema `noisefence-quality-comparison-3` preserves the `paired` section introduced in schema 2. The console presents this section first: both engines are measured on exactly the same human-labelled messages, with a recorded NoiseFence verdict and a completed Rspamd analysis. Missing or interrupted analyses are counted separately by human class and excluded from paired rates. A completed `greylist`, `soft reject` or custom Rspamd action remains a non-final decision, counted as review rather than a spam detection.
 
-Paired metrics use the recorded NoiseFence engine verdict, without recipient overrides. A positively observed threat can remain unwanted despite incomplete optional coverage; the paired comparator preserves that verdict. The separate full-sample conservative baseline retains the existing incomplete-analysis safeguard and recipient policies. Neither report changes delivery or makes an incomplete scan eligible for enforcement.
+Paired metrics use the recorded NoiseFence engine verdict, without recipient overrides. A positively observed threat can remain unwanted despite incomplete optional coverage; the paired comparator preserves that verdict. The full-sample baseline now uses the same engine semantics, retaining missing decisions in its denominator. Recipient classifications and requested/effective actions appear in a separate section. Older saved schema-2 reports retain their mixed baseline and are explicitly identified in the console. No report changes delivery or makes an incomplete scan eligible for enforcement.
 
 Each paired campaign uses the same earliest eligible representative for both engines. Campaign conflicts are checked before pairing, including labelled members without a Rspamd result. Missing campaign identities and detector-profile pairs are reported. Inspect campaign metrics alongside message counts: repeated messages are not independent trials, and mixed historical versions are not a replay of the current engines.
 
@@ -37,6 +37,10 @@ Select a sample, then **Compare this sample**. NoiseFence and Rspamd are evaluat
 The historical 0–100 score is an index. Its reliability bins and Brier diagnostic do not turn it into a calibrated probability. Extreme scores on legitimate mail must be corrected using separate calibration data rather than arbitrary score scaling.
 
 **Train a shadow candidate** fits the existing regularized risk/type model from a development sample. Five chronological partitions cover training, model selection, calibration, thresholds and testing. Campaigns crossing partitions are excluded. Each risk partition needs at least 12 independent campaigns with both classes. The mail-type head has its own readiness requirements; missing type annotations do not discard usable risk labels. Detector cohorts cannot be silently mixed.
+
+The readiness report lists campaign counts, minimums and missing human classes for every chronological partition, separately for risk and mail type. Older reports without these counts display **Not recorded** rather than invented zeros.
+
+Training stops with `protected_campaign_provenance` if a reserved reference lacks its exact or near-duplicate identity. The report gives aggregate counts; no candidate is fitted. Restore verified identities from retained originals through an audited recovery procedure. Do not remove reservations, fabricate fingerprints or reuse protected messages as development examples. If an original no longer exists, a separately governed dataset with auditable separation is required before qualification. Labelling and descriptive comparison can continue while training is blocked.
 
 The candidate learns the joint detector features, including availability and overlapping evidence. Ablations show whether lexical, neural, LLM, identity or reputation features help. It is not a replacement for independent human labels. An insufficient dataset produces a readiness report and no model. No provider is called by this workflow and no message is retransmitted.
 
@@ -93,3 +97,95 @@ docker build --target calibration -t noisefence-calibration:0.25.0 .
 Run it alongside the coordinator with `--network none`, `--read-only`, `--memory 4g`, `--cpus 2`, a writable `/tmp` tmpfs and the same private data volume at `/var/lib/noisefence`. Mount the coordinator configuration read-only at `/etc/noisefence/config.toml`; keep UID/GID 10001 consistent. The gateway must initialize its database first. This worker image loops over user-requested jobs once per minute. It does not need published ports. The default final Docker target remains the smaller SMTP runtime.
 
 Keep datasets, labels, campaign manifests, model weights derived from private traffic and archived messages out of GitHub. Publish only reviewed aggregate results and reproducible software tests.
+
+## Recorded engines, recipient decisions and action intentions
+
+New private exports declare `decision_contract: noisefence-quality-decisions-1`.
+Each row contains a small, explicit `decision_snapshot` whitelist. It reads the
+immutable analysis and recipient receipts first, rather than mutable legacy
+fields. Engine outcome, core coverage, raw content index, recipient category,
+detailed classification, selected index and requested/effective actions remain
+separate. No rule values, traces, recipient identities, free-form explanations,
+provider excerpts or message content are added. Existing access grants, retention,
+private file permissions and no-overwrite export rules still apply.
+
+Comparison schema 3 and candidate evaluation schema 2 use engine verdicts for the
+baseline. An explicit unwanted verdict survives unrelated incomplete coverage.
+Recipient overrides do not change engine metrics. Population totals retain missing
+engine results in the review denominator; the paired Rspamd table excludes missing
+results from either engine and uses the same labelled records for both. Human
+annotations remain the reference, never Rspamd predictions.
+
+The separate `recorded_policy` section reports final recipient classifications
+against the same labels and counts requested/effective actions by human label.
+For example, an engine unwanted verdict, a recipient legitimate override and a
+requested tag suppressed to deliver in observation are three distinct facts.
+A deliver intention does not prove downstream delivery, and a tag intention does
+not prove that the subject was rewritten. These tables are not action-level
+false-positive rates: wanted publicity may legitimately be tagged by preference.
+Actual delivery and tag outcomes require separate operational evidence.
+
+Legacy exports without the contract remain readable using explicitly recorded
+legacy decisions. No current threshold is borrowed and no score is invented.
+Present malformed or unknown contracts are rejected. A validated `invalid`
+snapshot retains its row and labels but supplies no verdict, score or action;
+legacy fields cannot restore a rejected result. Missing actions are reported as
+`not_recorded`. Old saved reports keep their historical mixed-baseline explanation
+in the console; they are not relabelled as engine-only results.
+
+Training views display the candidate test-fold metrics from the development
+sample, never reinterpret engine/label counters as accuracy measurements. This
+internal partition is not a prospective independent evaluation.
+
+Candidate evaluation remains an offline shadow-engine experiment with its
+existing antivirus guard. It does not replay recipient policy, provider selection,
+SMTP handling, subject modification or downstream delivery. Recorded decisions
+are comparison outputs, never added training features. Multiple policy variants
+and repeated campaigns must not be treated as independent arrivals. None of these
+changes fits/promotes a model, grants activation or establishes production quality.
+
+
+## One-time export freshness
+
+Private exports now carry `noisefence-quality-exposure-1` metadata. Worker nodes
+refuse exports so they cannot bypass the coordinator journal. The coordinator
+commits a use record in an IMMEDIATE SQLite transaction before writing any export
+bytes. Concurrent exports serialize: only the first can describe the sample as
+unused. A later filesystem error, worker failure or interruption cannot restore
+freshness. Exporting for comparison also consumes the sample; evaluate a frozen
+candidate first when reserving an independent holdout.
+
+Evaluation exports bind the exact frozen model SHA-256 before disclosure. The Web
+worker supplies the already verified candidate digest automatically; manual exports
+can use `quality-export --candidate-sha256 <digest>`. Unbound comparison/training
+exports remain usable but cannot qualify an independent evaluation. The evaluator
+requires that digest to match the candidate bytes. Copying an export for another
+candidate cannot preserve freshness eligibility. Repeating the same frozen
+candidate on the same immutable data is reproducibility, not a new independent
+sample or additional statistical support. Editing exported provenance manually
+invalidates the audit; these private files are not signed third-party certificates.
+
+
+Use records are independent of job success and batch lifetime. A new batch that
+contains an already exported fingerprint or a SimHash within three bits is marked
+previously examined. The bounded lookup uses four 16-bit blocks, retains at most
+50,000 fingerprint/SimHash pairs, and stops at one million candidate comparisons.
+Capacity exhaustion fails the export without publishing a falsely fresh result.
+The transaction rolls back on validation/capacity errors before publication.
+
+Hashes and batch-use metadata expire after 30 days and contain no content or
+addresses. This is a coordinator-local history, not proof that messages were
+never examined by another tool or before tracking began. New independent-evaluation
+checks require the entire observation interval to begin strictly after tracking
+initialization. Legacy exports without this provenance remain usable for descriptive
+comparisons, but cannot establish a fresh holdout. Present malformed provenance
+is rejected. Missing or reused tracking is explained in the English workbench.
+
+Database snapshots retain the journal. Fenced `ha-restore` preserves known uses
+and advances the tracking boundary because a checkpoint might omit later exports
+on the lost coordinator. Pre-recovery observations remain regression material;
+collect future observations before another fresh evaluation. Manual restores or
+software downgrades need a separate provenance review; a database copy alone does
+not establish continuous export history. This mechanism does not certify blind
+labels, representative sampling, campaign independence, base-model provenance or
+qualification of the full delivery pipeline.

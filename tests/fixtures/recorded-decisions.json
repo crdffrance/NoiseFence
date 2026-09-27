@@ -1,0 +1,7 @@
+{
+  "schema": "noisefence-quality-decisions-1",
+  "provenance": "recipient_receipt",
+  "engine": {"source": "legacy", "outcome": "unwanted", "complete": false, "raw_score": 99.0},
+  "final": {"category": "legitimate", "classification": "legitimate", "classification_source": "recipient_policy", "complete": false, "score": 99.0},
+  "action": {"requested": "tag", "effective": "deliver"}
+}

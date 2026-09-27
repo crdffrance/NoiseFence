@@ -37,7 +37,7 @@ test('ambiguous and contradictory opinions retain the recorded score without cla
       shown.detail,
       resolution === 'ambiguous' ? /uncertain/ : /disagree/,
     );
-    assert.equal(classification(mail, 95).label, "Needs review");
+    assert.equal(classification(mail, 95).label, "Ham");
     assert.equal(mail.decision.score, null);
     assert.equal(mail.tagged, false);
   }
@@ -55,7 +55,7 @@ test('an incomplete LLM check preserves numeric results and explicitly describes
   assert.equal(shown.value, 72.35);
   assert.equal(shown.kind, 'partial');
   assert.match(shown.detail, /Incomplete checks: LLM analysis/);
-  assert.equal(classification(mail, 95).label, "Needs review");
+  assert.equal(classification(mail, 95).label, "Ham");
 });
 
 test('limited extraction and multiple missing controls are not described as a complete content analysis', () => {
@@ -81,7 +81,7 @@ test('lack of corroboration keeps the existing decision score and review status'
   const mail = { ...base, decision: decision('legacy', 'undetermined', 98.2) };
   assert.equal(scorePresentation(mail).value, 98.2);
   assert.match(scorePresentation(mail).detail, /Corroboration is insufficient/);
-  assert.equal(classification(mail, 95).label, "Needs review");
+  assert.equal(classification(mail, 95).label, "Ham");
 });
 
 test('the antivirus missing-control explanation uses its actual state, not a generic signature reason', () => {
@@ -128,7 +128,7 @@ test('malware remains the classification even when the content index is low or i
     };
     assert.equal(scorePresentation(mail).value, 3.2);
     assert.match(scorePresentation(mail).detail, /antivirus/);
-    assert.equal(classification(mail).label, 'Malware');
+    assert.equal(classification(mail).label, 'Spam');
     assert.equal(mail.decision.score, null);
   }
 });
@@ -178,8 +178,8 @@ test('internal delivery notifications do not present their stored zero as an inc
 test('an advisory score describes detector uncertainty without contradicting a recipient rule', () => {
   for (const [category, label] of [
     ['spam', 'Spam'],
-    ['legitimate', "Legitimate"],
-    ['publicity', "Marketing"],
+    ['legitimate', "Ham"],
+    ['publicity', "Pub"],
   ]) {
     const mail = {
       ...base,
@@ -189,7 +189,7 @@ test('an advisory score describes detector uncertainty without contradicting a r
     const shown = scorePresentation(mail);
     assert.equal(shown.value, 99.4);
     assert.match(shown.detail, /engine decision is undetermined/);
-    assert.doesNotMatch(shown.detail, /message remains Needs review/);
+    assert.doesNotMatch(shown.detail, /message remains Historical decision unavailable/);
     assert.equal(classification(mail).label, label);
   }
 });
@@ -215,7 +215,14 @@ async function compileComponent(name, imports = {}) {
   return `data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`;
 }
 const components = await compileComponent('message-score', {
+  './policy-trace-view': await compileComponent('policy-trace-view', {
+    './policy-trace': new URL('../app/policy-trace.ts', import.meta.url).href,
+  }),
   './brand': await compileComponent('brand'),
+  './action-coverage': new URL('../app/action-coverage.ts', import.meta.url).href,
+  './action-coverage-view': await compileComponent('action-coverage-view', {
+    './action-coverage': new URL('../app/action-coverage.ts', import.meta.url).href,
+  }),
   './assessment': new URL('../app/assessment.ts', import.meta.url).href,
   './presentation': new URL('../app/presentation.ts', import.meta.url).href,
 });
@@ -265,5 +272,66 @@ test('partial coverage preserves a supported threat verdict without implying enf
   const shown=scorePresentation({...base,complete:false,decision:decision('legacy','unwanted',null),reasons:[{id:'smtp_policy_unavailable'},{id:'observed_threat_partial'}]});
   assert.equal(shown.kind,'partial');
   assert.match(shown.detail,/Corroborated phishing evidence/);
-  assert.match(shown.detail,/automatic enforcement remains disabled/);
+  assert.match(shown.detail,/recorded action policy/);
+});
+
+test('the actual detail component displays missing action evidence without hiding the score', () => {
+  const assessment = {version:1,category:'spam',complete:false,score:{value:99.4,kind:'partial',model:'fixture',source:'raw'},
+    decision:decision('legacy','unwanted',99.4),incomplete_reasons:['smtp_policy_unavailable'],content_threshold:95,
+    action:{requested:'tag',effective:'deliver',reason:'subject_rewrite_unavailable',coverage:{version:'action-coverage-1',partial_actions:true,
+      basis:'score_threshold',required:['usable_content','subject_rewrite'],missing:['subject_rewrite']}}};
+  const mail = {...base,recipient_decision:{version:1,classification:'spam',coverage:'partial',policy_sha256:'a'.repeat(64),assessment}};
+  const html = renderToStaticMarkup(createElement(MessageScoreDetails,{mail}));
+  assert.match(html,/99\.4/);
+  assert.match(html,/cannot be rewritten safely/);
+  assert.match(html,/Configured score threshold/);
+  assert.match(html,/<strong>Met<\/strong> · Content extraction completed/);
+  assert.match(html,/<strong>Missing<\/strong> · Subject renderer ready/);
+});
+
+test('the receipt detail renders inherited threshold ownership and escaped rule names', () => {
+  const assessment={version:1,category:'spam',complete:true,score:{value:96,kind:'content',model:'fixture',source:'raw'},
+    decision:decision('legacy','unwanted',96),incomplete_reasons:[],content_threshold:95,action:null};
+  const trace={version:'recipient-policy-trace-1',ordering:'scoped',threshold_profile:'domain',threshold_locked:false,
+    profiles:[{id:'mailbox',name:'Personal actions',scope:'alice@example.test',origin:'personal',threshold:null,selected:true},
+      {id:'domain',name:'Domain threshold',scope:'*@example.test',origin:'administrator',threshold:95,selected:false}],
+    rules:[{id:'one',name:'<script>rule</script>',scope:'*',origin:'administrator',priority:0,outcome:'missing_facts',unavailable:['body'],
+      category_before:'spam',category_after:'spam',action_before:'deliver',action_after:'deliver',stop:false}],
+    stopped_by:null,category_rule:null,action_rule:null,malware_override:false};
+  const mail={...base,recipient_decision:{version:1,classification:'spam',coverage:'complete',policy_sha256:'b'.repeat(64),assessment,policy_trace:trace}};
+  const html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail}));
+  assert.match(html,/Policy inheritance and rule decisions/);
+  assert.match(html,/Threshold source: <strong>Domain threshold \(\*@example.test\)<\/strong>/);
+  assert.match(html,/Selected actions/); assert.match(html,/Missing facts/); assert.match(html,/unavailable: body/);
+  assert.match(html,/&lt;script&gt;rule&lt;\/script&gt;/); assert.doesNotMatch(html,/<script>/);
+});
+
+test('fusion detail uses the frozen native boundary rather than the content setting', () => {
+  const assessment = {version:1, category:'spam', complete:true,
+    score:{value:50, raw:99, decision:50, kind:'decision', source:'decision', model:'fusion-fixture'},
+    decision:{source:'fusion',outcome:'unwanted',score:50,model:'fusion-fixture'},
+    incomplete_reasons:[],content_threshold:95,
+    score_boundary:{version:1,source:'fusion',value:2,cutoff:1,index_cutoff:50,above:true,model:'fusion-fixture',model_sha256:'a'.repeat(64),calibration:{slope:0,intercept:0}}};
+  const mail={...base,recipient_decision:{version:1,classification:'spam',coverage:'complete',policy_sha256:'b'.repeat(64),assessment}};
+  let html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail}));
+  assert.match(html,/Recorded score boundary: <strong>1 logit<\/strong>/);
+  assert.match(html,/Mapped boundary: 50 \/ 100/);
+  assert.match(html,/native comparison applies/);
+  assert.match(html,/at or above/);
+  assert.doesNotMatch(html,/95/);
+  const legacy={...mail,recipient_decision:{...mail.recipient_decision,assessment:{...assessment,score_boundary:null}}};
+  html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail:legacy}));
+  assert.match(html,/Fusion boundary not recorded/);
+  assert.doesNotMatch(html,/95/);
+});
+
+test('content boundary displays exact threshold precision and its scope', () => {
+  const assessment={version:1,category:'legitimate',complete:true,
+    score:{value:95,kind:'content',source:'raw',model:'content-fixture'},decision:decision('legacy','legitimate',95),
+    incomplete_reasons:[],content_threshold:95.00001,
+    score_boundary:{version:1,source:'content',value:95,cutoff:95.00001,index_cutoff:95.00001,above:false,model:'content-fixture',model_sha256:null,calibration:null}};
+  const html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail:{...base,assessment}}));
+  assert.match(html,/95\.00001 \/ 100/);
+  assert.match(html,/below/);
+  assert.match(html,/recipient rules and delivery restrictions can take precedence/);
 });

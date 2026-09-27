@@ -14,6 +14,7 @@ export const actionLabel: Record<DeliveryAction, string> = {
 export function ActionSettings({
   policy,
   mode,
+  partialActions = false,
   spamTagReady,
   pubTagReady,
   publicityEnabled,
@@ -21,6 +22,7 @@ export function ActionSettings({
 }: {
   policy: ActionPolicy;
   mode: string;
+  partialActions?: boolean;
   spamTagReady: boolean;
   pubTagReady: boolean;
   publicityEnabled: boolean;
@@ -87,7 +89,9 @@ export function ActionSettings({
         Users can release or discard quarantined messages for their recipients. Release delivers without a tag and preserves the classification. Feedback alone does not release a message.
       </p>
       <p className="small muted">
-        An incomplete analysis transmits without prefix, unless the main antivirus confirms a malware and its action is &quot;Quarantine&quot;.
+        {partialActions
+          ? 'Partial analyses use decision-specific requirements. Missing evidence is never a detection. Tagging also requires a ready renderer; the requested and effective actions remain visible.'
+          : 'An incomplete analysis delivers without a tag, unless the main antivirus confirms malware and its action is Quarantine.'}
       </p>
       {mode === 'observe' && (
         <p className="notice">

@@ -46,6 +46,27 @@ with an active listening socket is a normal standby state.
 
 ## Reports and backup pull
 
+### Memory pressure and SMTP availability
+
+The gateway defaults to `MemoryHigh=1800M`, `MemoryMax=2G` on a 4 GB host,
+and `MemoryHigh=2500M`, `MemoryMax=3G` on larger hosts. The shared processing
+slice still bounds the combined gateway and scanner footprint. Measure peak
+usage with the installed models and concurrent scans before increasing these
+budgets or enabling additional engines.
+
+`MemoryHigh` throttles allocations; it can leave a service marked `active` while
+its API and replication time out. Check the service cgroup's `memory.events`,
+swap usage, and `/healthz` (`smtp_ready` must be true), not only systemd state.
+Sustained throttling below the resident working set requires more headroom or
+less memory demand. Raising the limit is not evidence that memory growth is fixed.
+
+During recovery, preserve queues and mandatory two-copy replication. Restart
+one node at a time, allow model loading and activation recovery to finish, and
+verify recent peer acknowledgements and delivery before declaring service restored.
+Use a root-owned systemd drop-in for site-specific memory budgets so upgrades
+retain them. Never clear the activation journal or disable replication to make
+readiness pass.
+
 `install-monitor.py` installs targeted audit watches and five-minute reports. Audit
 exports allowlist event fields; raw argv, paths, message bodies, keys and cookies are
 not forwarded. Journals are bounded at 256 MB and 30 days; audit rotation at 5 × 32 MB.

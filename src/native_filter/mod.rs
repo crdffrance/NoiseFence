@@ -137,6 +137,8 @@ pub struct Runtime {
     policy_sha256: String,
     permits: Arc<Capacity>,
     memory_permits: Arc<Capacity>,
+    // A timed-out/cancelled blocking inspection retains its entire runtime.
+    _generation: Option<Arc<crate::capacity::Permit>>,
 }
 impl Runtime {
     pub fn new(settings: Settings) -> Result<Arc<Self>> {
@@ -170,7 +172,11 @@ impl Runtime {
             model,
             model_sha256,
             policy_sha256,
+            _generation: None,
         }))
+    }
+    pub(crate) fn bind_generation(&mut self, generation: Arc<crate::capacity::Permit>) {
+        self._generation = Some(generation);
     }
     pub(crate) fn reload_cluster(&self, settings: Settings) -> Result<Arc<Self>> {
         let mut next = Self::new(settings)?;
@@ -204,6 +210,7 @@ impl Runtime {
             policy_sha256,
             permits: self.permits.clone(),
             memory_permits: self.memory_permits.clone(),
+            _generation: self._generation.clone(),
         }))
     }
     pub(crate) fn activate(&self) {

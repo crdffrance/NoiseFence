@@ -114,6 +114,16 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM console_revisions').fetchone()[0],0)
             self.assertFalse((state/'calibration'/job/'candidate/parity.json').exists())
             self.assertTrue((state/'calibration'/job/'candidate/model.json').is_file())
+            evaluation_job=str(uuid.uuid4())
+            db.execute("INSERT INTO quality_jobs(id,username,batch_id,operation,candidate_id,status,created) VALUES(?,'admin',?,'evaluate',?,'queued',?)",(evaluation_job,batch,job,now));db.commit()
+            result=self.worker.run(types.SimpleNamespace(config=config,binary=binary,python=Path(sys.executable)))
+            report=json.loads(db.execute('SELECT report FROM quality_jobs WHERE id=?',(evaluation_job,)).fetchone()[0])
+            self.assertEqual(result['status'],'complete',report)
+            self.assertTrue(report['exposure']['candidate_bound'])
+            self.assertFalse(report['exposure']['not_previously_exposed'])
+            self.assertFalse(report['acceptance']['independent'])
+            self.assertFalse(report['may_activate'])
+
 
 
 if __name__=='__main__':unittest.main()

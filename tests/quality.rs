@@ -86,11 +86,13 @@ fn provider_scopes_and_overlap_remain_separate_features() {
     scan.protection = Some(Report {
         crdf: ProviderReport {
             status: Status::Complete,
+            captured_at: Some(noisefence::now()),
             observations: vec![observation.clone()],
             ..Default::default()
         },
         virustotal: ProviderReport {
             status: Status::Complete,
+            captured_at: Some(noisefence::now()),
             observations: vec![ProviderObservation {
                 scope: "domain".into(),
                 ..observation
@@ -269,6 +271,19 @@ async fn samples_are_frozen_scoped_and_include_missing_observations_without_inve
     assert!(!raw.contains("private-correspondent"));
     assert!(!raw.contains(&first));
     assert!(raw.contains("newsletter"));
+    let exported: Vec<serde_json::Value> = raw
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(exported[0]["decision_contract"], quality::recorded::SCHEMA);
+    for row in &exported[1..exported.len() - 1] {
+        assert_eq!(
+            row["decision_snapshot"]["schema"],
+            quality::recorded::SCHEMA
+        );
+        assert_eq!(row["legacy_decision"], row["decision_snapshot"]["engine"]);
+    }
+
     assert!(
         evaluation::export(&store, "alice".into(), batch.clone(), &output)
             .await
@@ -907,6 +922,8 @@ async fn release_readiness_is_scoped_cohort_specific_and_never_an_activation_cer
     assert_eq!(r.cohorts[&cohort].messages, 1);
     assert_eq!(r.cohorts[&cohort].wanted, 1);
     assert_eq!(r.cohorts[&cohort].usable, 1);
+    assert_eq!(r.cohorts[&cohort].usable_wanted, 1);
+    assert_eq!(r.schema, "noisefence-release-readiness-2");
     assert!(r.qualification_required && r.blockers.contains(&"independent_evaluation_required"));
     let bob = quality::qualification::inspect(&store, "bob".into(), cohort.clone())
         .await
@@ -955,4 +972,464 @@ fn unsupported_llm_claims_are_diagnostic_only_and_do_not_enter_joint_features() 
     assert!(evidence.llm.reported_probability.is_none());
     assert!(evidence.llm.reported_confidence.is_none());
     assert_eq!(scan.llm.status, llm::LlmStatus::Complete);
+}
+
+#[tokio::test]
+async fn release_and_sample_readiness_share_eligibility_and_preserve_every_label() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    account(&store, "bob", false, "bob@example.test").await;
+    let now = noisefence::now();
+    let mut original = observed(&cfg);
+    original.quality = Some(quality::snapshot(&original, None));
+    let cohort = original.quality.as_ref().unwrap().artifacts_sha256.clone();
+    for risk in [
+        Some(Risk::Legitimate),
+        Some(Risk::Spam),
+        Some(Risk::Uncertain),
+        None,
+    ] {
+        let id = insert(&store, &original, "alice@example.test", now - 100).await;
+        if let Some(risk) = risk {
+            evaluation::label(&store, "alice".into(), id, risk, Some(Kind::Notification))
+                .await
+                .unwrap();
+        }
+    }
+    // Known labels survive every exclusion. The same campaign intentionally
+    // repeats: readiness counts do not claim independent campaigns or tests.
+    type EligibilityCase = (&'static str, fn(&mut Scan));
+    let cases: &[EligibilityCase] = &[
+        ("incomplete_extraction", |s| {
+            s.quality.as_mut().unwrap().complete_features = false
+        }),
+        ("unsupported_protocol", |s| {
+            s.quality.as_mut().unwrap().protocol_sha256 = digest(b"old protocol")
+        }),
+        ("non_smtp_observation", |s| {
+            s.quality.as_mut().unwrap().source = "supplied_envelope".into()
+        }),
+        ("invalid_observation", |s| {
+            s.quality.as_mut().unwrap().schema = "unknown".into()
+        }),
+        ("invalid_features", |s| {
+            s.quality.as_mut().unwrap().values.clear()
+        }),
+        ("invalid_features", |s| {
+            s.quality.as_mut().unwrap().values[0] = 1e10
+        }),
+        ("missing_campaign_identity", |s| s.campaign_simhash = None),
+        ("missing_campaign_identity", |s| s.fingerprint.clear()),
+        ("invalid_provenance", |s| {
+            s.quality.as_mut().unwrap().availability_profile = "PRIVATE INVALID PROFILE".into()
+        }),
+        ("invalid_provenance", |s| {
+            s.quality.as_mut().unwrap().artifacts_sha256 = "PRIVATE INVALID COHORT".into()
+        }),
+        ("missing_observation", |s| s.quality = None),
+        ("invalid_observation", |s| {
+            s.quality.as_mut().unwrap().candidate_status = "PRIVATE".repeat(20000)
+        }),
+    ];
+    let mut expected = std::collections::BTreeMap::new();
+    for (reason, mutate) in cases {
+        let mut scan = original.clone();
+        mutate(&mut scan);
+        let id = insert(&store, &scan, "alice@example.test", now - 100).await;
+        evaluation::label(
+            &store,
+            "alice".into(),
+            id,
+            Risk::Legitimate,
+            Some(Kind::Other),
+        )
+        .await
+        .unwrap();
+        *expected.entry(*reason).or_insert(0) += 1;
+    }
+    // A different recipient's labels cannot change Alice's numerators.
+    let id = insert(&store, &original, "bob@example.test", now - 100).await;
+    evaluation::label(&store, "bob".into(), id, Risk::Spam, None)
+        .await
+        .unwrap();
+    let batch = evaluation::sample(
+        &store,
+        "alice".into(),
+        now - 1000,
+        now,
+        50,
+        "example.test".into(),
+    )
+    .await
+    .unwrap();
+    let release = quality::qualification::inspect(&store, "alice".into(), cohort.clone())
+        .await
+        .unwrap();
+    let sample = evaluation::readiness(&store, "alice".into(), batch.clone())
+        .await
+        .unwrap();
+    let counts = &release.cohorts[&cohort];
+    assert_eq!(counts.usable, 4);
+    assert_eq!(
+        (
+            counts.usable_wanted,
+            counts.usable_unwanted,
+            counts.usable_uncertain,
+            counts.usable_unlabelled
+        ),
+        (1, 1, 1, 1)
+    );
+    assert_eq!(
+        release.cohorts.values().map(|c| c.wanted).sum::<usize>(),
+        cases.len() + 1
+    );
+    assert_eq!(
+        release.cohorts.values().map(|c| c.messages).sum::<usize>(),
+        cases.len() + 4
+    );
+    for c in release.cohorts.values() {
+        assert_eq!(
+            c.messages,
+            c.wanted + c.unwanted + c.uncertain + c.unlabelled
+        );
+        assert_eq!(
+            c.usable,
+            c.usable_wanted + c.usable_unwanted + c.usable_uncertain + c.usable_unlabelled
+        );
+        assert_eq!(c.messages - c.usable, c.exclusions.values().sum::<usize>());
+    }
+    assert_eq!(sample["available"], cases.len() + 4);
+    assert_eq!(sample["risk_labels"], cases.len() + 2);
+    assert_eq!(sample["risk_with_observations"], 2);
+    assert_eq!(sample["kind_with_observations"], 3);
+    assert_eq!(sample["missing_or_incompatible_observations"], cases.len());
+    assert_eq!(sample["exclusions"], json!(expected));
+    let mut combined = std::collections::BTreeMap::<String, usize>::new();
+    for c in release.cohorts.values() {
+        for (reason, count) in serde_json::to_value(&c.exclusions)
+            .unwrap()
+            .as_object()
+            .unwrap()
+        {
+            *combined.entry(reason.clone()).or_default() += count.as_u64().unwrap() as usize;
+        }
+    }
+    assert_eq!(json!(combined), sample["exclusions"]);
+    assert!(release.blockers.contains(&"insufficient_wanted_labels"));
+    assert!(
+        release
+            .blockers
+            .contains(&"independent_evaluation_required")
+    );
+    assert!(!serde_json::to_string(&release).unwrap().contains("PRIVATE"));
+    assert!(!sample.to_string().contains("PRIVATE"));
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let revoked = quality::qualification::inspect(&store, "alice".into(), cohort)
+        .await
+        .unwrap();
+    assert!(revoked.cohorts.is_empty());
+    let revoked_sample = evaluation::readiness(&store, "alice".into(), batch)
+        .await
+        .unwrap();
+    assert_eq!(revoked_sample["available"], 0);
+    assert_eq!(revoked_sample["risk_with_observations"], 0);
+}
+
+#[test]
+fn provider_features_and_native_context_share_frozen_eligibility_without_false_votes() {
+    use noisefence::{
+        native_filter::rules,
+        observations,
+        protection::{ProviderObservation, ProviderReport, Report, Status},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut scan = observed(&common::config(root.path()));
+    let target = ProviderObservation {
+        indicator_sha256: digest(b"host"),
+        scope: "host_lookup".into(),
+        verdict: "malicious".into(),
+        queried_at: 1234,
+        cached: false,
+        cache_max_age_seconds: 0,
+        analysis_max_age_seconds: None,
+    };
+    let mut protection = Report {
+        crdf: ProviderReport {
+            status: Status::Complete,
+            captured_at: Some(1234),
+            observations: vec![target.clone(), target],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    protection.add(
+        "known_malicious_indicator",
+        "link_reputation",
+        "host",
+        "crdf",
+        "private response",
+    );
+    scan.protection = Some(protection);
+    let value = |scan: &Scan, name: &str| {
+        quality::snapshot(scan, None).values[quality::specs()
+            .iter()
+            .position(|f| f.name == name)
+            .unwrap()]
+    };
+    let before = serde_json::to_value(&scan).unwrap();
+    assert_eq!(value(&scan, "provider.crdf.host_lookup.malicious"), 1.);
+    assert_eq!(value(&scan, "provider.shared_indicator_hits"), 0.);
+    assert_eq!(
+        rules::context(&scan)
+            .iter()
+            .filter(|s| s.id == "NF_MALICIOUS_INDICATOR")
+            .count(),
+        1
+    );
+    assert_eq!(serde_json::to_value(&scan).unwrap(), before);
+    for invalid in [false, true] {
+        let p = &mut scan.protection.as_mut().unwrap().crdf;
+        if invalid {
+            p.captured_at = None;
+        } else {
+            p.observations[1].verdict = "no_hit".into();
+        }
+        assert_eq!(value(&scan, "provider.crdf.host_lookup.malicious"), 0.);
+        assert_eq!(value(&scan, "provider.shared_indicator_hits"), 0.);
+        assert!(rules::context(&scan).is_empty());
+        assert!(
+            observations::capture(&scan)
+                .observations
+                .iter()
+                .filter(|o| o.id.starts_with("crdf."))
+                .all(|o| o.exclusion.is_some())
+        );
+    }
+}
+
+fn export_header(path: &std::path::Path) -> serde_json::Value {
+    let raw = std::fs::read_to_string(path).unwrap();
+    serde_json::from_str(raw.lines().next().unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn export_consumption_is_atomic_across_concurrent_outputs_and_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    insert(&store, &observed(&cfg), "alice@example.test", now - 100).await;
+    let batch = evaluation::sample_with_purpose(
+        &store,
+        "alice".into(),
+        now - 200,
+        now,
+        10,
+        "".into(),
+        evaluation::Purpose::Holdout,
+        "".into(),
+    )
+    .await
+    .unwrap();
+    let a = root.path().join("a.jsonl");
+    let b = root.path().join("b.jsonl");
+    let (first, second) = tokio::join!(
+        evaluation::export_for_candidate(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            &a,
+            Some("a".repeat(64))
+        ),
+        evaluation::export_for_candidate(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            &b,
+            Some("b".repeat(64))
+        )
+    );
+    first.unwrap();
+    second.unwrap();
+    let headers = [export_header(&a), export_header(&b)];
+    assert_eq!(
+        headers[0]["exposure_tracking"]["candidate_sha256"],
+        "a".repeat(64)
+    );
+    assert_eq!(
+        headers[1]["exposure_tracking"]["candidate_sha256"],
+        "b".repeat(64)
+    );
+    assert_eq!(
+        headers
+            .iter()
+            .filter(|h| h["previously_examined"] == false)
+            .count(),
+        1
+    );
+    assert_eq!(
+        headers
+            .iter()
+            .filter(|h| h["exposure_tracking"]["previously_exported"] == true)
+            .count(),
+        1
+    );
+    drop(store);
+    let store = Store::open(root.path()).unwrap();
+    let c = root.path().join("c.jsonl");
+    evaluation::export(&store, "alice".into(), batch, &c)
+        .await
+        .unwrap();
+    assert_eq!(export_header(&c)["previously_examined"], true);
+}
+
+#[tokio::test]
+async fn failed_export_remains_consumed_without_any_completed_job() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    insert(&store, &observed(&cfg), "alice@example.test", now - 100).await;
+    let batch = evaluation::sample(&store, "alice".into(), now - 200, now, 10, "".into())
+        .await
+        .unwrap();
+    assert!(
+        evaluation::export(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            &root.path().join("absent/output.jsonl")
+        )
+        .await
+        .is_err()
+    );
+    let output = root.path().join("after.jsonl");
+    evaluation::export(&store, "alice".into(), batch, &output)
+        .await
+        .unwrap();
+    assert_eq!(export_header(&output)["previously_examined"], true);
+    store
+        .read(|db| {
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM quality_jobs", [], |r| r
+                    .get::<_, usize>(0))?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn different_batches_and_near_campaigns_cannot_reset_export_freshness() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    let original = observed(&cfg);
+    insert(&store, &original, "alice@example.test", now - 100).await;
+    let batch = evaluation::sample(&store, "alice".into(), now - 200, now - 70, 10, "".into())
+        .await
+        .unwrap();
+    evaluation::export(
+        &store,
+        "alice".into(),
+        batch.clone(),
+        &root.path().join("first.jsonl"),
+    )
+    .await
+    .unwrap();
+    store
+        .run(move |db| {
+            db.execute("DELETE FROM quality_batches WHERE id=?1", [batch])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    for (name, scan) in [
+        ("exact", original.clone()),
+        (
+            "near",
+            Scan {
+                fingerprint: digest(b"different exact bytes"),
+                campaign_simhash: Some(format!(
+                    "{:016x}",
+                    u64::from_str_radix(original.campaign_simhash.as_deref().unwrap(), 16).unwrap()
+                        ^ 7
+                )),
+                ..original.clone()
+            },
+        ),
+    ] {
+        let id = insert(&store, &scan, "alice@example.test", now - 50).await;
+        let batch = evaluation::sample(&store, "alice".into(), now - 70, now, 10, "".into())
+            .await
+            .unwrap();
+        let output = root.path().join(format!("{name}.jsonl"));
+        evaluation::export(&store, "alice".into(), batch, &output)
+            .await
+            .unwrap();
+        let header = export_header(&output);
+        assert_eq!(header["exposure_tracking"]["previously_exported"], false);
+        assert_eq!(header["exposure_tracking"]["related_campaign_seen"], true);
+        assert_eq!(header["previously_examined"], true);
+        store
+            .run(move |db| {
+                db.execute("DELETE FROM messages WHERE id=?1", [id])?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn worker_cannot_export_around_the_coordinator_exposure_journal() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let cfg = common::config(root.path());
+    account(&store, "alice", false, "alice@example.test").await;
+    let now = noisefence::now();
+    insert(&store, &observed(&cfg), "alice@example.test", now - 100).await;
+    let batch = evaluation::sample(&store, "alice".into(), now - 200, now, 10, "".into())
+        .await
+        .unwrap();
+    store
+        .run(|db| {
+            db.execute("INSERT INTO cluster_state VALUES('role','worker')", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let output = root.path().join("worker.jsonl");
+    let error = evaluation::export(&store, "alice".into(), batch, &output)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("coordinator only"));
+    assert!(!output.exists());
+    store
+        .read(|db| {
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM quality_export_batches", [], |r| r
+                    .get::<_, usize>(
+                    0
+                ))?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
 }

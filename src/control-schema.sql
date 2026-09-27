@@ -146,3 +146,17 @@ CREATE TABLE IF NOT EXISTS quality_reference_sets(
  batch_id TEXT PRIMARY KEY REFERENCES quality_batches(id) ON DELETE CASCADE,
  provenance TEXT NOT NULL
 );
+
+-- Export exposure is committed before private bytes are written, independent of
+-- worker success. Hashes survive batch deletion within the metadata window.
+CREATE TABLE IF NOT EXISTS quality_exposure_state(
+ id INTEGER PRIMARY KEY CHECK(id=1), tracking_since INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO quality_exposure_state VALUES(1,unixepoch());
+CREATE TABLE IF NOT EXISTS quality_export_batches(
+ batch_id TEXT PRIMARY KEY, exposed_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS quality_export_campaigns(
+ fingerprint TEXT NOT NULL, simhash TEXT NOT NULL, exposed_at INTEGER NOT NULL,
+ PRIMARY KEY(fingerprint,simhash)
+);

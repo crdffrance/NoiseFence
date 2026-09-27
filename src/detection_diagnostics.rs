@@ -18,6 +18,37 @@ fn finite(value: Option<f64>) -> Option<f64> {
     value.filter(|v| v.is_finite())
 }
 pub fn breakdown(scan: &Scan) -> Breakdown {
+    if let Some(report) = crate::scoring::recorded(scan) {
+        let mut families = BTreeMap::new();
+        for (name, value) in [
+            ("rules_baseline", report.baseline),
+            ("lexical", report.lexical),
+            ("semantic", report.semantic),
+        ] {
+            if value.is_some() {
+                families.insert(name, value);
+            }
+        }
+        for entry in &report.contributions {
+            let family = crate::scoring::family(&entry.id);
+            let value = families.entry(family).or_insert(Some(0.));
+            *value = value.and_then(|v| finite(Some(v + entry.retained?)));
+        }
+        return Breakdown {
+            families,
+            reconstructed_score: report.score,
+            matches_recorded_score: report
+                .score
+                .zip(
+                    scan.analysis_result
+                        .as_ref()
+                        .map(|r| r.score.raw)
+                        .unwrap_or(Some(scan.score)),
+                )
+                .is_some_and(|(v, recorded)| (v - recorded).abs() <= 1e-6),
+            saturated: report.score.is_some_and(|v| !(1. ..99.).contains(&v)),
+        };
+    }
     let mut families = BTreeMap::from([
         ("heuristics", Some(0.)),
         ("authentication", Some(0.)),
@@ -59,14 +90,7 @@ pub fn breakdown(scan: &Scan) -> Breakdown {
         if reason.id == "model_contribution" {
             continue;
         }
-        let family = match reason.id.as_str() {
-            "llm_advisory" => "llm",
-            "spf_fail" | "dmarc_fail" => "authentication",
-            "ip_reputation" | "domain_reputation" | "abused_domain_body" => "reputation",
-            "smtp_policy_contribution" => "smtp",
-            id if crate::rules::CATALOG.iter().any(|r| r.id == id) => "heuristics",
-            _ => "other_rules",
-        };
+        let family = crate::scoring::family(&reason.id);
         let entry = families.get_mut(family).unwrap();
         *entry = entry.and_then(|v| finite(Some(v + reason.weight)));
     }

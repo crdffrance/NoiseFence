@@ -178,10 +178,7 @@ pub fn ingest(
             });
             continue;
         }
-        ensure!(
-            record.scan.score.is_finite() && (0.0..=100.0).contains(&record.scan.score),
-            "Invalid decision score"
-        );
+        crate::scoring::validate_transport(&record.scan)?;
         let scan = serde_json::to_string(&record.scan)?;
         ensure!(scan.len() <= 2 * 1024 * 1024, "Scan too large");
         tx.execute("INSERT INTO messages(id,created,sender,scan,is_dsn,raw_present) VALUES(?1,?2,?3,?4,?5,0) ON CONFLICT(id) DO UPDATE SET scan=excluded.scan",params![record.id,record.created,record.sender,scan,record.is_dsn])?;

@@ -11,6 +11,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/config/validate", post(validate_configuration))
         .route("/admin/keys", get(managed_keys).post(save_managed_key))
         .route("/preferences", get(preferences).post(save_preferences))
+        .route("/preferences/activation", get(preference_activation))
         .route("/admin/revisions", get(revisions))
         .route("/admin/revisions/{id}", get(revision))
         .route("/admin/users", get(users).post(save_user))
@@ -80,7 +81,7 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         publicity: crate::actions::Action::Deliver,
         quarantine_days: 14,
     });
-    let tag_ready = tag.effective(&control.base).is_ok();
+    let tag_ready = control.effective_settings(&tag).await.is_ok();
     let mut pub_tag = tag.clone();
     pub_tag.mailing = Some(crate::mailing::Policy::default());
     pub_tag.actions = Some(crate::actions::Policy {
@@ -89,9 +90,12 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         publicity: crate::actions::Action::Tag,
         quarantine_days: 14,
     });
-    let pub_tag_ready = pub_tag.effective(&control.base).is_ok();
+    let pub_tag_ready = control.effective_settings(&pub_tag).await.is_ok();
+    let mut availability = (*control.base).clone();
+    availability.provider_credentials = s.config.provider_credentials.clone();
+    availability.credential_generation = s.config.credential_generation.clone();
     Ok(Json(json!({"revision":s.revision,"settings":s.settings,
-        "available":Settings::available(&control.base),
+        "available":Settings::available(&availability),
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
         "native_rules":crate::native_filter::content_rules::RULES,
         "threshold_locked":control.base.filter.semantic.is_some() || control.base.fusion.as_ref().is_some_and(|f| f.mode == crate::fusion::runtime::Mode::Decision),"tag_ready":tag_ready,
@@ -107,6 +111,10 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
 struct Apply {
     revision: i64,
     settings: Settings,
+    #[serde(default)]
+    installation_models_sha256: Option<String>,
+    #[serde(default)]
+    catalog_models: Option<crate::model_catalog::Selection>,
 }
 async fn apply(
     State(app): State<App>,
@@ -115,10 +123,60 @@ async fn apply(
 ) -> ApiResult<Json<Value>> {
     let user = administrator(&app, &h, true).await?;
     let control = controller(&app)?;
+    if body.installation_models_sha256.is_some() && body.catalog_models.is_some() {
+        return Err(Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Choose one model source per save.".into(),
+        ));
+    }
     if body.revision != control.snapshot().revision {
         return Err(Error(
             StatusCode::CONFLICT,
             "Configuration modified in another session. Reload settings.".into(),
+        ));
+    }
+    if control.activation_journal().await?.is_some() {
+        let token_hash = message::digest(token(&h).unwrap().as_bytes());
+        let journal = if let Some(selection) = body.catalog_models {
+            control
+                .stage_catalog_models_session(
+                    body.revision,
+                    body.settings,
+                    user.username,
+                    token_hash,
+                    selection,
+                )
+                .await
+        } else if let Some(digest) = body.installation_models_sha256 {
+            control
+                .stage_installation_models_session(
+                    body.revision,
+                    body.settings,
+                    user.username,
+                    token_hash,
+                    digest,
+                )
+                .await
+        } else {
+            control
+                .stage_activation_session(body.revision, body.settings, user.username, token_hash)
+                .await
+        }
+        .map_err(|e| {
+            Error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Staging refused: {e}"),
+            )
+        })?;
+        let epoch = journal.rollout().unwrap().epoch();
+        return Ok(Json(
+            json!({"revision":epoch.revision,"staged":true,"epoch":epoch}),
+        ));
+    }
+    if body.installation_models_sha256.is_some() || body.catalog_models.is_some() {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Enroll coordinated activation before selecting installation models.".into(),
         ));
     }
     let id = control
@@ -136,7 +194,7 @@ async fn apply(
                 format!("Setup refused: {e}"),
             )
         })?;
-    Ok(Json(json!({"revision":id})))
+    Ok(Json(json!({"revision":id,"staged":false})))
 }
 async fn revisions(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
@@ -338,15 +396,59 @@ async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Js
     let settings = snapshot.config.protection.as_ref();
     let base = control.base.protection.as_ref();
     let root = app.store.root.clone();
-    let (keys, usage) = tokio::task::spawn_blocking(move || {
-        use crate::protection::{Provider, key_present, quota_usage};
-        (json!({"crdf":key_present(&root,Provider::Crdf),"virustotal":key_present(&root,Provider::Virustotal)}),
-         json!({"crdf":quota_usage(&root,Provider::Crdf).ok(),"virustotal":quota_usage(&root,Provider::Virustotal).ok()}))
-    }).await.map_err(|_|Error(StatusCode::SERVICE_UNAVAILABLE,"Condition of the connectors not available.".into()))?;
+    let resident_keys = snapshot.config.provider_credentials.clone();
+    let bound = snapshot.config.credential_generation.is_some();
+    let staged_generation = control.activation_journal().await?.and_then(|j| {
+        j.rollout()
+            .filter(|r| {
+                matches!(
+                    r.phase(),
+                    crate::cluster::activation::Phase::Preparing
+                        | crate::cluster::activation::Phase::Committed
+                )
+            })
+            .and_then(|r| r.candidate().credential_generation.clone())
+    });
+    let (keys, loaded_keys, pending_keys, usage) =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            use crate::protection::providers::{Provider, quota_usage_with_key, read_key};
+            let staged = staged_generation
+                .as_deref()
+                .map(|h| crate::credentials::generations::load(&root, h))
+                .transpose()?;
+            let mut saved = json!({});
+            let mut loaded = json!({});
+            let mut pending = json!({});
+            let mut usage = json!({});
+            for provider in [Provider::Crdf, Provider::Virustotal] {
+                let name = provider.name();
+                let current = resident_keys.as_ref().and_then(|keys| keys.get(name));
+                let source = if bound || staged.is_some() {
+                    staged
+                        .as_ref()
+                        .map_or(current, |s| s.get(name))
+                        .map(str::to_owned)
+                } else {
+                    read_key(&root, provider).ok()
+                };
+                saved[name] = json!(source.is_some());
+                loaded[name] = json!(current.is_some());
+                pending[name] = json!(source.as_deref() != current);
+                usage[name] = json!(quota_usage_with_key(&root, provider, current).ok());
+            }
+            Ok((saved, loaded, pending, usage))
+        })
+        .await
+        .map_err(|_| {
+            Error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Condition of the connectors not available.".into(),
+            )
+        })??;
     use crate::protection::Provider;
     Ok(Json(json!({
         "available":base.is_some(), "enabled":settings.is_some(), "revision":snapshot.revision,
-        "keys":keys, "observation_only":true, "usage":usage,
+        "keys":keys, "loaded_keys":loaded_keys, "pending_keys":pending_keys, "observation_only":true, "usage":usage,
         "quotas":settings.map(|s|json!({"crdf":s.quota(Provider::Crdf,&s.policy),"virustotal":s.quota(Provider::Virustotal,&s.policy)})),
         "bootstrap_quotas":base.map(|s|json!({"crdf":s.bootstrap_quota(Provider::Crdf),"virustotal":s.bootstrap_quota(Provider::Virustotal)})),
         "capacity":base.map(|s|json!({"timeout_ms":s.timeout_ms,"max_parallel":s.max_parallel,"max_indicators":12}))
@@ -355,6 +457,8 @@ async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Js
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProtectionKey {
+    #[serde(default)]
+    revision: Option<i64>,
     key: String,
 }
 async fn protection_key(
@@ -379,12 +483,28 @@ async fn protection_key(
             "Expected key: 16 to 256 characters without space.".into(),
         ));
     }
+    if control.activation_journal().await?.is_some() {
+        let revision = body.revision.ok_or_else(|| {
+            Error(
+                StatusCode::CONFLICT,
+                "Refresh settings before staging a provider key.".into(),
+            )
+        })?;
+        let journal = control.stage_credential_session(revision, provider.name().into(), Some(body.key),
+            user.username, message::digest(token(&h).unwrap().as_bytes())).await
+            .map_err(|_| Error(StatusCode::CONFLICT, "Unable to stage the provider key. Refresh settings and check activation status.".into()))?;
+        let epoch = journal.rollout().unwrap().epoch();
+        return Ok(Json(
+            json!({"saved":true,"staged":true,"active":false,"revision":epoch.revision,"epoch":epoch}),
+        ));
+    }
     let root = app.store.root.clone();
     let hash = message::digest(token(&h).unwrap().as_bytes());
     app.store.run(move|db|{
         let tx=db.transaction()?;
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![user.username,hash,now()],|r|r.get(0))?;
         anyhow::ensure!(allowed,"Administrative session expired");
+        anyhow::ensure!(crate::cluster::activation::Journal::read(&tx)?.is_none(), "Use coordinated credential staging");
         crate::protection::save_key(&root,provider,&body.key)?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),user.username,provider.name()])?;
         tx.commit()?;Ok(())
@@ -468,6 +588,14 @@ async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Val
         json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
     ))
 }
+async fn preference_activation(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &h).await?;
+    Ok(Json(
+        controller(&app)?
+            .activation_view(user.username, false)
+            .await?,
+    ))
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PreferenceEdit {
@@ -496,6 +624,21 @@ async fn save_preferences(
             "Modified configuration. Reload preferences.".into(),
         ));
     }
+    if c.activation_journal().await?.is_some() {
+        let journal = c
+            .stage_preferences_session(
+                body.revision,
+                body.scope,
+                body.preference,
+                user.username,
+                message::digest(token(&h).unwrap().as_bytes()),
+            )
+            .await
+            .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+        let epoch = journal.rollout().unwrap().epoch();
+        // No global settings, participant IDs, model fingerprints or other scopes.
+        return Ok(Json(json!({"revision":epoch.revision,"staged":true})));
+    }
     let id = c
         .apply_preferences(
             body.revision,
@@ -506,7 +649,7 @@ async fn save_preferences(
         )
         .await
         .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
-    Ok(Json(json!({"revision":id})))
+    Ok(Json(json!({"revision":id,"staged":false})))
 }
 
 #[derive(Deserialize)]
@@ -522,18 +665,36 @@ async fn validate_configuration(
     administrator(&app, &h, true).await?;
     let c = controller(&app)?;
     body.settings.hydrate(&c.base);
-    body.settings
-        .effective(&c.base)
+    c.effective_settings(&body.settings)
+        .await
         .map_err(|e| Error(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
     Ok(Json(json!({"settings":body.settings})))
 }
 async fn managed_keys(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     administrator(&app, &h, false).await?;
     let c = controller(&app)?;
+    let snapshot = c.snapshot();
+    let present = |name: &str| {
+        if snapshot.config.credential_generation.is_some() {
+            snapshot
+                .config
+                .provider_credentials
+                .as_ref()
+                .is_some_and(|k| k.get(name).is_some())
+        } else {
+            crate::management::key_present(&c.base.data_dir, name)
+                || if name == "spamhaus" {
+                    c.base.filter.spamhaus_key_env.is_some()
+                } else {
+                    c.base.llm.is_some()
+                }
+        }
+    };
     Ok(Json(
-        json!({"spamhaus":crate::management::key_present(&c.base.data_dir,"spamhaus") || c.base.filter.spamhaus_key_env.is_some(),"scaleway":crate::management::key_present(&c.base.data_dir,"scaleway") || c.base.llm.is_some(),"scaleway_available":c.base.llm.is_some()}),
+        json!({"spamhaus":present("spamhaus"),"scaleway":present("scaleway"),"scaleway_available":c.base.llm.is_some()}),
     ))
 }
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ManagedKey {
@@ -573,6 +734,15 @@ async fn save_managed_key(
             "Scaleway connector not installed.".into(),
         ));
     }
+    if c.activation_journal().await?.is_some() {
+        let journal = c.stage_credential_session(body.revision, body.provider, Some(body.key),
+            user.username, message::digest(token(&h).unwrap().as_bytes())).await
+            .map_err(|_| Error(StatusCode::CONFLICT, "Unable to stage the provider key. Refresh settings and check activation status.".into()))?;
+        let epoch = journal.rollout().unwrap().epoch();
+        return Ok(Json(
+            json!({"saved":true,"staged":true,"active":false,"revision":epoch.revision,"epoch":epoch}),
+        ));
+    }
     let hash = message::digest(token(&h).unwrap().as_bytes());
     let root = c.base.data_dir.clone();
     let username = user.username.clone();
@@ -580,6 +750,7 @@ async fn save_managed_key(
         let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users u JOIN sessions s ON s.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND s.token_hash=?2 AND s.expires>?3)",params![username,hash,now()],|r|r.get(0))?;
         anyhow::ensure!(allowed,"Administrative session expired");
         let current:i64=tx.query_row("SELECT COALESCE(MAX(id),0) FROM console_revisions",[],|r|r.get(0))?;anyhow::ensure!(current==body.revision,"Configuration changed.");
+        anyhow::ensure!(crate::cluster::activation::Journal::read(&tx)?.is_none(), "Use coordinated credential staging");
         crate::management::save_key(&root,&body.provider,&body.key)?;
         tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'provider_key',?3)",params![now(),username,body.provider])?;tx.commit()?;Ok(())}).await?;
     let snapshot = c.snapshot();

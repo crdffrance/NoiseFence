@@ -9,6 +9,12 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Durable credential generation for an enrolled policy; values remain private.
+    #[serde(skip)]
+    pub credential_generation: Option<String>,
+    /// Runtime-only provider key snapshot; never accepted from settings or serialized.
+    #[serde(skip)]
+    pub provider_credentials: Option<std::sync::Arc<crate::credentials::Snapshot>>,
     #[serde(skip)]
     pub console_only: bool,
     pub cluster: Option<crate::cluster::Settings>,
@@ -107,6 +113,8 @@ pub enum Mode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial_actions: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resolve_uncertain_by_score: bool,
     #[serde(default)]
@@ -256,8 +264,9 @@ pub fn valid_address(s: &str) -> bool {
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
-        let value: Self =
+        let mut value: Self =
             toml::from_str(&std::fs::read_to_string(path).context("read configuration")?)?;
+        value.filter.resolve_uncertain_by_score = true;
         value.validate()?;
         Ok(value)
     }

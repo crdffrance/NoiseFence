@@ -173,7 +173,7 @@ export function FilterSensitivity({
         <div className="sensitivity-domains">
           <h3>Domain exceptions</h3>
           <p className="small muted">
-            Address-specific profiles take priority. Configure spam, marketing and review actions in Rules &amp; profiles. Changing a level preserves the current actions.
+            Address-specific profiles take priority. Configure spam and marketing actions in Rules &amp; profiles. Changing a level preserves the current actions.
           </p>
           {domains.map((domain) => (
             <div className="sensitivity-domain" key={domain}>

@@ -1,5 +1,15 @@
 /// Fixed diagnostic baseline when no content model is applied; not a learned prior.
 pub const RULES_BASELINE_LOGIT: f64 = -5.0;
+/// Includes active, prepared and retired runtimes, including detached inference.
+pub const MAX_RUNTIME_GENERATIONS: usize = 3;
+#[derive(Debug)]
+pub(crate) struct RuntimeGenerationBusy;
+impl std::fmt::Display for RuntimeGenerationBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Runtime generation capacity exhausted; previous analyses must finish before another engine can load")
+    }
+}
+impl std::error::Error for RuntimeGenerationBusy {}
 use crate::{config::Config, message};
 use anyhow::{Context, Result, ensure};
 use mail_auth::{
@@ -72,6 +82,23 @@ pub struct SemanticResult {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusion_boundary: Option<crate::score_boundary::Boundary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusion_combination: Option<crate::fusion::combination::Accounting>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring: Option<crate::scoring::Report>,
+    /// Explicit rendering capability, set by the live pipeline before policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_rewrite_ready: Option<bool>,
+    /// Immutable receipt-time observations, shared by recipient policy variants.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis_result: Option<Box<crate::decision_record::AnalysisResult>>,
+    /// Receipt-time classification and effective policy used for this wire copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub score_resolution: Option<crate::decision::ScoreResolution>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message_context: Option<crate::message_context::Context>,
@@ -135,6 +162,11 @@ pub struct Scan {
     /// Absent on historical rows: never infer checks from their missing reasons.
     #[serde(default)]
     pub evidence: Option<crate::evidence::Evidence>,
+    /// Aligned to evidence.reputation.domains. Hash actual normalized query
+    /// targets, never infer them from imported headers or a positive result.
+    /// Kept outside the strict legacy Evidence schema for rollback readability.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reputation_target_hashes: Vec<String>,
     /// Canonical decision. Historical rows use their original legacy score.
     #[serde(default)]
     pub decision: Option<crate::fusion::runtime::Decision>,
@@ -532,6 +564,9 @@ pub struct Engine {
     native_filter: Option<Arc<crate::native_filter::Runtime>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
+    generations: Arc<crate::capacity::Capacity>,
+    // Declared last: model resources are dropped before their generation lease.
+    _generation: Arc<crate::capacity::Permit>,
 }
 impl Engine {
     pub fn quality_artifacts_sha256(&self) -> String {
@@ -588,15 +623,23 @@ impl Engine {
         Self::build(config, Some(self), true)
     }
     fn build(config: Arc<Config>, template: Option<&Self>, reload_models: bool) -> Result<Self> {
+        // Reserve before reading/loading any models. Reconfiguration may copy
+        // weights too, so every engine is counted, not only changed paths.
+        let generations = template
+            .map(|t| t.generations.clone())
+            .unwrap_or_else(|| crate::capacity::Capacity::new(MAX_RUNTIME_GENERATIONS));
+        let generation = Arc::new(
+            generations
+                .try_acquire()
+                .map_err(|_| RuntimeGenerationBusy)?,
+        );
+        let config = crate::credentials::pin(config)?;
+        let credentials = config.provider_credentials.as_ref().unwrap();
         let rspamd = Arc::new(crate::rspamd::Runtime::new(
             config.rspamd.clone(),
             template.map(|t| &*t.rspamd),
         )?);
-        let cluster_models = if config
-            .cluster
-            .as_ref()
-            .is_some_and(|c| c.role == crate::cluster::Role::Coordinator)
-        {
+        let cluster_models = if config.cluster.is_some() {
             crate::cluster::artifacts::bindings(
                 &config,
                 template
@@ -606,7 +649,7 @@ impl Engine {
         } else {
             Default::default()
         };
-        let native_filter = config
+        let mut native_filter = config
             .native_filter
             .as_ref()
             .map(|settings| {
@@ -621,6 +664,11 @@ impl Engine {
                 }
             })
             .transpose()?;
+        if let Some(runtime) = &mut native_filter {
+            Arc::get_mut(runtime)
+                .expect("new native runtime")
+                .bind_generation(generation.clone());
+        }
         let quality = config
             .quality
             .as_ref()
@@ -637,10 +685,12 @@ impl Engine {
             .filter(|c| c.monthly_budget_micro_eur > 0)
             .map(|c| match template.and_then(|t| t.llm.clone()) {
                 Some(client) => client
-                    .reconfigure(c.clone(), &config.data_dir)
+                    .reconfigure(c.clone(), &config.data_dir, credentials)
                     .map(Arc::new),
-                None => crate::llm::Client::new(c.clone(), &config.data_dir)
-                    .map(|client| Arc::new(client.with_capacity(llm_capacity.clone()))),
+                None => {
+                    crate::llm::Client::with_credentials(c.clone(), &config.data_dir, credentials)
+                        .map(|client| Arc::new(client.with_capacity(llm_capacity.clone())))
+                }
             })
             .transpose()?;
         let (model, model_hash) = if let Some(template) = template.filter(|_| !reload_models) {
@@ -667,7 +717,7 @@ impl Engine {
             )
         };
         #[cfg(feature = "semantic")]
-        let semantic = config
+        let mut semantic = config
             .filter
             .semantic
             .as_ref()
@@ -700,6 +750,12 @@ impl Engine {
                 })
             })
             .transpose()?;
+        #[cfg(feature = "semantic")]
+        if let Some(runtime) = &mut semantic {
+            Arc::get_mut(runtime)
+                .expect("new semantic runtime")
+                .bind_generation(generation.clone());
+        }
         #[cfg(not(feature = "semantic"))]
         ensure!(
             config.filter.semantic.is_none(),
@@ -736,10 +792,15 @@ impl Engine {
             .as_ref()
             .map(
                 |settings| match template.and_then(|t| t.protection.clone()) {
-                    Some(runtime) => runtime.reconfigure(settings).map(Arc::new),
-                    None => {
-                        crate::protection::Runtime::new(settings, &config.data_dir).map(Arc::new)
-                    }
+                    Some(runtime) => runtime
+                        .reconfigure(settings, credentials.clone())
+                        .map(Arc::new),
+                    None => crate::protection::Runtime::with_credentials(
+                        settings,
+                        &config.data_dir,
+                        credentials.clone(),
+                    )
+                    .map(Arc::new),
                 },
             )
             .transpose()?;
@@ -795,6 +856,8 @@ impl Engine {
             protection,
             #[cfg(feature = "semantic")]
             semantic,
+            generations,
+            _generation: generation,
         })
     }
     pub fn offline(&self, raw: &[u8]) -> Scan {
@@ -860,11 +923,7 @@ impl Engine {
             fusion.apply(scan);
         }
         crate::decision::apply(scan, self.config.filter.require_corroboration);
-        crate::decision::resolve_by_score(
-            scan,
-            self.config.filter.resolve_uncertain_by_score,
-            self.config.filter.threshold,
-        );
+        crate::decision::finalize(scan, self.config.filter.threshold);
         if let (Some(runtime), Some(mut observation)) =
             (&self.native_filter, scan.native_filter.take())
         {
@@ -877,6 +936,37 @@ impl Engine {
             Some(&self.quality_policy),
         ));
     }
+    async fn checkpoint<T>(slot: &mut Option<T>, future: impl std::future::Future<Output = T>) {
+        *slot = Some(future.await);
+    }
+
+    fn retain_checks(
+        scan: &mut Scan,
+        policy: &mut Option<crate::smtp_policy::PolicyResult>,
+        llm: &mut Option<crate::llm::LlmResult>,
+    ) {
+        if let Some(result) = policy.take() {
+            result.apply(scan);
+            scan.smtp_policy = result;
+        }
+        if let Some(result) = llm.take() {
+            Self::retain_llm(scan, result);
+        }
+    }
+
+    fn retain_llm(scan: &mut Scan, result: crate::llm::LlmResult) {
+        scan.llm = result;
+        scan.reasons.retain(|r| r.id != "llm_advisory");
+        if let Some(verdict) = &scan.llm.verdict {
+            scan.reasons.push(Signal {
+                id: "llm_advisory".into(),
+                detail: format!("Advisory LLM analysis: {}", verdict.explanation),
+                weight: scan.llm.advisory_weight(),
+            });
+        }
+        Self::check_llm(scan);
+    }
+
     pub(crate) fn check_llm(scan: &mut Scan) {
         scan.reasons.retain(|r| r.id != "llm_unsupported_evidence");
         if scan.llm.grounding.as_ref().is_some_and(|g| !g.supported) {
@@ -941,7 +1031,7 @@ impl Engine {
         scan.reasons.retain(|r| {
             !matches!(
                 r.id.as_str(),
-                "model_contribution" | "content_model_skipped"
+                "model_contribution" | "content_model_skipped" | "score_combination_invalid"
             )
         });
         let opaque = scan.message_context.as_ref().is_some_and(|c| c.encrypted);
@@ -957,15 +1047,11 @@ impl Engine {
                 evidence.lexical_state = crate::evidence::State::Limited;
             }
         }
-        let mut content = self
-            .model
-            .as_ref()
-            .filter(|_| !opaque)
-            .map(|m| {
-                scan.model = m.version.clone();
-                m.logit(&scan.features)
-            })
-            .unwrap_or(RULES_BASELINE_LOGIT);
+        let lexical = self.model.as_ref().filter(|_| !opaque).map(|m| {
+            scan.model = m.version.clone();
+            m.logit(&scan.features)
+        });
+        let mut content = lexical.unwrap_or(RULES_BASELINE_LOGIT);
         if !opaque
             && self.model.is_some()
             && let Some(evidence) = &mut scan.evidence
@@ -981,16 +1067,20 @@ impl Engine {
             content += scan.semantic.contribution.unwrap_or(0.0);
             scan.model = scan.semantic.model.clone();
         }
-        let rules = scan.reasons.iter().map(|r| r.weight).sum::<f64>();
-        let score = sigmoid(content + rules) * 100.0;
-        scan.score = if scan.feature_version == crate::features::VERSION {
-            // Round only for display. Rounding here shifts a calibrated cutoff
-            // and can classify a legitimate 94.99 as spam at a threshold of 95.
-            score
-        } else {
-            (score * 10.0).round() / 10.0
-        };
-        if !opaque && self.model.is_some() {
+        let report = crate::scoring::combine(scan, lexical, opaque);
+        // A finite out-of-range sentinel survives legacy Scan JSON round-trips;
+        // public assessments expose None, never a fabricated zero or NaN.
+        scan.score = report.score.unwrap_or(crate::scoring::UNAVAILABLE_SCORE);
+        if report.score.is_none() {
+            scan.complete = false;
+            scan.reasons.push(Signal {
+                id: "score_combination_invalid".into(),
+                detail: "The content index could not be calculated from consistent finite contributions.".into(),
+                weight: 0.0,
+            });
+        }
+        scan.scoring = Some(report);
+        if !opaque && self.model.is_some() && content.is_finite() {
             scan.reasons.push(Signal {
                 id: "model_contribution".into(),
                 detail: "Local model contribution: text and structure".into(),
@@ -1054,6 +1144,10 @@ impl Engine {
             return Ok(());
         };
         let targets = reputation_targets(raw, &scan.sender, helo, sender, visual_domains);
+        scan.reputation_target_hashes = targets
+            .iter()
+            .map(|target| crate::message::digest(target.domain.as_bytes()))
+            .collect();
         let evidence = &mut scan
             .evidence
             .as_mut()
@@ -1167,11 +1261,17 @@ impl Engine {
                 helo,
                 sender,
                 id,
-                (crate::evidence::Source::SuppliedEnvelope, &[], &[], None),
+                (
+                    crate::evidence::Source::SuppliedEnvelope,
+                    &[],
+                    &[],
+                    None,
+                    None,
+                ),
             )
             .await?;
         let variant = variants.remove(0);
-        Ok((variant.scan, variant.raw))
+        Ok((variant.scan, variant.raw.to_vec()))
     }
     pub(crate) async fn process_smtp(
         &self,
@@ -1180,9 +1280,13 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        context: (&[crate::config::Recipient], &crate::rbl::Report),
+        context: (
+            &[crate::config::Recipient],
+            &crate::rbl::Report,
+            Option<&crate::cluster::activation::Epoch>,
+        ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
-        let (recipients, early_rbl) = context;
+        let (recipients, early_rbl, epoch) = context;
         let scopes: Vec<_> = recipients
             .iter()
             .filter_map(|r| {
@@ -1204,6 +1308,7 @@ impl Engine {
                 &scopes,
                 recipients,
                 Some(early_rbl),
+                epoch,
             ),
         )
         .await
@@ -1220,10 +1325,15 @@ impl Engine {
             &[String],
             &[crate::config::Recipient],
             Option<&crate::rbl::Report>,
+            Option<&crate::cluster::activation::Epoch>,
         ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
+        if let Some(epoch) = context.4 {
+            epoch.validate()?;
+        }
+        scan.activation_epoch = context.4.cloned();
         scan.features_complete.get_or_insert(scan.complete);
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
@@ -1400,6 +1510,10 @@ impl Engine {
                 (sender, context.2, context.3),
             );
         }
+        // Slots outlive the cancellable join: a completed independent check
+        // must survive another check exhausting the enclosing deadline.
+        let mut completed_policy = None;
+        let mut completed_llm = None;
         let work = async {
             let authenticated =
                 AuthenticatedMessage::parse(raw).context("authentication parsing failed")?;
@@ -1407,12 +1521,12 @@ impl Engine {
                 scan.smtp_policy.status = crate::smtp_policy::PolicyStatus::Unavailable;
                 scan.smtp_policy.version = crate::smtp_policy::VERSION.into();
             }
-            let policy_work = async {
+            let policy_work = Self::checkpoint(&mut completed_policy, async {
                 match &self.smtp_policy {
                     Some(policy) => policy.check(ip, helo, sender, &self.config.hostname).await,
                     None => Default::default(),
                 }
-            };
+            });
             let auth_work = async {
                 let mut results = AuthenticationResults::new(&self.config.hostname);
                 scan.evidence.as_mut().unwrap().authentication.arc_state =
@@ -1526,10 +1640,28 @@ impl Engine {
                 }
                 Ok::<_, anyhow::Error>((arc, results))
             };
-            let (auth_result, policy_result) = tokio::join!(auth_work, policy_work);
-            policy_result.apply(&mut scan);
-            scan.smtp_policy = policy_result;
-            let (arc, results) = auth_result?;
+            // Reserve time for independent content checks even when DNS stalls.
+            // Unfinished authentication remains unavailable, never a failure vote.
+            let (auth_result, ()) = tokio::join!(
+                tokio::time::timeout(Duration::from_secs(2), auth_work),
+                policy_work
+            );
+            if let Some(policy_result) = completed_policy.take() {
+                policy_result.apply(&mut scan);
+                scan.smtp_policy = policy_result;
+            }
+            let authenticated_results = match auth_result {
+                Ok(Ok(results)) => Some(results),
+                _ => {
+                    scan.complete = false;
+                    scan.reasons.push(Signal {
+                        id: "checks_unavailable".into(),
+                        detail: "Authentication incomplete or timed out; independent content checks continue.".into(),
+                        weight: 0.0,
+                    });
+                    None
+                }
+            };
             scan.sender_history = Some(
                 crate::quality::history::inspect_with_context(
                     &self.config.data_dir,
@@ -1553,8 +1685,19 @@ impl Engine {
                     )
                     .await;
             }
-            self.reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
-                .await?;
+            if self
+                .reputation(ip, raw, helo, sender, &mut scan, &visual_domains)
+                .await
+                .is_err()
+            {
+                scan.complete = false;
+                scan.reasons.push(Signal {
+                    id: "checks_unavailable".into(),
+                    detail: "DNS reputation incomplete; independent content checks continue."
+                        .into(),
+                    weight: 0.0,
+                });
+            }
             self.score(&mut scan);
             let selection = self.config.llm.as_ref().map(|c| c.selection(&scan));
             let needs_llm = self.llm.is_some()
@@ -1580,7 +1723,7 @@ impl Engine {
             // Protection is advisory and does not change the LLM selection
             // score. Overlap these independent calls under the existing deadline.
             let llm_facts = crate::llm::gateway_facts(Some(&scan));
-            let (_, llm_result) = tokio::join!(
+            tokio::join!(
                 async {
                     if let (Some(runtime), Some(settings)) =
                         (&self.protection, &self.config.protection)
@@ -1592,83 +1735,101 @@ impl Engine {
                 },
                 async {
                     if needs_llm {
-                        Some(
-                            self.llm
-                                .as_ref()
-                                .unwrap()
-                                .classify_selected(raw, selection.unwrap(), Some(llm_facts))
-                                .await,
+                        Self::checkpoint(
+                            &mut completed_llm,
+                            self.llm.as_ref().unwrap().classify_selected(
+                                raw,
+                                selection.unwrap(),
+                                Some(llm_facts),
+                            ),
                         )
-                    } else {
-                        None
+                        .await;
                     }
                 }
             );
-            if let Some(result) = llm_result {
-                scan.llm = result;
-                if let Some(verdict) = &scan.llm.verdict {
-                    let weight = scan.llm.advisory_weight();
-                    scan.reasons.push(Signal {
-                        id: "llm_advisory".into(),
-                        detail: format!("Advisory LLM analysis: {}", verdict.explanation),
-                        weight,
-                    });
-                    self.score(&mut scan);
-                }
-                Self::check_llm(&mut scan);
+            if let Some(result) = completed_llm.take() {
+                Self::retain_llm(&mut scan, result);
+                self.score(&mut scan);
             }
+            let Some((arc, results)) = authenticated_results else {
+                return Ok(self.finish_unchecked(
+                    raw,
+                    scan.clone(),
+                    ip,
+                    id,
+                    started,
+                    (sender, context.2, context.3),
+                ));
+            };
             self.decide(&mut scan);
             // Header timing is the completed analysis, before wire rendering/ARC.
+            scan.subject_rewrite_ready = Some(arc.can_be_sealed() && self.arc_key.is_some());
             // The stored elapsed time below additionally includes these operations.
             scan.elapsed_ms = started.elapsed().as_millis() as u64;
-            self.variants(raw, &scan, sender, id, context.2, |scan, variant_id| {
-                let subject_tag = if scan
-                    .action
-                    .as_ref()
-                    .is_some_and(|a| a.effective == crate::actions::Action::Tag)
-                {
-                    match crate::mailing::category(scan, self.config.filter.threshold) {
-                        crate::mailing::Category::Spam => Some(message::SubjectTag::Spam),
-                        crate::mailing::Category::Publicity => Some(message::SubjectTag::Publicity),
-                        _ => None,
+            if let Some(report) = context.3 {
+                report.attach(&mut scan);
+            }
+            Ok::<_, anyhow::Error>(self.variants(
+                raw,
+                &scan,
+                sender,
+                id,
+                context.2,
+                |scan, variant_id| {
+                    let subject_tag = if scan
+                        .action
+                        .as_ref()
+                        .is_some_and(|a| a.effective == crate::actions::Action::Tag)
+                    {
+                        match crate::mailing::category(scan, self.config.filter.threshold) {
+                            crate::mailing::Category::Spam => Some(message::SubjectTag::Spam),
+                            crate::mailing::Category::Publicity => {
+                                Some(message::SubjectTag::Publicity)
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    let tag = subject_tag == Some(message::SubjectTag::Spam);
+                    let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
+                    // If the chain cannot be extended, preserve the signed subject and fail open.
+                    if (tag || pub_tag) && !arc.can_be_sealed() {
+                        anyhow::bail!("ARC chain cannot be extended");
                     }
-                } else {
-                    None
-                };
-                let tag = subject_tag == Some(message::SubjectTag::Spam);
-                let pub_tag = subject_tag == Some(message::SubjectTag::Publicity);
-                // If the chain cannot be extended, preserve the signed subject and fail open.
-                if (tag || pub_tag) && !arc.can_be_sealed() {
-                    anyhow::bail!("ARC chain cannot be extended");
-                }
-                scan.tagged = tag;
-                scan.pub_tagged = pub_tag;
-                let mut bytes = message::rewrite_with_tag(
-                    raw,
-                    subject_tag,
-                    &format!(
-                        "{}{}",
-                        self.headers(ip, variant_id, scan, context.3),
-                        results.to_header()
-                    ),
-                )?;
-                if let Some(key) = &self.arc_key
-                    && arc.can_be_sealed()
-                {
-                    let changed =
-                        AuthenticatedMessage::parse(&bytes).context("modified message parse")?;
-                    let signature = ArcSealer::from_key(rsa_key(key)?)
-                        .domain(self.config.filter.arc_domain.as_deref().unwrap())
-                        .selector(self.config.filter.arc_selector.as_deref().unwrap())
-                        .headers(crate::scan_headers::signed_fields())
-                        .seal(&changed, &results, &arc)?;
-                    bytes = [signature.to_header().as_bytes(), &bytes].concat();
-                }
-                Ok(bytes)
-            })
+                    scan.tagged = tag;
+                    scan.pub_tagged = pub_tag;
+                    crate::decision_record::record_subject_tag(scan);
+                    let mut bytes = message::rewrite_with_tag(
+                        raw,
+                        subject_tag,
+                        &format!(
+                            "{}{}",
+                            self.headers(ip, variant_id, scan, context.3),
+                            results.to_header()
+                        ),
+                    )?;
+                    if let Some(key) = &self.arc_key
+                        && arc.can_be_sealed()
+                    {
+                        let changed = AuthenticatedMessage::parse(&bytes)
+                            .context("modified message parse")?;
+                        let signature = ArcSealer::from_key(rsa_key(key)?)
+                            .domain(self.config.filter.arc_domain.as_deref().unwrap())
+                            .selector(self.config.filter.arc_selector.as_deref().unwrap())
+                            .headers(crate::scan_headers::signed_fields())
+                            .seal(&changed, &results, &arc)?;
+                        bytes = [signature.to_header().as_bytes(), &bytes].concat();
+                    }
+                    Ok(bytes)
+                },
+            ))
         };
         match tokio::time::timeout(Duration::from_secs(5), work).await {
-            Ok(Ok(mut variants)) => {
+            Ok(Ok(variants)) => {
+                // Rendering/capacity errors are SMTP deferrals, not missing
+                // detector evidence and not a reason to rescore the message.
+                let mut variants = variants?;
                 for v in &mut variants {
                     v.scan.elapsed_ms = started.elapsed().as_millis() as u64;
                 }
@@ -1677,6 +1838,7 @@ impl Engine {
                 Ok(variants)
             }
             _ => {
+                Self::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
                 scan.complete = false;
                 scan.tagged = false;
                 scan.pub_tagged = false;
@@ -1696,12 +1858,49 @@ impl Engine {
         sender: &str,
         id: &str,
         recipients: &[crate::config::Recipient],
+        render: impl FnMut(&mut Scan, &str) -> Result<Vec<u8>>,
+    ) -> Result<Vec<crate::store::QueueVariant>> {
+        // Signing and rendering a large fan-out must not monopolize a Tokio
+        // worker. Borrowed authenticated headers remain valid inside this scope.
+        let work = || self.variants_inner(raw, scan, sender, id, recipients, render);
+        if tokio::runtime::Handle::try_current()
+            .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
+        {
+            tokio::task::block_in_place(work)
+        } else {
+            work()
+        }
+    }
+    fn variants_inner(
+        &self,
+        raw: &[u8],
+        scan: &Scan,
+        sender: &str,
+        id: &str,
+        recipients: &[crate::config::Recipient],
         mut render: impl FnMut(&mut Scan, &str) -> Result<Vec<u8>>,
     ) -> Result<Vec<crate::store::QueueVariant>> {
-        use crate::{actions::Action, store::QueueVariant};
+        use crate::store::QueueVariant;
+        anyhow::ensure!(
+            recipients.len() <= self.config.smtp.max_recipients
+                && recipients.len() <= crate::queue_body::MAX_VARIANTS,
+            "too many queue recipients"
+        );
         let mut variants: Vec<QueueVariant> = Vec::new();
+        let render_started = Instant::now();
+        let mut budget = crate::queue_body::Budget::default();
+        let mut groups = std::collections::HashMap::<String, usize>::new();
+        let payload = (!recipients.is_empty())
+            .then(|| crate::queue_body::WireBody::shared_payload(raw))
+            .transpose()?;
+        let pack = |wire| match &payload {
+            Some(body) => crate::queue_body::WireBody::with_shared_payload(wire, body),
+            None => Ok(crate::queue_body::WireBody::from(wire)),
+        };
         let mut base = scan.clone();
+        crate::decision_record::record_analysis(&mut base, &self.config);
         base.action = Some(crate::actions::evaluate(scan, &self.config));
+        let recorded_at = crate::now();
         if (self.config.custom_filtering.is_some() || !self.config.preferences.mailboxes.is_empty())
             && !recipients.is_empty()
         {
@@ -1715,6 +1914,10 @@ impl Engine {
             let policy = self.config.custom_filtering.as_ref().unwrap_or(&empty);
             let common_prepared = crate::custom_filtering::Prepared::new(policy, &facts);
             for recipient in recipients {
+                anyhow::ensure!(
+                    render_started.elapsed() < Duration::from_secs(30),
+                    "queue render capacity deadline exceeded"
+                );
                 let effective = self.config.preferences.policy(policy, recipient);
                 let own_prepared = match &effective {
                     std::borrow::Cow::Owned(p) => {
@@ -1730,28 +1933,41 @@ impl Engine {
                     scan,
                     prepared,
                     recipient,
-                    crate::now(),
+                    recorded_at,
                 );
-                let category = assessment.category;
-                let tag = assessment.action.effective == Action::Tag;
-                if let Some(v) = variants.iter_mut().find(|v| {
-                    v.scan.delivery_classification == Some(category)
-                        && (v.scan.tagged || v.scan.pub_tagged) == tag
+                let mut s = base.clone();
+                s.delivery_classification = Some(assessment.category);
+                s.transaction_id = Some(id.into());
+                s.action = Some(assessment.action.clone());
+                crate::decision_record::record_recipient(
+                    &mut s,
+                    &self.config,
+                    Some(&assessment),
+                    recorded_at,
+                );
+                budget.metadata(&(recipient, &assessment))?;
+                let key = s
+                    .recipient_decision
+                    .as_ref()
+                    .expect("recorded recipient")
+                    .policy_sha256
+                    .clone();
+                if let Some(index) = groups.get(&key).copied().filter(|i| {
+                    variants[*i].recipients.len() < crate::queue_body::MAX_RECIPIENTS_PER_VARIANT
                 }) {
-                    v.recipients.push((recipient.clone(), Some(assessment)));
-                    // Distinct per-recipient actions are shown on the delivery, not as a global assertion.
-                    v.scan.action = None;
+                    variants[index]
+                        .recipients
+                        .push((recipient.clone(), Some(assessment)));
                 } else {
-                    let mut s = base.clone();
-                    s.delivery_classification = Some(category);
-                    s.transaction_id = Some(id.into());
-                    s.action = Some(assessment.action.clone());
+                    budget.metadata(&s)?;
                     let variant_id = if variants.is_empty() {
                         id.to_owned()
                     } else {
                         uuid::Uuid::new_v4().to_string()
                     };
-                    let wire = render(&mut s, &variant_id)?;
+                    let wire = pack(render(&mut s, &variant_id)?)?;
+                    budget.headers(&wire)?;
+                    groups.insert(key, variants.len());
                     variants.push(QueueVariant {
                         id: variant_id,
                         scan: s,
@@ -1761,15 +1977,39 @@ impl Engine {
                 }
             }
         } else {
-            let wire = render(&mut base, id)?;
-            variants.push(QueueVariant {
-                id: id.into(),
-                scan: base,
-                raw: wire,
-                recipients: recipients.iter().cloned().map(|r| (r, None)).collect(),
-            });
+            crate::decision_record::record_recipient(&mut base, &self.config, None, recorded_at);
+            let chunks: Vec<_> = if recipients.is_empty() {
+                vec![recipients]
+            } else {
+                recipients
+                    .chunks(crate::queue_body::MAX_RECIPIENTS_PER_VARIANT)
+                    .collect()
+            };
+            for chunk in chunks {
+                anyhow::ensure!(
+                    render_started.elapsed() < Duration::from_secs(30),
+                    "queue render capacity deadline exceeded"
+                );
+                let mut s = base.clone();
+                if recipients.len() > crate::queue_body::MAX_RECIPIENTS_PER_VARIANT {
+                    s.transaction_id = Some(id.into());
+                }
+                let variant_id = if variants.is_empty() {
+                    id.to_owned()
+                } else {
+                    uuid::Uuid::new_v4().to_string()
+                };
+                budget.metadata(&(&s, chunk))?;
+                let wire = pack(render(&mut s, &variant_id)?)?;
+                budget.headers(&wire)?;
+                variants.push(QueueVariant {
+                    id: variant_id,
+                    scan: s,
+                    raw: wire,
+                    recipients: chunk.iter().cloned().map(|r| (r, None)).collect(),
+                });
+            }
         }
-        anyhow::ensure!(variants.len() <= 6, "too many policy wire variants");
         Ok(variants)
     }
     fn headers(
@@ -1795,11 +2035,15 @@ impl Engine {
         ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
         self.score(&mut scan);
+        scan.subject_rewrite_ready = Some(false);
         scan.tagged = false;
         scan.pub_tagged = false;
         self.decide(&mut scan);
         scan.action = Some(crate::actions::evaluate(&scan, &self.config));
         scan.elapsed_ms = started.elapsed().as_millis() as u64;
+        if let Some(report) = context.2 {
+            report.attach(&mut scan);
+        }
         self.variants(raw, &scan, context.0, id, context.1, |scan, variant_id| {
             message::rewrite(raw, false, &self.headers(ip, variant_id, scan, context.2))
         })
@@ -1823,6 +2067,529 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn completed_checks_survive_sibling_cancellation_and_reach_receipt_headers() {
+        use crate::llm::{Category, LlmResult, LlmStatus, Verdict};
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        let engine = Engine::new(Arc::new(config)).unwrap();
+        let raw = b"From: notices@example.org\r\nTo: reader@example.net\r\nSubject: Receipt\r\n\r\nYour order has shipped.\r\n";
+        let mut scan = engine.offline(raw);
+        scan.llm.status = LlmStatus::Unavailable;
+        let mut completed_llm = None;
+        let mut completed_policy = None;
+        let result = tokio::time::timeout(Duration::from_millis(10), async {
+            tokio::join!(
+                Engine::checkpoint(
+                    &mut completed_llm,
+                    std::future::ready(LlmResult {
+                        status: LlmStatus::Complete,
+                        verdict: Some(Verdict {
+                            category: Category::Legitimate,
+                            spam_probability: 0.1,
+                            confidence: 0.95,
+                            explanation: "Synthetic completed receipt analysis".into()
+                        }),
+                        ..Default::default()
+                    })
+                ),
+                Engine::checkpoint(
+                    &mut completed_policy,
+                    std::future::ready(crate::smtp_policy::PolicyResult {
+                        version: crate::smtp_policy::VERSION.into(),
+                        status: crate::smtp_policy::PolicyStatus::Complete,
+                        ..Default::default()
+                    })
+                ),
+                std::future::pending::<()>(),
+            );
+        })
+        .await;
+        assert!(result.is_err());
+        Engine::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
+        Engine::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
+        assert_eq!(
+            scan.reasons
+                .iter()
+                .filter(|r| r.id == "llm_advisory")
+                .count(),
+            1
+        );
+        scan.complete = false;
+        scan.reasons.push(Signal {
+            id: "checks_unavailable".into(),
+            detail: "Synthetic interrupted sibling".into(),
+            weight: 0.,
+        });
+        let variants = engine
+            .finish_unchecked(
+                raw,
+                scan,
+                "192.0.2.1".parse().unwrap(),
+                "checkpoint-test",
+                Instant::now(),
+                ("notices@example.org", &[], None),
+            )
+            .unwrap();
+        let scan = &variants[0].scan;
+        assert_eq!(scan.llm.status, LlmStatus::Complete);
+        assert_eq!(
+            scan.smtp_policy.status,
+            crate::smtp_policy::PolicyStatus::Complete
+        );
+        assert_eq!(
+            scan.evidence.as_ref().unwrap().llm.state,
+            crate::evidence::State::Complete
+        );
+        assert!(!scan.complete && !scan.tagged && !scan.pub_tagged);
+        assert!(
+            scan.scoring
+                .as_ref()
+                .unwrap()
+                .contributions
+                .iter()
+                .any(|c| c.id == "llm_advisory" && c.retained == Some(-0.5))
+        );
+        assert!(scan.recipient_decision.is_some());
+        let wire = variants[0].raw.to_vec();
+        assert!(
+            String::from_utf8_lossy(&wire)
+                .contains("X-NoiseFence-LLM: status=complete; verdict=legitimate;")
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupted_check_does_not_publish_an_unfinished_result() {
+        let mut slot = None;
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(10),
+                Engine::checkpoint(&mut slot, std::future::pending::<crate::llm::LlmResult>())
+            )
+            .await
+            .is_err()
+        );
+        assert!(slot.is_none());
+    }
+
+    #[test]
+    fn runtime_generations_reserve_before_loading_and_release_failed_builds() {
+        let cfg = Arc::new(Config::load(Path::new("config/development.toml")).unwrap());
+        let first = Engine::new(cfg.clone()).unwrap();
+        let second = first.reconfigure(cfg.clone()).unwrap();
+        let third = second.reload_cluster_models(cfg.clone()).unwrap();
+        assert_eq!(first.generations.available_permits(), 0);
+        let mut missing = (*cfg).clone();
+        missing.filter.model = Some(Path::new("/nonexistent/noisefence-generation-fixture").into());
+        let missing = Arc::new(missing);
+        let busy = third.reload_cluster_models(missing.clone()).err().unwrap();
+        assert!(busy.is::<RuntimeGenerationBusy>());
+        drop(second);
+        let failed = third.reload_cluster_models(missing).err().unwrap();
+        assert!(!failed.is::<RuntimeGenerationBusy>());
+        assert_eq!(third.generations.available_permits(), 1);
+        let replacement = third.reconfigure(cfg).unwrap();
+        assert_eq!(first.generations.available_permits(), 0);
+        drop((third, replacement));
+        assert_eq!(
+            first.generations.available_permits(),
+            MAX_RUNTIME_GENERATIONS - 1
+        );
+    }
+
+    #[test]
+    fn cancelled_native_worker_keeps_its_generation_after_the_engine_is_dropped() {
+        // Hold the only blocking thread so cancellation occurs after the real
+        // native worker is queued but before it can finish its owned runtime.
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap()
+            .block_on(async {
+                let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+                cfg.native_filter = Some(Default::default());
+                let cfg = Arc::new(cfg);
+                let engine = Engine::new(cfg.clone()).unwrap();
+                let second = engine.reconfigure(cfg.clone()).unwrap();
+                let third = second.reconfigure(cfg.clone()).unwrap();
+                let generation = Arc::downgrade(&engine._generation);
+                let native = engine.native_filter.as_ref().unwrap().clone();
+                let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+                let (release_tx, release_rx) = std::sync::mpsc::channel();
+                let blocked = tokio::task::spawn_blocking(move || {
+                    let _ = started_tx.send(());
+                    let _ = release_rx.recv();
+                });
+                started_rx.await.unwrap();
+                let worker = native.clone();
+                let job = tokio::spawn(async move {
+                    worker
+                        .inspect(
+                            b"From: a@example.test\r\nSubject: Fixture\r\n\r\nHello",
+                            &[],
+                        )
+                        .await
+                });
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while Arc::strong_count(&native) < 4 {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                job.abort();
+                assert!(job.await.unwrap_err().is_cancelled());
+                drop(native);
+                drop(engine);
+                assert!(generation.upgrade().is_some());
+                assert!(
+                    third
+                        .reconfigure(cfg.clone())
+                        .err()
+                        .unwrap()
+                        .is::<RuntimeGenerationBusy>()
+                );
+                release_tx.send(()).unwrap();
+                blocked.await.unwrap();
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while generation.upgrade().is_some() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                let next = third.reconfigure(cfg).unwrap();
+                assert_eq!(next.generations.available_permits(), 0);
+            });
+    }
+
+    #[test]
+    fn more_than_six_distinct_policies_share_the_body_without_merging_receipts() {
+        use crate::custom_filtering::{Binding, Ordering, Policy, Profile};
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.smtp.max_recipients = 1000;
+        cfg.domains[0].accept_all_recipients = true;
+        let recipients: Vec<_> = (0..1000)
+            .map(|i| cfg.recipient(&format!("r{i}@example.test")).unwrap())
+            .collect();
+        cfg.custom_filtering = Some(Policy {
+            ordering: Ordering::Scoped,
+            profiles: vec![Profile {
+                id: "same".into(),
+                name: "Same actions".into(),
+                threshold: Some(99.),
+                require_corroboration: true,
+                spam: crate::actions::Action::Deliver,
+                publicity: crate::actions::Action::Deliver,
+                review: crate::actions::Action::Deliver,
+                quarantine_days: 7,
+            }],
+            bindings: recipients
+                .iter()
+                .map(|r| Binding {
+                    scope: r.address.clone(),
+                    profile: "same".into(),
+                })
+                .collect(),
+            ..Default::default()
+        });
+        let engine = Engine::new(Arc::new(cfg)).unwrap();
+        let raw = b"Subject: test\r\n\r\nunchanged body\r\n";
+        let scan = Scan {
+            score: 1.,
+            complete: true,
+            features_complete: Some(true),
+            ..Default::default()
+        };
+        let variants = engine
+            .variants(
+                raw,
+                &scan,
+                "s@example.org",
+                "fixture",
+                &recipients,
+                |scan, id| {
+                    message::rewrite(
+                        raw,
+                        false,
+                        &engine.headers("192.0.2.1".parse().unwrap(), id, scan, None),
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 1000);
+        let body = variants[0].raw.payload_identity();
+        let hashes = variants
+            .iter()
+            .map(|v| {
+                v.scan
+                    .recipient_decision
+                    .as_ref()
+                    .unwrap()
+                    .policy_sha256
+                    .clone()
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(hashes.len(), 1000);
+        for (v, r) in variants.iter().zip(&recipients) {
+            assert_eq!(v.raw.payload_identity(), body);
+            assert_eq!(v.recipients.len(), 1);
+            assert_eq!(v.recipients[0].0.address, r.address);
+            assert!(
+                v.scan
+                    .recipient_decision
+                    .as_ref()
+                    .unwrap()
+                    .policy_trace
+                    .as_ref()
+                    .unwrap()
+                    .profiles
+                    .iter()
+                    .any(|p| p.scope == r.address)
+            );
+            let wire = v.raw.to_vec();
+            assert_eq!(
+                message::fields(&wire).unwrap().1,
+                message::fields(raw).unwrap().1
+            );
+            assert!(!String::from_utf8_lossy(&wire).contains("@example.test"));
+        }
+    }
+    #[test]
+    fn identical_policies_split_at_the_existing_replica_recipient_bound() {
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.smtp.max_recipients = 1000;
+        cfg.domains[0].accept_all_recipients = true;
+        let recipients: Vec<_> = (0..1000)
+            .map(|i| cfg.recipient(&format!("r{i}@example.test")).unwrap())
+            .collect();
+        let engine = Engine::new(Arc::new(cfg)).unwrap();
+        let raw = b"Subject: test\r\n\r\nbody\r\n";
+        let scan = Scan {
+            score: 1.,
+            complete: true,
+            ..Default::default()
+        };
+        let variants = engine
+            .variants(
+                raw,
+                &scan,
+                "s@example.org",
+                "fixture",
+                &recipients,
+                |scan, id| {
+                    message::rewrite(
+                        raw,
+                        false,
+                        &engine.headers("192.0.2.1".parse().unwrap(), id, scan, None),
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 10);
+        assert!(
+            variants.iter().all(|v| v.recipients.len() == 100
+                && v.scan.transaction_id.as_deref() == Some("fixture"))
+        );
+        assert!(
+            variants
+                .iter()
+                .all(|v| v.raw.payload_identity() == variants[0].raw.payload_identity())
+        );
+    }
+    #[test]
+    fn fallback_wire_copy_cannot_claim_a_requested_tag_was_applied() {
+        use crate::actions::{Action, Policy};
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.filter.mode = crate::config::Mode::Enforce;
+        cfg.filter.partial_actions = true;
+        cfg.actions = Some(Policy {
+            spam: Action::Quarantine,
+            publicity: Action::Deliver,
+            malware: Action::Quarantine,
+            quarantine_days: 7,
+        });
+        cfg.custom_filtering = Some(serde_json::from_value(serde_json::json!({
+            "rules":[{"id":"test-tag","name":"Test tag","enabled":true,"priority":1,"scope":"*",
+                "expires":null,"any":false,"conditions":[{"field":"recipient","op":"equals","value":"alice@example.test"}],
+                "category":"spam","action":"tag","stop":true}]
+        })).unwrap());
+        // Exercise the defensive renderer even with unchecked installation gates.
+        let cfg = Arc::new(cfg);
+        let engine = Engine::new(cfg.clone()).unwrap();
+        let recipients = [cfg.recipient("alice@example.test").unwrap()];
+        let raw = b"From: sender@example.org\r\nSubject: Original subject\r\n\r\nOriginal body\r\n";
+        let epoch = crate::cluster::activation::Epoch {
+            sequence: 7,
+            revision: 12,
+            digest: "a".repeat(64),
+        };
+        let scan = Scan {
+            activation_epoch: Some(epoch.clone()),
+            complete: false,
+            features_complete: Some(true),
+            ..Default::default()
+        };
+        let variants = engine
+            .finish_unchecked(
+                raw,
+                scan,
+                "192.0.2.1".parse().unwrap(),
+                "test-fallback",
+                Instant::now(),
+                ("sender@example.org", &recipients, None),
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 1);
+        let variant = &variants[0];
+        crate::scoring::validate_transport(&variant.scan).unwrap();
+        assert_eq!(
+            crate::decision_record::recorded_activation(&variant.scan),
+            Some(&epoch)
+        );
+        let record = variant.scan.recipient_decision.as_ref().unwrap();
+        let action = record.assessment.action.as_ref().unwrap();
+        assert_eq!(action.requested, Action::Tag);
+        assert_eq!(action.effective, Action::Deliver);
+        assert_eq!(action.reason, "subject_rewrite_unavailable");
+        assert!(
+            action
+                .coverage
+                .as_ref()
+                .unwrap()
+                .missing
+                .contains(&crate::action_coverage::Requirement::SubjectRewrite)
+        );
+        assert!(!variant.scan.tagged);
+        let raw_copy = variant.raw.to_vec();
+        let wire = String::from_utf8_lossy(&raw_copy);
+        assert!(wire.contains("Subject: Original subject\r\n"));
+        assert!(wire
+            .replace("\r\n\t", " ")
+            .contains("X-NoiseFence-Delivery-Policy: requested=tag; effective=deliver; reason=subject_rewrite_unavailable; subject-tag=none;"));
+        assert!(wire.contains("missing=subject_rewrite;"));
+        assert_eq!(
+            message::fields(&raw_copy).unwrap().1,
+            message::fields(raw).unwrap().1
+        );
+    }
+
+    #[tokio::test]
+    async fn receipt_variants_separate_actions_and_share_only_identical_policies() {
+        use crate::{
+            actions::{Action, Policy as Actions},
+            custom_filtering::{Binding, Policy, Profile},
+        };
+        let mut cfg = Config::load(Path::new("config/development.toml")).unwrap();
+        cfg.filter.mode = crate::config::Mode::Enforce;
+        cfg.filter.require_corroboration = false;
+        cfg.actions = Some(Actions {
+            spam: Action::Quarantine,
+            publicity: Action::Deliver,
+            malware: Action::Quarantine,
+            quarantine_days: 14,
+        });
+        let profile = |id: &str, spam| Profile {
+            id: id.into(),
+            name: id.into(),
+            threshold: None,
+            require_corroboration: false,
+            spam,
+            publicity: Action::Deliver,
+            review: Action::Deliver,
+            quarantine_days: 14,
+        };
+        cfg.custom_filtering = Some(Policy {
+            profiles: vec![
+                profile("hold", Action::Quarantine),
+                profile("accept", Action::Deliver),
+            ],
+            bindings: vec![
+                Binding {
+                    scope: "*".into(),
+                    profile: "hold".into(),
+                },
+                Binding {
+                    scope: "bob@example.test".into(),
+                    profile: "accept".into(),
+                },
+            ],
+            ..Default::default()
+        });
+        let recipients = vec![
+            cfg.recipient("alice@example.test").unwrap(),
+            cfg.recipient("bob@example.test").unwrap(),
+            cfg.recipient("alice@example.test").unwrap(),
+        ];
+        let engine = Engine::new(Arc::new(cfg.clone())).unwrap();
+        let mut scan = Scan {
+            score: 99.,
+            complete: true,
+            model: "fixture".into(),
+            ..Default::default()
+        };
+        scan.decision = Some(crate::fusion::runtime::Decision::legacy(
+            &scan,
+            cfg.filter.threshold,
+        ));
+        scan.analysis_policy = Some(crate::diagnostics::AnalysisPolicy::capture(&cfg));
+        let copies = engine
+            .variants(
+                b"Subject: x\r\n\r\nbody",
+                &scan,
+                "sender@example.org",
+                "test",
+                &recipients,
+                |scan, id| {
+                    message::rewrite(
+                        b"Subject: x\r\n\r\nbody",
+                        false,
+                        &engine.headers("192.0.2.1".parse().unwrap(), id, scan, None),
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(copies.len(), 2);
+        assert_eq!(copies[0].recipients.len(), 2);
+        assert_eq!(copies[1].recipients.len(), 1);
+        for (copy, expected) in copies.iter().zip([Action::Quarantine, Action::Deliver]) {
+            assert_eq!(copy.scan.action.as_ref().unwrap().effective, expected);
+            let record = copy.scan.recipient_decision.as_ref().unwrap();
+            assert_eq!(
+                record.assessment.action.as_ref().unwrap().effective,
+                expected
+            );
+            let wire = String::from_utf8(copy.raw.to_vec())
+                .unwrap()
+                .replace("\r\n\t", " ");
+            let value = serde_json::to_value(expected).unwrap();
+            assert!(
+                wire.replace("\r\n\t", " ")
+                    .contains(&format!("effective={};", value.as_str().unwrap()))
+            );
+            assert!(wire.contains("X-NoiseFence-Classification: spam\r\n"));
+            assert!(wire.contains("X-NoiseFence-Score: 99.0\r\n"));
+            assert!(!wire.contains("alice@"));
+            assert!(!wire.contains("bob@"));
+        }
+        assert_ne!(
+            copies[0]
+                .scan
+                .recipient_decision
+                .as_ref()
+                .unwrap()
+                .policy_sha256,
+            copies[1]
+                .scan
+                .recipient_decision
+                .as_ref()
+                .unwrap()
+                .policy_sha256
+        );
+    }
+
     #[test]
     fn visual_links_keep_a_reputation_slot_after_envelope_identities() {
         let raw = format!(
@@ -2014,6 +2781,64 @@ mod tests {
         );
         assert!(reputation_domains(b"Subject: x\r\n\r\n", "", "[IPv6:2001:db8::1]", "").is_empty());
     }
+    #[test]
+    fn scoring_replay_deduplicates_inputs_and_preserves_receipt_accounting() {
+        let config = Config::load(Path::new("config/development.toml")).unwrap();
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let mut scan = engine.extract(b"Subject: fixture\r\n\r\nUrgent: verify your account");
+        engine.score(&mut scan);
+        let initial = scan.score;
+        scan.reasons.extend(scan.reasons.clone());
+        engine.score(&mut scan);
+        assert_eq!(scan.score, initial);
+        let ledger = scan.scoring.clone().unwrap();
+        engine.score(&mut scan);
+        assert_eq!(scan.scoring.as_ref(), Some(&ledger));
+        assert!(crate::detection_diagnostics::breakdown(&scan).matches_recorded_score);
+        crate::decision_record::record_recipient(&mut scan, &config, None, 42);
+        let view = crate::diagnostics::Analysis::from(scan.clone());
+        assert_eq!(view.scoring, Some(ledger));
+        assert_eq!(view.assessment.score.raw, Some(initial));
+        let encoded = serde_json::to_string(&scan).unwrap();
+        let restored: Scan = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            crate::assessment::historical(&restored).score.raw,
+            Some(initial)
+        );
+    }
+
+    #[test]
+    fn malformed_scoring_input_is_unavailable_across_serialization_and_policy() {
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.filter.resolve_uncertain_by_score = true;
+        config.filter.partial_actions = true;
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let mut scan = engine.extract(b"Subject: fixture\r\n\r\nUrgent");
+        scan.reasons.push(Signal {
+            id: "urgency".into(),
+            detail: "conflict".into(),
+            weight: 2.,
+        });
+        engine.score(&mut scan);
+        assert!(!scan.complete);
+        assert_eq!(scan.scoring.as_ref().unwrap().score, None);
+        crate::decision::resolve_by_score(&mut scan, true, config.filter.threshold);
+        crate::decision_record::record_recipient(&mut scan, &config, None, 42);
+        let restored: Scan = serde_json::from_str(&serde_json::to_string(&scan).unwrap()).unwrap();
+        let view = crate::assessment::historical(&restored);
+        crate::scoring::validate_transport(&restored).unwrap();
+        assert_eq!(view.score.value, None);
+        assert!(
+            view.incomplete_reasons
+                .iter()
+                .any(|r| r == "score_combination_invalid")
+        );
+        assert_eq!(
+            crate::actions::evaluate(&restored, &config).effective,
+            crate::actions::Action::Deliver
+        );
+    }
+
     #[cfg(feature = "semantic")]
     #[test]
     fn semantic_score_is_added_once_and_failure_preserves_lexical_fallback() {

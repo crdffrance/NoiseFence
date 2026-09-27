@@ -236,6 +236,9 @@ async fn session(
     mut rbl: Arc<crate::rbl::Runtime>,
     verification: Arc<crate::recipient_verification::Runtime>,
 ) -> Result<()> {
+    // Managed connections own an engine only between MAIL and transaction reset.
+    // An idle socket must not keep retired models resident across policy saves.
+    let mut transaction_engine = control.is_none().then_some(state.engine);
     let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
     reply(&mut io, &format!("220 {} ESMTP\r\n", cfg.hostname)).await?;
@@ -243,6 +246,7 @@ async fn session(
     let mut extended = false;
     let mut encrypted = false;
     let mut from: Option<String> = None;
+    let mut activation_epoch = None;
     let mut recipients: Vec<Recipient> = Vec::new();
     let mut errors = 0;
     let mut admission_budget = crate::smtp_admission::DelayBudget::default();
@@ -250,6 +254,10 @@ async fn session(
     let mut admission_reports = Vec::new();
     let mut admission_reputation: Option<crate::rbl::Report> = None;
     for _ in 0..1000 {
+        if control.is_some() && from.is_none() {
+            transaction_engine = None;
+            activation_epoch = None;
+        }
         let cfg = state.config.clone();
         let bytes = match line(&mut io, 512, cfg.smtp.command_timeout_seconds).await {
             Ok(Some(b)) => b,
@@ -267,6 +275,14 @@ async fn session(
             }
         };
         let (verb, arg) = command.split_once(' ').unwrap_or((command, ""));
+        if verb.eq_ignore_ascii_case("MAIL") && !state.store.activation.ready() {
+            reply(
+                &mut io,
+                "451 4.3.2 Policy activation in progress; retry later\r\n",
+            )
+            .await?;
+            continue;
+        }
         // Read the current revision when MAIL arrives, even on a connection that
         // was idle while an administrator applied new settings.
         if from.is_none()
@@ -282,8 +298,9 @@ async fn session(
                 continue;
             }
             let snapshot = control.snapshot();
+            activation_epoch = snapshot.activation_epoch.clone();
             state.config = snapshot.config.clone();
-            state.engine = snapshot.engine.clone();
+            transaction_engine = Some(snapshot.engine.clone());
             rbl = snapshot.rbl.clone();
         }
         let cfg = state.config.clone();
@@ -383,9 +400,7 @@ async fn session(
                     continue;
                 }
                 if available_bytes(&state.store.root)?
-                    < cfg.smtp.minimum_free_bytes
-                        + cfg.smtp.max_message_bytes as u64
-                            * if cfg.custom_filtering.is_some() { 6 } else { 1 }
+                    < cfg.smtp.minimum_free_bytes + cfg.smtp.max_message_bytes as u64
                 {
                     reply(&mut io, "452 4.3.1 Insufficient storage\r\n").await?;
                     continue;
@@ -597,7 +612,10 @@ async fn session(
                 let sender = from.take().unwrap();
                 let recipients = std::mem::take(&mut recipients);
                 let recipient_count = recipients.len();
-                let comparison = state.engine.rspamd.begin(
+                let engine = transaction_engine
+                    .as_ref()
+                    .context("Missing SMTP transaction engine")?;
+                let comparison = engine.rspamd.begin(
                     &raw,
                     crate::rspamd::Envelope {
                         ip: peer.ip(),
@@ -608,15 +626,14 @@ async fn session(
                     },
                     state.store.clone(),
                 );
-                let result = state
-                    .engine
+                let result = engine
                     .process_smtp(
                         &raw,
                         peer.ip(),
                         &helo,
                         &sender,
                         &id,
-                        (&recipients, &early_rbl),
+                        (&recipients, &early_rbl, activation_epoch.as_ref()),
                     )
                     .await;
                 let result = match result {
@@ -664,7 +681,14 @@ async fn session(
                                 }),
                             }
                         });
-                        let accepted = state.store.enqueue_variants(sender, variants).await;
+                        let accepted = state
+                            .store
+                            .enqueue_variants_with_reserve(
+                                sender,
+                                variants,
+                                cfg.smtp.minimum_free_bytes,
+                            )
+                            .await;
                         if let Some(ticket) = comparison.filter(|_| accepted.is_ok()) {
                             ticket.commit(ids);
                         }

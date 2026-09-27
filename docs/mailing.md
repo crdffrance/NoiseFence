@@ -32,7 +32,7 @@ After restarting, activate **Filters → Ads and newsletters** in the console an
 
 In global mode `observe`, the new PUB messages appear in history and statistics, without changing the object on delivery. In `tag` mode, `tag_subject=true` adds `[PUB]` only after validation of the Proton-specific prefix and ARC configuration. A `[SPAM]` ratio does not replace a `[PUB]` ratio: you must repeat the same delivery cases with this exact prefix, the current domains and host name, for less than 30 days. `tag_subject` can be turned off to keep the PUB ranking without its prefix. Never make a report to bypass this validation.
 
-Marking retains the byte body for byte, processes RFC 2047 objects, avoids repeated prefixes and replaces an old prefix managed when the decision requires it. Incoming `X-NoiseFence-*` results are removed; the local result `X-NoiseFence-Category` is covered by ARC. Editing the object may invalidate DKIM; ARC does not guarantee acceptance by Proton. An error in analysis or sealing transmits the message without new prefixes.
+Subject tagging preserves the message body byte for byte, decodes RFC 2047 subjects, avoids duplicate prefixes and replaces a NoiseFence-managed prefix when required by the new decision. Incoming `X-NoiseFence-*` fields are removed; the generated version 11 diagnostic headers, including `X-NoiseFence-Classification` and `X-NoiseFence-Verdict`, are covered by ARC when sealing succeeds. Editing the subject may invalidate DKIM, and ARC does not guarantee acceptance by Proton. If analysis or sealing fails, the message is relayed without a new prefix.
 
 ## Console, API and feedback
 

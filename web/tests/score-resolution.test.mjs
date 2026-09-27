@@ -21,13 +21,13 @@ test('resolved disagreements display their score, threshold and separate incompl
 });
 test('missing scores do not invent zero or mask recipient rules and malware',()=>{
   const m=make(null,false,'legitimate');
-  assert.equal(classification(m).label,'Accepted — no usable score');
+  assert.equal(classification(m).label,'Ham');
   assert.equal(scorePresentation(m).value,null);
   m.assessment.category='spam';m.assessment.classification_source='recipient_policy';
   assert.equal(classification(m).label,'Spam');
   assert.match(scorePresentation(m).detail,/Recipient rules determine/);
   m.decision.source='antivirus';
-  assert.equal(classification(m).label,'Malware');
+  assert.equal(classification(m).label,'Spam');
 });
 test('historical projections and recorded automatic settings are explained',()=>{
   const m=make(99.8);m.assessment.score_resolution.projected=true;

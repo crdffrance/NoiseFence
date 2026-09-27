@@ -52,6 +52,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
+import { ModelSources } from './model-sources';
+import { ModelCatalog } from './model-catalog';
+import { ActivationPanel, useActivation } from './activation-view';
+import { saveNotice, savesBlocked, type SaveResult } from './activation';
 
 export const navigation = [
   { id: 'messages', label: 'Messages', icon: Activity },
@@ -75,6 +79,7 @@ type Domain = {
   aliases: Record<string, string>;
 };
 type Filters = {
+  partial_actions?: boolean;
   resolve_uncertain_by_score?: boolean;
   mode: 'observe' | 'tag' | 'enforce';
   rule_weights: Record<string, number>;
@@ -168,6 +173,7 @@ type Metrics = {
   };
 };
 const filterSections = [
+  { id: 'models', label: 'Model files', description: 'Installed artifacts and explicit updates', icon: <Server size={19} /> },
   {
     id: 'admission',
     label: 'SMTP admission',
@@ -234,7 +240,7 @@ type FilterSection = (typeof filterSections)[number]['id'];
 const modules: {
   key: keyof Omit<
     Filters,
-    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights' | 'resolve_uncertain_by_score'
+    'mode' | 'threshold' | 'require_corroboration' | 'rule_weights' | 'resolve_uncertain_by_score' | 'partial_actions'
   >;
   title: string;
   description: string;
@@ -436,6 +442,9 @@ export function AdminConsole({
   onApplied: () => Promise<void>;
   onDomain: (name: string) => void;
 }) {
+  const activation = useActivation(user, true);
+  const blocked = savesBlocked(activation.view, activation.error);
+  const [modelChoice, setModelChoice] = useState<{digest:string;catalogId?:string;quality?:Settings['quality_candidate'];draft:string;revision:number} | null>(null);
   const [config, setConfig] = useState<Configuration | null>(null),
     [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(''),
@@ -454,10 +463,13 @@ export function AdminConsole({
   const [filterQuery, setFilterQuery] = useState('');
   const [accountQuery, setAccountQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
+  const modelDraft = draft ? JSON.stringify(normalize(draft)) : '';
+  const modelSelection = modelChoice?.draft === modelDraft && modelChoice?.revision === config?.revision ? modelChoice.digest : null;
+  const catalogSelection = modelSelection ? modelChoice?.catalogId : undefined;
   const dirty =
     !!config &&
     !!draft &&
-    JSON.stringify(config.settings) !== JSON.stringify(draft);
+    (JSON.stringify(config.settings) !== JSON.stringify(draft) || modelSelection !== null);
   useEffect(() => {
     onDirty(dirty);
     const leave = (e: BeforeUnloadEvent) => {
@@ -530,22 +542,31 @@ export function AdminConsole({
     const c = await api<Configuration>('/admin/config');
     setConfig(c);
     setDraft(c.settings);
+    setModelChoice(null);
     setReview(false);
     setEpoch((e) => e + 1);
   }
   async function save() {
-    if (!config || !draft) return;
-    await api(
+    if (!config || !draft || blocked) return;
+    const result = await api<SaveResult>(
       '/admin/config',
-      { revision: config.revision, settings: normalize(draft) },
+      { revision: config.revision, settings: catalogSelection ? {...normalize(draft),quality_candidate:modelChoice?.quality ?? null} : normalize(draft), installation_models_sha256: catalogSelection ? null : modelSelection, catalog_models: catalogSelection ? {id:catalogSelection,sha256:modelSelection} : null },
       user.csrf,
     );
     await reload();
-    setNotice(
-      "Applied settings. They will be used as soon as the next message is received.",
-    );
-    await onApplied();
+    await activation.refresh();
+    setNotice(saveNotice(result));
+    if (!result.staged) await onApplied();
   }
+  useEffect(() => {
+    if (!config || dirty || busy || !activation.view || activation.view.pending ||
+        activation.view.installed_revision === config.revision) return;
+    let active = true;
+    api<Configuration>('/admin/config').then(c => {
+      if (active) { setConfig(c); setDraft(c.settings); setReview(false); setNotice('Installed configuration refreshed.'); void onApplied().catch(e => setError(e.message)); }
+    }).catch(e => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [activation.view, config, dirty, busy, onApplied]);
   if (!config || !draft)
     return (
       <div className="panel">
@@ -601,6 +622,7 @@ export function AdminConsole({
   );
   return (
     <div className="admin-console">
+      <ActivationPanel state={activation} user={user} administrator />
       <div className="page-heading">
         <div>
           <p className="eyebrow">
@@ -956,7 +978,7 @@ export function AdminConsole({
         <>
           <section className="filter-guide" aria-label="Filtering overview">
             <div><span className="eyebrow">ONE POLICY, CLEAR OUTCOMES</span><h2>Control how mail is assessed and delivered</h2><p>Set the organization policy, then refine it for domains and recipients. The risk index, classification and delivery action remain separate.</p></div>
-            <div className="filter-guide-state"><span className="small">Currently applied</span><strong>{config.settings.filters.mode === 'observe' ? 'Observation' : 'Actions enabled'}</strong><span>{config.settings.filters.mode === 'observe' ? 'Decisions recorded · mail delivered unchanged' : 'Configured actions apply to new mail'}</span></div>
+            <div className="filter-guide-state"><span className="small">{!activation.view || activation.error ? 'Installed policy · readiness unavailable' : activation.view.smtp_ready ? 'Installed policy' : 'Installed policy · SMTP paused'}</span><strong>{config.settings.filters.mode === 'observe' ? 'Observation' : 'Actions enabled'}</strong><span>{config.settings.filters.mode === 'observe' ? 'Decisions recorded · mail delivered unchanged' : 'Configured actions apply to new mail'}</span></div>
           </section>
           <div className="policy-summary">
             <span>
@@ -983,7 +1005,7 @@ export function AdminConsole({
             <span className={`status ${dirty ? 'review' : 'good'}`}>
               {dirty
                 ? "Unsaved changes"
-                : "Saved configuration"}
+                : activation.view?.pending ? "Activation pending" : "Installed configuration"}
             </span>
           </div>
           <label className="filter-search"><Search size={18} aria-hidden="true"/><span className="sr-only">Find a filter setting</span><Input type="search" placeholder="Find settings: RBL, quarantine, LLM, OCR, budgets…" value={filterQuery} onChange={e => setFilterQuery(e.target.value)}/>{filterQuery && <button type="button" onClick={() => setFilterQuery('')} aria-label="Clear settings search">Clear</button>}</label>
@@ -1088,6 +1110,13 @@ export function AdminConsole({
               csrf={user.csrf}
             />
           </div>
+          <div id="filters-panel-models" role="tabpanel" aria-labelledby="filters-tab-models" hidden={filterSection !== 'models'} className="filter-section">
+            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
+            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
+              if (!choice) {setModelChoice(null);return;}
+              setModelChoice({digest:choice.digest,catalogId:choice.id,quality:choice.quality_candidate,draft:modelDraft,revision:config.revision});
+            }} />
+          </div>
           <div
             id="filters-panel-policy"
             role="tabpanel"
@@ -1158,15 +1187,16 @@ export function AdminConsole({
                   </small>
                 </label>
               </div>
+              <p className="notice">Automatic decisions are always enabled. Inconclusive detector results are resolved using the content index and configured threshold. Messages without a usable score are accepted with an analysis-unavailable notice. Coverage and action restrictions remain visible separately.</p>
               <Toggle
-                label="Resolve uncertain results using the score"
-                description="Replace Needs review with a classification using the content index and configured threshold. Detector disagreements and missing checks remain visible. Existing history uses its recorded threshold; completed deliveries stay unchanged. Upgrade every MX before enabling."
-                checked={Boolean(draft.filters.resolve_uncertain_by_score)}
-                onChange={(v) => filterAt('resolve_uncertain_by_score', v)}
+                label="Apply actions when decision-specific evidence is sufficient"
+                description="Allow actions on partial analyses only when the selected decision has its required evidence. Score-based spam needs readable content, automatic score resolution and the applicable threshold. Explicit matched rules remain separate. Tagging still requires a ready ARC renderer and Proton validation. Off by default; qualify the policy and upgrade every MX before activation."
+                checked={Boolean(draft.filters.partial_actions)}
+                onChange={(v) => filterAt('partial_actions', v)}
               />
               <Toggle
                 label="Require corroboration before classifying spam"
-                description={draft.filters.resolve_uncertain_by_score ? "Missing corroboration is recorded, then the configured threshold resolves the classification automatically." : "A high content score needs corroboration to become a spam classification. This reduces model-only false positives but can leave spam under review. Validated fusion uses its own policy."}
+                description="Missing corroboration is recorded, then the configured threshold resolves the classification automatically."
                 checked={Boolean(draft.filters.require_corroboration)}
                 onChange={(v) => filterAt('require_corroboration', v)}
               />
@@ -1179,6 +1209,7 @@ export function AdminConsole({
             <ActionSettings
               policy={deliveryPolicy(draft)}
               mode={draft.filters.mode}
+              partialActions={Boolean(draft.filters.partial_actions)}
               spamTagReady={config.tag_ready}
               pubTagReady={config.pub_tag_ready}
               publicityEnabled={!!draft.mailing}
@@ -1262,6 +1293,7 @@ export function AdminConsole({
           >
             <ProtectionSettings
               key={epoch}
+              revision={config.revision}
               policy={draft.protection}
               user={user}
               onChange={(protection) => setDraft({ ...draft, protection })}
@@ -1785,6 +1817,8 @@ export function AdminConsole({
         <div className="save-area">
           {review && (
             <section className="change-review">
+              {modelSelection && <p className="notice">This change explicitly selects {catalogSelection ? 'retained' : 'server'} model files with digest <code>{modelSelection}</code>. Changed bytes will be refused until previewed again.</p>}
+              {catalogSelection && <p className="notice">The shadow candidate follows the retained preview, including explicit absence. Its role remains observation only.</p>}
               <h2>Check for changes</h2>
               <ul>
                 {(
@@ -2017,7 +2051,7 @@ export function AdminConsole({
                   ))}
               </ul>
               <p className="small muted">
-                Immediate application to future messages. Already accepted deliveries are kept.
+                {activation.view?.coordinated ? 'Activation waits for every MX. New SMTP acceptance may be temporarily deferred.' : 'Applies to future messages.'} Already accepted deliveries keep their decisions.
               </p>
             </section>
           )}
@@ -2043,7 +2077,7 @@ export function AdminConsole({
                 Cancel
               </Button>
               <Button
-                disabled={busy}
+                disabled={busy || blocked}
                 onClick={() => {
                   if (review) void action(save);
                   else setReview(true);
@@ -2051,9 +2085,9 @@ export function AdminConsole({
               >
                 <Save size={16} />
                 {busy
-                  ? "Applying…"
+                  ? "Submitting…"
                   : review
-                    ? "Apply settings"
+                    ? activation.view?.coordinated ? "Stage settings" : "Apply settings"
                     : "Review and apply"}
               </Button>
             </div>

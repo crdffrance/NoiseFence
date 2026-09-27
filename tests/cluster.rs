@@ -1,6 +1,113 @@
 #[path = "common/backscatter.rs"]
 mod backscatter_fixture;
 mod common;
+#[path = "common/unavailable_score.rs"]
+mod unavailable_score;
+
+#[tokio::test]
+async fn unavailable_index_survives_history_sync_and_invalid_batch_rolls_back() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let ca = config(a.path(), Role::Coordinator);
+    let cb = config(b.path(), Role::Worker);
+    let central = prepare(&ca).await;
+    let remote = prepare(&cb).await;
+    node(&central, "mx2").await;
+    account(&central, "alice", false, &["alice@example.test"]).await;
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut scan = unavailable_score::scan(&cb);
+    let epoch = noisefence::cluster::activation::Epoch {
+        sequence: 1,
+        revision: 1,
+        digest: "a".repeat(64),
+    };
+    let proof = remote.activation.drain(&epoch).await.unwrap();
+    remote.activation.resume(&proof, &epoch).unwrap();
+    scan.activation_epoch = Some(epoch);
+    scan.analysis_result = None;
+    scan.recipient_decision = None;
+    noisefence::decision_record::record_recipient(&mut scan, &cb, None, noisefence::now());
+    let expected = serde_json::to_value(&scan).unwrap();
+    remote
+        .enqueue(
+            id.clone(),
+            "sender@example.org".into(),
+            vec![cb.recipient("alice@example.test").unwrap()],
+            scan,
+            common::MESSAGE.to_vec(),
+        )
+        .await
+        .unwrap();
+    let mut inconsistent = history::export(&remote).await.unwrap();
+    inconsistent[0]
+        .scan
+        .recipient_decision
+        .as_mut()
+        .unwrap()
+        .activation_epoch
+        .as_mut()
+        .unwrap()
+        .revision += 1;
+    assert!(
+        central
+            .run(move |db| history::ingest(db, "mx2", inconsistent, noisefence::now()))
+            .await
+            .is_err()
+    );
+    let mut records = history::export(&remote).await.unwrap();
+    let mut invalid: history::Record =
+        serde_json::from_value(serde_json::to_value(&records[0]).unwrap()).unwrap();
+    invalid.id = uuid::Uuid::new_v4().to_string();
+    invalid.scan.scoring = None;
+    records.push(invalid);
+    assert!(
+        central
+            .run(move |db| history::ingest(db, "mx2", records, noisefence::now()))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        central
+            .read(|db| Ok(
+                db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))?
+            ))
+            .await
+            .unwrap(),
+        0
+    );
+    let records = history::export(&remote).await.unwrap();
+    let receipts = central
+        .run(move |db| history::ingest(db, "mx2", records, noisefence::now()))
+        .await
+        .unwrap();
+    history::acknowledge(&remote, receipts).await.unwrap();
+    assert!(history::export(&remote).await.unwrap().is_empty());
+    let persisted_id = id.clone();
+    let stored: engine::Scan = central
+        .read(move |db| {
+            let raw: String = db.query_row(
+                "SELECT scan FROM messages WHERE id=?1",
+                [persisted_id],
+                |r| r.get(0),
+            )?;
+            Ok(serde_json::from_str(&raw)?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(&stored).unwrap(), expected);
+    let view = noisefence::assessment::historical(&stored);
+    assert_eq!(view.score.value, None);
+    assert_eq!(view.category, noisefence::mailing::Category::Legitimate);
+    let visible = central
+        .list("alice".into(), "".into(), "all".into(), 0, 1.)
+        .await
+        .unwrap();
+    assert_eq!(visible.len(), 1);
+    assert!(central.claim().await.unwrap().is_none());
+    assert!(!central.raw_path(&id).exists());
+}
+#[path = "common/fusion.rs"]
+mod fusion_fixture;
 use axum::{
     Router,
     body::Body,
@@ -1463,6 +1570,43 @@ fn llm_patch_preserves_all_v25_worker_policies_during_coordinator_first_rollout(
 }
 
 #[test]
+fn rc8_rollout_preserves_rc7_typed_policy_without_relaxing_bound_activation() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    cfg.domains[0].recipient_verification = Some(Default::default());
+    cfg.rspamd = Some(Default::default());
+    cfg.research_archive = Some(Default::default());
+    cfg.smtp_policy = Some(Default::default());
+    let mut settings = noisefence::control::Settings::from_config(&cfg);
+    settings.filters.resolve_uncertain_by_score = true;
+    settings.filters.partial_actions = true;
+    settings
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .insert("semantic".into(), json!({"timeout_ms":1500}));
+    let mut bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    let prior = bundle.for_build("0.28.0-rc.7").unwrap();
+    assert_eq!(
+        serde_json::to_value(&prior.settings).unwrap(),
+        serde_json::to_value(&bundle.settings).unwrap()
+    );
+    assert_eq!(prior.shared, bundle.shared);
+    assert_eq!(
+        serde_json::to_value(&prior.files).unwrap(),
+        serde_json::to_value(&bundle.files).unwrap()
+    );
+    assert_ne!(prior.digest, bundle.digest);
+    prior.validate().unwrap();
+    assert!(bundle.for_build("0.28.0-rc.99").is_err());
+    bundle.credential_generation = Some("a".repeat(64));
+    bundle.digest = bundle.hash().unwrap();
+    assert!(bundle.for_build("0.28.0-rc.7").is_err());
+    assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+}
+
+#[test]
 fn score_resolution_cannot_be_enabled_while_older_workers_use_another_policy() {
     let root = tempfile::tempdir().unwrap();
     let cfg = config(root.path(), Role::Coordinator);
@@ -1473,4 +1617,368 @@ fn score_resolution_cannot_be_enabled_while_older_workers_use_another_policy() {
     for build in ["0.25.0", "0.25.1", "0.25.2"] {
         assert!(bundle.for_build(build).is_err());
     }
+}
+
+#[test]
+fn partial_action_policy_is_omitted_for_legacy_and_requires_every_mx_to_upgrade() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = config(root.path(), Role::Coordinator);
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    let bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    let older = bundle.for_build("0.27.0").unwrap();
+    assert!(
+        serde_json::to_value(&older.settings).unwrap()["filters"]
+            .get("partial_actions")
+            .is_none()
+    );
+    assert!(older.shared["filter"].get("partial_actions").is_none());
+    for shared in [false, true] {
+        std::sync::Arc::make_mut(&mut cfg).filter.partial_actions = shared;
+        let mut settings = noisefence::control::Settings::from_config(&cfg);
+        settings.filters.partial_actions = !shared;
+        let bundle = artifacts::capture(&cfg, settings, 2).unwrap().bundle;
+        assert!(bundle.for_build("0.27.0").is_err());
+        assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    }
+}
+
+#[test]
+fn scoped_policy_bundles_refuse_old_mxs_but_keep_earlier_capabilities() {
+    use noisefence::custom_filtering::{Ordering, Policy};
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    let base = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    assert!(base.for_build("0.28.0-rc.2").is_ok());
+    for shared in [false, true] {
+        let mut b = base.clone();
+        if shared {
+            b.shared["custom_filtering"] = json!(Policy {
+                ordering: Ordering::Scoped,
+                ..Default::default()
+            });
+        } else {
+            b.settings.custom_filtering = Some(Policy {
+                ordering: Ordering::Scoped,
+                ..Default::default()
+            });
+        }
+        b.digest = b.hash().unwrap();
+        for build in ["0.27.0", "0.28.0-rc.1", "0.28.0-rc.2"] {
+            assert!(b.for_build(build).is_err(), "{build}");
+        }
+        assert!(b.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    }
+    let mut b = base;
+    b.settings.filters.partial_actions = true;
+    b.digest = b.hash().unwrap();
+    for build in ["0.28.0-rc.1", "0.28.0-rc.2"] {
+        assert!(b.for_build(build).is_ok());
+    }
+    b.shared["fusion"] = json!({"family_caps":true});
+    b.digest = b.hash().unwrap();
+    assert!(b.for_build("0.28.0-rc.1").is_err());
+    assert!(b.for_build("0.28.0-rc.2").is_ok());
+}
+
+#[tokio::test]
+async fn scoped_policy_activation_and_edits_require_fresh_capable_workers() {
+    use noisefence::custom_filtering::{Ordering, Policy};
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let store = prepare(&cfg).await;
+    account(&store, "admin", true, &[]).await;
+    store.run(|db|{db.execute("INSERT INTO cluster_nodes(id,name,token_hash,created) VALUES('mx2','mx2','fixture',?1)",[noisefence::now()])?;Ok(())}).await.unwrap();
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut settings = control.snapshot().settings.clone();
+    settings.custom_filtering = Some(Policy {
+        ordering: Ordering::Scoped,
+        ..Default::default()
+    });
+    for (build, age) in [
+        (None, 0),
+        (Some("0.28.0-rc.2"), 0),
+        (Some(env!("CARGO_PKG_VERSION")), 120),
+    ] {
+        let status = json!({"build":build}).to_string();
+        store
+            .run(move |db| {
+                db.execute(
+                    "UPDATE cluster_nodes SET status=?1,last_seen=?2",
+                    params![status, noisefence::now() - age],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert!(
+            control
+                .apply(0, settings.clone(), "admin".into())
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Upgrade every enabled MX")
+        );
+        assert_eq!(control.snapshot().revision, 0);
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE cluster_nodes SET last_seen=?1", [noisefence::now()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let revision = control
+        .apply(0, settings.clone(), "admin".into())
+        .await
+        .unwrap();
+    assert_eq!(
+        control
+            .snapshot()
+            .config
+            .custom_filtering
+            .as_ref()
+            .unwrap()
+            .ordering,
+        Ordering::Scoped
+    );
+    // A downgraded node cannot silently receive subsequent scoped revisions.
+    store
+        .run(|db| {
+            db.execute(
+                "UPDATE cluster_nodes SET status=?1",
+                [json!({"build":"0.28.0-rc.2"}).to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        control
+            .apply(revision, settings.clone(), "admin".into())
+            .await
+            .is_err()
+    );
+    assert_eq!(control.snapshot().revision, revision);
+    settings.custom_filtering.as_mut().unwrap().ordering = Ordering::LegacyPriority;
+    control
+        .apply(revision, settings, "admin".into())
+        .await
+        .unwrap();
+    assert_eq!(
+        control
+            .snapshot()
+            .config
+            .custom_filtering
+            .as_ref()
+            .unwrap()
+            .ordering,
+        Ordering::LegacyPriority
+    );
+}
+
+#[tokio::test]
+async fn console_cannot_commit_partial_actions_until_enabled_workers_report_the_new_build() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(root.path(), Role::Coordinator);
+    let store = prepare(&cfg).await;
+    account(&store, "admin", true, &[]).await;
+    store.run(|db| { db.execute("INSERT INTO cluster_nodes(id,name,token_hash,created) VALUES('mx2','mx2','fixture',?1)",[noisefence::now()])?;Ok(()) }).await.unwrap();
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut settings = control.snapshot().settings.clone();
+    settings.filters.partial_actions = true;
+    for (build, age) in [
+        (None, 0),
+        (Some("0.27.0"), 0),
+        (Some(env!("CARGO_PKG_VERSION")), 120),
+    ] {
+        let status = json!({"build":build}).to_string();
+        store
+            .run(move |db| {
+                db.execute(
+                    "UPDATE cluster_nodes SET status=?1,last_seen=?2",
+                    params![status, noisefence::now() - age],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let error = control
+            .apply(0, settings.clone(), "admin".into())
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("Upgrade every enabled MX"));
+        assert_eq!(control.snapshot().revision, 0);
+        assert!(!control.snapshot().config.filter.partial_actions);
+        assert_eq!(
+            store
+                .read(|db| Ok(
+                    db.query_row("SELECT COUNT(*) FROM console_revisions", [], |r| r
+                        .get::<_, i64>(0))?
+                ))
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE cluster_nodes SET last_seen=?1", [noisefence::now()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    control.apply(0, settings, "admin".into()).await.unwrap();
+    assert!(control.snapshot().config.filter.partial_actions);
+    assert_eq!(
+        control.snapshot().config.filter.mode,
+        noisefence::config::Mode::Observe
+    );
+}
+
+#[test]
+fn capped_fusion_bundles_refuse_legacy_workers_without_breaking_uncapped_models() {
+    use fusion_fixture as fixture;
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    fixture::install(&mut cfg, noisefence::fusion::runtime::Mode::Observe);
+    let settings = noisefence::control::Settings::from_config(&cfg);
+    let bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    for build in ["0.27.0", "0.28.0-rc.1"] {
+        let old = bundle.for_build(build).unwrap();
+        assert!(old.shared["fusion"].get("family_caps").is_none());
+        assert!(
+            !old.settings
+                .detection
+                .unwrap()
+                .modules
+                .contains_key("fusion")
+        );
+    }
+    for shared in [false, true] {
+        let mut candidate = bundle.clone();
+        if shared {
+            candidate.shared["fusion"]["family_caps"] = json!(true);
+        } else {
+            candidate
+                .settings
+                .detection
+                .as_mut()
+                .unwrap()
+                .modules
+                .get_mut("fusion")
+                .unwrap()["family_caps"] = json!(true);
+        }
+        candidate.digest = candidate.hash().unwrap();
+        assert!(candidate.for_build("0.28.0-rc.1").is_err());
+        assert!(candidate.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    }
+}
+
+#[tokio::test]
+async fn capped_fusion_web_decisions_require_fresh_capable_workers_before_revision_commit() {
+    use fusion_fixture as fixture;
+    use noisefence::fusion::{
+        self,
+        combination::{Limit, Policy},
+        runtime::Mode,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    let (mut model, _) = fixture::install(&mut cfg, Mode::Observe);
+    model.schema = fusion::CAPPED_SCHEMA.into();
+    model.combination = Some(Policy {
+        schema: fusion::combination::SCHEMA.into(),
+        families: fusion::combination::FAMILIES
+            .into_iter()
+            .map(|n| {
+                (
+                    n.into(),
+                    Limit {
+                        minimum: -1.,
+                        maximum: 1.,
+                    },
+                )
+            })
+            .collect(),
+    });
+    let settings = cfg.fusion.as_mut().unwrap();
+    settings.family_caps = true;
+    let bytes = serde_json::to_vec(&model).unwrap();
+    std::fs::write(&settings.model, &bytes).unwrap();
+    let proof = fixture::validation_v2(&model, &noisefence::message::digest(&bytes));
+    std::fs::write(
+        settings.validation_report.as_ref().unwrap(),
+        serde_json::to_vec(&proof).unwrap(),
+    )
+    .unwrap();
+    let cfg = Arc::new(cfg);
+    let store = prepare(&cfg).await;
+    account(&store, "admin", true, &[]).await;
+    store.run(|db| {db.execute("INSERT INTO cluster_nodes(id,name,token_hash,created) VALUES('mx2','mx2','fixture',?1)",[noisefence::now()])?;Ok(())}).await.unwrap();
+    let control = Controller::load(cfg, store.clone()).await.unwrap();
+    let mut proposed = control.snapshot().settings.clone();
+    proposed
+        .detection
+        .as_mut()
+        .unwrap()
+        .modules
+        .get_mut("fusion")
+        .unwrap()["mode"] = json!("decision");
+    for (build, age) in [
+        (None, 0),
+        (Some("0.28.0-rc.1"), 0),
+        (Some(env!("CARGO_PKG_VERSION")), 120),
+    ] {
+        let status = json!({"build":build}).to_string();
+        store
+            .run(move |db| {
+                db.execute(
+                    "UPDATE cluster_nodes SET status=?1,last_seen=?2",
+                    params![status, noisefence::now() - age],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let error = control
+            .apply(0, proposed.clone(), "admin".into())
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("Upgrade every enabled MX"),
+            "{error:#}"
+        );
+        assert_eq!(control.snapshot().revision, 0);
+        assert_eq!(
+            control.snapshot().config.fusion.as_ref().unwrap().mode,
+            Mode::Observe
+        );
+        assert_eq!(
+            store
+                .read(|db| Ok(
+                    db.query_row("SELECT COUNT(*) FROM console_revisions", [], |r| r
+                        .get::<_, i64>(0))?
+                ))
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE cluster_nodes SET last_seen=?1", [noisefence::now()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    control.apply(0, proposed, "admin".into()).await.unwrap();
+    assert_eq!(
+        control.snapshot().config.fusion.as_ref().unwrap().mode,
+        Mode::Decision
+    );
+    assert_eq!(
+        control.snapshot().config.filter.mode,
+        noisefence::config::Mode::Observe
+    );
 }

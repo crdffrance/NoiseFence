@@ -1,5 +1,7 @@
 {
   "schema": "noisefence-quality-features-1",
+  "provider_evidence_contract": "provider-target-evidence-1",
+  "provider_evidence_semantics": "Unique eligible targets per provider and scope; overlap requires distinct providers and the same host/file group. Eligibility uses the captured provider completion time, never the history-read clock. Missing timestamps, disabled providers, stale and conflicting targets are unavailable, not clean. Stored older vectors are not reinterpreted.",
   "base_protocol_sha256": "8cf131ff25a263dae4c921297b371c9c51f5c3c89eeda77ec0a4140f79d835ce",
   "kinds": [
     "conversation",

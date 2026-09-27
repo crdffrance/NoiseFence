@@ -48,9 +48,9 @@ async fn cached_detection_survives_quota_cooldown_and_busy_transport() {
         crdf_per_day: 1,
         ..Default::default()
     };
-    let client = Client::new(&config, root.path()).unwrap();
     let key = "synthetic-key-for-coverage-1234";
     save_key(root.path(), Provider::Crdf, key).unwrap();
+    let client = Client::new(&config, root.path()).unwrap();
     let credential = credential_id(Provider::Crdf, key);
     client
         .reserve(
@@ -100,8 +100,8 @@ async fn queued_requests_do_not_consume_quota_when_cancelled() {
         max_parallel: 1,
         ..Default::default()
     };
-    let client = Client::new(&config, root.path()).unwrap();
     save_key(root.path(), Provider::Crdf, "synthetic-key-for-queue-1234").unwrap();
+    let client = Client::new(&config, root.path()).unwrap();
     let _occupied = client.requests.acquire().await.unwrap();
     let mut targets = Targets::default();
     targets.domains.insert("example.org".into());
@@ -135,9 +135,9 @@ async fn a_transient_error_has_one_budgeted_retry_and_preserves_transport_diagno
         crdf_per_day: 2,
         ..Default::default()
     };
+    save_key(root.path(), Provider::Crdf, "synthetic-key-for-retry-1234").unwrap();
     let mut client = Client::new(&config, root.path()).unwrap();
     client.endpoint_override = Some(endpoint);
-    save_key(root.path(), Provider::Crdf, "synthetic-key-for-retry-1234").unwrap();
     let mut targets = Targets::default();
     targets
         .domains
@@ -177,14 +177,14 @@ async fn a_provider_retry_after_survives_restart_without_automatic_resubmission(
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let root = tempfile::tempdir().unwrap();
     let config = Settings::default();
-    let mut client = Client::new(&config, root.path()).unwrap();
-    client.endpoint_override = Some(endpoint);
     save_key(
         root.path(),
         Provider::Crdf,
         "synthetic-key-for-backoff-1234",
     )
     .unwrap();
+    let mut client = Client::new(&config, root.path()).unwrap();
+    client.endpoint_override = Some(endpoint);
     let mut targets = Targets::default();
     targets.domains.insert("example.org".into());
     let (report, _) = client
@@ -232,14 +232,14 @@ async fn a_bad_batch_entry_does_not_poison_cache_or_block_the_account() {
     let endpoint = format!("http://{}/lookup", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let root = tempfile::tempdir().unwrap();
-    let mut client = Client::new(&Settings::default(), root.path()).unwrap();
-    client.endpoint_override = Some(endpoint);
     save_key(
         root.path(),
         Provider::Crdf,
         "synthetic-key-mixed-batch-1234",
     )
     .unwrap();
+    let mut client = Client::new(&Settings::default(), root.path()).unwrap();
+    client.endpoint_override = Some(endpoint);
     let mut targets = Targets::default();
     targets
         .domains

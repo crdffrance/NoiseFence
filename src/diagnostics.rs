@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnalysisPolicy {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial_actions: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resolve_uncertain_by_score: bool,
     pub version: String,
     pub threshold: f64,
@@ -25,11 +27,12 @@ pub struct AnalysisPolicy {
 impl AnalysisPolicy {
     pub fn capture(config: &Config) -> Self {
         Self {
+            partial_actions: config.filter.partial_actions,
             version: crate::decision::VERSION.into(),
             threshold: config.filter.threshold,
             mode: config.filter.mode,
             require_corroboration: config.filter.require_corroboration,
-            resolve_uncertain_by_score: config.filter.resolve_uncertain_by_score,
+            resolve_uncertain_by_score: true,
             rule_weights: config.filter.rule_weights.clone(),
         }
     }
@@ -37,6 +40,13 @@ impl AnalysisPolicy {
 
 #[derive(Serialize)]
 pub struct Analysis {
+    pub verdict: &'static str,
+    pub activation_epoch: Option<crate::cluster::activation::Epoch>,
+    pub fusion_combination: Option<crate::fusion::combination::Accounting>,
+    pub scoring: Option<crate::scoring::Report>,
+    pub observations: Option<crate::observations::Report>,
+    pub assessment: crate::assessment::Assessment,
+    pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     pub score_resolution: Option<crate::decision::ScoreResolution>,
     pub rspamd: Option<crate::rspamd::Report>,
     pub native_filter: Option<crate::native_filter::Report>,
@@ -48,14 +58,47 @@ pub struct Analysis {
     pub policy: Option<AnalysisPolicy>,
     pub lexical_logit: Option<f64>,
     pub semantic_contribution: Option<f64>,
-    pub rule_weight_total: f64,
+    pub rule_weight_total: Option<f64>,
     pub evidence: Option<crate::evidence::Evidence>,
     pub protection: Option<crate::protection::Report>,
 }
 impl From<Scan> for Analysis {
     fn from(scan: Scan) -> Self {
         let score_breakdown = crate::detection_diagnostics::breakdown(&scan);
+        let scoring = crate::scoring::recorded(&scan).cloned();
+        let rule_weight_total = if let Some(report) = &scoring {
+            report.rules_total
+        } else {
+            let total = scan
+                .reasons
+                .iter()
+                .filter(|r| r.id != "model_contribution")
+                .map(|r| r.weight)
+                .sum::<f64>();
+            total.is_finite().then_some(total)
+        };
+        let lexical_logit = scoring
+            .as_ref()
+            .map(|r| r.lexical)
+            .unwrap_or_else(|| scan.evidence.as_ref().and_then(|e| e.lexical_logit));
+        let semantic_contribution = scoring
+            .as_ref()
+            .map(|r| r.semantic)
+            .unwrap_or(scan.semantic.contribution);
         Self {
+            activation_epoch: crate::decision_record::recorded_activation(&scan).cloned(),
+            fusion_combination: scan
+                .analysis_result
+                .as_ref()
+                .and_then(|r| r.fusion_combination.clone()),
+            scoring,
+            observations: scan
+                .analysis_result
+                .as_ref()
+                .and_then(|r| r.observations.clone()),
+            verdict: crate::assessment::historical(&scan).verdict(),
+            assessment: crate::assessment::historical(&scan),
+            recipient_decision: scan.recipient_decision,
             rspamd: scan.rspamd.clone().map(crate::rspamd::Report::visible),
             score_resolution: scan.score_resolution,
             native_filter: scan.native_filter.map(|observation| observation.report),
@@ -65,14 +108,9 @@ impl From<Scan> for Analysis {
             feature_version: scan.feature_version,
             features_complete: scan.features_complete,
             policy: scan.analysis_policy,
-            lexical_logit: scan.evidence.as_ref().and_then(|e| e.lexical_logit),
-            semantic_contribution: scan.semantic.contribution,
-            rule_weight_total: scan
-                .reasons
-                .iter()
-                .filter(|r| r.id != "model_contribution")
-                .map(|r| r.weight)
-                .sum(),
+            lexical_logit,
+            semantic_contribution,
+            rule_weight_total,
             evidence: scan.evidence,
             protection: scan.protection,
         }
@@ -126,8 +164,8 @@ impl Store {
         username: String,
         id: String,
         delivery_id: Option<i64>,
-        resolve_uncertain_by_score: bool,
-        threshold: f64,
+        _resolve_uncertain_by_score: bool,
+        _threshold: f64,
     ) -> Result<Option<MessageDiagnostics>> {
         self.read(move |db| {
             // The same read snapshot checks both message visibility and every
@@ -137,8 +175,7 @@ impl Store {
                 params![id, username, now()-30*86400,delivery_id], |r| r.get(0),
             ).optional()?;
             let Some(scan) = scan else { return Ok(None) };
-            let mut scan = serde_json::from_str::<Scan>(&scan)?;
-            crate::decision::project_history(&mut scan, resolve_uncertain_by_score, threshold);
+            let scan = serde_json::from_str::<Scan>(&scan)?;
             let analysis = scan.into();
             let mut query = db.prepare("SELECT d.id,d.address,d.destination,d.status,d.attempts,d.next_attempt,NULLIF(d.error,''),(SELECT COUNT(*) FROM delivery_attempts a WHERE a.delivery_id=d.id) FROM deliveries d JOIN console_access g ON g.delivery_id=d.id WHERE d.message_id=?1 AND g.username=?2 AND (?3 IS NULL OR d.id=?3) ORDER BY d.id")?;
             let mut recipients = query.query_map(params![id,username,delivery_id], |r| Ok(RecipientDiagnostics {

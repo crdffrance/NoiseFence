@@ -6,6 +6,8 @@ use mail_auth::{DkimResult, DmarcResult, SpfResult};
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
+pub mod eligibility;
+
 pub const SCHEMA: &str = "noisefence-evidence-1";
 pub const REPUTATION_VERSION: &str = "spamhaus-context-1";
 
@@ -243,12 +245,14 @@ impl Artifacts {
         };
         let policy = serde_json::json!({
             "detector_build":crate::compatibility::DETECTOR_BUILD_SHA256, "schema":SCHEMA,
+            "score_combination":crate::scoring::VERSION,
             "rules":"legacy-rules-with-contextual-dqs-1", "semantic_compiled":cfg!(feature="semantic"),
             "max_analysis_bytes":config.filter.max_analysis_bytes, "threshold":config.filter.threshold,
             "rule_weights":config.filter.rule_weights,
             "authentication":config.filter.authentication,
             "confirmation": (crate::confirmation::VERSION, config.filter.require_corroboration),
             "decision_policy": crate::decision::VERSION,
+            "action_coverage": (crate::action_coverage::VERSION, config.filter.partial_actions),
             "reputation_enabled":config.filter.spamhaus_key_env.is_some(), "reputation":REPUTATION_VERSION,
             "antivirus":av(&config.antivirus),"signatures":av(&config.signatures),
             "vision":config.vision.as_ref().map(|c| serde_json::json!({

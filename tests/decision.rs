@@ -211,6 +211,7 @@ fn ip_policy_lists_and_errors_never_receive_malicious_reputation_weight() {
             false,
         );
         e.source = Source::SmtpSession;
+        e.reputation.state = State::Complete;
         e.reputation.ip = Query {
             state: State::Complete,
             codes,
@@ -360,6 +361,7 @@ fn corroboration_resolves_ambiguity_but_never_erases_a_definite_contradiction() 
         let mut scan = advice_scan(99., advice);
         let mut e = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
         e.source = Source::SmtpSession;
+        e.reputation.state = State::Complete;
         e.reputation.ip = Query {
             state: State::Complete,
             codes: vec!["127.0.0.2".parse().unwrap()],
@@ -417,6 +419,39 @@ fn partial_phishing() -> Scan {
     });
     scan.decision = Some(Decision::legacy(&scan, 95.));
     scan
+}
+
+#[test]
+fn qualified_partial_threat_actions_use_observed_requirements_not_raw_score() {
+    use noisefence::{
+        action_coverage::Basis,
+        actions::{self, Action},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.filter.mode = Mode::Enforce;
+    cfg.filter.partial_actions = true;
+    cfg.filter.resolve_uncertain_by_score = false;
+    cfg.actions = Some(actions::Policy {
+        spam: Action::Quarantine,
+        publicity: Action::Deliver,
+        malware: Action::Quarantine,
+        quarantine_days: 7,
+    });
+    let mut scan = partial_phishing();
+    scan.score = 5.; // A deterministic evidence finding is not a fabricated high score.
+    decision::apply(&mut scan, true);
+    let a = actions::evaluate(&scan, &cfg);
+    assert_eq!(a.effective, Action::Quarantine);
+    assert_eq!(a.coverage.unwrap().basis, Basis::EstablishedThreat);
+    assert_eq!(scan.score, 5.);
+    assert!(!scan.complete);
+    scan.evidence.as_mut().unwrap().authentication.spf =
+        Some(noisefence::evidence::AuthResult::Pass);
+    // Keep the old verdict to exercise the runtime coverage guard defensively.
+    let a = actions::evaluate(&scan, &cfg);
+    assert_eq!(a.effective, Action::Deliver);
+    assert!(!a.coverage.unwrap().eligible());
 }
 
 #[test]
@@ -595,6 +630,7 @@ fn injected_lure_corroborates_only_an_enabled_rule_and_respects_contradiction() 
             },
             ..Default::default()
         };
+        scan.scoring = Some(noisefence::scoring::combine(&scan, Some(4.), false));
         scan.decision = Some(Decision::legacy(&scan, 95.));
         decision::apply(&mut scan, true);
         assert_eq!(scan.decision.as_ref().unwrap().outcome, expected);
