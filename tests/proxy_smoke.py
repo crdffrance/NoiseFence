@@ -52,6 +52,21 @@ class Handler(BaseHTTPRequestHandler):
 ThreadingHTTPServer(('0.0.0.0', 18080), Handler).serve_forever()
 ''')
         (root / 'client.py').write_text('''import http.client, time
+# Container creation is not listener readiness, particularly on shared CI hosts.
+for host in ('backend', 'nginx', 'caddy'):
+    deadline = time.monotonic() + 20
+    while True:
+        try:
+            connection = http.client.HTTPConnection(host, 18080 if host == 'backend' else 8080, timeout=2)
+            connection.request('POST', '/health', b'ready')
+            response = connection.getresponse()
+            ready = response.status == 200 and response.read() == b'5'
+            connection.close()
+            if ready: break
+        except (OSError, http.client.HTTPException):
+            pass
+        if time.monotonic() >= deadline: raise RuntimeError(host + ' did not become ready')
+        time.sleep(0.2)
 for proxy in ('nginx', 'caddy'):
     for path, size, expected in [('/api/v1/cluster/v1/sync', 262144, 200),
                                  ('/api/v1/cluster/v2/sync', 262144, 200),
@@ -97,6 +112,11 @@ for proxy in ('nginx', 'caddy'):
                     *mounts, images[kind], *command)
             print(run('docker', 'run', '--rm', '--network', network, *mounts,
                       images['python'], 'python', '/test/client.py'))
+        except Exception:
+            for container in containers:
+                logs = subprocess.run(['docker', 'logs', '--tail', '30', container], capture_output=True, text=True)
+                print(container, logs.stdout, logs.stderr, flush=True)
+            raise
         finally:
             for container in containers:
                 subprocess.run(['docker', 'rm', '-f', container], capture_output=True)
