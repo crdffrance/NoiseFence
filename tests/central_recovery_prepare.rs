@@ -917,6 +917,9 @@ async fn exercise(native: bool) {
             serde_json::from_slice(&std::fs::read(&credentials).unwrap()).unwrap();
         let login = http
             .post(format!("{url}/api/v1/login"))
+            // Password verification is deliberately expensive. Keep the short
+            // readiness probe above, but allow authentication on shared CI CPUs.
+            .timeout(std::time::Duration::from_secs(10))
             .header("Origin", &console_config.web.public_origin)
             .json(&json!({"username":admin["username"],"password":admin["password"]}))
             .send()
