@@ -6,6 +6,7 @@ import sqlite3
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 def module(name):
     spec=importlib.util.spec_from_file_location(name,ROOT/'deploy/hardening'/name);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
@@ -48,6 +49,11 @@ class RestoreTests(unittest.TestCase):
                 with tarfile.open(arc,'w') as a:
                     for p in root.iterdir():a.add(p,arcname=p.name)
             write();self.assertEqual(restore.verify(arc)['status'],'verified')
+            # Verification must work without the global temporary filesystem:
+            # it may be a small tmpfs on the gateway.
+            with patch.object(tempfile,'tempdir',str(Path(tmp)/'unavailable-global-tmp')):
+                self.assertEqual(restore.verify(arc)['status'],'verified')
+            self.assertEqual(list(Path(tmp).glob('noisefence-restore-check-*')),[])
             (root/'config/test').write_text('tampered');write()
             with self.assertRaisesRegex(ValueError,'Checksum'):restore.verify(arc)
     def test_path_traversal_and_device_rejected(self):

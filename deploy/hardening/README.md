@@ -114,7 +114,9 @@ Restic `--stdin-from-command` rejects a failed producer; a truncated export is n
 published as a successful backup. `central.py verify` decrypts the latest snapshots
 into private temporary directories, verifies hashes and SQLite, and runs the verifier
 in a network namespace. It starts no mail service or paid API call and deletes test
-copies afterward. Schedule backup daily and isolated verification weekly; monitor
+copies afterward. Extraction stays beside the protected archive on disk, rather
+than in the system temporary directory, which may be a RAM-backed tmpfs. Reserve
+space for both the archive and its extracted files. Schedule backup daily and isolated verification weekly; monitor
 failures and freshness. A repository stored on mx1 is **not independent of mx1 loss**.
 Keep a separately recoverable copy of the encryption key and add independent storage
 when it becomes available.

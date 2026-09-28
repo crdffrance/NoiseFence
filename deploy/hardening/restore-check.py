@@ -33,7 +33,10 @@ def valid_queued_id(db,message_id):
     return rows==[(1,'')]
 
 def verify(archive_path):
-    with tempfile.TemporaryDirectory(prefix='noisefence-restore-check-') as tmp:
+    # Keep streamed extraction beside the protected backup archive. /tmp can be
+    # tmpfs: a large model archive must not consume the gateway's RAM budget.
+    archive_path=Path(archive_path)
+    with tempfile.TemporaryDirectory(prefix='noisefence-restore-check-',dir=archive_path.resolve().parent) as tmp:
         root=Path(tmp);seen=set();links={};total=0
         with tarfile.open(archive_path,'r|*') as archive:
             for entry in archive:
