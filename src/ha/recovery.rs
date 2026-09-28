@@ -58,6 +58,25 @@ pub fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
 pub async fn resync(root: &Path) -> Result<serde_json::Value> {
     let store = crate::store::Store::open(root)?;
     let _lock = store.daemon_lock()?;
+    resync_locked(&store).await
+}
+
+/// Selected queues keep local replication journals even while PostgreSQL is
+/// unavailable. An explicit matching installation config prevents fallback to
+/// obsolete SQLite management data or operation on a different spool.
+pub async fn resync_config(
+    config: &crate::config::Config,
+    root: &Path,
+) -> Result<serde_json::Value> {
+    ensure!(
+        root.canonicalize()? == config.data_dir.canonicalize()?,
+        "Resync configuration names another queue"
+    );
+    let _locks = crate::central::import::SourceLocks::acquire(root)?;
+    let store = crate::central::bootstrap::open(config, crate::central::bootstrap::Purpose::Queue)?;
+    resync_locked(&store).await
+}
+async fn resync_locked(store: &crate::store::Store) -> Result<serde_json::Value> {
     store.run(|db| {
         let tx=db.transaction()?;
         ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key='ha_required' AND value='1')",[],|r|r.get::<_,bool>(0))?,"Queue does not require replication");
@@ -95,9 +114,39 @@ pub async fn restore_queue(
     owner: &str,
     fence: &Path,
 ) -> Result<serde_json::Value> {
+    restore_queue_mode(source, target, owner, fence, None).await
+}
+
+/// Recover only the local queue of a selected coordinator. Central accounts,
+/// policy authority and fresh access revocations require a separate recovery.
+pub async fn restore_queue_config(
+    config: &crate::config::Config,
+    source: &Path,
+    target: &Path,
+    owner: &str,
+    fence: &Path,
+) -> Result<serde_json::Value> {
+    ensure!(
+        config.management.is_some(),
+        "Selected recovery requires a management backend"
+    );
+    ensure!(
+        config.data_dir.canonicalize()? == target.canonicalize()?,
+        "Recovery configuration names another queue"
+    );
+    restore_queue_mode(source, target, owner, fence, Some(config)).await
+}
+
+async fn restore_queue_mode(
+    source: &Path,
+    target: &Path,
+    owner: &str,
+    fence: &Path,
+    config: Option<&crate::config::Config>,
+) -> Result<serde_json::Value> {
     use std::os::unix::fs::PermissionsExt;
     ensure!(
-        crate::cluster::valid_id(owner) && source != target,
+        crate::cluster::valid_id(owner) && source.canonicalize()? != target.canonicalize()?,
         "Invalid recovery roots"
     );
     let meta = fs::metadata(fence)?;
@@ -121,15 +170,51 @@ pub async fn restore_queue(
         (0..=3600).contains(&crate::now().saturating_sub(fenced_at)),
         "Fence receipt expired"
     );
-    let store = crate::store::Store::open(target)?;
-    let _lock = store.daemon_lock()?;
-    let owner = owner.to_owned();
-    let query_owner = owner.clone();
+    let _target_locks = crate::central::import::SourceLocks::acquire(target)?;
+    let _source_locks = config
+        .map(|_| crate::central::import::SourceLocks::acquire(source))
+        .transpose()?;
     let db = Connection::open_with_flags(
         source.join("state.sqlite3"),
         OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
     db.execute_batch("BEGIN")?;
+    let peer_selection = crate::central::selection::Selection::read(&db)?;
+    let selected = config.is_some();
+    let store = if let Some(config) = config {
+        let target_db = Connection::open_with_flags(
+            target.join("state.sqlite3"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let local = crate::central::selection::Selection::read(&target_db)?
+            .context("Recovery target has no management selection")?;
+        let peer =
+            peer_selection.context("Recovery source has no matching management selection")?;
+        ensure!(
+            local.node.node == owner && local.role == crate::cluster::Role::Coordinator,
+            "Selected recovery target is not this coordinator"
+        );
+        ensure!(
+            peer.database == local.database
+                && peer.baseline == local.baseline
+                && peer.role == crate::cluster::Role::Worker
+                && peer.node.node != owner
+                && config
+                    .replication
+                    .as_ref()
+                    .is_some_and(|r| r.peer_id == peer.node.node),
+            "Recovery peer belongs to another management authority or replication pair"
+        );
+        crate::central::bootstrap::open(config, crate::central::bootstrap::Purpose::Queue)?
+    } else {
+        ensure!(
+            peer_selection.is_none(),
+            "Selected peer recovery requires a matching management configuration"
+        );
+        crate::store::Store::open(target)?
+    };
+    let owner = owner.to_owned();
+    let query_owner = owner.clone();
     let raw = db
         .prepare("SELECT manifest FROM ha_remote WHERE owner=?1 ORDER BY id")?
         .query_map([&owner], |r| r.get::<_, String>(0))?
@@ -155,6 +240,7 @@ pub async fn restore_queue(
         Ok(())
     }).await?;
     let recovered_owner = owner.clone();
+    let recovery_operation = receipt["operation"].as_str().unwrap().to_owned();
     store
         .run(move |db| {
             let tx = db.transaction()?;
@@ -164,7 +250,7 @@ pub async fn restore_queue(
             )?;
             tx.execute(
                 "INSERT OR REPLACE INTO cluster_state VALUES('node_id',?1)",
-                [recovered_owner],
+                [&recovered_owner],
             )?;
             tx.execute(
                 "INSERT OR REPLACE INTO cluster_state VALUES('role','coordinator')",
@@ -172,7 +258,28 @@ pub async fn restore_queue(
             )?;
             // A checkpoint may predate later exports on the lost coordinator.
             // Preserve known exposures but only future observations can establish freshness.
-            tx.execute("UPDATE quality_exposure_state SET tracking_since=MAX(tracking_since,?1) WHERE id=1", [crate::now()])?;
+            if !selected {
+                tx.execute("UPDATE quality_exposure_state SET tracking_since=MAX(tracking_since,?1) WHERE id=1", [crate::now()])?;
+            } else {
+                // Queue copies alone cannot establish fresh central accounts,
+                // revocations or metadata cursors. Keep runtime startup fenced.
+                crate::central::recovery::console::begin_queue_recovery(&tx, &recovery_operation)?;
+            }
+            // A metadata checkpoint carries earlier recovery receipts but not
+            // spool bodies. Only this operation's receipts may skip a copy.
+            // Keep the operation marker and reset in the same durable transaction
+            // so interrupted retries cannot reset already restored deliveries.
+            let previous: Option<String> = tx.query_row(
+                "SELECT value FROM cluster_state WHERE key='ha_queue_recovery_operation'",
+                [], |r| r.get(0),
+            ).optional()?;
+            if previous.as_deref() != Some(recovery_operation.as_str()) {
+                tx.execute("DELETE FROM ha_recoveries WHERE owner=?1", [&recovered_owner])?;
+                tx.execute(
+                    "INSERT OR REPLACE INTO cluster_state VALUES('ha_queue_recovery_operation',?1)",
+                    [&recovery_operation],
+                )?;
+            }
             tx.execute("DELETE FROM ha_remote", [])?;
             tx.execute("DELETE FROM ha_blobs", [])?;
             crate::store::require_format(&tx, 5)?;
@@ -298,7 +405,7 @@ pub async fn restore_queue(
             tx.commit()?;Ok(())
         }).await?;
     }
-    let result = json!({"owner":owner,"copied":copied,"held_recipients":held,"pending_recipients":pending,"already_restored":skipped,"smtp_started":false,"network_used":false,"operation":receipt["operation"]});
+    let result = json!({"owner":owner,"copied":copied,"held_recipients":held,"pending_recipients":pending,"already_restored":skipped,"smtp_started":false,"network_used":false,"central_management_recovery_required":selected,"operation":receipt["operation"]});
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(true)

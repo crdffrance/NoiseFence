@@ -646,7 +646,11 @@ pub fn router_controlled(
             store.root.join("state.sqlite3"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
-        crate::mfa::require_no_missing_key(&store.root, &db)?;
+        if let Some(selection) = crate::central::selection::Selection::read(&db)? {
+            selection.verify_key(&store.root)?;
+        } else {
+            crate::mfa::require_no_missing_key(&store.root, &db)?;
+        }
         Some(Arc::new(crate::mfa::Key::open(&store.root)?))
     };
     let app = App {
@@ -710,23 +714,16 @@ pub async fn create_user(
         "invalid username"
     );
     let hash = tokio::task::spawn_blocking(move || hash_password(&password)).await??;
-    store
-        .run(move |db| {
-            let tx = db.transaction()?;
-            tx.execute(
-                "INSERT INTO users(username,password,admin) VALUES(?1,?2,?3)",
-                params![username, hash, admin],
-            )?;
-            for address in addresses {
-                tx.execute(
-                    "INSERT INTO grants(username,address) VALUES(?1,?2)",
-                    params![username, address],
-                )?;
-            }
-            tx.commit()?;
-            Ok(())
-        })
-        .await
+    crate::operator::account(
+        store,
+        username,
+        crate::operator::AccountChange::Create {
+            password_hash: hash,
+            admin,
+            addresses,
+        },
+    )
+    .await
 }
 pub async fn serve(
     listener: tokio::net::TcpListener,

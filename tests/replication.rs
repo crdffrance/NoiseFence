@@ -685,6 +685,31 @@ async fn restore_from_a_crashed_sender_holds_uncertainty_and_does_not_replay_del
         common::MESSAGE
     );
     assert_eq!(second.message_id, id);
+
+    // A later metadata checkpoint includes the old receipts, never the bodies.
+    let next = tempfile::tempdir().unwrap();
+    ha::recovery::snapshot_database(
+        &target.path().join("state.sqlite3"),
+        &next.path().join("state.sqlite3"),
+    )
+    .unwrap();
+    let next_receipt = fence(p._a.path());
+    let report = ha::recovery::restore_queue(&p.b.root, next.path(), "mx1", &next_receipt)
+        .await
+        .unwrap();
+    assert_eq!(report["copied"], 1);
+    assert_eq!(report["already_restored"], 0);
+    let next_store = Store::open(next.path()).unwrap();
+    next_store.recover().await.unwrap();
+    assert_eq!(
+        std::fs::read(next_store.raw_path(&id)).unwrap(),
+        common::MESSAGE
+    );
+    assert!(next_store.claim().await.unwrap().is_none());
+    let retry = ha::recovery::restore_queue(&p.b.root, next.path(), "mx1", &next_receipt)
+        .await
+        .unwrap();
+    assert_eq!(retry["already_restored"], 1);
 }
 
 #[tokio::test]

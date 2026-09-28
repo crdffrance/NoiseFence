@@ -4,9 +4,7 @@ use crate::cluster::{Role, history, protocol};
 use anyhow::Context;
 
 pub(super) fn routes(app: App) -> Router<App> {
-    let nodes = Router::new()
-        .route("/cluster/v1/sync", post(sync))
-        .route("/cluster/v2/sync", post(sync_v2))
+    let management = Router::new()
         .route(
             "/cluster/v3/sync",
             post(central_sync).layer(DefaultBodyLimit::max(65536)),
@@ -14,9 +12,21 @@ pub(super) fn routes(app: App) -> Router<App> {
         .route("/cluster/v3/history", post(central_history))
         .route("/cluster/v3/logs", post(central_logs))
         .route(
+            "/cluster/v3/runtime-history",
+            post(central_runtime_history).layer(DefaultBodyLimit::max(4096)),
+        )
+        .route(
             "/cluster/v3/commands",
             post(central_commands).layer(DefaultBodyLimit::max(16384)),
         )
+        .route_layer(middleware::from_fn_with_state(
+            app.clone(),
+            management_guard,
+        ));
+    let nodes = Router::new()
+        .route("/cluster/v1/sync", post(sync))
+        .route("/cluster/v2/sync", post(sync_v2))
+        .merge(management)
         .route("/cluster/v2/artifacts/{hash}", get(activation_artifact))
         .route(
             "/cluster/v1/admission",
@@ -284,6 +294,33 @@ async fn node(app: &App, h: &HeaderMap) -> ApiResult<String> {
     }
     Ok(id)
 }
+async fn management_guard(State(app): State<App>, request: Request, next: Next) -> Response {
+    let binding = app.store.management().and_then(|central| central.binding());
+    if crate::central::binding::check_headers(request.headers(), binding).is_err() {
+        return Error(
+            StatusCode::CONFLICT,
+            "Management database authority mismatch".into(),
+        )
+        .into_response();
+    }
+    let value = match crate::central::binding::header_value(binding) {
+        Ok(value) => value,
+        Err(_) => {
+            return Error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Management database identity unavailable".into(),
+            )
+            .into_response();
+        }
+    };
+    let mut response = next.run(request).await;
+    if let Some(value) = value {
+        response
+            .headers_mut()
+            .insert(crate::central::binding::HEADER, value);
+    }
+    response
+}
 async fn node_guard(State(app): State<App>, request: Request, next: Next) -> Response {
     let permit = match app.cluster_capacity.clone().try_acquire_owned() {
         Ok(p) => p,
@@ -455,6 +492,32 @@ async fn central_logs(
         protocol: crate::central::transport::PROTOCOL.into(),
         identity: node.identity().clone(),
         receipts,
+    }))
+}
+async fn central_runtime_history(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(request): Json<crate::central::transport::RuntimePoll>,
+) -> ApiResult<Json<crate::central::transport::RuntimeReply>> {
+    let node = central_node(&app, &h).await?;
+    if request.protocol != crate::central::transport::PROTOCOL
+        || request.epoch != node.identity().epoch
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Management protocol or spool epoch mismatch".into(),
+        ));
+    }
+    let snapshot = app
+        .store
+        .management()
+        .unwrap()
+        .runtime_history(Some(&node))
+        .await?;
+    Ok(Json(crate::central::transport::RuntimeReply {
+        protocol: crate::central::transport::PROTOCOL.into(),
+        identity: node.identity().clone(),
+        snapshot,
     }))
 }
 async fn central_commands(

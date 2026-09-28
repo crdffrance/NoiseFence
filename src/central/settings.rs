@@ -27,68 +27,6 @@ pub struct Settings {
     pub allow_loopback_plaintext: bool,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn settings(path: PathBuf) -> Settings {
-        Settings {
-            host: "127.0.0.1".into(),
-            port: 5432,
-            database: "test".into(),
-            username: "test".into(),
-            password_file: Some(path),
-            ca_file: None,
-            max_connections: 4,
-            allow_loopback_plaintext: true,
-        }
-    }
-    #[test]
-    fn credentials_are_bounded_private_regular_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("password");
-        std::fs::write(&path, "synthetic-test-password\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let config = settings(path.clone());
-        assert_eq!(
-            config.password().unwrap().as_deref(),
-            Some("synthetic-test-password")
-        );
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(config.password().is_err());
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        std::fs::write(&path, "x".repeat(4097)).unwrap();
-        assert!(config.password().is_err());
-        std::fs::write(&path, "one\ntwo").unwrap();
-        assert!(config.password().is_err());
-        let link = dir.path().join("link");
-        std::os::unix::fs::symlink(&path, &link).unwrap();
-        assert!(settings(link).password().is_err());
-    }
-    #[test]
-    fn plaintext_cannot_extend_beyond_numeric_loopback() {
-        let mut config = settings("/private/credential".into());
-        for host in ["127.0.0.1", "::1"] {
-            config.host = host.into();
-            assert!(config.validate().is_ok());
-        }
-        for host in [
-            "localhost",
-            "db.example.test",
-            "192.0.2.1",
-            "/run/postgresql",
-        ] {
-            config.host = host.into();
-            assert!(config.validate().is_err());
-        }
-        config.allow_loopback_plaintext = false;
-        config.host = "db.example.test".into();
-        assert!(config.validate().is_ok());
-        config.password_file = None;
-        assert!(config.validate().is_err());
-        config.host = "/run/postgresql".into();
-        assert!(config.validate().is_ok());
-    }
-}
 fn port() -> u16 {
     5432
 }
@@ -156,5 +94,68 @@ impl Settings {
             "Invalid database password file"
         );
         Ok(Some(value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn settings(path: PathBuf) -> Settings {
+        Settings {
+            host: "127.0.0.1".into(),
+            port: 5432,
+            database: "test".into(),
+            username: "test".into(),
+            password_file: Some(path),
+            ca_file: None,
+            max_connections: 4,
+            allow_loopback_plaintext: true,
+        }
+    }
+    #[test]
+    fn credentials_are_bounded_private_regular_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("password");
+        std::fs::write(&path, "synthetic-test-password\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let config = settings(path.clone());
+        assert_eq!(
+            config.password().unwrap().as_deref(),
+            Some("synthetic-test-password")
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(config.password().is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::write(&path, "x".repeat(4097)).unwrap();
+        assert!(config.password().is_err());
+        std::fs::write(&path, "one\ntwo").unwrap();
+        assert!(config.password().is_err());
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(settings(link).password().is_err());
+    }
+    #[test]
+    fn plaintext_cannot_extend_beyond_numeric_loopback() {
+        let mut config = settings("/private/credential".into());
+        for host in ["127.0.0.1", "::1"] {
+            config.host = host.into();
+            assert!(config.validate().is_ok());
+        }
+        for host in [
+            "localhost",
+            "db.example.test",
+            "192.0.2.1",
+            "/run/postgresql",
+        ] {
+            config.host = host.into();
+            assert!(config.validate().is_err());
+        }
+        config.allow_loopback_plaintext = false;
+        config.host = "db.example.test".into();
+        assert!(config.validate().is_ok());
+        config.password_file = None;
+        assert!(config.validate().is_err());
+        config.host = "/run/postgresql".into();
+        assert!(config.validate().is_ok());
     }
 }

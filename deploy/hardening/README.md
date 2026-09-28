@@ -96,8 +96,11 @@ It cannot write/delete the central repository. Never grant a generic shell, SFTP
 write access to backups, or interpreter sudo access to that account.
 
 Snapshots copy the stopped node's SQLite, operational data, configured models,
-worker artifact cache, identity, MFA key and configuration. Timers/background writers
-are checked; a separate resume timer protects against interruption during the short
+worker artifact cache, identity, MFA key and configuration. Training, URL-feed and
+calibration timers are paused and restored to their previous active state. Active
+or starting background writers prevent the copy. The exporter holds both daemon
+and calibration-worker file locks during SQLite/file capture and PostgreSQL dump;
+new lock files retain the service account's ownership. A separate resume timer protects against interruption during the short
 copy. The other node must remain healthy. Messages already accepted have independent
 local queues: this is not synchronous replication and cannot promise zero data loss.
 
@@ -146,3 +149,25 @@ References: [OpenSSH](https://manpages.debian.org/trixie/openssh-server/sshd_con
 [AppArmor](https://manpages.debian.org/trixie/apparmor/apparmor.d.5.en.html),
 [restic producer failure handling](https://restic.readthedocs.io/en/stable/040_backup.html),
 [TOTP RFC 6238](https://www.rfc-editor.org/info/rfc6238/).
+
+### PostgreSQL management backups
+
+For format-seven coordinators, the snapshot exporter includes a custom-format
+PostgreSQL dump in the same encrypted archive as local SQLite queue metadata,
+configuration and the original MFA key. The supported temporary hosting profile
+is PostgreSQL 17 with Unix peer authentication; other connection profiles fail
+before stopping the mail service. See [PostgreSQL backup details](../postgresql/README.md).
+
+Archive checks alone do not certify database recovery. A PostgreSQL snapshot
+returns `requires_postgresql_restore` until a separate isolated database restore
+has been completed and verified. The central verifier preserves this result,
+and monitoring reports `restore_test_incomplete` even when the file check is
+recent. The current code does not automate the production restore drill or turn
+that pending status into a successful recovery result.
+
+
+Full-archive verification also recognizes historical `dsn-<positive integer>`
+queue filenames when the stored message is a delivery notification with an empty
+envelope sender. It checks the same signed 64-bit identifier bounds as the queue,
+rejects paths and noncanonical numbers, and still requires the queued body file.
+This does not enable full/body backups or change the configured retention mode.

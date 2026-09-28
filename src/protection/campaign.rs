@@ -1,5 +1,5 @@
 use super::Status;
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::params;
 use std::{collections::HashSet, path::Path, time::Duration};
 
 pub async fn inspect(
@@ -20,15 +20,12 @@ pub async fn inspect(
     let Some(simhash) = simhash.and_then(|s| u64::from_str_radix(s, 16).ok()) else {
         return (Status::NotRun, false, false);
     };
-    let path = root.join("state.sqlite3");
+    let root = root.to_owned();
     let scope = format!("%@{}", scopes[0]);
     let fingerprint = fingerprint.to_owned();
     let (send, receive) = tokio::sync::oneshot::channel();
     let task = tokio::task::spawn_blocking(move || -> anyhow::Result<(bool, bool)> {
-        let db = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let db = crate::runtime_history::open(&root)?;
         db.busy_timeout(Duration::from_millis(50))?;
         if send.send(db.get_interrupt_handle()).is_err() {
             return Ok((false, false));
@@ -99,6 +96,68 @@ pub async fn inspect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn cached_campaign_window_keeps_recent_unlabelled_messages() {
+        use crate::runtime_history::{PROTOCOL, Row, Snapshot, Vote};
+        let root = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(root.path()).unwrap();
+        crate::runtime_history::require(&store).await.unwrap();
+        let now = crate::now();
+        let fingerprint = crate::message::digest(b"campaign");
+        let rows: Vec<_> = (0..1002)
+            .map(|i| Row {
+                id: uuid::Uuid::new_v4().to_string(),
+                created: now - if i < 2 { 120 } else { 10 },
+                is_dsn: false,
+                fingerprint: fingerprint.clone(),
+                simhash: Some("000000000000ffff".into()),
+                raw_sha256: Some(crate::message::digest(i.to_string().as_bytes())),
+                feature_count: 80,
+                native: None,
+                sender_key: None,
+                behavior: None,
+                domains: vec!["example.org".into()],
+                votes: if i < 2 {
+                    vec![Vote {
+                        actor: crate::message::digest(b"reviewer"),
+                        spam: true,
+                        created: now - 100,
+                    }]
+                } else {
+                    vec![]
+                },
+            })
+            .collect();
+        let mut snapshot = Snapshot {
+            protocol: PROTOCOL.into(),
+            generation: 1,
+            created: now,
+            rows,
+        };
+        crate::runtime_history::install(root.path(), snapshot.clone())
+            .await
+            .unwrap();
+        let scopes = ["example.org".into()];
+        let check = || {
+            inspect(
+                root.path(),
+                true,
+                &scopes,
+                Some("000000000000ffff"),
+                &fingerprint,
+                80,
+            )
+        };
+        // Two matching labels outside the latest 1,000 messages cannot corroborate.
+        assert_eq!(check().await, (Status::Complete, false, false));
+        snapshot.generation += 1;
+        snapshot.rows.truncate(2);
+        crate::runtime_history::install(root.path(), snapshot)
+            .await
+            .unwrap();
+        assert_eq!(check().await, (Status::Complete, true, false));
+    }
+
     #[tokio::test]
     async fn campaigns_require_current_admin_feedback_two_examples_and_matching_scope() {
         let root = tempfile::tempdir().unwrap();

@@ -217,14 +217,22 @@ async fn poll(
     } else {
         None
     };
+    let central_authority = if remote_management {
+        crate::central::binding::selected(&control.store).await?
+    } else {
+        None
+    };
     let response = if let Some(identity) = &central_identity {
-        http.post(format!("{url}/api/v1/cluster/v3/sync")).json(&serde_json::json!({"protocol":crate::central::transport::PROTOCOL,"epoch":identity.epoch,"request":&request})).send().await?
+        crate::central::binding::request(http.post(format!("{url}/api/v1/cluster/v3/sync")), central_authority.as_ref())?.json(&serde_json::json!({"protocol":crate::central::transport::PROTOCOL,"epoch":identity.epoch,"request":&request})).send().await?
     } else {
         http.post(format!("{url}/api/v1/cluster/v2/sync"))
             .json(&request)
             .send()
             .await?
     };
+    if remote_management {
+        crate::central::binding::check_headers(response.headers(), central_authority.as_ref())?;
+    }
     // Older API routers delegate unknown POST paths to ServeDir, which returns
     // 405 rather than 404. Neither status permits an already enrolled downgrade.
     let (reply, activation, generations) = if matches!(

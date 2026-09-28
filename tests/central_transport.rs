@@ -132,6 +132,26 @@ async fn authenticated_http_metadata_survives_lost_replies_rotation_and_outage()
             .unwrap();
     });
     let http = client(&secret);
+    assert_eq!(
+        transport::synchronize_runtime_history(&worker, &http, &url)
+            .await
+            .unwrap(),
+        0
+    );
+    let wrong = transport::RuntimePoll {
+        protocol: transport::PROTOCOL.into(),
+        epoch: "wrong-epoch".into(),
+    };
+    assert_eq!(
+        http.post(format!("{url}/api/v1/cluster/v3/runtime-history"))
+            .json(&wrong)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+
     let id = uuid::Uuid::new_v4().to_string();
     let insert = id.clone();
     let raw = serde_json::to_string(
@@ -173,6 +193,12 @@ async fn authenticated_http_metadata_survives_lost_replies_rotation_and_outage()
             .await
             .unwrap(),
         2
+    );
+    assert_eq!(
+        transport::synchronize_runtime_history(&worker, &http, &url)
+            .await
+            .unwrap(),
+        1
     );
     assert_eq!(
         db.query_one("SELECT count(*) FROM noisefence.delivery_logs", &[])
@@ -268,6 +294,17 @@ async fn authenticated_http_metadata_survives_lost_replies_rotation_and_outage()
             .unwrap()
             .status(),
         StatusCode::UNAUTHORIZED
+    );
+    assert!(
+        f.central
+            .runtime_history(Some(&authenticated))
+            .await
+            .is_err()
+    );
+    assert!(
+        transport::synchronize_runtime_history(&worker, &http, &url)
+            .await
+            .is_err()
     );
     let http = client(&next_secret);
     worker

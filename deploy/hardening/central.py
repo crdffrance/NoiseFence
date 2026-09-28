@@ -88,8 +88,9 @@ def verify(config):
                 subprocess.run(['/usr/bin/restic','--no-cache','--repo',config['repository'],'--password-file',config['password_file'],'dump',ident,name+'.tar'],stdout=out,check=True,timeout=300)
             result=json.loads(execute(['/usr/bin/unshare','--net','--',BASE+'restore-check.py',str(archive)],300))
             result.update({'node':name,'snapshot_id':ident});results.append(result)
-    (ROOT/'restore-status.json').write_text(json.dumps({'time':int(time.time()),'results':results})+'\n')
-    print(json.dumps({'restoration':'verified','results':results}))
+    state='requires_postgresql_restore' if any(r.get('postgresql_restore_required') for r in results) else 'verified'
+    (ROOT/'restore-status.json').write_text(json.dumps({'time':int(time.time()),'restoration':state,'results':results})+'\n')
+    print(json.dumps({'restoration':state,'results':results}))
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('action',choices=['collect','backup','verify']);args=parser.parse_args()

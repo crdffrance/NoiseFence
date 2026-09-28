@@ -2,6 +2,9 @@
 mod common;
 #[path = "common/postgres.rs"]
 mod postgres;
+#[allow(dead_code)]
+#[path = "common/web_auth.rs"]
+mod web_auth;
 use noisefence::{
     central::{outbox::Identity, policies::Proposal},
     cluster::{
@@ -33,6 +36,55 @@ fn next(base: &Bundle) -> Bundle {
     bundle.revision += 1;
     bundle.digest = bundle.hash().unwrap();
     bundle
+}
+
+async fn check_incident_authority(
+    c: &noisefence::central::Central,
+    owner: &Identity,
+    epoch: &noisefence::cluster::activation::Epoch,
+) {
+    assert_eq!(
+        c.policy_incident_epoch(owner).await.unwrap(),
+        Some(epoch.clone())
+    );
+    assert!(
+        c.record_policy_incident(owner, epoch, Some("runtime_preparation_failed"))
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        c.policy_view(owner, "admin", true, 0, false).await.unwrap()["incident"]["code"],
+        "runtime_preparation_failed"
+    );
+    assert!(
+        c.policy_view(owner, "alice", false, 0, false)
+            .await
+            .unwrap()["incident"]
+            .is_null()
+    );
+    let mut stale_epoch = epoch.clone();
+    stale_epoch.sequence += 1;
+    assert!(
+        !c.record_policy_incident(owner, &stale_epoch, None)
+            .await
+            .unwrap()
+    );
+    assert!(
+        c.record_policy_incident(owner, epoch, Some("private provider error"))
+            .await
+            .is_err()
+    );
+    let wrong_owner = Identity {
+        epoch: uuid::Uuid::new_v4().to_string(),
+        ..owner.clone()
+    };
+    assert!(
+        c.record_policy_incident(&wrong_owner, epoch, None)
+            .await
+            .is_err()
+    );
+    assert!(c.record_policy_incident(owner, epoch, None).await.unwrap());
+    assert!(c.policy_view(owner, "admin", true, 0, false).await.unwrap()["incident"].is_null());
 }
 
 #[tokio::test]
@@ -91,6 +143,12 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
     c.report_policy_peer(&peer, PROTOCOL, env!("CARGO_PKG_VERSION"), 0, &base.digest)
         .await
         .unwrap();
+    for invalid in [i64::MIN, 0, 59, 7 * 86400 + 1, i64::MAX] {
+        let mut change = proposal(&base, next(&base), "admin", &admin_session, None);
+        change.max_stale_seconds = invalid;
+        let error = c.stage_policy(&owner, change).await.err().unwrap();
+        assert!(error.to_string().contains("Invalid policy freshness bound"));
+    }
     assert!(
         c.stage_policy(
             &owner,
@@ -116,13 +174,9 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
     let mut wrong_base = proposal(&base, next(&base), "admin", &admin_session, None);
     wrong_base.base_digest = "0".repeat(64);
     assert!(c.stage_policy(&owner, wrong_base).await.is_err());
-    let staged = c
-        .stage_policy(
-            &owner,
-            proposal(&base, next(&base), "admin", &admin_session, None),
-        )
-        .await
-        .unwrap();
+    let mut upper_bound = proposal(&base, next(&base), "admin", &admin_session, None);
+    upper_bound.max_stale_seconds = 7 * 86400;
+    let staged = c.stage_policy(&owner, upper_bound).await.unwrap();
     let epoch = staged.rollout().unwrap().epoch().clone();
     assert_eq!(
         c.stage_policy(
@@ -137,6 +191,7 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
         &epoch
     );
     assert!(c.commit_policy(&owner, &epoch).await.is_err());
+    Box::pin(check_incident_authority(c, &owner, &epoch)).await;
     assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 0);
     assert!(
         c.acknowledge_policy(
@@ -185,6 +240,9 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
         .await
         .unwrap();
     assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 0);
+    c.record_policy_incident(&owner, &epoch, Some("activation_step_failed"))
+        .await
+        .unwrap();
     let staged = c
         .stage_policy(
             &owner,
@@ -194,6 +252,15 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
         .unwrap();
     let epoch = staged.rollout().unwrap().epoch().clone();
     assert!(epoch.sequence > 1);
+    assert!(
+        db.query_one(
+            "SELECT incident IS NULL FROM noisefence.policy_authority",
+            &[]
+        )
+        .await
+        .unwrap()
+        .get::<_, bool>(0)
+    );
     let wrong = Identity {
         epoch: uuid::Uuid::new_v4().to_string(),
         ..peer.clone()
@@ -403,6 +470,15 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
         .await
         .unwrap();
     let epoch = staged.rollout().unwrap().epoch().clone();
+    c.record_policy_incident(&owner, &epoch, Some("runtime_preparation_failed"))
+        .await
+        .unwrap();
+    assert_eq!(
+        c.policy_view(&owner, "alice", false, released.current().revision, false)
+            .await
+            .unwrap()["incident"]["code"],
+        "runtime_preparation_failed"
+    );
     for node in [&owner, &peer] {
         c.acknowledge_policy(
             node,
@@ -417,6 +493,12 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
     db.execute("DELETE FROM noisefence.grants WHERE username='alice'", &[])
         .await
         .unwrap();
+    assert!(
+        c.policy_view(&owner, "alice", false, released.current().revision, false)
+            .await
+            .unwrap()["incident"]
+            .is_null()
+    );
     assert!(c.commit_policy(&owner, &epoch).await.is_err());
     c.abort_policy(&owner, &epoch, "admin", &admin_session)
         .await
@@ -428,6 +510,28 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
     .await
     .unwrap();
     assert!(c.policy_journal(&owner).await.is_err());
+    let view = c
+        .policy_view(&owner, "admin", true, base.revision, true)
+        .await
+        .unwrap();
+    assert_eq!(view["incident"]["code"], "membership_changed");
+    assert_eq!(view["smtp_ready"], false);
+    assert_eq!(view["abortable"], false);
+    assert!(
+        c.record_policy_incident(&owner, &epoch, Some("activation_step_failed"))
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        db.query_one(
+            "SELECT incident->>'code' FROM noisefence.policy_authority",
+            &[]
+        )
+        .await
+        .unwrap()
+        .get::<_, String>(0),
+        "membership_changed"
+    );
     f.finish().await;
 }
 
@@ -476,7 +580,8 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
         .report_policy_peer(&peer, PROTOCOL, env!("CARGO_PKG_VERSION"), 0, &base.digest)
         .await
         .unwrap();
-    let session = "a".repeat(64);
+    let raw_session = "a".repeat(64);
+    let session = noisefence::message::digest(raw_session.as_bytes());
     db.execute(
         "INSERT INTO noisefence.users(username,password,admin) VALUES('admin','synthetic',true)",
         &[],
@@ -554,6 +659,83 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     assert!(worker.cluster_ready());
     assert_eq!(control.snapshot().revision, 1);
     assert_eq!(control.snapshot().settings.filters.threshold, 96.);
+    f.central
+        .record_policy_incident(&owner, &epoch, Some("runtime_generation_busy"))
+        .await
+        .unwrap();
+    assert_eq!(
+        control.activation_view("admin".into(), true).await.unwrap()["incident"]["code"],
+        "runtime_generation_busy"
+    );
+    control.advance_activation().await.unwrap();
+    assert!(control.activation_view("admin".into(), true).await.unwrap()["incident"].is_null());
+    let app = noisefence::api::router_controlled(
+        config.clone(),
+        control.store.clone(),
+        Some(control.clone()),
+    )
+    .unwrap();
+    let cookie = format!("noisefence_session={raw_session}");
+    let (status, revisions, _) = web_auth::call(
+        &app,
+        &config.web.public_origin,
+        "/admin/revisions",
+        &cookie,
+        "",
+        None,
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(revisions.as_array().unwrap().len(), 2);
+    assert_eq!(revisions[0]["id"], 1);
+    assert_eq!(revisions[1]["id"], 0);
+    for id in [0, 1] {
+        let (status, settings, _) = web_auth::call(
+            &app,
+            &config.web.public_origin,
+            &format!("/admin/revisions/{id}"),
+            &cookie,
+            "",
+            None,
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(
+            settings["filters"]["threshold"],
+            if id == 0 {
+                config.filter.threshold
+            } else {
+                96.
+            }
+        );
+    }
+    assert_eq!(
+        web_auth::call(
+            &app,
+            &config.web.public_origin,
+            "/admin/revisions/999",
+            &cookie,
+            "",
+            None
+        )
+        .await
+        .0,
+        axum::http::StatusCode::NOT_FOUND
+    );
+    assert!(
+        f.central
+            .policy_revisions("missing")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        f.central
+            .policy_revision("missing", 1)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         control.activation_view("admin".into(), true).await.unwrap()["committed_revision"],
         1

@@ -25,6 +25,14 @@ class SchedulerTests(unittest.TestCase):
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
 
+    def test_worker_refuses_training_before_loading_any_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root/'config.toml'
+            config.write_text('[cluster]\nrole="worker"\n[filter]\nmodel="/missing/model.json"\n')
+            with self.assertRaisesRegex(ValueError, 'coordinator only'):
+                self.module.commands(root/'binary', config, root/'python', root/'candidate', root/'snapshot')
+
     def test_schema_three_and_hybrid_never_reach_the_legacy_trainer(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

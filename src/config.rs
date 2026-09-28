@@ -9,6 +9,9 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Installation only; excluded from shared and Web policy allowlists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub management: Option<crate::central::bootstrap::Management>,
     /// Durable credential generation for an enrolled policy; values remain private.
     #[serde(skip)]
     pub credential_generation: Option<String>,
@@ -271,6 +274,9 @@ impl Config {
         Ok(value)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(management) = &self.management {
+            management.validate(self.cluster.as_ref())?;
+        }
         if let Some(replication) = &self.replication {
             replication.validate()?;
             ensure!(

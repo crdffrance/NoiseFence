@@ -16,8 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_ROWS: usize = 5000;
-const MAX_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_ROWS: usize = 5000;
+pub(crate) const MAX_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -209,7 +209,7 @@ struct Cohort {
     versions: BTreeSet<String>,
 }
 #[derive(Default)]
-struct Accumulator {
+pub(crate) struct Accumulator {
     all: Window,
     recent: Window,
     current_recent: Window,
@@ -282,6 +282,23 @@ pub fn without_weight(scan: &Scan, id: &str) -> Option<Outcome> {
 }
 
 impl Accumulator {
+    pub(crate) fn record(
+        &mut self,
+        raw: &str,
+        created: i64,
+        risk: Option<&str>,
+        feedback: Option<i64>,
+        now: i64,
+    ) {
+        if raw.len() > 512 * 1024 {
+            self.invalid_scans += 1;
+            return;
+        }
+        match serde_json::from_str::<Scan>(raw) {
+            Ok(scan) => self.add(&scan, created, risk, feedback, now),
+            Err(_) => self.invalid_scans += 1,
+        }
+    }
     fn add(
         &mut self,
         scan: &Scan,
@@ -465,7 +482,7 @@ impl Accumulator {
             }
         }
     }
-    fn report(mut self, options: &Options, now: i64, truncated: bool) -> Value {
+    pub(crate) fn report(mut self, options: &Options, now: i64, truncated: bool) -> Value {
         self.all.finish();
         self.recent.finish();
         self.current_recent.finish();
@@ -572,6 +589,9 @@ fn add_symbol(row: &mut Symbol, label: Option<(bool, bool)>, actual: Outcome, we
 
 pub async fn audit(store: &Store, username: String, options: Options) -> Result<Value> {
     options.validate()?;
+    if let Some(central) = store.management() {
+        return central.reliability_audit(&username, &options).await;
+    }
     store.read(move |db| {
         let now=crate::now();let since=now-i64::from(options.days)*86400;
         let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND disabled=0)",[&username],|r|r.get(0))?;
@@ -589,10 +609,8 @@ pub async fn audit(store: &Store, username: String, options: Options) -> Result<
             if count==MAX_ROWS || started.elapsed()>Duration::from_secs(2) {truncated=true;break;}
             let raw:String=row.get(1)?;bytes+=raw.len();count+=1;
             if bytes>MAX_BYTES {truncated=true;break;}
-            if raw.len()>512*1024 {result.invalid_scans+=1;continue;}
-            let scan:Scan=match serde_json::from_str(&raw){Ok(s)=>s,Err(_)=>{result.invalid_scans+=1;continue;}};
             let risk:Option<String>=row.get(2)?;
-            result.add(&scan,row.get(0)?,risk.as_deref(),row.get(3)?,now);
+            result.record(&raw,row.get(0)?,risk.as_deref(),row.get(3)?,now);
         }
         Ok(result.report(&options,now,truncated))
     }).await

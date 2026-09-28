@@ -61,6 +61,8 @@ def profiles(mode):
   /var/lib/noisefence/research/*/{model.json,native-combination.json} r,
   /var/lib/noisefence/research/*/encoder/{config.json,tokenizer.json,model.safetensors} r,
   owner /var/lib/noisefence/** rwkl,
+  # Local peer-authenticated PostgreSQL management database.
+  /run/postgresql/.s.PGSQL.[0-9]* rw,
   /run/clamav/clamd.ctl rw,
   /run/noisefence-signatures/clamd.ctl rw,
   /run/noisefence-vision/worker.sock rw,

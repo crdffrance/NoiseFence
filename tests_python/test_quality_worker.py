@@ -22,6 +22,28 @@ class WorkerTests(unittest.TestCase):
         db.execute("INSERT INTO quality_jobs(id,username,batch_id,operation,status,created) VALUES(?,'admin',?,'compare','queued',?)",(job,batch,int(time.time())))
         db.commit();return db,job
 
+    def test_stale_config_refuses_central_state_before_any_worker_write(self):
+        for marker in ('management_transport','runtime_history_protocol',None):
+            with self.subTest(marker=marker),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);db,job=self.setup_database(root)
+                if marker:
+                    db.execute('CREATE TABLE cluster_state(key TEXT PRIMARY KEY,value TEXT)')
+                    db.execute('INSERT INTO cluster_state VALUES(?,?)',(marker,'unknown'))
+                else:db.execute('PRAGMA user_version=7')
+                db.commit()
+                with self.assertRaisesRegex(ValueError,'explicit central'):
+                    self.worker.open_database({'data_dir':str(root)},root/'binary',root/'config.toml')
+                self.assertEqual(db.execute('SELECT count(*) FROM quality_worker_status').fetchone()[0],0)
+                self.assertEqual(db.execute('SELECT status FROM quality_jobs WHERE id=?',(job,)).fetchone()[0],'queued')
+                db.close()
+
+    def test_missing_local_database_is_not_created(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with self.assertRaises(sqlite3.OperationalError):
+                self.worker.open_database({'data_dir':str(root)},root/'binary',root/'config.toml')
+            self.assertFalse((root/'state.sqlite3').exists())
+
     def test_abandoned_running_jobs_are_not_retried_and_revoked_jobs_are_cancelled(self):
         with tempfile.TemporaryDirectory() as tmp:
             db,job=self.setup_database(Path(tmp))

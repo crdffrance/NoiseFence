@@ -39,6 +39,11 @@ def audit_event(line):
         result['category']='ocr_inherited_stdin_diagnostic'
     return result
 
+def restoration_complete(status):
+    results=status.get('results')
+    return (status.get('restoration','verified')=='verified' and isinstance(results,list) and bool(results)
+            and all(isinstance(r,dict) and r.get('status')=='verified' and not r.get('postgresql_restore_required') for r in results))
+
 def report(since):
     now=int(time.time());result={'version':1,'time':now,'services':{},'issues':[]}
     for name in SERVICES:
@@ -77,7 +82,10 @@ def report(since):
     if Path('/etc/noisefence-hardening/central.json').exists():
         for filename,age_limit,label in [('backup-status.json',36*3600,'backup'),('restore-status.json',8*86400,'restore_test')]:
             try:
-                stamp=json.loads((ROOT/filename).read_text())['time']
+                status=json.loads((ROOT/filename).read_text())
+                if not isinstance(status,dict):raise ValueError('Invalid backup status')
+                stamp=status['time']
+                if label=='restore_test' and not restoration_complete(status):result['issues'].append('restore_test_incomplete')
                 if now-int(stamp)>age_limit:result['issues'].append(label+'_stale')
             except (OSError,ValueError,KeyError):result['issues'].append(label+'_missing')
         if command('systemctl','show','noisefence-central-backup','-p','Result','--value').stdout.strip() not in ['','success']:result['issues'].append('backup_failed')

@@ -32,7 +32,7 @@ const REQUESTS: [&str; 6] = [
     "NF_UNSUBSCRIBE",
 ];
 impl Sample {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         self.protocol == "sender-behavior-1"
             && crate::compatibility::valid_hash(&self.policy)
             && crate::compatibility::valid_hash(&self.recipient)

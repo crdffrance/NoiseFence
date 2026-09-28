@@ -12,12 +12,25 @@ import re
 import sqlite3
 import tarfile
 import tempfile
+import tomllib
 
 def safe_name(name):
     path=PurePosixPath(name)
     if path.is_absolute() or '..' in path.parts or '\\' in name or len(name)>1024:raise ValueError('Unsafe archive path')
     if not path.parts or path.parts[0] not in ['config','data','manifest.json']:raise ValueError('Unknown archive root')
     return path
+
+def valid_queued_id(db,message_id):
+    if not isinstance(message_id,str):return False
+    if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',message_id):return True
+    # Match the Rust queue's legacy DSN identity contract. Never use an
+    # unchecked database identifier to construct a restored body path.
+    legacy=re.fullmatch(r'dsn-([1-9][0-9]{0,18})',message_id)
+    if not legacy or int(legacy[1])>2**63-1:return False
+    columns={row[1] for row in db.execute('PRAGMA table_info(messages)')}
+    if not {'is_dsn','sender'}.issubset(columns):return False
+    rows=db.execute('SELECT is_dsn,sender FROM messages WHERE id=?',(message_id,)).fetchall()
+    return rows==[(1,'')]
 
 def verify(archive_path):
     with tempfile.TemporaryDirectory(prefix='noisefence-restore-check-') as tmp:
@@ -65,11 +78,40 @@ def verify(archive_path):
                         raise ValueError('MFA recovery key missing')
                 if manifest['mode']=='full' and 'messages' in tables:
                     for (message_id,) in db.execute('SELECT id FROM messages WHERE raw_present=1'):
-                        if not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',message_id):
+                        if not valid_queued_id(db,message_id):
                             raise ValueError('Invalid queued message identifier')
                         if not (root/'data/spool'/(message_id+'.eml')).is_file():
                             raise ValueError('Queued message body missing')
-        return {'status':'verified','mode':manifest['mode'],'files':len(actual),'databases':databases,'network_used':False,'services_started':False}
+        pg_dump=root/'data/management.postgresql.dump'
+        has_postgres=pg_dump.is_file()
+        if has_postgres:
+            with pg_dump.open('rb') as source:
+                if source.read(5)!=b'PGDMP':raise ValueError('Invalid PostgreSQL dump format')
+        config_path=root/'config/config.toml'
+        config=tomllib.loads(config_path.read_text()) if config_path.is_file() else {}
+        backend=config.get('management',{}).get('backend')
+        if backend is not None and not state.is_file():raise ValueError('Selected management spool snapshot missing')
+        if backend=='postgresql' and not has_postgres:raise ValueError('PostgreSQL management backup missing')
+        if state.exists():
+            with sqlite3.connect('file:'+str(state)+'?mode=ro',uri=True) as db:
+                version=db.execute('PRAGMA user_version').fetchone()[0]
+                if version>7:raise ValueError('Unsupported selected management backup format')
+                if version==7:
+                    row=db.execute("SELECT value FROM cluster_state WHERE key='management_selection'").fetchone()
+                    if not row:raise ValueError('Missing management selection receipt')
+                    selection=json.loads(row[0])
+                    role=selection.get('role')
+                    if role=='coordinator':
+                        if backend!='postgresql' or not has_postgres:raise ValueError('Selected PostgreSQL management backup missing')
+                        key=root/'data/mfa.key'
+                        if not key.is_file() or key.stat().st_size!=32 or hashlib.sha256(key.read_bytes()).hexdigest()!=selection.get('mfa_key_sha256'):raise ValueError('Selected MFA recovery key mismatch')
+                    elif role=='worker':
+                        if backend!='coordinator':raise ValueError('Worker management configuration mismatch')
+                    else:raise ValueError('Invalid selected management role')
+                elif backend is not None:raise ValueError('Management configuration precedes storage selection')
+        # A checksummed PGDMP header does not prove that SQL can be restored.
+        # Never execute archive-supplied SQL against the production cluster here.
+        return {'status':'requires_postgresql_restore' if has_postgres else 'verified','mode':manifest['mode'],'files':len(actual),'databases':databases,'postgresql_restore_required':has_postgres,'network_used':False,'services_started':False}
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('archive');args=parser.parse_args();print(json.dumps(verify(args.archive)))

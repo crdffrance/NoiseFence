@@ -10,7 +10,31 @@ The intention to send is replicated before contacting the upstream. Local body r
 
 SMTP cannot guarantee exactly-once delivery. A lost final acknowledgement creates uncertainty. During recovery, confirmed delivered recipients are not retried. An uncertain acceptance, `sending` state, or referenced failure notice missing from the journal is held without automatic expiry. Inspect remote SMTP records before releasing it. See [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.1).
 
-The console uses consistent checkpoints, not a shared database. A 60-second interval plus transfer time is a typical starting point. Checkpoints use the [SQLite Online Backup API](https://www.sqlite.org/backup.html) and include accounts, MFA, settings, models and budgets. Queued bodies use the dedicated replication protocol. Checkpoints are private on disk and encrypted over SSH in transit; they are not a substitute for an independent encrypted backup.
+Console recovery uses checkpoints. A 60-second interval plus transfer time is a typical starting point. For legacy installations, checkpoints use the [SQLite Online Backup API](https://www.sqlite.org/backup.html) and include accounts, MFA, settings, models and budgets. Queued bodies use the dedicated replication protocol. Checkpoints are private on disk and encrypted over SSH in transit; they are not a substitute for an independent encrypted backup.
+
+For selected PostgreSQL management, `standby.py` exports the version-two checkpoint
+format. It includes a PostgreSQL custom-format dump, a coherent local SQLite copy,
+the original MFA key, installation configuration and the exact installed immutable
+model and credential generations. The exporter checks the selected database binding
+and stable installed policy before and after capture. It also compares the policy
+journal sequence, so an attempted rollout followed by cancellation cannot hide a
+change during capture. Completed and cancelled rollouts are accepted; pending
+rollouts defer the checkpoint. A policy change aborts the export;
+SMTP is not stopped for periodic checkpoints. The PostgreSQL backup helper from
+`deploy/hardening/snapshot.py` must also be installed under
+`/usr/local/libexec/noisefence-hardening`. This profile uses local PostgreSQL 17 and
+Unix peer authentication.
+
+The standby verifies archive checksums, selected authority, installed files and MFA
+binding before replacing its current checkpoint. It refuses a downgrade to a legacy
+checkpoint or another database authority. A received checkpoint explicitly reports
+`postgresql_restore_required: true`: archive validation is not database restoration
+or permission to promote the console. The legacy `promote.py` procedure below is not
+yet the selected PostgreSQL recovery procedure. Complete the coordinated recovery
+gates in [PostgreSQL development](postgresql-development.md) before enabling that
+production migration. In particular, a live PostgreSQL dump and a local queue copy
+are separate snapshots; recovery must reconcile their journals and revoke stale
+access before starting a restored service.
 
 ## Installation
 
@@ -26,11 +50,34 @@ The console uses consistent checkpoints, not a shared database. A 60-second inte
 The local replication settings are never overwritten by distributed Web policy. `allow_loopback_http` is for isolated loopback tests only. Reaching the replica storage quota causes temporary failure; monitor unconfirmed candidates as well as accepted copies.
 
 <a id="bascule-planifiée"></a>
+### Preparing a selected console configuration
+
+The native `ha-console-config` command can prepare a configuration for a staged
+PostgreSQL-backed console. It validates the selected coordinator identity, original
+MFA key, matching queue-recovery receipt and pending recovery operation, installed
+models and immutable provider credentials. It holds daemon/calibration locks while
+preparing the private configuration and does not connect to PostgreSQL.
+
+This step preserves the selected database binding, source epoch and installed
+policy. It does not read or rewrite obsolete SQLite management revisions. The
+result keeps the local recovery fence, so neither the SMTP service nor the console
+can start until coordinated management recovery is completed. PostgreSQL MFA records
+still require validation against the restored database before activation.
+
+The native `management-recovery-prepare --activate-console` path now performs the
+coordinated recovery checks and can publish a durable console-only authorization.
+Its startup checks require matching local and PostgreSQL receipts; SMTP remains
+blocked on the recovery copy. See [the activation procedure](postgresql-development.md#authorizing-the-recovered-console).
+
+This does not make `promote.py` support version-two checkpoints. Installing worker
+keys, switching the proxy and worker authority, and resuming the correct original
+worker queue still require integration and an installed-system rehearsal.
+
 ## Planned console promotion
 
 Promotion is an administrator operation, never triggered solely by a failed ping.
 
-1. On the coordinator, run `sudo python3 /usr/local/libexec/noisefence-ha/fence.py`. Its private `fenced.json` receipt records the verified shutdown. A persistent systemd condition prevents restart; keep that fence in place throughout recovery.
+1. On the coordinator, run `sudo python3 /usr/local/libexec/noisefence-ha/fence.py`. Its private `fenced.json` receipt records the verified shutdown. The helper stops installed SMTP, console, training, URL-feed, quality and checkpoint services and their timers. Each installed unit receives a persistent systemd condition preventing restart; keep that fence in place throughout recovery. A unit that remains active prevents a successful fencing receipt. To stop an authorized restored PostgreSQL console and its colocated worker, explicitly add `--recovered-console`; this checks native console authority and flushes replication using the worker configuration. It does not archive or retire the restored data.
 2. On the stopped coordinator, run `sudo python3 /usr/local/libexec/noisefence-ha/standby.py push`. The final checkpoint must start after fencing and carry the same operation ID.
 3. Transfer the receipt to the peer through the authenticated administration channel, mode 0600. Within one hour, run `sudo python3 /usr/local/libexec/noisefence-ha/promote.py --fence-receipt /private/path/fence.json`.
 4. Restoration uses a separate `active` directory, verifies every retained body and preserves queue identifiers. It starts **only the console** on `127.0.0.1:18081`. The copied MFA key must decrypt all recorded secrets before activation. Promotion updates the HTTPS console route and worker coordination URL. It does not replace the worker's queue. Sign in again; old sessions are revoked.

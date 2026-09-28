@@ -197,7 +197,12 @@ async fn apply(
     Ok(Json(json!({"revision":id,"staged":false})))
 }
 async fn revisions(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
+    let actor = administrator(&app, &h, false).await?;
+    if let Some(central) = app.store.management() {
+        return Ok(Json(json!(
+            central.policy_revisions(&actor.username).await?
+        )));
+    }
     let data=app.store.read(|db| {
         let mut q=db.prepare("SELECT id,created,username FROM console_revisions ORDER BY id DESC LIMIT 100")?;
         Ok(q.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"created":r.get::<_,i64>(1)?,"username":r.get::<_,String>(2)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -209,8 +214,17 @@ async fn revision(
     h: HeaderMap,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
+    let actor = administrator(&app, &h, false).await?;
     let control = controller(&app)?;
+    if let Some(central) = app.store.management() {
+        let value = central
+            .policy_revision(&actor.username, id)
+            .await?
+            .ok_or(Error(StatusCode::NOT_FOUND, "Revision not found.".into()))?;
+        let mut settings: Settings = serde_json::from_value(value).map_err(anyhow::Error::from)?;
+        settings.hydrate(&control.base);
+        return Ok(Json(json!(settings)));
+    }
     if id == 0 {
         return Ok(Json(json!(Settings::from_config(&control.base))));
     }
@@ -820,35 +834,41 @@ async fn admission_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Jso
 }
 
 async fn research_archive_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
+    let actor = administrator(&app, &h, false).await?;
     let runtime = app.store.archive.clone();
     let local = tokio::task::spawn_blocking(move || runtime.status())
         .await
         .map_err(|e| anyhow::anyhow!(e))??;
-    let nodes = app
-        .store
-        .read(|db| {
-            let rows = db
-                .prepare(
-                    "SELECT id,last_seen,status FROM cluster_nodes WHERE enabled=1 ORDER BY id",
-                )?
-                .query_map([], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(rows
+    let nodes = if let Some(central) = app.store.management() {
+        central.node_overview(&actor.username).await?.0.into_iter()
+            .filter(|node| node["enabled"].as_bool() == Some(true))
+            .map(|node| json!({"node_id":node["id"],"last_seen":node["last_seen"],"status":node["status"]["research_archive"]}))
+            .collect::<Vec<_>>()
+    } else {
+        app.store
+            .read(|db| {
+                let rows = db
+                    .prepare(
+                        "SELECT id,last_seen,status FROM cluster_nodes WHERE enabled=1 ORDER BY id",
+                    )?
+                    .query_map([], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, String>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows
                 .into_iter()
                 .map(|(id, last_seen, status)| {
                     let s: Value = serde_json::from_str(&status).unwrap_or(Value::Null);
                     json!({"node_id":id,"last_seen":last_seen,"status":s.get("research_archive")})
                 })
                 .collect::<Vec<_>>())
-        })
-        .await?;
+            })
+            .await?
+    };
     Ok(Json(
         json!({"local":{"node_id":app.config.cluster.as_ref().map(|c|c.node_id.as_str()).unwrap_or("local"),"last_seen":now(),"status":local},"workers":nodes}),
     ))

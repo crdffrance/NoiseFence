@@ -250,7 +250,8 @@ pub fn model_base(
         }
         value["quality"] = quality;
     }
-    let mut config = serde_json::from_value(value)?;
+    let mut config: crate::config::Config = serde_json::from_value(value)?;
+    config.management = base.management.clone();
     bind_installed_credentials(&mut config, installed)?;
     Ok(config)
 }
@@ -417,9 +418,21 @@ impl Bundle {
         // rc.8 and rc.9 change diagnostics, not the typed messaging policy. Keep
         // the complete previous policy during an unenrolled coordinator-first
         // rollout. Credential-bound activation above still requires equal builds.
-        if matches!(env!("CARGO_PKG_VERSION"), "0.28.0-rc.8" | "0.28.0-rc.9")
-            && build == "0.28.0-rc.7"
+        if matches!(
+            env!("CARGO_PKG_VERSION"),
+            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0"
+        ) && build == "0.28.0-rc.7"
         {
+            let mut bundle = self.clone();
+            bundle.build = build.into();
+            bundle.digest = bundle.hash()?;
+            return Ok(bundle);
+        }
+        // 0.29 moves management storage; its shared messaging policy has the
+        // same typed shape as rc.9. Preserve that policy when reading/migrating
+        // the prior release. The credential-bound check above still forbids
+        // activating it on a mixed-version enrolled cluster.
+        if env!("CARGO_PKG_VERSION") == "0.29.0" && build == "0.28.0-rc.9" {
             let mut bundle = self.clone();
             bundle.build = build.into();
             bundle.digest = bundle.hash()?;
@@ -790,6 +803,7 @@ pub fn materialize(
         full["filter"]["spamhaus_key_env"] = json!("NOISEFENCE_WEB_DQS");
     }
     let mut config: crate::config::Config = serde_json::from_value(full)?;
+    config.management = base.management.clone();
     config.preferences = bundle.settings.preferences.clone();
     bind_installed_credentials(&mut config, bundle)?;
     if let Some(rbl) = &config.rbl {

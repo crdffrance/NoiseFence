@@ -27,7 +27,7 @@ pub struct Log {
 }
 
 impl Event {
-    fn validate(&mut self) -> Result<()> {
+    pub(crate) fn validate(&mut self) -> Result<()> {
         ensure!(
             self.receipt.local_id > 0
                 && self.receipt.generation > 0
@@ -35,8 +35,7 @@ impl Event {
             "Invalid central transcript identity"
         );
         ensure!(
-            uuid::Uuid::parse_str(&self.message_id)
-                .is_ok_and(|id| id.to_string() == self.message_id)
+            crate::ha::replica::valid_id(&self.message_id)
                 && crate::config::valid_address(&self.recipient),
             "Invalid central transcript recipient"
         );

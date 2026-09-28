@@ -40,7 +40,7 @@ type Node = {
 type Overview = {
   replication?: Replication;
   recovery_console?: boolean;
-  standby?: { created?: number; received?: number; console_url?: string; last_error?: string | null } | null;
+  standby?: { created?: number; received?: number; console_url?: string; last_error?: string | null; postgresql_restore_required?: boolean } | null;
 
   role: 'coordinator' | 'worker' | null;
   node_id: string | null;
@@ -225,7 +225,9 @@ export function ClusterConsole({
       {overview.standby && (
         <section className="card cluster-behavior">
           <h2>Emergency console</h2>
-          <p>Last checkpoint: {date(overview.standby.created ?? null)}The promotion requires the confirmed stop of the former coordinator; it does not start any SMTP relays.</p>
+          <p>Last checkpoint: {date(overview.standby.created ?? null)}</p>
+          <p>Promotion requires the confirmed stop of the former coordinator; it does not start any SMTP relays.</p>
+          {overview.standby.postgresql_restore_required && <p>PostgreSQL checkpoint received. Restore and verify the database, then complete coordinated recovery before activating this console.</p>}
           {overview.standby.console_url && <p>Recovery address: {overview.standby.console_url}</p>}
           {overview.standby.last_error && <p className="error">{overview.standby.last_error}</p>}
         </section>

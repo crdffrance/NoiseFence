@@ -2,22 +2,33 @@
 pub mod accounts;
 pub mod adaptive;
 pub mod admin;
+pub mod binding;
+pub mod bootstrap;
+pub mod catalog;
 pub mod commands;
 pub mod diagnostics;
 pub mod feedback;
 pub mod history;
+pub mod import;
 pub mod invitations;
 pub mod learning;
 pub mod logs;
 pub mod mfa;
 pub mod nodes;
+pub mod operator;
 pub mod outbox;
 pub mod policies;
 pub mod population;
+pub mod preview;
 pub mod quality;
+pub mod recovery;
+pub mod reliability;
 pub mod research;
 pub mod research_worker;
+pub mod retention;
+pub mod runtime_history;
 pub mod search;
+pub mod selection;
 mod settings;
 pub mod transport;
 pub use settings::Settings;
@@ -32,6 +43,7 @@ pub struct Central {
     // Separate pools prevent long console reads from starving durable ingestion.
     pub(crate) interactive: Pool,
     pub(crate) ingestion: Pool,
+    binding: Option<binding::Binding>,
 }
 
 /// PostgreSQL may include submitted values in error details. Only expose SQLSTATE.
@@ -48,6 +60,18 @@ pub(crate) fn database_error(error: tokio_postgres::Error) -> anyhow::Error {
 impl Central {
     /// Creates lazy, bounded pools. SMTP startup does not wait for PostgreSQL.
     pub fn new(settings: &Settings) -> Result<Self> {
+        Self::build(settings, None)
+    }
+
+    /// Lazy runtime pools: every newly created or reused connection must match
+    /// the completed import and compiled schema before any repository uses it.
+    /// Import/migration tools use `new` against their explicit unused target.
+    pub fn new_bound(settings: &Settings, binding: &binding::Binding) -> Result<Self> {
+        binding.validate()?;
+        Self::build(settings, Some(binding))
+    }
+
+    fn build(settings: &Settings, binding: Option<&binding::Binding>) -> Result<Self> {
         settings.validate()?;
         let mut config = tokio_postgres::Config::new();
         config.host(&settings.host).port(settings.port)
@@ -93,23 +117,35 @@ impl Central {
                 config.clone(),
                 MakeRustlsConnect::new(tls.clone()),
                 ManagerConfig {
-                    recycling_method: RecyclingMethod::Fast,
+                    // Confirm liveness before reusing a socket after a database
+                    // outage. This probe is covered by the recycle deadline.
+                    recycling_method: RecyclingMethod::Verified,
                 },
             );
-            Ok(Pool::builder(manager)
+            let mut builder = Pool::builder(manager)
                 .max_size(capacity)
                 .runtime(Runtime::Tokio1)
                 .timeouts(Timeouts {
                     wait: Some(Duration::from_secs(2)),
                     create: Some(Duration::from_secs(4)),
                     recycle: Some(Duration::from_secs(2)),
-                })
-                .build()?)
+                });
+            if let Some(binding) = binding {
+                builder = builder
+                    .post_create(binding.hook())
+                    .pre_recycle(binding.hook());
+            }
+            Ok(builder.build()?)
         };
         Ok(Self {
             interactive: build(settings.max_connections)?,
             ingestion: build(2)?,
+            binding: binding.cloned(),
         })
+    }
+
+    pub fn binding(&self) -> Option<&binding::Binding> {
+        self.binding.as_ref()
     }
 
     pub async fn health(&self) -> Result<()> {

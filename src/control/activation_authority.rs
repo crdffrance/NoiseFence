@@ -370,11 +370,18 @@ impl Controller {
             let _serial=this.activation_serial.clone().lock_owned().await;
             let _applying=this.applying.clone().acquire_owned().await?;
             let a=actor.clone();let t=token_hash.clone();
-            this.store.run(move|db|admin(&db.transaction()?,&a,&t)).await?;
+            if let Some(central)=this.store.management() {
+                central.policy_approval(&a,&t,None).await?;
+            } else {
+                this.store.run(move|db|admin(&db.transaction()?,&a,&t)).await?;
+            }
             ensure!(this.snapshot().revision==revision,"Configuration changed; reload before retaining models");
             ensure!(this.activation_journal().await?.is_some_and(|j|j.released()) && this.cluster_ready(),"Retain models only after coordinated release");
             let publication=this.publication().await?;
             let root=this.base.data_dir.clone();let reserve=this.base.smtp.minimum_free_bytes;
+            if let Some(central)=this.store.management() {
+                return central.retain_catalog(root,publication,label,reserve,&actor,&token_hash).await;
+            }
             let entry=tokio::task::spawn_blocking(move||crate::model_catalog::retain(&root,&publication,label,reserve)).await??;
             let id=entry.id.clone();
             this.store.run(move|db| {
@@ -396,6 +403,9 @@ impl Controller {
         tokio::spawn(async move {
             let _serial=this.activation_serial.clone().lock_owned().await;
             let _applying=this.applying.clone().acquire_owned().await?;
+            if let Some(central)=this.store.management() {
+                return central.remove_catalog(this.base.data_dir.clone(),id,&actor,&token_hash).await;
+            }
             let a=actor.clone();let t=token_hash.clone();
             this.store.run(move|db|admin(&db.transaction()?,&a,&t)).await?;
             let root=this.base.data_dir.clone();let item=id.clone();
@@ -662,12 +672,25 @@ impl Controller {
         let this = self.clone();
         tokio::spawn(async move {
             let _serial = this.activation_serial.clone().lock_owned().await;
+            let central_incident = if let Some(central)=this.store.management() {
+                let owner=this.central_identity().await?;
+                central.policy_incident_epoch(&owner).await.ok().flatten().map(|epoch|(owner,epoch))
+            } else {None};
             let result = this.advance_activation_step().await;
             let failed = result.is_err();
             let code = result.as_ref().err().and_then(|e| e.downcast_ref::<ActivationProblem>()).copied()
                 .map(serde_json::to_value).transpose()?.unwrap_or(serde_json::json!("activation_step_failed"));
             // Persist a bounded, non-sensitive incident. Detailed errors remain
             // in server logs; model/provider errors can contain private data.
+            if let Some(central)=this.store.management() {
+                if let Some((owner,epoch))=central_incident {
+                    let incident=if failed {code.as_str()} else {None};
+                    if let Err(error)=central.record_policy_incident(&owner,&epoch,incident).await {
+                        tracing::warn!(error=%crate::delivery_log::sanitize(&error.to_string(),400).0,"central activation incident persistence pending");
+                    }
+                }
+                return result;
+            }
             this.store.run(move |db| {
                 let tx = db.transaction()?;
                 if failed {

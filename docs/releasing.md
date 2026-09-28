@@ -25,6 +25,11 @@ gh release edit v0.18.0 --repo crdffrance/NoiseFence --draft=false --prerelease=
 
 Never move a published tag or replace its archives with a different build. A correction requires a new version. Before the first opening of the repository, also check branches, tags and objects of history to avoid publishing deleted secrets from the only current tree.
 
+The native packager requires a clean, committed source checkout so that the
+commit recorded in `build.json` identifies the packaged code and documentation.
+Keep the source inventory and binary checksum from the successful build; do not
+package an older cached binary after a failed compilation.
+
 A release does not change the server configuration, MX, or filtering mode. Proton deployment and validation remain separate steps. Keep the previous version and its configuration directory to support a compatible rollback.
 
-Current archives declare `storage_schema: 5` in `build.json`. This is the maximum supported schema; paired replication activates schema 5. Earlier cluster versions introduced schema 3. Automatic rollback to an archive with insufficient schema support is refused. Never lower `user_version`, erase `ha_required` or restore a stale database over accepted mail. See [HA recovery](high-availability.md).
+Current archives declare `storage_schema: 7` in `build.json`, the maximum supported local format. Paired replication uses format 5, management transport uses format 6, and selecting a PostgreSQL authority activates format 7. A format number alone does not establish management-database compatibility: the simple deployment helper refuses selected or transport-enabled installations, and automatic rollback remains disabled for them. Use the [coordinated migration procedure](../deploy/postgresql/MIGRATION-SUPERVISOR.md) and its recovery path. Never lower `user_version`, erase `ha_required` or restore a stale database over accepted mail. See [HA recovery](high-availability.md).

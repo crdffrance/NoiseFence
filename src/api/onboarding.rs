@@ -371,7 +371,12 @@ async fn sample(
         .ok_or_else(|| Error(StatusCode::BAD_REQUEST, "Recipient not configured.".into()))?;
     let ids = body.message_ids;
     let address = body.recipient;
-    let snapshots=app.store.read(move|db| {
+    let snapshots = if let Some(central) = app.store.management() {
+        central
+            .preview_snapshots(&actor.username, &ids, &address)
+            .await?
+    } else {
+        app.store.read(move|db| {
         let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[actor.username],|r|r.get(0))?;
         ensure!(active,"Administrator rights revoked.");
         let mut query=db.prepare("SELECT m.sender,m.scan FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.id=?1 AND d.address=?2 AND (m.created>=?3 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1))")?;
@@ -383,7 +388,8 @@ async fn sample(
             snapshots.push((id,row));
         }
         Ok(snapshots)
-    }).await?;
+    }).await?
+    };
     let result=tokio::task::spawn_blocking(move|| -> Result<Value> {
         let mut rows=Vec::new();let mut matrix=std::collections::BTreeMap::<String,usize>::new();let mut changed=0usize;let mut complete_comparisons=0usize;let mut sample_binding=Vec::new();
         for (id,row) in snapshots {

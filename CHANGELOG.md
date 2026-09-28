@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased — Operational readiness
+## 0.29.0 — PostgreSQL management and guarded recovery
+
+- Add an explicit PostgreSQL management backend for accounts, MFA, sessions, policies, message history, search, feedback and quality records. Standalone SQLite installations remain supported.
+- Keep SMTP queues and mandatory body replication local to each MX. Transfer management metadata asynchronously through a bounded durable outbox, with committed-generation acknowledgements.
+- Add coordinated offline import, source and destination comparisons, persistent service fencing, and guarded activation. A selected installation cannot return to SQLite by rolling back its binary alone.
+- Add PostgreSQL checkpoints and restored-console startup with AppArmor, verified HTTPS, new access credentials, preserved worker queues and resumable checkpoint scheduling. Compare message and SMTP-log payloads before recovery authorization.
+- Fix successive restores skipping message bodies because of receipts from an earlier operation. Keep retired consoles and their database evidence separate from the new authority.
+- Preserve the rc.9 messaging policy during migration; credential-bound cluster activation still requires matching gateway versions. Filtering weights and delivery policies are not changed by the database migration.
+
+### Operational readiness
 
 - Check SMTP admission and the `smtp_ready` response, replica heartbeat freshness, worker synchronization and persistent replication backlogs. HTTP 200 alone is no longer a successful readiness check.
 - Collect a private, bounded 48-hour memory/queue history approximately every minute. Report new memory-pressure events separately from historical counters and distinguish pending mail from delivery notifications.
@@ -8,7 +17,7 @@
 - Adjust Linux gateway memory budgets to leave room for resident models while retaining aggregate host limits. A longer production observation window is still required to assess growth.
 - Add an English production-readiness and incident-recovery guide; clarify the separate gates for operational availability and independently measured filtering quality.
 
-These deployment-tool changes do not change detector weights, model artifacts, enforcement policy or the released gateway binary.
+These operational changes do not change detector weights, model artifacts or enforcement policy.
 
 ## 0.28.0-rc.9 — Simplify message diagnostics
 

@@ -37,6 +37,7 @@ fn poll() -> u64 {
 fn stale() -> i64 {
     86400
 }
+pub(crate) const POLICY_FRESHNESS_SECONDS: std::ops::RangeInclusive<i64> = 60..=7 * 86400;
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 40
@@ -49,7 +50,7 @@ impl Settings {
         ensure!(valid_id(&self.node_id), "Invalid node ID.");
         ensure!(
             (2..=300).contains(&self.poll_seconds)
-                && (60..=7 * 86400).contains(&self.max_stale_seconds),
+                && POLICY_FRESHNESS_SECONDS.contains(&self.max_stale_seconds),
             "Invalid synchronization times."
         );
         match self.role {

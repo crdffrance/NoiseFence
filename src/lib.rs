@@ -23,6 +23,7 @@ pub mod message;
 pub mod model_catalog;
 pub mod native_filter;
 pub mod observations;
+pub mod operator;
 pub mod population;
 pub mod protection;
 pub mod quality;
@@ -32,6 +33,7 @@ pub mod relay;
 pub mod research;
 pub mod research_archive;
 pub mod rspamd;
+pub mod runtime_history;
 #[cfg(feature = "semantic")]
 pub mod semantic;
 pub mod smtp;

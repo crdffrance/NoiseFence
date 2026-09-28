@@ -9,6 +9,10 @@ import tomllib
 
 def compatible(config: Path, previous: Path) -> bool:
     settings = tomllib.loads(config.read_text())
+    # A local schema number cannot certify central data compatibility. A
+    # reconciled restore/export needs a separate, explicit operator procedure.
+    if settings.get('management'):
+        return False
     database = Path(settings['data_dir']) / 'state.sqlite3'
     if not database.is_absolute():
         database = Path('/opt/noisefence') / database
@@ -20,6 +24,11 @@ def compatible(config: Path, previous: Path) -> bool:
         return True
     with sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True) as db:
         version = db.execute('PRAGMA user_version').fetchone()[0]
+        if version >= 7:
+            return False
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state'").fetchone():
+            if db.execute("SELECT 1 FROM cluster_state WHERE key IN ('management_transport','runtime_history_protocol') LIMIT 1").fetchone():
+                return False
     return version <= supported
 
 

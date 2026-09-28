@@ -1,5 +1,5 @@
 use crate::{config::Recipient, engine::Scan, now};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -26,9 +26,15 @@ pub struct QueueVariant {
 pub(crate) fn require_format(tx: &rusqlite::Transaction<'_>, minimum: i64) -> Result<()> {
     let current: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     ensure!(
-        (1..=6).contains(&minimum) && current <= 6,
+        (1..=6).contains(&minimum) && (0..=7).contains(&current),
         "Unsupported database format"
     );
+    if current == 7 {
+        ensure!(
+            crate::central::selection::Selection::read(tx)?.is_some(),
+            "Central backend selection missing"
+        );
+    }
     if current < minimum {
         tx.pragma_update(None, "user_version", minimum)?;
     }
@@ -213,9 +219,20 @@ pub struct User {
 impl Store {
     /// Selects the central management repository for an explicitly migrated
     /// embedding. The production bootstrap must validate its activation record
-    /// before using this constructor; configuration support is not enabled yet.
+    /// before using this constructor; installation bootstrap uses open_bound.
     pub async fn with_management(mut self, central: crate::central::Central) -> Result<Self> {
+        if let Some(selection) = self
+            .read(|db| crate::central::selection::Selection::read(db))
+            .await?
+        {
+            ensure!(
+                selection.role == crate::cluster::Role::Coordinator
+                    && central.binding() == Some(&selection.database),
+                "Cannot replace the selected management authority"
+            );
+        }
         central.validate_mfa_key(&self.root).await?;
+        crate::runtime_history::require(&self).await?;
         self.management = Some(Arc::new(central));
         Ok(self)
     }
@@ -223,6 +240,34 @@ impl Store {
         self.management.as_deref()
     }
     pub fn open(root: &Path) -> Result<Self> {
+        Self::open_selected(root, None, None)
+    }
+    /// Opens previously selected storage without connecting to PostgreSQL.
+    /// Browser startup verifies the recorded MFA key separately; privileged
+    /// account recovery can operate without decrypting a lost factor key.
+    pub fn open_bound(
+        root: &Path,
+        selection: &crate::central::selection::Selection,
+        central: Option<crate::central::Central>,
+    ) -> Result<Self> {
+        selection.validate()?;
+        match selection.role {
+            crate::cluster::Role::Coordinator => ensure!(
+                central.as_ref().and_then(|c| c.binding()) == Some(&selection.database),
+                "A bound central repository is required"
+            ),
+            crate::cluster::Role::Worker => ensure!(
+                central.is_none(),
+                "A worker uses the authenticated coordinator transport"
+            ),
+        }
+        Self::open_selected(root, Some(selection), central)
+    }
+    fn open_selected(
+        root: &Path,
+        selection: Option<&crate::central::selection::Selection>,
+        central: Option<crate::central::Central>,
+    ) -> Result<Self> {
         fs::create_dir_all(root)?;
         fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
         fs::create_dir_all(root.join("spool"))?;
@@ -231,7 +276,21 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;")?;
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version <= 6, "database is newer than this binary");
+        ensure!(
+            (0..=6).contains(&version) || (version == 7 && selection.is_some()),
+            "database requires explicit compatible backend selection"
+        );
+        if let Some(expected) = selection {
+            ensure!(
+                crate::central::selection::Selection::read(&db)?.as_ref() == Some(expected),
+                "Configured management authority differs from selected storage"
+            );
+        } else {
+            ensure!(
+                crate::central::selection::Selection::read(&db)?.is_none(),
+                "Central storage cannot fall back to SQLite management"
+            );
+        }
         if version == 0 {
             let tx = db.transaction()?;
             tx.execute_batch("CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER NOT NULL,sender TEXT NOT NULL,scan TEXT NOT NULL,is_dsn INTEGER NOT NULL DEFAULT 0,raw_present INTEGER NOT NULL DEFAULT 1);
@@ -258,10 +317,20 @@ impl Store {
         let journal = crate::cluster::activation::Journal::read(&migration)?;
         let participant = crate::cluster::activation::participant::Local::read(&migration)?;
         ensure!(
-            (journal.is_none() && participant.is_none()) || version == 6,
+            (journal.is_none() && participant.is_none()) || version >= 6,
             "Activation journal requires the coordinated database format"
         );
-        let activation = if version == 6 {
+        if let Some(expected) = selection {
+            let installed = participant
+                .as_ref()
+                .context("Selected storage requires a cached participant journal")?
+                .installed_epoch();
+            ensure!(
+                installed.sequence > expected.baseline.sequence || installed == &expected.baseline,
+                "Cached policy predates the management cutover"
+            );
+        }
+        let activation = if version >= 6 {
             let epoch = participant
                 .as_ref()
                 .map(|p| p.installed_epoch().clone())
@@ -279,7 +348,7 @@ impl Store {
         .initialize(&mut db)?;
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         Ok(Self {
-            management: None,
+            management: central.map(Arc::new),
             activation,
             archive: Arc::new(crate::research_archive::Runtime::new(root)),
             root: root.into(),

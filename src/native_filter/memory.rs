@@ -3,10 +3,19 @@ use super::{
     Status,
     input::{Features, similarity},
 };
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, path::Path, time::Duration};
 
+#[derive(Deserialize)]
+struct MemoryScan {
+    raw_sha256: Option<String>,
+    native_filter: Option<MemoryObservation>,
+}
+#[derive(Deserialize)]
+struct MemoryObservation {
+    features: Option<Features>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     pub status: Status,
@@ -48,7 +57,7 @@ pub(super) async fn inspect_with_permit(
     if scopes.len() != 1 || features.text_shingles < 24 {
         return Report::default();
     }
-    let path = root.join("state.sqlite3");
+    let root = root.to_owned();
     let features = features.clone();
     let domain = scopes[0].clone();
     let original = raw_sha256.to_owned();
@@ -56,10 +65,7 @@ pub(super) async fn inspect_with_permit(
     let task = tokio::task::spawn_blocking(move || -> anyhow::Result<Report> {
         let _permit = permit;
         let deadline = std::time::Instant::now() + Duration::from_millis(180);
-        let db = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let db = crate::runtime_history::open(&root)?;
         db.busy_timeout(Duration::from_millis(30))?;
         if send.send(db.get_interrupt_handle()).is_err() {
             anyhow::bail!("cancelled fuzzy lookup");
@@ -100,7 +106,7 @@ pub(super) async fn inspect_with_permit(
                 (0..=1).contains(&min) && (0..=1).contains(&max),
                 "invalid fuzzy human label"
             );
-            let scan: crate::engine::Scan = serde_json::from_str(&scan)?;
+            let scan: MemoryScan = serde_json::from_str(&scan)?;
             let Some(hash) = scan.raw_sha256.filter(|h| h != &original) else {
                 continue;
             };

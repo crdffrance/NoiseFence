@@ -16,6 +16,8 @@ def main():
     parser.add_argument('--binary',type=Path,required=True)
     parser.add_argument('--platform',choices=['linux-amd64','linux-arm64'],required=True)
     args=parser.parse_args()
+    if subprocess.check_output(['git','status','--porcelain'],cwd=ROOT).strip():
+        raise SystemExit('Commit all release sources before packaging; build.json must identify their exact commit')
     version=cargo_version()
     name=f'noisefence-{version}-{args.platform}'
     output=ROOT/'release'/name
@@ -68,7 +70,7 @@ def main():
     (output/'build.json').write_text(json.dumps({
         'project':'NoiseFence','platform':args.platform,'version':version,
         'rust':'1.98.0','minimum_glibc':'2.36','commit':commit,
-        'storage_schema':5,
+        'storage_schema':7,
         'source_sha256':source.hexdigest(),
         'source_digest_schema':'noisefence-build-inputs-2',
         'source_inputs':[str(p.relative_to(ROOT)) for p in sorted(inputs)],

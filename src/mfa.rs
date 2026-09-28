@@ -36,20 +36,27 @@ impl Key {
                 std::fs::File::open(root)?.sync_all()?;
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let mut f = OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                    .open(&path)?;
-                ensure!(
-                    f.metadata()?.is_file()
-                        && f.metadata()?.len() == 32
-                        && f.metadata()?.permissions().mode() & 0o077 == 0,
-                    "MFA key requires a private regular 32-byte file"
-                );
-                f.read_exact(&mut bytes)?;
+                return Self::read_existing(root);
             }
             Err(e) => return Err(e.into()),
         }
+        Ok(Self(bytes))
+    }
+    /// Recovery and migration must never generate a replacement encryption key.
+    pub fn read_existing(root: &Path) -> Result<Self> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(root.join("mfa.key"))?;
+        let metadata = file.metadata()?;
+        ensure!(
+            metadata.is_file()
+                && metadata.len() == 32
+                && metadata.permissions().mode() & 0o077 == 0,
+            "MFA key requires a private regular 32-byte file"
+        );
+        let mut bytes = [0u8; 32];
+        file.read_exact(&mut bytes)?;
         Ok(Self(bytes))
     }
     fn cipher(&self) -> Result<aead::LessSafeKey> {

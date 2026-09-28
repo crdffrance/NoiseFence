@@ -3,7 +3,7 @@ use crate::{
     engine::Scan,
     evidence::{AuthResult, Source, State},
 };
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
@@ -92,13 +92,10 @@ pub async fn inspect_with_context(
     report.key = Some(key.clone());
     let behavior = super::behavior::capture(&key, scan, recipients, targets);
     report.behavior = Some(behavior.clone());
-    let path = root.join("state.sqlite3");
+    let root = root.to_owned();
     let (send, receive) = tokio::sync::oneshot::channel();
     let task = tokio::task::spawn_blocking(move || -> anyhow::Result<Report> {
-        let db = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let db = crate::runtime_history::open(&root)?;
         db.busy_timeout(Duration::from_millis(50))?;
         if send.send(db.get_interrupt_handle()).is_err() {
             anyhow::bail!("cancelled sender memory");

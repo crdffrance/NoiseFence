@@ -963,6 +963,11 @@ pub fn effective_from_disk(base: Arc<Config>) -> Result<Arc<Config>> {
     let mut db =
         rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
+    let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    ensure!(
+        (0..=6).contains(&version),
+        "CLI policy loading requires a compatible local storage format"
+    );
     let clustered: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state')",
         [],
@@ -970,6 +975,15 @@ pub fn effective_from_disk(base: Arc<Config>) -> Result<Arc<Config>> {
     )?;
     if clustered {
         let tx = db.transaction()?;
+        let central: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cluster_state WHERE key IN ('management_transport','runtime_history_protocol'))",
+            [],
+            |r| r.get(0),
+        )?;
+        ensure!(
+            !central,
+            "CLI policy loading requires explicit central backend initialization"
+        );
         let local = crate::cluster::activation::participant::Local::read(&tx)?;
         let authority = crate::cluster::activation::Journal::read(&tx)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;

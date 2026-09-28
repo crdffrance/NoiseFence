@@ -55,10 +55,21 @@ class CentralSession:
 def open_database(config,binary,path):
     if config.get('management'):
         return CentralSession(binary,path)
-    db=sqlite3.connect(Path(config['data_dir'])/'state.sqlite3',timeout=10)
-    db.execute('PRAGMA foreign_keys=ON');db.execute('PRAGMA synchronous=FULL')
-    with db:db.execute('INSERT OR REPLACE INTO quality_worker_status VALUES(1,?,?)',(int(time.time()),binary.parent.name))
-    return db
+    database=Path(config['data_dir'])/'state.sqlite3'
+    db=sqlite3.connect(database.resolve().as_uri()+'?mode=rw',uri=True,timeout=10)
+    try:
+        db.execute('PRAGMA foreign_keys=ON');db.execute('PRAGMA synchronous=FULL')
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            version=db.execute('PRAGMA user_version').fetchone()[0]
+            if not 0<=version<=6:raise ValueError('Research backend requires explicit central configuration')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state'").fetchone():
+                if db.execute("SELECT 1 FROM cluster_state WHERE key IN ('management_transport','runtime_history_protocol') LIMIT 1").fetchone():
+                    raise ValueError('Research backend requires explicit central configuration')
+            db.execute('INSERT OR REPLACE INTO quality_worker_status VALUES(1,?,?)',(int(time.time()),binary.parent.name))
+        return db
+    except BaseException:
+        db.close();raise
 
 
 def identifier(value):

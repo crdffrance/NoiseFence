@@ -32,11 +32,12 @@ jobs:
       - name: Exercise central persistence with synthetic accounts and messages
         env:
           NOISEFENCE_TEST_PG_PASSWORD_FILE: ${{ runner.temp }}/noisefence-test-pg-password
+          NOISEFENCE_TEST_PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           umask 077
           printf '%s' 'synthetic-ci-only-password' > "$NOISEFENCE_TEST_PG_PASSWORD_FILE"
           trap 'rm -f "$NOISEFENCE_TEST_PG_PASSWORD_FILE"' EXIT
-          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning --test central_research_worker -- --ignored
+          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning --test central_research_worker --test central_runtime_history --test central_reliability --test central_catalog --test central_preview --test central_retention --test central_operator --test central_import --test central_import_quality --test central_import_delivery_ids --test central_import_policy --test central_binding --test central_import_spool --test central_staged_import --test central_activation --test central_restore --test central_recovery --test central_recovery_policy --test central_recovery_prepare --test central_replay --test central_transport_binding --test central_offline_cli --test import_session -- --ignored
   container:
     strategy:
       matrix:

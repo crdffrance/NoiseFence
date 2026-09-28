@@ -28,6 +28,8 @@ profile noisefence-console {
   /var/lib/noisefence-standby/active/** r,
   owner /var/lib/noisefence-standby/active/data/** rwkl,
   owner /var/lib/noisefence-standby/active/data/ rw,
+  # Local PostgreSQL management database after a selected console recovery.
+  /run/postgresql/.s.PGSQL.[0-9]* rw,
   /run/clamav/clamd.ctl rw,
   /run/noisefence-signatures/clamd.ctl rw,
   /run/noisefence-vision/worker.sock rw,

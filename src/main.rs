@@ -30,6 +30,98 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Verify a recovered console against local and PostgreSQL receipts; no listeners or state changes.
+    ManagementRecoveryCheckConsole,
+    /// Initialize this stopped MX's durable management journal before exporting it.
+    ManagementInitializeSource,
+    /// Attach stopped selected workers to a fenced recovery in place; never copies their queues.
+    ManagementRecoveryAttachWorkers {
+        #[arg(long)]
+        plan: PathBuf,
+    },
+    /// Authorize stopped workers to resume against a verified recovered console; does not start services.
+    ManagementRecoveryReleaseWorkers {
+        #[arg(long)]
+        plan: PathBuf,
+    },
+    /// Verify centrally rotated worker keys and renew local recovery authorization while stopped.
+    ManagementRecoveryRenewWorkerKeys {
+        #[arg(long)]
+        plan: PathBuf,
+    },
+    /// Prepare restored PostgreSQL management from fenced source copies; never starts services.
+    ManagementRecoveryPrepare {
+        /// Private recovery plan with an explicit fencing attestation for every source.
+        #[arg(long)]
+        plan: PathBuf,
+        /// Also verify replacement tokens at every worker's configured path; services stay blocked.
+        #[arg(long)]
+        verify_worker_installation: bool,
+        /// Authorize only this recovered console after all checks; never enables SMTP.
+        #[arg(long)]
+        activate_console: bool,
+    },
+    /// Hold a stopped original source through one private, time-bounded migration session.
+    ManagementFreezeSource {
+        #[arg(long)]
+        export_parent: PathBuf,
+        #[arg(long)]
+        socket: PathBuf,
+        #[arg(long, default_value_t = 900)]
+        lease_seconds: u64,
+        /// Resume only this exact durable selection after a partial cutover.
+        #[arg(long)]
+        resume_selection: Option<PathBuf>,
+        /// Resume an unselected peer without changing its previously imported journal.
+        #[arg(long)]
+        preserve_source_generations: bool,
+    },
+    /// Copy frozen local management sources into a fresh PostgreSQL database; no activation.
+    ManagementStage {
+        #[arg(long)]
+        plan: PathBuf,
+        /// Require complete prepared journals; preserve source epochs and generations.
+        #[arg(long)]
+        preserve_source_generations: bool,
+    },
+    /// Recheck management source freshness against an inactive import; no activation.
+    ManagementVerifySources {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        source_digest: String,
+    },
+    /// Validate frozen installation files and propose local selections; no activation.
+    ManagementPrepareSelections {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        source_digest: String,
+    },
+    /// Activate an inactive import through a supervisor holding every original source session.
+    ManagementActivate {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        source_digest: String,
+        #[arg(long)]
+        commit_socket: PathBuf,
+    },
+    /// Read the committed migration receipt; never retries or changes activation.
+    ManagementStatus {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        source_digest: String,
+    },
     /// Export one unexpired local research original and context into a NEW private directory.
     ResearchArchiveExport {
         id: String,
@@ -143,6 +235,9 @@ enum Command {
     /// Require fresh acknowledgements after replacing a replica; daemon must be stopped.
     HaResync {
         data: PathBuf,
+        /// Required for a queue that selects PostgreSQL management.
+        #[arg(long)]
+        management_config: Option<PathBuf>,
     },
     /// Finish queued replica updates with the daemon stopped; no SMTP or relay.
     HaFlush,
@@ -168,6 +263,9 @@ enum Command {
         owner: String,
         #[arg(long)]
         fence_receipt: PathBuf,
+        /// Explicit installation configuration for selected management storage.
+        #[arg(long)]
+        management_config: Option<PathBuf>,
     },
     /// Remap a staged coordinator configuration for the recovery console.
     HaConsoleConfig {
@@ -427,9 +525,158 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::ManagementRecoveryCheckConsole => {
+            let config = Config::load(&cli.config)?;
+            let result = noisefence::central::recovery::activation::check(&config).await?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        Command::ManagementRecoveryRenewWorkerKeys { plan } => {
+            let result = noisefence::central::recovery::worker_renewal::renew(plan).await?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        Command::ManagementRecoveryReleaseWorkers { plan } => {
+            let result = noisefence::central::recovery::worker_release::release(plan).await?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        Command::ManagementRecoveryAttachWorkers { plan } => {
+            let result = noisefence::central::recovery::worker_fence::attach(plan)?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        Command::ManagementRecoveryPrepare {
+            plan,
+            verify_worker_installation,
+            activate_console,
+        } => {
+            let result = noisefence::central::recovery::operator::prepare(
+                plan,
+                *verify_worker_installation,
+                *activate_console,
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        Command::ManagementFreezeSource {
+            export_parent,
+            socket,
+            lease_seconds,
+            resume_selection,
+            preserve_source_generations,
+        } => {
+            let config = Config::load(&cli.config)?;
+            let selected = resume_selection
+                .as_ref()
+                .map(|p| noisefence::central::import::session::read_selection(p))
+                .transpose()?;
+            noisefence::central::import::session::serve(
+                &config,
+                export_parent,
+                socket,
+                std::time::Duration::from_secs(*lease_seconds),
+                selected.as_ref(),
+                *preserve_source_generations,
+            )?;
+            return Ok(());
+        }
+        Command::ManagementActivate {
+            plan,
+            instance,
+            source_digest,
+            commit_socket,
+        } => {
+            let plan = noisefence::central::import::offline::Plan::read(plan)?;
+            let binding = noisefence::central::binding::Binding {
+                instance: instance.clone(),
+                source_digest: source_digest.clone(),
+            };
+            noisefence::central::import::offline::activate(plan, binding.clone(), commit_socket)
+                .await?;
+            println!(
+                "{}",
+                serde_json::json!({"status":"activated","database":binding})
+            );
+            return Ok(());
+        }
+        Command::ManagementStatus {
+            plan,
+            instance,
+            source_digest,
+        } => {
+            let plan = noisefence::central::import::offline::Plan::read(plan)?;
+            let binding = noisefence::central::binding::Binding {
+                instance: instance.clone(),
+                source_digest: source_digest.clone(),
+            };
+            let status = noisefence::central::Central::new(&plan.database)?
+                .import_status(&binding)
+                .await?;
+            println!("{}", serde_json::to_string(&status)?);
+            return Ok(());
+        }
+        Command::ManagementInitializeSource => {
+            let config = Config::load(&cli.config)?;
+            let identity = noisefence::central::import::offline::initialize_source(&config)?;
+            println!("{}", serde_json::to_string(&identity)?);
+            return Ok(());
+        }
+        Command::ManagementStage {
+            plan,
+            preserve_source_generations,
+        } => {
+            let plan = noisefence::central::import::offline::Plan::read(plan)?;
+            let receipt = if *preserve_source_generations {
+                noisefence::central::import::offline::stage_seeded(plan).await?
+            } else {
+                noisefence::central::import::offline::stage(plan).await?
+            };
+            println!("{}", serde_json::to_string(&receipt)?);
+            return Ok(());
+        }
+        Command::ManagementVerifySources {
+            plan,
+            instance,
+            source_digest,
+        } => {
+            let plan = noisefence::central::import::offline::Plan::read(plan)?;
+            let binding = noisefence::central::binding::Binding {
+                instance: instance.clone(),
+                source_digest: source_digest.clone(),
+            };
+            noisefence::central::import::offline::verify_sources(plan, binding).await?;
+            println!(
+                "{}",
+                serde_json::json!({"status":"sources_match_inactive_import"})
+            );
+            return Ok(());
+        }
+        Command::ManagementPrepareSelections {
+            plan,
+            instance,
+            source_digest,
+        } => {
+            let plan = noisefence::central::import::offline::Plan::read(plan)?;
+            let binding = noisefence::central::binding::Binding {
+                instance: instance.clone(),
+                source_digest: source_digest.clone(),
+            };
+            let candidates =
+                noisefence::central::import::offline::prepare_selections(plan, binding).await?;
+            println!(
+                "{}",
+                serde_json::json!({"status":"installation_checked_not_activated","selections":candidates})
+            );
+            return Ok(());
+        }
         Command::HaFlush => {
             let config = Config::load(&cli.config)?;
-            let store = Store::open(&config.data_dir)?;
+            let store = noisefence::central::bootstrap::open(
+                &config,
+                noisefence::central::bootstrap::Purpose::Queue,
+            )?;
             let status = noisefence::ha::flush(&store, &config).await?;
             println!(
                 "{}",
@@ -437,8 +684,16 @@ async fn main() -> Result<()> {
             );
             return Ok(());
         }
-        Command::HaResync { data } => {
-            println!("{}", noisefence::ha::recovery::resync(data).await?);
+        Command::HaResync {
+            data,
+            management_config,
+        } => {
+            let result = if let Some(path) = management_config {
+                noisefence::ha::recovery::resync_config(&Config::load(path)?, data).await?
+            } else {
+                noisefence::ha::recovery::resync(data).await?
+            };
+            println!("{result}");
             return Ok(());
         }
         Command::HaDisasterAccess { data, credentials } => {
@@ -488,12 +743,22 @@ async fn main() -> Result<()> {
             target,
             owner,
             fence_receipt,
+            management_config,
         } => {
-            println!(
-                "{}",
+            let report = if let Some(path) = management_config {
+                noisefence::ha::recovery::restore_queue_config(
+                    &Config::load(path)?,
+                    source,
+                    target,
+                    owner,
+                    fence_receipt,
+                )
+                .await?
+            } else {
                 noisefence::ha::recovery::restore_queue(source, target, owner, fence_receipt)
                     .await?
-            );
+            };
+            println!("{}", report);
             return Ok(());
         }
         Command::HaConsoleConfig {
@@ -551,13 +816,19 @@ async fn main() -> Result<()> {
                 data_directory.join("ha-recovery.json").is_file(),
                 "Remap only a staged recovery"
             );
-            let staged = Store::open(data_directory)?;
-            let _lock = staged.daemon_lock()?;
-            noisefence::ha::recovery::verify_mfa(data_directory)?;
-            let old_data = source_data.clone();
-            let new_data = data_directory.to_string_lossy().to_string();
-            let new_config = config_directory.to_string_lossy().to_string();
-            staged.run(move|db| {
+            let _locks = noisefence::central::import::SourceLocks::acquire(data_directory)?;
+            let selected_report = if c.management.is_some() {
+                Some(noisefence::central::recovery::console::validate_console_stage(&c)?)
+            } else {
+                None
+            };
+            if selected_report.is_none() {
+                let staged = Store::open(data_directory)?;
+                noisefence::ha::recovery::verify_mfa(data_directory)?;
+                let old_data = source_data.clone();
+                let new_data = data_directory.to_string_lossy().to_string();
+                let new_config = config_directory.to_string_lossy().to_string();
+                staged.run(move|db| {
                 let tx=db.transaction()?;
                 let rows=tx.prepare("SELECT id,settings FROM console_revisions")?.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
                 for (id,raw) in rows {
@@ -568,11 +839,15 @@ async fn main() -> Result<()> {
                 tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'recovery','staged_path_remap','console')",[noisefence::now()])?;
                 tx.commit()?;Ok(())
             }).await?;
+            }
             noisefence::cluster::protocol::private_write(
                 output,
                 toml::to_string_pretty(&c)?.as_bytes(),
             )?;
-            println!("{{\"console_config\":\"prepared\",\"smtp_enabled\":false}}");
+            println!(
+                "{}",
+                serde_json::json!({"console_config":"prepared","smtp_enabled":false,"management_recovery":selected_report})
+            );
             return Ok(());
         }
         Command::NativeRules { message } => {
@@ -866,9 +1141,13 @@ async fn main() -> Result<()> {
     ) {
         bootstrap
     } else {
-        noisefence::control::effective_from_disk(bootstrap)?
+        noisefence::central::bootstrap::effective_config(bootstrap)?
     };
     if matches!(cli.command, Command::ConsoleReset) {
+        ensure!(
+            config.management.is_none(),
+            "Central policy reset requires coordinated recovery through the management authority"
+        );
         anyhow::ensure!(
             !noisefence::cluster::is_worker(&config),
             "The node configuration is managed by the central console."
@@ -1134,7 +1413,14 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
-    let store = Store::open(&config.data_dir)?;
+    let purpose = if matches!(cli.command, Command::ServeConsole) {
+        noisefence::central::bootstrap::Purpose::Console
+    } else if matches!(cli.command, Command::Serve) {
+        noisefence::central::bootstrap::Purpose::Runtime
+    } else {
+        noisefence::central::bootstrap::Purpose::Operator
+    };
+    let store = noisefence::central::bootstrap::open(&config, purpose)?;
     match cli.command {
         Command::ReliabilityAudit {
             username,
@@ -1210,60 +1496,34 @@ async fn main() -> Result<()> {
             println!("User created.");
         }
         Command::UserDisable { username } => {
-            store
-                .run(move |db| {
-                    let tx = db.transaction()?;
-                    ensure!(
-                        tx.execute("UPDATE users SET disabled=1 WHERE username=?1", [&username])?
-                            == 1,
-                        "unknown user"
-                    );
-                    let admins:i64=tx.query_row("SELECT COUNT(*) FROM users WHERE admin=1 AND disabled=0",[],|r|r.get(0))?;
-                    ensure!(admins>0,"the last active administrator cannot be disabled");
-                    tx.execute("DELETE FROM sessions WHERE username=?1", [&username])?;
-                    tx.execute("INSERT INTO console_user_versions(username,version) VALUES(?1,1) ON CONFLICT(username) DO UPDATE SET version=version+1",[&username])?;
-                    tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','account',?2)",rusqlite::params![noisefence::now(),username])?;
-                    tx.commit()?;
-                    Ok(())
-                })
-                .await?;
+            noisefence::operator::account(
+                &store,
+                username,
+                noisefence::operator::AccountChange::Disable,
+            )
+            .await?;
             println!("User disabled; sessions revoked.");
         }
         Command::UserResetMfa { username } => {
-            store.run(move |db| {
-                let tx=db.transaction()?;
-                ensure!(tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1)",[&username],|r|r.get::<_,bool>(0))?,"unknown user");
-                tx.execute("DELETE FROM sessions WHERE username=?1",[&username])?;
-                tx.execute("DELETE FROM mfa_credentials WHERE username=?1",[&username])?;
-                tx.execute("DELETE FROM mfa_recovery WHERE username=?1",[&username])?;
-                tx.execute("DELETE FROM mfa_attempts WHERE username=?1",[&username])?;
-                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','mfa_reset',?2)",rusqlite::params![noisefence::now(),username])?;
-                tx.commit()?;Ok(())
-            }).await?;
+            noisefence::operator::account(
+                &store,
+                username,
+                noisefence::operator::AccountChange::ResetMfa,
+            )
+            .await?;
             println!(
                 "Second factor reset; all sessions revoked. Enroll the account again after verifying its owner."
             );
         }
         Command::UserResetPassword { username } => {
             let password = rpassword::prompt_password("New console password: ")?;
-            let hash = noisefence::api::hash_password(&password)?;
-            store
-                .run(move |db| {
-                    let tx = db.transaction()?;
-                    ensure!(
-                        tx.execute(
-                            "UPDATE users SET password=?2 WHERE username=?1",
-                            rusqlite::params![username, hash]
-                        )? == 1,
-                        "unknown user"
-                    );
-                    tx.execute("DELETE FROM sessions WHERE username=?1", [&username])?;
-                    tx.execute("INSERT INTO console_user_versions(username,version) VALUES(?1,1) ON CONFLICT(username) DO UPDATE SET version=version+1",[&username])?;
-                    tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'local-administrator','account',?2)",rusqlite::params![noisefence::now(),username])?;
-                    tx.commit()?;
-                    Ok(())
-                })
-                .await?;
+            let password_hash = noisefence::api::hash_password(&password)?;
+            noisefence::operator::account(
+                &store,
+                username,
+                noisefence::operator::AccountChange::ResetPassword { password_hash },
+            )
+            .await?;
             println!("Password reset; sessions revoked.");
         }
         Command::Scan { message } => {
@@ -1382,15 +1642,22 @@ async fn main() -> Result<()> {
                     && !noisefence::cluster::is_worker(&config),
                 "Private coordinator console configuration required"
             );
-            let activation = std::fs::read(config.data_dir.join("ha-console-activated.json"))?;
-            let activation: serde_json::Value = serde_json::from_slice(&activation)?;
-            ensure!(
-                activation["console_only"] == true
-                    && activation["owner"].as_str()
-                        == config.cluster.as_ref().map(|c| c.node_id.as_str()),
-                "Fenced console activation receipt missing"
-            );
             let _lock = store.daemon_lock()?;
+            if let Some(central) = store.management() {
+                central
+                    .require_recovered_console_activation(&config)
+                    .await?;
+            } else {
+                let activation = std::fs::read(config.data_dir.join("ha-console-activated.json"))?;
+                let activation: serde_json::Value = serde_json::from_slice(&activation)?;
+                ensure!(
+                    activation["console_only"] == true
+                        && activation["owner"].as_str()
+                            == config.cluster.as_ref().map(|c| c.node_id.as_str()),
+                    "Fenced console activation receipt missing"
+                );
+                noisefence::central::bootstrap::require_complete_recovery(&config)?;
+            }
             store.recover().await?;
             noisefence::cluster::prepare(&config, &store).await?;
             let control =
@@ -1412,6 +1679,7 @@ async fn main() -> Result<()> {
         }
         Command::Serve => {
             let _lock = store.daemon_lock()?;
+            noisefence::central::bootstrap::require_complete_recovery(&config)?;
             noisefence::ha::initialize(&store, &config).await?;
             store.recover().await?;
             noisefence::cluster::prepare(&config, &store).await?;

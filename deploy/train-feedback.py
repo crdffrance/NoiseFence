@@ -15,6 +15,8 @@ import uuid
 
 def commands(binary, config, training_python, candidate, snapshot):
     settings = tomllib.loads(config.read_text())
+    if settings.get('cluster', {}).get('role') == 'worker':
+        raise ValueError('Training runs on the coordinator only')
     model_path = settings['filter'].get('model')
     model = json.loads(Path(model_path).read_text()) if model_path else {}
     version = model.get('feature_version', 1)

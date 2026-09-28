@@ -11,3 +11,9 @@ class MonitorTests(unittest.TestCase):
         prefix='type=AVC msg=audit(1789293448:1): apparmor="DENIED" profile="noisefence-vision" operation="getattr" '
         self.assertEqual(m.audit_event(prefix+'name="/etc/shadow"')['category'],'apparmor_denied')
         self.assertEqual(m.audit_event(prefix+'name="dev/null" info="Failed name lookup - disconnected path"')['category'],'ocr_inherited_stdin_diagnostic')
+
+    def test_recent_archive_checks_do_not_hide_missing_postgresql_restore(self):
+        self.assertTrue(m.restoration_complete({'results':[{'status':'verified'}]}))
+        self.assertFalse(m.restoration_complete({'results':[]}))
+        self.assertFalse(m.restoration_complete({'results':[{'status':'requires_postgresql_restore','postgresql_restore_required':True}]}))
+        self.assertFalse(m.restoration_complete({'restoration':'requires_postgresql_restore','results':[{'status':'verified'}]}))

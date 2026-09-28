@@ -20,6 +20,40 @@ pub struct Proposal<'a> {
     pub max_stale_seconds: i64,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusProjection {
+    current: Epoch,
+    rollout: Option<RolloutStatus>,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RolloutStatus {
+    epoch: Epoch,
+    phase: Phase,
+    participants: BTreeMap<String, crate::cluster::activation::Progress>,
+    recovery_of: Option<Epoch>,
+}
+impl StatusProjection {
+    fn validate(&self) -> Result<()> {
+        self.current.validate()?;
+        if let Some(r) = &self.rollout {
+            r.epoch.validate()?;
+            if let Some(recovery) = &r.recovery_of {
+                recovery.validate()?;
+            }
+            ensure!(
+                (1..=64).contains(&r.participants.len())
+                    && r.participants
+                        .keys()
+                        .all(|node| crate::cluster::valid_id(node)),
+                "Invalid activation participants"
+            );
+        }
+        Ok(())
+    }
+}
+
 struct Authority {
     journal: Journal,
     membership: BTreeMap<String, String>,
@@ -76,14 +110,14 @@ async fn save(tx: &Transaction<'_>, journal: &Journal) -> Result<()> {
     let raw = serde_json::to_vec(journal)?;
     ensure!(raw.len() <= 4 * 1024 * 1024, "Activation journal too large");
     tx.execute(
-        "UPDATE noisefence.policy_authority SET journal=$1 WHERE id=1",
-        &[&serde_json::to_value(journal)?],
+        "UPDATE noisefence.policy_authority SET journal=$1,incident=CASE WHEN incident->'epoch'=$2 THEN incident ELSE NULL END WHERE id=1",
+        &[&serde_json::to_value(journal)?,&journal.rollout().map(|r|serde_json::to_value(r.epoch())).transpose()?],
     )
     .await
     .map_err(database_error)?;
     Ok(())
 }
-async fn approval(
+pub(super) async fn approval(
     tx: &Transaction<'_>,
     actor: &str,
     session: &str,
@@ -162,6 +196,23 @@ async fn revision(tx: &Transaction<'_>, bundle: &Bundle, actor: &str) -> Result<
     Ok(())
 }
 impl Central {
+    pub async fn policy_revisions(&self, actor: &str) -> Result<Vec<Value>> {
+        let db = self
+            .interactive
+            .get()
+            .await
+            .context("Central policy capacity unavailable")?;
+        let rows = db.query("SELECT id,created,username FROM noisefence.policy_revisions WHERE EXISTS(SELECT 1 FROM noisefence.users WHERE username=$1 AND admin AND NOT disabled) ORDER BY id DESC LIMIT 100", &[&actor]).await.map_err(database_error)?;
+        Ok(rows.iter().map(|r| serde_json::json!({"id":r.get::<_,i64>(0),"created":r.get::<_,i64>(1),"username":r.get::<_,String>(2)})).collect())
+    }
+    pub async fn policy_revision(&self, actor: &str, revision: i64) -> Result<Option<Value>> {
+        let db = self
+            .interactive
+            .get()
+            .await
+            .context("Central policy capacity unavailable")?;
+        Ok(db.query_opt("SELECT settings FROM noisefence.policy_revisions WHERE id=$2 AND EXISTS(SELECT 1 FROM noisefence.users WHERE username=$1 AND admin AND NOT disabled)", &[&actor,&revision]).await.map_err(database_error)?.map(|r|r.get(0)))
+    }
     pub async fn policy_approval(
         &self,
         actor: &str,
@@ -326,6 +377,68 @@ impl Central {
         management_lock(&tx).await?;
         Ok(read(&tx, Some(owner)).await?.journal)
     }
+    /// Capture the exact rollout before an authority step, even when membership
+    /// needs reconciliation. This method grants no permission to advance it.
+    pub async fn policy_incident_epoch(&self, owner: &Identity) -> Result<Option<Epoch>> {
+        let db = self
+            .interactive
+            .get()
+            .await
+            .context("Central policy capacity unavailable")?;
+        let row = db.query_opt("SELECT journal#>'{rollout,epoch}' FROM noisefence.policy_authority WHERE id=1 AND node=$1 AND epoch=$2 AND journal->>'owner'=node", &[&owner.node,&owner.epoch]).await.map_err(database_error)?.context("Policy authority identity mismatch")?;
+        let raw: Option<Value> = row.get(0);
+        let epoch: Option<Epoch> = raw.map(serde_json::from_value).transpose()?;
+        if let Some(epoch) = &epoch {
+            epoch.validate()?;
+        }
+        Ok(epoch)
+    }
+    pub async fn record_policy_incident(
+        &self,
+        owner: &Identity,
+        epoch: &Epoch,
+        code: Option<&str>,
+    ) -> Result<bool> {
+        epoch.validate()?;
+        ensure!(
+            code.is_none_or(|code| matches!(
+                code,
+                "approval_changed"
+                    | "membership_changed"
+                    | "runtime_preparation_failed"
+                    | "runtime_generation_busy"
+                    | "activation_step_failed"
+            )),
+            "Invalid activation incident code"
+        );
+        let mut db = self
+            .interactive
+            .get()
+            .await
+            .context("Central policy capacity unavailable")?;
+        let tx = db.transaction().await.map_err(database_error)?;
+        management_lock(&tx).await?;
+        let row=tx.query_opt("SELECT journal#>'{rollout,epoch}',membership FROM noisefence.policy_authority WHERE id=1 AND node=$1 AND epoch=$2 AND journal->>'owner'=node FOR UPDATE", &[&owner.node,&owner.epoch]).await.map_err(database_error)?.context("Policy authority identity mismatch")?;
+        if row.get::<_, Option<Value>>(0).as_ref() != Some(&serde_json::to_value(epoch)?) {
+            return Ok(false);
+        }
+        let recorded: BTreeMap<String, String> = serde_json::from_value(row.get(1))?;
+        let code = if recorded != membership(&tx).await? {
+            Some("membership_changed")
+        } else {
+            code
+        };
+        let incident =
+            code.map(|code| serde_json::json!({"epoch":epoch,"at":crate::now(),"code":code}));
+        tx.execute(
+            "UPDATE noisefence.policy_authority SET incident=$1 WHERE id=1",
+            &[&incident],
+        )
+        .await
+        .map_err(database_error)?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(true)
+    }
     pub async fn policy_view(
         &self,
         owner: &Identity,
@@ -341,7 +454,16 @@ impl Central {
             .context("Central policy capacity unavailable")?;
         let tx = db.transaction().await.map_err(database_error)?;
         management_lock(&tx).await?;
-        let a = read(&tx, Some(owner)).await?;
+        // A status read must not deserialize model bundles merely to report
+        // rollout progress. Mutation paths still validate the entire journal.
+        let row=tx.query_opt("SELECT jsonb_build_object('current',jsonb_build_object('sequence',journal->'current_sequence','revision',journal#>'{current,revision}','digest',journal#>'{current,digest}'),'rollout',CASE WHEN journal->'rollout'='null'::jsonb OR journal->'rollout' IS NULL THEN NULL ELSE jsonb_build_object('epoch',journal#>'{rollout,epoch}','phase',journal#>'{rollout,phase}','participants',journal#>'{rollout,participants}','recovery_of',journal#>'{rollout,recovery_of}') END),membership,actor,scope,incident FROM noisefence.policy_authority WHERE id=1 AND node=$1 AND epoch=$2 AND journal->>'owner'=node FOR UPDATE", &[&owner.node,&owner.epoch]).await.map_err(database_error)?.context("Policy authority identity mismatch")?;
+        let status: StatusProjection = serde_json::from_value(row.get(0))?;
+        status.validate()?;
+        let recorded: BTreeMap<String, String> = serde_json::from_value(row.get(1))?;
+        let membership_matches = recorded == membership(&tx).await?;
+        let initiator: Option<String> = row.get(2);
+        let scope: Option<String> = row.get(3);
+        let saved_incident: Option<Value> = row.get(4);
         let user=tx.query_opt("SELECT admin FROM noisefence.users WHERE username=$1 AND NOT disabled AND (NOT $2 OR admin)", &[&actor,&administrator]).await.map_err(database_error)?.context("Account privileges changed; reload the console")?;
         let grants: Vec<String> = tx
             .query(
@@ -353,21 +475,31 @@ impl Central {
             .into_iter()
             .map(|r| r.get(0))
             .collect();
-        let own = a.actor.as_deref() == Some(actor)
-            && a.scope
+        let own = initiator.as_deref() == Some(actor)
+            && scope
                 .as_deref()
                 .is_some_and(|scope| crate::preferences::permitted(scope, user.get(0), &grants));
-        let r = a.journal.rollout();
+        let r = status.rollout.as_ref();
+        let ready = ready && membership_matches;
+        let incident = if !membership_matches {
+            Some(
+                serde_json::json!({"epoch":r.map(|r|&r.epoch).unwrap_or(&status.current),"at":crate::now(),"code":"membership_changed"}),
+            )
+        } else {
+            saved_incident.filter(|i| {
+                r.is_some_and(|r| serde_json::to_value(&r.epoch).ok().as_ref() == i.get("epoch"))
+            })
+        };
         Ok(serde_json::json!({
-            "coordinator":true,"coordinated":true,"pending":!a.journal.released() || !ready,
-            "installed_revision":installed,"smtp_ready":ready,"phase":r.map(|r|r.phase()),
-            "committed_revision":administrator.then(||a.journal.current().revision),
-            "epoch":if administrator {r.map(|r|r.epoch())} else {None},
-            "participants":if administrator {r.map(|r|r.participants())} else {None},
-            "abortable":administrator && r.is_some_and(|r|r.abortable()),
-            "recoverable":administrator && r.is_some_and(|r|r.phase()==Phase::Committed && r.recovery_of().is_none()),
-            "personal_change":if own {r.map(|r|serde_json::json!({"scope":a.scope,"revision":r.epoch().revision,"phase":r.phase()}))} else {None},
-            "incident":null,
+            "coordinator":true,"coordinated":true,"pending":r.is_some_and(|r|!matches!(r.phase,Phase::Released|Phase::Aborted)) || !ready,
+            "installed_revision":installed,"smtp_ready":ready,"phase":r.map(|r|r.phase),
+            "committed_revision":administrator.then_some(status.current.revision),
+            "epoch":if administrator {r.map(|r|&r.epoch)} else {None},
+            "participants":if administrator {r.map(|r|&r.participants)} else {None},
+            "abortable":administrator && membership_matches && r.is_some_and(|r|r.phase==Phase::Preparing && r.recovery_of.is_none()),
+            "recoverable":administrator && membership_matches && r.is_some_and(|r|r.phase==Phase::Committed && r.recovery_of.is_none()),
+            "personal_change":if own {r.map(|r|serde_json::json!({"scope":scope,"revision":r.epoch.revision,"phase":r.phase}))} else {None},
+            "incident":if administrator || own {incident} else {None},
         }))
     }
     pub async fn stage_policy(&self, owner: &Identity, proposal: Proposal<'_>) -> Result<Journal> {
@@ -377,7 +509,7 @@ impl Central {
             "Configuration exceeds its size limit"
         );
         ensure!(
-            (1..=86400).contains(&proposal.max_stale_seconds),
+            crate::cluster::POLICY_FRESHNESS_SECONDS.contains(&proposal.max_stale_seconds),
             "Invalid policy freshness bound"
         );
         let mut db = self

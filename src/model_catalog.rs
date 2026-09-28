@@ -305,6 +305,11 @@ pub fn retain(
     label: String,
     reserve: u64,
 ) -> Result<Entry> {
+    let entry = describe(publication, label)?;
+    retain_entry(root, publication, entry, reserve)
+}
+/// Validate and identify a retained set before copying any files.
+pub(crate) fn describe(publication: &artifacts::Publication, label: String) -> Result<Entry> {
     let mut entry = Entry {
         schema: SCHEMA.into(),
         id: String::new(),
@@ -317,6 +322,14 @@ pub fn retain(
     };
     entry.id = entry.identity()?;
     entry.validate()?;
+    Ok(entry)
+}
+fn retain_entry(
+    root: &Path,
+    publication: &artifacts::Publication,
+    entry: Entry,
+    reserve: u64,
+) -> Result<Entry> {
     create_directory(&root.join("cluster"))?;
     create_directory(&parent(root))?;
     let existing = list(root)?;

@@ -33,6 +33,8 @@ def promote(fence_path,disaster=False):
     if (STATE/'promoted.json').exists() or (STATE/'active').exists():raise ValueError('A recovery already exists; do not overwrite it')
     fence=json.loads(fence_path.read_text());settings=json.loads((STATE/'settings.json').read_text())
     checkpoint=(STATE/'current').resolve();manifest=json.loads((checkpoint/'manifest.json').read_text())
+    if manifest.get('protocol')=='noisefence-console-2':
+        raise ValueError('Selected PostgreSQL checkpoints require coordinated database recovery before console promotion')
     validate_fence(fence,settings,manifest,disaster,int(time.time()))
     if manifest['build']!=subprocess.check_output([str(BINARY),'--version'],text=True).strip():raise ValueError('Release mismatch')
     # This stage is independent of the worker's live /var/lib/noisefence queue.

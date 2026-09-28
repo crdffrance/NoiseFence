@@ -1607,6 +1607,35 @@ fn rc8_rollout_preserves_rc7_typed_policy_without_relaxing_bound_activation() {
 }
 
 #[test]
+fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    cfg.domains[0].recipient_verification = Some(Default::default());
+    cfg.rspamd = Some(Default::default());
+    cfg.research_archive = Some(Default::default());
+    cfg.smtp_policy = Some(Default::default());
+    let mut settings = noisefence::control::Settings::from_config(&cfg);
+    settings.filters.resolve_uncertain_by_score = true;
+    settings.filters.partial_actions = true;
+    let mut bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    let prior = bundle.for_build("0.28.0-rc.9").unwrap();
+    let mut expected = serde_json::to_value(&bundle).unwrap();
+    expected["build"] = json!("0.28.0-rc.9");
+    expected["digest"] = json!(prior.digest);
+    assert_eq!(serde_json::to_value(&prior).unwrap(), expected);
+    assert_ne!(prior.digest, bundle.digest);
+    prior.validate().unwrap();
+    bundle.credential_generation = Some("b".repeat(64));
+    bundle.digest = bundle.hash().unwrap();
+    assert!(bundle.for_build("0.28.0-rc.9").is_err());
+    assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
+    let mut unknown = prior;
+    unknown.build = "0.29.1".into();
+    unknown.digest = unknown.hash().unwrap();
+    assert!(unknown.validate().is_err());
+}
+
+#[test]
 fn score_resolution_cannot_be_enabled_while_older_workers_use_another_policy() {
     let root = tempfile::tempdir().unwrap();
     let cfg = config(root.path(), Role::Coordinator);

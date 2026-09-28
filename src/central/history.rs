@@ -19,7 +19,7 @@ impl Event {
     pub fn validate(&self) -> Result<()> {
         let r = &self.receipt;
         ensure!(
-            uuid::Uuid::parse_str(&r.id).is_ok_and(|id| id.to_string() == r.id) && r.generation > 0,
+            crate::ha::replica::valid_id(&r.id) && r.generation > 0,
             "Invalid management event identity"
         );
         ensure!(
@@ -28,7 +28,10 @@ impl Event {
         );
         if let Some(record) = &self.record {
             ensure!(
-                record.id == r.id && record.generation == r.generation,
+                record.id == r.id
+                    && record.generation == r.generation
+                    && (!record.id.starts_with("dsn-")
+                        || (record.is_dsn && record.sender.is_empty())),
                 "Management event generation mismatch"
             );
             ensure!(
