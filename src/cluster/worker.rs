@@ -285,13 +285,36 @@ async fn poll(
     );
     if let Some(journal) = &activation {
         journal.validate()?;
-        ensure!(
-            journal
-                .bundles()
-                .iter()
-                .all(|b| b.build == env!("CARGO_PKG_VERSION")),
-            "Activation requires matching node builds"
-        );
+        if journal
+            .bundles()
+            .iter()
+            .any(|b| b.build != env!("CARGO_PKG_VERSION"))
+        {
+            // Migration preserves the verified policy byte for byte. Only an
+            // authenticated central reply may retain a previously installed
+            // rc.9 bundle; this never authorizes a new mixed-build policy.
+            ensure!(
+                remote_management,
+                "Activation requires matching node builds"
+            );
+            let incoming = journal.clone();
+            control
+                .store
+                .read(move |db| {
+                    let selection = crate::central::selection::Selection::read(db)?
+                        .context("Missing management migration selection")?;
+                    let tx = db.transaction()?;
+                    let local = super::activation::participant::Local::read(&tx)?
+                        .context("Missing verified participant policy")?;
+                    ensure!(
+                        local.installed_epoch().sequence > selection.baseline.sequence
+                            || local.installed_epoch() == &selection.baseline,
+                        "Policy cache predates management migration"
+                    );
+                    validate_retained_builds(&incoming, local.authority())
+                })
+                .await?;
+        }
     }
     let settings = control
         .base
@@ -503,4 +526,74 @@ pub async fn run(
         }
     };
     tokio::select! {result=policy=>result,result=management=>result}
+}
+
+/// Recognize immutable policies retained across the rc.9 management migration.
+/// Digest validation includes build, credentials, settings and model manifests.
+fn validate_retained_builds(
+    incoming: &super::activation::Journal,
+    retained: &super::activation::Journal,
+) -> Result<()> {
+    incoming.validate()?;
+    retained.validate()?;
+    ensure!(
+        incoming.owner() == retained.owner(),
+        "Policy authority changed"
+    );
+    for bundle in incoming.bundles() {
+        if bundle.build == env!("CARGO_PKG_VERSION") {
+            continue;
+        }
+        ensure!(
+            env!("CARGO_PKG_VERSION") == "0.29.0"
+                && bundle.build == "0.28.0-rc.9"
+                && retained
+                    .bundles()
+                    .iter()
+                    .any(|old| old.digest == bundle.digest),
+            "Activation requires matching node builds or a verified retained migration policy"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod migration_build_tests {
+    use super::*;
+    fn journal(build: &str, revision: i64) -> super::super::activation::Journal {
+        let config: crate::config::Config =
+            toml::from_str(include_str!("../../config/development.toml")).unwrap();
+        let mut bundle = artifacts::capture(
+            &config,
+            crate::control::Settings::from_config(&config),
+            revision,
+        )
+        .unwrap()
+        .bundle;
+        bundle.build = build.into();
+        bundle.credential_generation = Some("a".repeat(64));
+        bundle.digest = bundle.hash().unwrap();
+        serde_json::from_value(serde_json::json!({"version":1,"owner":"mx1","current":bundle,"sequence":0,"current_sequence":0,"rollout":null})).unwrap()
+    }
+    #[test]
+    fn retained_migration_policy_does_not_authorize_new_old_builds() {
+        let retained = journal("0.28.0-rc.9", 1);
+        assert!(validate_retained_builds(&retained, &retained).is_ok());
+        assert!(
+            validate_retained_builds(&journal(env!("CARGO_PKG_VERSION"), 2), &retained).is_ok()
+        );
+        assert!(validate_retained_builds(&journal("0.28.0-rc.9", 2), &retained).is_err());
+        let unsupported = journal("0.28.0-rc.8", 1);
+        assert!(validate_retained_builds(&unsupported, &unsupported).is_err());
+        let mut changed = serde_json::to_value(&retained).unwrap();
+        changed["owner"] = serde_json::json!("different");
+        assert!(
+            validate_retained_builds(&serde_json::from_value(changed).unwrap(), &retained).is_err()
+        );
+        let mut corrupt = serde_json::to_value(&retained).unwrap();
+        corrupt["current"]["credential_generation"] = serde_json::json!("b".repeat(64));
+        assert!(
+            validate_retained_builds(&serde_json::from_value(corrupt).unwrap(), &retained).is_err()
+        );
+    }
 }

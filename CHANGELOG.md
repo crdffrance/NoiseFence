@@ -7,7 +7,7 @@
 - Add coordinated offline import, source and destination comparisons, persistent service fencing, and guarded activation. A selected installation cannot return to SQLite by rolling back its binary alone.
 - Add PostgreSQL checkpoints and restored-console startup with AppArmor, verified HTTPS, new access credentials, preserved worker queues and resumable checkpoint scheduling. Compare message and SMTP-log payloads before recovery authorization.
 - Fix successive restores skipping message bodies because of receipts from an earlier operation. Keep retired consoles and their database evidence separate from the new authority.
-- Preserve the rc.9 messaging policy during migration; credential-bound cluster activation still requires matching gateway versions. Filtering weights and delivery policies are not changed by the database migration.
+- Preserve the rc.9 messaging policy during migration, including authenticated worker synchronization of immutable bundles already verified in the selected local policy cache. Newly introduced policies still require the current gateway build. Filtering weights and delivery policies are not changed by the database migration.
 
 ### Operational readiness
 
