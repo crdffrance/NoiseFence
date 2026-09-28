@@ -83,7 +83,7 @@ impl Local {
         }
         Ok(())
     }
-    pub fn read(tx: &Transaction<'_>) -> Result<Option<Self>> {
+    pub fn read(tx: &rusqlite::Connection) -> Result<Option<Self>> {
         let raw: Option<String> = tx
             .query_row("SELECT value FROM cluster_state WHERE key=?1", [KEY], |r| {
                 r.get(0)
@@ -101,7 +101,7 @@ impl Local {
         })
         .transpose()
     }
-    fn storage_identity(&self, tx: &Transaction<'_>) -> Result<()> {
+    fn storage_identity(&self, tx: &rusqlite::Connection) -> Result<()> {
         let node: String = tx.query_row(
             "SELECT value FROM cluster_state WHERE key='node_id'",
             [],

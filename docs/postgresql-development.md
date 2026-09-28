@@ -1,8 +1,12 @@
 # PostgreSQL management migration: development status
 
-The PostgreSQL backend is under development. The released daemon still uses
-SQLite. Do not change production database settings or remove the SQLite file:
-there is no supported production cutover command yet.
+This document records the incremental implementation and its historical test
+boundaries. Statements below about unfinished work describe the stage at which
+that section was written; they are not the current deployment procedure.
+
+For version 0.29.0 installation, use the [PostgreSQL operator guide](../deploy/postgresql/README.md)
+and [guarded migration supervisor](../deploy/postgresql/MIGRATION-SUPERVISOR.md).
+Never switch an existing installation by editing its database settings alone.
 
 The intended split keeps message bodies, delivery leases, recipient progress and
 mandatory two-copy acknowledgements on each MX. PostgreSQL will own console

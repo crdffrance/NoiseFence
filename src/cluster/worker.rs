@@ -303,8 +303,7 @@ async fn poll(
                 .read(move |db| {
                     let selection = crate::central::selection::Selection::read(db)?
                         .context("Missing management migration selection")?;
-                    let tx = db.transaction()?;
-                    let local = super::activation::participant::Local::read(&tx)?
+                    let local = super::activation::participant::Local::read(db)?
                         .context("Missing verified participant policy")?;
                     ensure!(
                         local.installed_epoch().sequence > selection.baseline.sequence
@@ -575,6 +574,20 @@ mod migration_build_tests {
         bundle.digest = bundle.hash().unwrap();
         serde_json::from_value(serde_json::json!({"version":1,"owner":"mx1","current":bundle,"sequence":0,"current_sequence":0,"rollout":null})).unwrap()
     }
+    #[tokio::test]
+    async fn participant_cache_reads_share_the_existing_store_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(root.path()).unwrap();
+        store
+            .read(|db| {
+                assert!(!db.is_autocommit());
+                assert!(super::super::activation::participant::Local::read(db)?.is_none());
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
     #[test]
     fn retained_migration_policy_does_not_authorize_new_old_builds() {
         let retained = journal("0.28.0-rc.9", 1);
