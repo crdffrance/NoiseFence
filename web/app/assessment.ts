@@ -17,6 +17,7 @@ export type Assessment = {
     score: number | null;
     partial: boolean;
     projected: boolean;
+    guard?: string | null;
     previous: {outcome: string};
     decision: {outcome: string};
   } | null;

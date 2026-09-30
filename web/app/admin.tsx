@@ -1187,7 +1187,7 @@ export function AdminConsole({
                   </small>
                 </label>
               </div>
-              <p className="notice">Automatic decisions are always enabled. Inconclusive detector results are resolved using the content index and configured threshold. Messages without a usable score are accepted with an analysis-unavailable notice. Coverage and action restrictions remain visible separately.</p>
+              <p className="notice">Automatic decisions are always enabled. Inconclusive detector results use the configured threshold, subject to the corroboration requirement. Messages without a usable score are accepted with an analysis-unavailable notice. Coverage and action restrictions remain visible separately.</p>
               <Toggle
                 label="Apply actions when decision-specific evidence is sufficient"
                 description="Allow actions on partial analyses only when the selected decision has its required evidence. Score-based spam needs readable content, automatic score resolution and the applicable threshold. Explicit matched rules remain separate. Tagging still requires a ready ARC renderer and Proton validation. Off by default; qualify the policy and upgrade every MX before activation."
@@ -1196,7 +1196,7 @@ export function AdminConsole({
               />
               <Toggle
                 label="Require corroboration before classifying spam"
-                description="Missing corroboration is recorded, then the configured threshold resolves the classification automatically."
+                description="When enabled, a high legacy content index without corroborating evidence is accepted as Ham. The score cannot confirm itself. Malware retains priority; Rspamd never supplies corroboration."
                 checked={Boolean(draft.filters.require_corroboration)}
                 onChange={(v) => filterAt('require_corroboration', v)}
               />

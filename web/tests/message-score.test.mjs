@@ -335,3 +335,15 @@ test('content boundary displays exact threshold precision and its scope', () => 
   assert.match(html,/below/);
   assert.match(html,/recipient rules and delivery restrictions can take precedence/);
 });
+
+test('a guarded high index is explained as policy acceptance, never below-threshold safety', () => {
+  const shown = scorePresentation({assessment: {
+    version: 1, complete: true, category: 'legitimate',
+    score: {value: 99.9, model: 'fixture'},
+    decision: {source: 'legacy', outcome: 'legitimate', score: 99.9},
+    score_resolution: {score: 99.9, threshold: 95, guard: 'corroboration_required', decision: {outcome: 'legitimate'}},
+  }});
+  assert.equal(shown.value, 99.9);
+  assert.match(shown.detail, /required corroboration is missing/);
+  assert.doesNotMatch(shown.detail, /Not spam by configured threshold/);
+});

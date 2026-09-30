@@ -301,13 +301,18 @@ pub(crate) fn render(
         h.field(
             "X-NoiseFence-Score-Resolution",
             format!(
-                "policy={}; score={}; threshold={}; previous={}; outcome={}; partial={};",
+                "policy={}; score={}; threshold={}; previous={}; outcome={}; partial={};{}",
                 token(&r.version).unwrap_or("unknown"),
                 number(r.score),
                 number(Some(r.threshold)),
                 word(&r.previous.outcome),
                 word(&r.decision.outcome),
-                yes(r.partial)
+                yes(r.partial),
+                if r.guard.as_deref() == Some("corroboration_required") {
+                    " guard=corroboration_required;"
+                } else {
+                    ""
+                }
             ),
         );
     } else {

@@ -9,7 +9,7 @@ use crate::{
     fusion::runtime::{DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "confirmation-4";
+pub const VERSION: &str = "confirmation-5";
 pub const REVIEW_REASON: &str = "confirmation_missing";
 
 /// Additional observations, not statistically independent votes. Weak SMTP
@@ -69,7 +69,10 @@ pub fn corroborated(scan: &Scan) -> bool {
 /// fusion keeps its own policy. Abstention preserves the original score and
 /// extraction status, so training does not mistake caution for a failed scan.
 pub fn apply(scan: &mut Scan, enabled: bool) {
-    let already_reviewed = scan.reasons.iter().any(|r| r.id == REVIEW_REASON);
+    let already_reviewed = scan
+        .reasons
+        .iter()
+        .any(|r| r.id == REVIEW_REASON || r.id == crate::decision::REVIEW_REASON);
     scan.reasons.retain(|r| r.id != REVIEW_REASON);
     if !enabled || !scan.complete || corroborated(scan) {
         return;
@@ -86,7 +89,7 @@ pub fn apply(scan: &mut Scan, enabled: bool) {
         scan.pub_tagged = false;
         scan.reasons.push(Signal {
             id: REVIEW_REASON.into(),
-            detail: "High score without sufficient confirmation: message to be checked, transmitted without prefix. This result does not prove its legitimacy.".into(),
+            detail: "Required corroboration is missing: the content index alone cannot classify this message as spam. Automatic policy accepts it without claiming legitimacy.".into(),
             weight: 0.0,
         });
     }

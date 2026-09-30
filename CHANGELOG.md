@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Corroboration consistency
+
+- Honor required corroboration when finalizing complete legacy analyses: the content index can no longer reverse its own missing-confirmation safeguard. Preserve the raw score and an explicit, versioned acceptance reason. This is not a newly calibrated model; validate capture and false positives before rollout.
+- Expose the guard in bounded diagnostic headers and distinguish unassessed or guarded Ham acceptance in desktop/mobile lists and analysis details. Rspamd remains independent.
+- Add a read-only PostgreSQL filter-health report and a staged human-label, regression and prospective holdout validation guide.
+
 ## 0.29.0 — PostgreSQL management and guarded recovery
 
 - Add an explicit PostgreSQL management backend for accounts, MFA, sessions, policies, message history, search, feedback and quality records. Standalone SQLite installations remain supported.

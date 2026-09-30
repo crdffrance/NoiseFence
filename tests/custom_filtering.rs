@@ -89,7 +89,7 @@ fn sensitivity_levels_are_monotonic_with_mandatory_threshold_resolution() {
                 noisefence::decision::apply(&mut scan, true);
                 let before = serde_json::to_value(&scan).unwrap();
                 let result = assess(&policy, &cfg, &scan, &Facts::default(), &recipient, 100);
-                let expected = if score < level.threshold {
+                let expected = if score < level.threshold || !confirmed {
                     Category::Legitimate
                 } else {
                     Category::Spam
@@ -448,7 +448,7 @@ fn recipient_profiles_reapply_arbitration_with_their_own_threshold() {
     );
     for (threshold, expected) in [
         (None, Category::Spam),
-        (Some(90.), Category::Spam),
+        (Some(90.), Category::Legitimate),
         (Some(100.), Category::Legitimate),
     ] {
         let policy = Policy {
@@ -499,7 +499,13 @@ fn automatic_resolution_uses_recipient_threshold_and_keeps_partial_delivery_safe
         scan.decision = Some(Decision::legacy(&scan, 95.));
         noisefence::decision::apply(&mut scan, true);
         noisefence::decision::resolve_by_score(&mut scan, true, 95.);
-        for (threshold, expected) in [(90., Category::Spam), (98., Category::Legitimate)] {
+        for (threshold, threshold_expected) in [(90., Category::Spam), (98., Category::Legitimate)]
+        {
+            let expected = if complete {
+                Category::Legitimate
+            } else {
+                threshold_expected
+            };
             let result = assess(
                 &level_policy(threshold),
                 &cfg,

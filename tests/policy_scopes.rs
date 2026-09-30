@@ -456,7 +456,7 @@ fn frozen_sample_changes_policy_not_receipts_and_never_invents_a_zero() {
     let recipient = cfg.recipient("alice@example.test").unwrap();
     let mut scan = scan();
     scan.decision = Some(noisefence::fusion::runtime::Decision::legacy(&scan, 95.));
-    noisefence::decision::apply(&mut scan, true);
+    noisefence::decision::apply(&mut scan, false);
     noisefence::decision::resolve_by_score(&mut scan, true, 95.);
     noisefence::decision_record::record_recipient(&mut scan, &cfg, None, 100);
     let before = serde_json::to_value(&scan).unwrap();

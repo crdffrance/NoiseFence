@@ -108,6 +108,14 @@ fn disagreement_resolves_once_and_keeps_the_original_opinions() {
     decision::apply(&mut s, false);
     decision::resolve_by_score(&mut s, true, 95.);
     assert_eq!(serde_json::to_value(&s).unwrap(), once);
+    decision::apply(&mut s, true);
+    decision::finalize(&mut s, 95.);
+    assert_eq!(s.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+    assert_eq!(
+        s.score_resolution.as_ref().unwrap().guard.as_deref(),
+        Some("corroboration_required")
+    );
+    assert_eq!(s.arbitration.as_ref().unwrap().opinion, Outcome::Legitimate);
 }
 
 #[tokio::test]
@@ -233,7 +241,7 @@ async fn history_does_not_reclassify_abstentions_under_current_policy() {
 }
 
 #[test]
-fn offline_pipeline_records_operator_policy_and_resolves_missing_confirmation() {
+fn offline_pipeline_preserves_required_confirmation() {
     let root = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(root.path())).clone();
     cfg.filter.threshold = 0.;
@@ -241,7 +249,33 @@ fn offline_pipeline_records_operator_policy_and_resolves_missing_confirmation() 
     cfg.filter.resolve_uncertain_by_score = true;
     let engine = noisefence::engine::Engine::new(std::sync::Arc::new(cfg)).unwrap();
     let scan = engine.offline(common::MESSAGE);
-    assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
-    assert!(scan.score_resolution.is_some());
+    assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+    assert_eq!(
+        scan.score_resolution.as_ref().unwrap().guard.as_deref(),
+        Some("corroboration_required")
+    );
     assert!(scan.analysis_policy.unwrap().resolve_uncertain_by_score);
+}
+
+#[test]
+fn required_confirmation_cannot_be_undone_by_a_saturated_score() {
+    for score in [95., 99.99, 100.] {
+        let mut scan = review(score, true);
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        decision::apply(&mut scan, true);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+        assert_eq!(scan.score, score);
+        assert_eq!(
+            scan.score_resolution.as_ref().unwrap().guard.as_deref(),
+            Some("corroboration_required")
+        );
+        let once = serde_json::to_value(&scan).unwrap();
+        decision::apply(&mut scan, true);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    }
 }

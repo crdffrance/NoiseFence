@@ -6,15 +6,18 @@ additional evidence before a high legacy content score is accepted as an engine
 verdict. Without that evidence, the internal verdict is `undetermined`; the score
 and analysis coverage remain recorded. This is not proof of legitimacy.
 
-If **Resolve uncertain results using the score** is enabled, the
-[automatic classification policy](automatic-classification.md) then resolves that
-verdict using the configured content threshold. This creates no new evidence.
-Delivery actions remain subject to observation mode, partial-analysis policy and
-Proton marking guards. Existing accepted messages keep their receipt-time decisions.
+Automatic classification remains mandatory, but a complete legacy analysis with
+missing required corroboration is accepted as Ham (or Pub when supported by the
+existing mail-kind assessment). The original content index cannot undo the
+corroboration requirement. `score-resolution-2` records the guard; the
+`X-NoiseFence-Score-Resolution` header includes `guard=corroboration_required`.
+This is an operator policy, not a calibrated probability of legitimacy. Explicit
+recipient rules, observation mode, partial-analysis restrictions and Proton
+marking guards remain separate. Existing receipts are never reclassified.
 
 ## Eligible evidence
 
-`confirmation-4` recognizes:
+`confirmation-5` retains these eligible observations:
 
 - Malware detected by the primary antivirus.
 - Verified DMARC failure on both alignment branches.

@@ -23,6 +23,9 @@ pub struct ScoreResolution {
     pub previous_category: Option<crate::mailing::Category>,
     #[serde(default)]
     pub projected: bool,
+    /// An explicit corroboration requirement cannot be bypassed by the same index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<String>,
 }
 
 fn restore_score_resolution(scan: &mut Scan) {
@@ -71,9 +74,14 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
     let score = (scan.features_complete != Some(false))
         .then(|| crate::assessment::valid_score(Some(scan.score)))
         .flatten();
+    let corroboration_missing = scan
+        .reasons
+        .iter()
+        .any(|r| r.id == crate::confirmation::REVIEW_REASON)
+        && !crate::confirmation::corroborated(scan);
     let decision = Decision {
         source: DecisionSource::Legacy,
-        outcome: if score.is_some_and(|s| s >= threshold) {
+        outcome: if !corroboration_missing && score.is_some_and(|s| s >= threshold) {
             Outcome::Unwanted
         } else {
             Outcome::Legitimate
@@ -87,7 +95,12 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
     }
     scan.decision = Some(decision.clone());
     scan.score_resolution = Some(ScoreResolution {
-        version: "score-resolution-1".into(),
+        version: if corroboration_missing {
+            "score-resolution-2"
+        } else {
+            "score-resolution-1"
+        }
+        .into(),
         previous,
         decision,
         threshold,
@@ -95,12 +108,15 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
         partial: !scan.complete,
         previous_category,
         projected: false,
+        guard: corroboration_missing.then(|| "corroboration_required".into()),
     });
     scan.reasons.push(Signal {
         id: SCORE_RESOLUTION_REASON.into(),
-        detail: score.map_or_else(
+        detail: if corroboration_missing {
+            "Accepted by configured policy: required corroboration is missing. The content index remains visible but cannot confirm itself. This is not proof of legitimacy.".into()
+        } else { score.map_or_else(
             || "No usable content score: automatic fail-open classification; analysis remains unavailable.".into(),
-            |score| format!("Automatic classification by configured policy: content index {score:.2} compared with threshold {threshold:.2}. Detector uncertainty remains recorded; no manual review is required.")),
+            |score| format!("Automatic classification by configured policy: content index {score:.2} compared with threshold {threshold:.2}. Detector uncertainty remains recorded; no manual review is required.")) },
         weight: 0.0,
     });
 }

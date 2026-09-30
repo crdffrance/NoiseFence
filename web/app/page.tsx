@@ -28,6 +28,7 @@ import {
 import {
   classification,
   classificationDetail,
+  classificationQualification,
   deliverySummary,
   checkFailure,
   publicitySignal,
@@ -1860,6 +1861,9 @@ function Home() {
                                     .label
                                 }
                               </span>
+                              {classificationQualification(m) && (
+                                <small className="tag-note">{classificationQualification(m)}</small>
+                              )}
                               {publicitySignal(m.mailing) &&
                                 m.category !== 'publicity' && (
                                   <small className="tag-note">
@@ -1942,6 +1946,9 @@ function Home() {
                           >
                             {classification(m, stats?.threshold ?? 95).label}
                           </span>
+                          {classificationQualification(m) && (
+                            <span className="small">{classificationQualification(m)}</span>
+                          )}
                           {publicitySignal(m.mailing) &&
                             m.category !== 'publicity' && (
                               <span className="status publicity">
