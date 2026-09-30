@@ -2,6 +2,7 @@
 
 ## Unreleased — Corroboration consistency
 
+- Identify NoiseFence and its GitHub repository in the SMTP greeting, preserving the configured server hostname.
 - Stabilize adaptive-export persistence fixtures independently of SMTP timing budgets, retain incomplete-observation exclusions, and align console-preview tests with the required-corroboration policy.
 - Update the Cloudflare development toolchain and transitive dependencies to remove the npm audit failures and unblock the Undici security update.
 

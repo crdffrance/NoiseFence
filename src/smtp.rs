@@ -241,7 +241,14 @@ async fn session(
     let mut transaction_engine = control.is_none().then_some(state.engine);
     let cfg = state.config.clone();
     let mut io: Wire = BufReader::new(Box::new(socket));
-    reply(&mut io, &format!("220 {} ESMTP\r\n", cfg.hostname)).await?;
+    reply(
+        &mut io,
+        &format!(
+            "220 {} ESMTP NoiseFence - https://github.com/crdffrance/NoiseFence\r\n",
+            cfg.hostname
+        ),
+    )
+    .await?;
     let mut helo = String::new();
     let mut extended = false;
     let mut encrypted = false;
