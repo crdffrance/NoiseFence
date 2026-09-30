@@ -1,11 +1,12 @@
+#[path = "common/adaptive_observation.rs"]
+mod adaptive_observation;
 #[allow(dead_code)]
 mod common;
 #[path = "common/postgres.rs"]
 mod postgres;
 use noisefence::{
-    adaptive::{self, Class, Tenant},
+    adaptive::{self, Class},
     central::outbox,
-    native_filter::{Runtime, Settings},
     store::Store,
 };
 
@@ -55,18 +56,14 @@ async fn adaptive_truth_and_exports_preserve_tenant_and_evaluation_boundaries() 
             .await
             .unwrap();
     }
-    let native = Runtime::new(Settings {
-        adaptive: Some(adaptive::Settings {
-            domains: [("example.test".into(), Tenant::default())].into(),
-        }),
-        ..Default::default()
-    })
-    .unwrap();
     let mut ids = Vec::new();
     for n in 0..5 {
         let scan = noisefence::engine::Scan {
             complete: true,
-            native_filter: Some(native.offline(common::MESSAGE, &["example.test".into()])),
+            native_filter: Some(adaptive_observation::completed(
+                common::MESSAGE,
+                "example.test",
+            )),
             fingerprint: noisefence::message::digest(format!("campaign-{n}").as_bytes()),
             campaign_simhash: Some(if n >= 3 {
                 format!("{:016x}", u64::MAX - (n == 3) as u64)

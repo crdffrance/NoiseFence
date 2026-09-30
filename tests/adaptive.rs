@@ -5,6 +5,8 @@ use noisefence::{
 };
 use rusqlite::params;
 use serde_json::json;
+#[path = "common/adaptive_observation.rs"]
+mod adaptive_observation;
 mod common;
 
 #[tokio::test]
@@ -61,14 +63,7 @@ async fn annotation_api_requires_session_origin_csrf_and_message_access() {
 async fn fixture() -> (tempfile::TempDir, Store) {
     let root = tempfile::tempdir().unwrap();
     let store = Store::open(root.path()).unwrap();
-    let native = Runtime::new(Settings {
-        adaptive: Some(adaptive::Settings {
-            domains: [("example.test".into(), Tenant::default())].into(),
-        }),
-        ..Default::default()
-    })
-    .unwrap();
-    let observation = native.offline(common::MESSAGE, &["example.test".into()]);
+    let observation = adaptive_observation::completed(common::MESSAGE, "example.test");
     let scan = noisefence::engine::Scan {
         complete: true,
         native_filter: Some(observation),
@@ -323,4 +318,44 @@ fn native_old_rows_remain_readable_and_resource_limits_are_enforced() {
             .collect(),
     };
     assert!(settings.validate().is_err());
+}
+
+#[tokio::test]
+async fn limited_native_observations_remain_excluded_from_training() {
+    let (root, store) = fixture().await;
+    adaptive::data::label(
+        &store,
+        "alice".into(),
+        "one".into(),
+        "example.test".into(),
+        Some(Class::Spam),
+    )
+    .await
+    .unwrap();
+    store
+        .run(|db| {
+            let raw: String =
+                db.query_row("SELECT scan FROM messages WHERE id='one'", [], |r| r.get(0))?;
+            let mut scan: noisefence::engine::Scan = serde_json::from_str(&raw)?;
+            scan.native_filter.as_mut().unwrap().report.status =
+                noisefence::native_filter::Status::Limited;
+            db.execute(
+                "UPDATE messages SET scan=?1 WHERE id='one'",
+                [serde_json::to_string(&scan)?],
+            )?;
+            db.execute("UPDATE adaptive_labels SET created=created-1", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let result = adaptive::data::export(
+        &store,
+        "admin".into(),
+        "example.test".into(),
+        &root.path().join("limited.jsonl"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["exported"], 0);
+    assert_eq!(result["excluded"], 1);
 }

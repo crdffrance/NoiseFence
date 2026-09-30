@@ -2,6 +2,9 @@
 
 ## Unreleased — Corroboration consistency
 
+- Stabilize adaptive-export persistence fixtures independently of SMTP timing budgets, retain incomplete-observation exclusions, and align console-preview tests with the required-corroboration policy.
+- Update the Cloudflare development toolchain and transitive dependencies to remove the npm audit failures and unblock the Undici security update.
+
 - Honor required corroboration when finalizing complete legacy analyses: the content index can no longer reverse its own missing-confirmation safeguard. Preserve the raw score and an explicit, versioned acceptance reason. This is not a newly calibrated model; validate capture and false positives before rollout.
 - Expose the guard in bounded diagnostic headers and distinguish unassessed or guarded Ham acceptance in desktop/mobile lists and analysis details. Rspamd remains independent.
 - Add a read-only PostgreSQL filter-health report and a staged human-label, regression and prospective holdout validation guide.

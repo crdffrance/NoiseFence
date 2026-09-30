@@ -225,7 +225,8 @@ async fn sensitivity_catalog_and_profiles_are_admin_only_atomic_and_persistent()
     let (status, simulated) =
         request(&app, &token, "/admin/filtering/preview", Some(preview)).await;
     assert_eq!(status, StatusCode::OK, "{simulated}");
-    assert_eq!(simulated["assessment"]["category"], "spam");
+    // A supplied score is not corroborating evidence, even above the profile threshold.
+    assert_eq!(simulated["assessment"]["category"], "legitimate");
     assert_eq!(simulated["assessment"]["threshold"], 90.0);
     assert_eq!(simulated["assessment"]["action"]["effective"], "deliver");
     settings["custom_filtering"]["profiles"][0]["threshold"] = json!(1);
