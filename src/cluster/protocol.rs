@@ -14,7 +14,7 @@ pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
         || (matches!(
             env!("CARGO_PKG_VERSION"),
-            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0"
+            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.2"
         ) && matches!(
             build,
             "0.14.0"
@@ -48,6 +48,7 @@ pub fn compatible_build(build: &str) -> bool {
                 | "0.28.0-rc.7"
                 | "0.28.0-rc.8"
                 | "0.28.0-rc.9"
+                | "0.29.0"
         ))
 }
 
