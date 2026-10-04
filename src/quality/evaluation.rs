@@ -139,6 +139,68 @@ pub async fn label(
         tx.commit()?;Ok(())
     }).await
 }
+/// Explicit human labels, never inferred from detector opinions. Bound a request
+/// to one visible page and validate the entire selection before committing.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BulkLabel {
+    pub ids: Vec<String>,
+    pub risk: Risk,
+    pub kind: Option<Kind>,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+impl BulkLabel {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            (1..=200).contains(&self.ids.len()),
+            "Select 1 to 200 messages"
+        );
+        let unique: std::collections::BTreeSet<_> = self.ids.iter().collect();
+        ensure!(
+            unique.len() == self.ids.len()
+                && self.ids.iter().all(|id| !id.is_empty() && id.len() <= 128),
+            "Invalid selection"
+        );
+        Ok(())
+    }
+}
+#[derive(Debug, Serialize, PartialEq)]
+pub struct BulkLabelResult {
+    pub applied: usize,
+    pub skipped: usize,
+}
+pub async fn label_bulk(
+    store: &Store,
+    username: String,
+    batch: String,
+    labels: BulkLabel,
+) -> Result<BulkLabelResult> {
+    labels.validate()?;
+    if let Some(central) = store.management() {
+        return central.quality_label_bulk(&username, &batch, labels).await;
+    }
+    store.run(move |db| {
+        let tx = db.transaction()?;
+        let cutoff = now()-30*86400;
+        let allowed: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM quality_batches b JOIN users u ON u.username=b.username WHERE b.id=?1 AND b.username=?2 AND b.created>=?3 AND u.disabled=0)", params![batch,username,cutoff], |r| r.get(0))?;
+        ensure!(allowed, "Sample not found");
+        for id in &labels.ids {
+            let allowed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM quality_members q JOIN messages m ON m.id=q.message_id WHERE q.batch_id=?1 AND m.id=?2 AND m.created>=?3 AND m.is_dsn=0 AND EXISTS(SELECT 1 FROM deliveries d JOIN console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=?4))",params![batch,id,cutoff,username],|r|r.get(0))?;
+            ensure!(allowed,"Message not found");
+        }
+        let mut applied = 0;
+        for id in &labels.ids {
+            let changed = tx.execute("INSERT INTO quality_labels(username,message_id,risk,kind,created) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(username,message_id) DO UPDATE SET risk=excluded.risk,kind=COALESCE(excluded.kind,quality_labels.kind),created=excluded.created WHERE ?6",params![username,id,labels.risk.as_str(),labels.kind.map(Kind::as_str),now(),labels.overwrite])?;
+            if changed > 0 {
+                applied += 1;
+                tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'quality_label',?3)",params![now(),username,id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(BulkLabelResult { applied, skipped: labels.ids.len()-applied })
+    }).await
+}
 pub async fn batches(store: &Store, username: String) -> Result<Vec<Value>> {
     if let Some(central) = store.management() {
         return central.quality_batches(&username).await;

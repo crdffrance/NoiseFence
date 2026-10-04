@@ -1,3 +1,5 @@
+#[path = "common/bulk_quality.rs"]
+mod bulk_quality;
 #[allow(dead_code)]
 mod common;
 #[path = "common/fusion.rs"]
@@ -125,6 +127,9 @@ async fn quality_annotations_scoping_and_exports_survive_management_migration() 
         }
         Ok(())
     }).await.unwrap();
+    for s in [&store, &central] {
+        bulk_quality::check(s, &batch, &ids[..3], &ids[3]).await;
+    }
     for (id, risk) in ids
         .iter()
         .zip([Risk::Legitimate, Risk::Spam, Risk::Uncertain])

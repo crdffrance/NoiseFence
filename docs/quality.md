@@ -19,6 +19,26 @@ An agreed newsletter is legitimate and newsletter-type. A fraudulent advertiseme
 
 The console shows separately the number of risk and type annotations associated with exploitable observations, the missing observations and the number of detector configurations present. The type is optional: it does not block a certain annotation of the risk. These meters do not validate the number per period or a future model.
 
+### Bulk annotation
+
+Open **Filter quality**, select a retained sample, then use **Select visible**
+or the checkbox beside each message. Search matches subjects and senders on the
+current page; **Unannotated only** hides existing labels. Each page contains at
+most 200 messages, so a 235-message sample is annotated over two pages. Selection
+clears on page/sample changes, refresh, and search changes.
+
+Choose **Risk for selected messages** (Spam / fraud, Legitimate, or uncertain),
+optionally choose a mail type, then select **Apply to N selected**. PUB is a mail
+type (newsletter or marketing), not a declaration that a message is wanted:
+choose its risk separately. Leaving mail type unchanged preserves existing type
+labels. Existing annotations are skipped unless **Replace my existing
+annotations** is explicitly checked; the result reports saved and skipped counts.
+
+The server validates sample ownership, current recipient access and all selected
+IDs before committing any labels. Requests are limited to 200 distinct messages
+and are atomic on both SQLite and PostgreSQL. No message is moved, no recorded
+filter decision is changed, and no training job is started by bulk annotation.
+
 Quality annotations are isolated from operational feedback. "Uncertain" changes only the evaluation label. Operational corrections do not overwrite evaluation labels. The messages already delivered remain unchanged. Access is rechecked on the server side at each read and write, with session, original control and CSRF for mutations. Hidden copies do not become visible to other accounts.
 
 <a id="préparer-un-candidat-sur-le-serveur"></a>

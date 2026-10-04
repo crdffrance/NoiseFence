@@ -1811,6 +1811,54 @@ async fn quality_sampling_and_dual_labels_enforce_sessions_csrf_and_recipient_ac
         .0,
         StatusCode::UNPROCESSABLE_ENTITY
     );
+    let bulk_path = format!("{path}/labels");
+    let bulk = json!({"ids":[id],"risk":"spam","kind":null});
+    assert_eq!(
+        request(&app, "", &bulk_path, Some(bulk.clone())).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, &bob, &bulk_path, Some(bulk.clone())).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &bulk_path,
+            Some(json!({"ids":[id,foreign],"risk":"spam"}))
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &bulk_path,
+            Some(json!({"ids":[id,id],"risk":"spam"}))
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let bad = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1{bulk_path}"))
+        .header("content-type", "application/json")
+        .header("cookie", format!("noisefence_session={alice}"))
+        .header("origin", "http://127.0.0.1:3000")
+        .header("x-csrf-token", "wrong")
+        .body(Body::from(bulk.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(bad).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let (status, result) = request(&app, &alice, &bulk_path, Some(bulk)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result, json!({"applied":0,"skipped":1}));
     let (status, _) = request(
         &app,
         &alice,

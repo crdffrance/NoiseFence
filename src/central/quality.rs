@@ -129,6 +129,38 @@ impl Central {
         tx.commit().await.map_err(database_error)?;
         Ok(())
     }
+    pub async fn quality_label_bulk(
+        &self,
+        user: &str,
+        id: &str,
+        labels: quality::evaluation::BulkLabel,
+    ) -> Result<quality::evaluation::BulkLabelResult> {
+        labels.validate()?;
+        let mut db = self
+            .interactive
+            .get()
+            .await
+            .context("Central quality capacity unavailable")?;
+        let tx = db.transaction().await.map_err(database_error)?;
+        management_lock(&tx).await?;
+        batch(&tx, user, id).await?;
+        for message in &labels.ids {
+            ensure!(tx.query_opt(&format!("SELECT m.id FROM noisefence.messages m JOIN noisefence.quality_members q ON q.message_id=m.id WHERE q.batch_id=$4 AND m.id=$2 AND NOT m.is_dsn AND m.created>=$3 AND {ACCESS} FOR SHARE OF m"), &[&user,&message,&(crate::now()-30*86400),&id]).await.map_err(database_error)?.is_some(),"Message not found");
+        }
+        let mut applied = 0;
+        for message in &labels.ids {
+            let changed = tx.execute("INSERT INTO noisefence.quality_labels(username,message_id,risk,kind,created) VALUES($1,$2,$3,$4,$5) ON CONFLICT(username,message_id) DO UPDATE SET risk=excluded.risk,kind=COALESCE(excluded.kind,noisefence.quality_labels.kind),created=excluded.created WHERE $6", &[&user,&message,&labels.risk.as_str(),&labels.kind.map(quality::Kind::as_str),&crate::now(),&labels.overwrite]).await.map_err(database_error)?;
+            if changed > 0 {
+                applied += 1;
+                audit(&tx, user, "quality_label", message).await?;
+            }
+        }
+        tx.commit().await.map_err(database_error)?;
+        Ok(quality::evaluation::BulkLabelResult {
+            applied,
+            skipped: labels.ids.len() - applied,
+        })
+    }
     pub async fn quality_batches(&self, user: &str) -> Result<Vec<Value>> {
         let mut db = self
             .interactive

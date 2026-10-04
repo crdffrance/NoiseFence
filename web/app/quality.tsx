@@ -6,10 +6,10 @@ import {QualityWorkbench,type DatasetPurpose} from './quality-workbench';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
-import { candidateLabel, mailKinds, mailKindLabel, type SampleReadiness, type MailKind, type Risk, type QualityReport } from './quality-types';
+import { candidateLabel, mailKindLabel, type SampleReadiness, type QualityReport } from './quality-types';
 
 type Batch = {purpose:DatasetPurpose;sampling:string;id:string;created:number;since:number;until:number;domain:string;population:number;selected:number;available:number;labelled:number};
-type Member = {id:string;created:number;sender:string;subject:string;risk:Risk|null;kind:MailKind|null;joint_observations:boolean};
+import {AnnotationList,type Member} from './quality-annotations';
 export function QualityDetails({report}:{report:QualityReport}) {
   return <section className="panel message-diagnostics">
     <h2>Risk and type of mail</h2>
@@ -27,35 +27,11 @@ export function QualityDetails({report}:{report:QualityReport}) {
       : report.sender.behavior.status==='insufficient_history'?"insufficient annotated history":"comparison not available"}. Advisory observation; a novelty does not prove fraud.</p>}
   </section>;
 }
-function Annotation({member,user,onSaved}:{member:Member;user:User;onSaved:()=>void}) {
-  const [risk,setRisk]=useState<Risk|''>(member.risk ?? '');
-  const [kind,setKind]=useState<MailKind|''>(member.kind ?? '');
-  const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  async function save() {
-    if (!risk) return;
-    setBusy(true);setError('');
-    try {await api(`/messages/${member.id}/quality-label`,{risk,kind:kind || null},user.csrf);onSaved();}
-    catch(e){setError(e instanceof Error ? e.message : "Correction not available.");}
-    finally{setBusy(false);}
-  }
-  return <article className="quality-member">
-    <div><h3>{member.subject || "(Not applicable)"}</h3><p>{member.sender}</p>
-      <p className="muted small">{new Date(member.created*1000).toLocaleString("en-GB")}{!member.joint_observations && " · Analysis prior to the new protocol"}</p></div>
-    <div className="quality-annotation">
-      <label>Risk<select aria-label={`Risk: ${member.subject || "Not applicable"}`} value={risk} disabled={busy} onChange={e=>setRisk(e.target.value as Risk|'')}>
-        <option value="">Select after verification</option><option value="legitimate">Legitimate</option><option value="spam">Spam / fraud</option><option value="uncertain">I can&apos;t conclude.</option>
-      </select></label>
-      <label>Type of mail, optional<select aria-label={`Type : ${member.subject || "Not applicable"}`} value={kind} disabled={busy} onChange={e=>setKind(e.target.value as MailKind|'')}>
-        <option value="">Undetermined</option>{Object.entries(mailKinds).map(([key,label])=><option value={key} key={key}>{label}</option>)}
-      </select></label>
-      <Button disabled={busy || !risk} onClick={save}>{busy?"Saving…":member.risk?"Update":"Validate"}</Button>
-    </div>{error && <p role="alert" className="error">{error}</p>}
-  </article>;
-}
 export function QualityConsole({user}:{user:User}) {
   const [batches,setBatches]=useState<Batch[]>([]),[selected,setSelected]=useState('');
   const [loaded,setLoaded]=useState<{id:string;revision:number;offset:number;members:Member[];readiness?:SampleReadiness}>({id:'',revision:0,offset:0,members:[]});
   const [offset,setOffset]=useState(0);
+  const [annotating,setAnnotating]=useState(false),[annotationNotice,setAnnotationNotice]=useState('');
   const [days,setDays]=useState(7),[count,setCount]=useState(50),[domain,setDomain]=useState('');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[revision,setRevision]=useState(0);
   const [purpose,setPurpose]=useState<DatasetPurpose>('development'),[cohort,setCohort]=useState('');
@@ -101,19 +77,19 @@ export function QualityConsole({user}:{user:User}) {
         <label>Period<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={29}>Last 29 days</option></select></label>
         <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option>{user.admin&&<><option value={1000}>1,000</option><option value={5000}>5,000</option></>}</select></label>
         <label htmlFor="quality-domain">Domain (optional)<Input id="quality-domain" value={domain} onChange={e=>setDomain(e.target.value)} placeholder="All my accessible domains" /></label>
-        <Button disabled={busy} onClick={create}>{busy?"Drawing in progress...":"Create a sample"}</Button>
-        <Button variant="outline" disabled={busy} onClick={()=>setRevision(x=>x+1)}>Refresh</Button>
+        <Button disabled={busy||annotating} onClick={create}>{busy?"Drawing in progress...":"Create a sample"}</Button>
+        <Button variant="outline" disabled={busy||annotating} onClick={()=>setRevision(x=>x+1)}>Refresh</Button>
       </div>{error && <p className="error" role="alert">{error}</p>}
     </section>
     <section className="panel"><h2>Samples retained</h2>
-      {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} onChange={e=>{setSelected(e.target.value);setOffset(0);}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.purpose} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
+      {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} disabled={annotating} onChange={e=>{setSelected(e.target.value);setOffset(0);setAnnotationNotice('');}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.purpose} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
       {current && <><p>{current.sampling==='confirmed_regression'?`${current.selected} confirmed regression references · Not a representative traffic sample`:`${current.selected} messages drawn from ${current.population}`} · {current.available} still accessible · {current.labelled} annotated.</p>
         <p className="notice">Check the original in your mailbox before answering. The subject alone is insufficient. If unsure, choose “I cannot conclude”.</p>
         <p className="muted small">The scores are hidden here to avoid influencing your judgment. Development annotations may train candidates. Evaluation annotations stay isolated from training and sender trust. Delivered messages are unchanged.</p></>}
       {current && current.available > 200 && <div className="quality-controls">
-        <Button variant="outline" disabled={loading || offset===0} onClick={()=>setOffset(x=>Math.max(0,x-200))}>Prev</Button>
+        <Button variant="outline" disabled={annotating || loading || offset===0} onClick={()=>setOffset(x=>Math.max(0,x-200))}>Prev</Button>
         <span>Page {Math.floor(offset/200)+1} / {Math.ceil(current.available/200)}</span>
-        <Button variant="outline" disabled={loading || offset+200>=current.available} onClick={()=>setOffset(x=>x+200)}>Next</Button>
+        <Button variant="outline" disabled={annotating || loading || offset+200>=current.available} onClick={()=>setOffset(x=>x+200)}>Next</Button>
       </div>}
       {current && !loading && loaded.readiness && <div className="notice">
         <p>{loaded.readiness.risk_with_observations} risk annotations with usable observations · {loaded.readiness.kind_with_observations} usable mail-type annotations.</p>
@@ -124,7 +100,8 @@ export function QualityConsole({user}:{user:User}) {
         <p className="muted small">These counts describe the available data. Run a comparison to inspect the chronological folds and campaign diversity before training.</p>
       </div>}
       {loading && <output>Loading messages...</output>}
-      <div className="quality-members">{members.map(m=><Annotation key={`${m.id}:${revision}`} member={m} user={user} onSaved={()=>setRevision(x=>x+1)}/>)}</div>
+      {annotationNotice&&<output className="notice">{annotationNotice}</output>}
+      {current&&!loading&&<AnnotationList key={`${selected}:${offset}:${revision}`} members={members} user={user} batch={selected} onBusy={setAnnotating} onSaved={notice=>{setAnnotationNotice(notice);setRevision(x=>x+1);}} />}
     </section>
     {user.admin&&<QualityWorkbench user={user} batch={selected} purpose={current?.purpose??'regression'} refresh={revision}/>}
   </div>;

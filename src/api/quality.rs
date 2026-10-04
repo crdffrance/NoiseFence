@@ -95,6 +95,24 @@ async fn label(
         .map_err(|_| Error(StatusCode::NOT_FOUND, "Message not found.".into()))?;
     Ok(Json(json!({"ok":true})))
 }
+async fn label_bulk(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<evaluation::BulkLabel>,
+) -> ApiResult<Json<evaluation::BulkLabelResult>> {
+    origin(&app, &headers)?;
+    let user = authenticated(&app, &headers).await?;
+    csrf(&user, &headers)?;
+    body.validate().map_err(|_| {
+        Error(
+            StatusCode::BAD_REQUEST,
+            "Select 1 to 200 distinct messages.".into(),
+        )
+    })?;
+    Ok(Json(evaluation::label_bulk(&app.store, user.username, id, body).await
+        .map_err(|_| Error(StatusCode::CONFLICT, "No labels saved. Refresh the sample and check that all selected messages are still accessible.".into()))?))
+}
 async fn readiness(
     State(app): State<App>,
     headers: HeaderMap,
@@ -250,5 +268,6 @@ pub(super) fn routes() -> Router<App> {
         .route("/quality/samples", get(list).post(create))
         .route("/quality/samples/{id}", get(members))
         .route("/quality/samples/{id}/readiness", get(readiness))
+        .route("/quality/samples/{id}/labels", post(label_bulk))
         .route("/messages/{id}/quality-label", post(label))
 }

@@ -1,3 +1,5 @@
+#[path = "common/bulk_quality.rs"]
+mod bulk_quality;
 mod common;
 #[path = "common/fusion.rs"]
 mod fixture;
@@ -1432,4 +1434,65 @@ async fn worker_cannot_export_around_the_coordinator_exposure_journal() {
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn bulk_annotations_are_atomic_scoped_and_preserve_labels_by_default() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    account(&store, "alice", false, "alice@example.test").await;
+    account(&store, "bob", false, "bob@example.test").await;
+    let scan = Scan::default();
+    let first = insert(&store, &scan, "alice@example.test", noisefence::now() - 10).await;
+    let second = insert(&store, &scan, "alice@example.test", noisefence::now() - 10).await;
+    let foreign = insert(&store, &scan, "bob@example.test", noisefence::now() - 10).await;
+    let batch = evaluation::sample(
+        &store,
+        "alice".into(),
+        noisefence::now() - 60,
+        noisefence::now(),
+        50,
+        String::new(),
+    )
+    .await
+    .unwrap();
+    let outside = insert(&store, &scan, "alice@example.test", noisefence::now() - 10).await;
+    assert!(
+        evaluation::label_bulk(
+            &store,
+            "alice".into(),
+            batch.clone(),
+            evaluation::BulkLabel {
+                ids: vec![first.clone(), outside],
+                risk: Risk::Spam,
+                kind: None,
+                overwrite: false
+            }
+        )
+        .await
+        .is_err()
+    );
+    bulk_quality::check(&store, &batch, &[first.clone(), second], &foreign).await;
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        evaluation::label_bulk(
+            &store,
+            "alice".into(),
+            batch,
+            evaluation::BulkLabel {
+                ids: vec![first],
+                risk: Risk::Spam,
+                kind: None,
+                overwrite: true
+            }
+        )
+        .await
+        .is_err()
+    );
 }

@@ -832,3 +832,8 @@ details.management-card summary {
 .quality-metrics th,.quality-metrics td { padding: .8rem; text-align: left; border-bottom: 1px solid var(--border); }
 .quality-metrics caption { text-align: left; font-size: .85rem; padding: .5rem 0; opacity: .75; }
 .quality-metrics small { display: block; opacity: .65; white-space: nowrap; }
+
+.quality-bulk { margin-top: 1.25rem; padding: 1rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--muted); }
+.quality-member-selected { border-left: 3px solid var(--primary); padding-left: 1rem; }
+.quality-select, .quality-controls label.quality-select { display: flex; align-items: center; gap: .5rem; min-width: 0; margin-top: .75rem; }
+.quality-select input { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
