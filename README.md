@@ -4,17 +4,45 @@
 
 NoiseFence receives mail for configured domains, records the analysis, stores accepted messages durably, and forwards them to an explicit upstream route. It supports Proton Mail as an upstream, with separate compatibility checks before subject tagging.
 
-```text
-Internet → NoiseFence MX → upstream mail service → recipient
-                  ↓
-       Web console: messages, policies, diagnostics
+```mermaid
+flowchart LR
+    sender[Internet senders] --> smtp[SMTP admission]
+    smtp --> analysis[NoiseFence analysis]
+    analysis --> policy[Recipient policy]
+    policy --> queue[(Durable local queue)]
+    queue --> upstream[Explicit upstream route]
+    upstream --> inbox[Recipient mailbox]
+    analysis -. Evidence and verdict .-> console[Web console]
+    policy -. Actions and diagnostics .-> console
+    analysis -. Optional asynchronous comparison .-> rspamd[Rspamd second opinion]
+    rspamd -. Research results only .-> console
 ```
+
+NoiseFence decides independently. Rspamd is an optional comparison service, not a decision or delivery dependency. Observation mode records classifications while delivering without tags; active policies can tag or quarantine messages.
 
 NoiseFence is open source under **GPL-3.0-only**. Release archives contain Linux binaries for amd64 and arm64, the console, configuration examples, deployment tools and documentation. No default account, password, paid API key or trained model is included.
 
 Repository: [github.com/crdffrance/NoiseFence](https://github.com/crdffrance/NoiseFence) · License: [GPL-3.0-only](LICENSE)
 
 > Optional temporary R&D originals: encrypted collection with an automatic stop date, expiry and per-MX quotas. Configure **Filters → R&D archive**; see [research archive](docs/research-archive.md).
+
+## A look inside
+
+Real captures of the English console running locally with **synthetic `example.test` messages**. This is an untrained, observation-only demo with external checks disabled and no upstream delivery service. Its scores and counts illustrate the interface, **not detection accuracy**. Click an image to inspect it at full size.
+
+**Message history** — search across permitted recipients and distinguish classification, delivery state and risk index.
+
+[![NoiseFence message history with synthetic messages, scoped search, classification and delivery columns](docs/images/console-messages.webp)](docs/images/console-messages.webp)
+
+**Message analysis** — the independent verdict, risk index, analysis coverage and action at receipt are presented separately, with evidence and feedback below.
+
+[![Synthetic invoice analysis showing the Ham verdict, risk index, coverage and observation-mode delivery action](docs/images/console-analysis.webp)](docs/images/console-analysis.webp)
+
+**Filter administration** — find policies, RBLs, detection engines, provider budgets, rules and recipient exceptions from one settings area.
+
+[![NoiseFence filter administration with searchable settings and policy categories](docs/images/console-filters.webp)](docs/images/console-filters.webp)
+
+Capture details and refresh instructions: [Screenshot guide](docs/images/README.md).
 
 ## Start here
 
@@ -28,6 +56,24 @@ Repository: [github.com/crdffrance/NoiseFence](https://github.com/crdffrance/Noi
 | Check SMTP readiness, memory pressure and recovery | [Production readiness](docs/production-readiness.md) |
 | Evaluate accuracy with human labels | [Quality](docs/quality.md), [Validation results](docs/validation-results.md) |
 | Browse the remaining guides | [Documentation index](docs/README.md) |
+
+## Operating-system compatibility
+
+The **server runs on Linux in production**. The Web console is accessed through a browser; the administrator's computer does not need to run the server OS.
+
+| Platform | Architecture | Status and installation path |
+| --- | --- | --- |
+| Debian 12 / 13 | amd64 (x86-64), arm64 (AArch64) | Production baseline. Use the matching [Linux release](https://github.com/crdffrance/NoiseFence/releases/latest) and systemd installer. |
+| Other glibc-based Linux distributions | amd64, arm64 | Conditional native compatibility: glibc **2.36+**, systemd and Python **3.11+** for the supplied installation tools. Validate the target host; this is not a certification of every distribution. |
+| Linux with Docker Engine + Compose | amd64, arm64 | Container deployment path. Use the Linux production template, persistent storage and host networking; verify that SMTP sees the real client IP. |
+| macOS | Apple Silicon / Intel | Development or local Docker evaluation. No native macOS release or production service installer. Native development has been exercised on Apple Silicon; Intel is not a CI target. |
+| Windows | A host capable of running Linux containers | Local evaluation through Docker Desktop or a Linux VM; not a native Windows service. No Windows binary or Windows CI coverage. |
+| Alpine / other musl-only environments | Any | Published native binaries require glibc; no musl release. Use the supplied Debian-based Linux container on a compatible Docker host. |
+| 32-bit systems | Any | No published binary or CI target. |
+
+Release CI builds and tests both Linux architectures on Ubuntu 24.04 runners, with release binaries built inside a Debian Bookworm container. See the [release workflow](.github/workflows/release.yml) and [installation guide](docs/installation.md) for exact requirements.
+
+Desktop evaluation uses **Linux containers** and requires Docker Desktop **4.34+** with host networking enabled; see [Docker's platform requirements and limitations](https://docs.docker.com/engine/network/drivers/host/). Desktop networking is not validated as a public production MX setup.
 
 ## Local Docker evaluation
 
@@ -52,6 +98,25 @@ Enter a password when prompted. Open **http://127.0.0.1:18080**. The example pub
 - An English Web console with scoped message search, remote SMTP transcripts, filter explanations, accounts, MFA, invitations, provider credentials and quotas, configuration revisions and multiple MX management.
 
 All messaging and filter policies can be managed through the console. Host installation remains server-side: ports, TLS keys and certificates, storage, worker sockets, model artifacts and replication identities. Model replacement follows its validation procedure; the Web editor cannot bypass it with an arbitrary file path.
+
+## Multiple MX servers and durability
+
+Both MX nodes receive, analyze and relay mail. The coordinator manages shared policies and consolidated history; it is not a mandatory hop in the SMTP delivery path.
+
+```mermaid
+flowchart TB
+    internet[Internet senders] -->|MX priority 10| mx1[MX 1 - coordinator]
+    internet -->|MX priority 20| mx2[MX 2 - worker]
+    mx1 --> q1[(Local queue 1)]
+    mx2 --> q2[(Local queue 2)]
+    q1 --> upstream[Explicit upstream mail service]
+    q2 --> upstream
+    mx1 -. Revisioned policies and metadata .-> mx2
+    q1 <-->|Optional paired durable replication| q2
+    console[Management console] -. Configuration and history .-> mx1
+```
+
+Multiple MX records alone do not replicate accepted messages. With **mandatory paired replication**, SMTP acceptance waits for two durable copies; an unavailable peer causes a temporary `451` response. Replica takeover and console recovery require fencing and controlled promotion, not an automatic two-node election. See [multi-MX management](docs/multi-mx.md) and [high availability](docs/high-availability.md).
 
 ## Defaults and limits
 
