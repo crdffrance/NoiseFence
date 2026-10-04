@@ -5,7 +5,7 @@
 The repository uses `master`, descriptive commits and annotated tags `vMAJOR.MINOR.PATCH`. Unsuffixed tags are the final releases; `-dev.N` and `-rc.N` are prereleases. The project remains in 0.x. An incompatible change requires a minor version as long as the project remains in 0.x; a compatible correction requires a patch version. The changelog specifies migrations and limits.
 
 ```sh
-python3 scripts/version.py --set 0.29.2
+python3 scripts/version.py --set 0.29.3
 # Update the corresponding section of CHANGELOG.md.
 python3 scripts/version.py --check
 cargo fmt --check
@@ -13,7 +13,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Also check the console as indicated in CONTRIBUTING.md. Commit changes and wait for CI to pass, then create and push the corresponding annotated tag. The `scripts/version.py --check --tag v0.29.2` command refuses a different tag from the manifest version.
+Also check the console as indicated in CONTRIBUTING.md. Commit changes and wait for CI to pass, then create and push the corresponding annotated tag. The `scripts/version.py --check --tag v0.29.3` command refuses a different tag from the manifest version.
 
 The `release.yml` workflow compiles into a Rust Bookworm image identified by its digest, on x86-64 and ARM64. It assembles binary, static frontend, licenses, examples, and documentation, then prepares a GitHub Release with the SHA-256 checksums. The workflow also calls the complete `check.yml` suite on the same tag; failure prohibits publication. Tests use `cargo test --release`, with the same profile as the distributed binary. This profile also avoids [gemm-f16's debug ARM64 compilation issue](https://github.com/sarah-quinones/gemm/issues/31). The main CI also checks the multilingual engine on an ARM64 runner. The exact sources are accessible from the release tag. Reports, trained models, keys and server-specific configurations remain outside Git, with the exception of explicitly versioned aggregated research reports.
 
@@ -28,17 +28,17 @@ Release publication is triggered by a pushed tag, not by an ordinary commit to
 `master`. A successful branch build alone does not create a release. For example:
 
 ```sh
-git tag -a v0.29.2 -m "NoiseFence v0.29.2"
-git push origin v0.29.2
+git tag -a v0.29.3 -m "NoiseFence v0.29.3"
+git push origin v0.29.3
 ```
 
 For a transient infrastructure failure, re-run the failed jobs in Actions, or run
-`gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.2`.
+`gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.3`.
 Manual dispatch requires a tag matching the manifests. When repairing only build
 infrastructure, dispatch the current workflow with an existing immutable source tag:
 
 ```sh
-gh workflow run release.yml --repo crdffrance/NoiseFence --ref master -f release_tag=v0.29.2
+gh workflow run release.yml --repo crdffrance/NoiseFence --ref master -f release_tag=v0.29.3
 ```
 
 Preflight resolves the tag once; every validation, build and publication job checks
@@ -51,8 +51,8 @@ if a release is already public, a retry verifies identical assets and leaves it
 unchanged. Differing public assets fail rather than being replaced. Review the explicit compatibility windows in `src/cluster/protocol.rs`,
 `artifacts.rs` and `worker.rs` when changing the version; a shared SemVer prefix
 is not a compatibility guarantee. Run the cluster and retained-policy regression
-tests before tagging. The failed v0.29.1 tag is retained for traceability and has
-no published release. Code fixes
+tests before tagging. The failed v0.29.1 and v0.29.2 tags are retained for traceability and have
+no published releases. Code fixes
 require a new version and tag, not a rerun of an old tag. Publication runs are
 serialized per tag and are never cancelled by a later request for the same tag.
 

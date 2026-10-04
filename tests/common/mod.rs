@@ -1,5 +1,7 @@
 use std::sync::Arc;
 pub fn config(root: &std::path::Path) -> Arc<noisefence::config::Config> {
+    // Match binary startup without depending on another test's initialization.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut c: noisefence::config::Config =
         toml::from_str(include_str!("../../config/development.toml")).unwrap();
     c.data_dir = root.into();

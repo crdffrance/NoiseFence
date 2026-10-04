@@ -2,6 +2,7 @@
 import contextlib
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -49,8 +50,11 @@ class SchedulingTests(unittest.TestCase):
             path.write_text(json.dumps({'owner':'mx1','snapshot':SNAP,'received':int(time.time()),
                 'bytes':1000,'postgresql_restore_required':True,'last_error':None}))
             path.chmod(0o600)
+            # Use the same wall clock as the freshness check, independently of
+            # the filesystem's automatically assigned timestamp granularity.
+            written=time.time_ns()
+            os.utime(path,ns=(written,written))
             if self.stale:
-                import os
                 os.utime(path,ns=(1,1))
         if args[1:]==['enable','--now',checkpoint.TIMER]:self.states[checkpoint.TIMER]='active'
         return b'enabled\n' if args[1:]==['is-enabled',checkpoint.TIMER] else b''
