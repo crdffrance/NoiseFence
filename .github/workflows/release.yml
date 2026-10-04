@@ -3,14 +3,22 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing immutable version tag (leave empty when dispatching on a tag)'
+        required: false
+        type: string
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   preflight:
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      commit: ${{ steps.source.outputs.commit }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -19,16 +27,24 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - name: Require a versioned tag
+        id: source
         env:
           REF_TYPE: ${{ github.ref_type }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
-          test "$REF_TYPE" = tag
+          test "$REF_TYPE" = tag || test -n "$REQUESTED_TAG"
           python3 scripts/version.py --check --tag "$RELEASE_TAG"
+          commit=$(git rev-parse HEAD)
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$commit"
+          printf 'tag=%s\ncommit=%s\n' "$RELEASE_TAG" "$commit" >> "$GITHUB_OUTPUT"
   validate:
     needs: preflight
     uses: ./.github/workflows/check.yml
+    with:
+      source_ref: ${{ needs.preflight.outputs.commit }}
   build:
     needs: preflight
     strategy:
@@ -48,6 +64,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ needs.preflight.outputs.commit }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -58,7 +75,7 @@ jobs:
           toolchain: '1.98.0'
       - name: Check version tag
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: python3 scripts/version.py --check --tag "$RELEASE_TAG"
       - name: Build static console
         working-directory: web
@@ -71,9 +88,10 @@ jobs:
             if [ "$pull_attempt" -eq 3 ]; then exit 1; fi
             sleep "$((pull_attempt * 5))"
           done
-          docker run --pull=never --rm --volume "$PWD:/workspace" --workdir /workspace \
+          docker run --pull=never --rm --add-host=localhost.:127.0.0.1 \
+            --env RUST_TEST_THREADS=1 --volume "$PWD:/workspace" --workdir /workspace \
             "$build_image" \
-            sh -c 'cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
+            sh -c 'getent hosts localhost. && cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
       - run: python3 scripts/collect_licenses.py
       - name: Assemble release
         env:
@@ -86,7 +104,7 @@ jobs:
             release/noisefence-*.tar.gz
             release/noisefence-*.tar.gz.sha256
   publish:
-    needs: [validate, build]
+    needs: [preflight, validate, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -107,18 +125,19 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ needs.preflight.outputs.commit }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release
           merge-multiple: true
       - name: Prepare version-specific release notes
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: python3 scripts/release_notes.py --tag "$RELEASE_TAG" --output release/NOTES.md
       - name: Verify assets and publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           python3 scripts/publish_release.py --tag "$RELEASE_TAG" --directory release
