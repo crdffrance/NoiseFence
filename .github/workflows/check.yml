@@ -117,6 +117,9 @@ jobs:
           /usr/bin/python3 tests/vision_worker.py
           sudo /usr/bin/python3 tests/systemd_vision.py
   rust:
+    env:
+      # Network deadline fixtures must not compete with unrelated test runtimes.
+      RUST_TEST_THREADS: '1'
     strategy:
       matrix:
         include:

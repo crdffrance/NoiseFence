@@ -574,7 +574,9 @@ async fn a_stalled_chain_does_not_starve_other_urls_within_the_same_deadline() {
     let address = listener.local_addr().unwrap();
     let app = axum::Router::new().fallback(any(|request: Request<Body>| async move {
         if request.uri().path() == "/slow" {
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            // Keep the first slot occupied until the shared deadline, independent
+            // of how quickly a loaded CI runner serves the other local requests.
+            std::future::pending::<()>().await;
         }
         Response::builder()
             .header("content-type", "text/html")
@@ -585,7 +587,7 @@ async fn a_stalled_chain_does_not_starve_other_urls_within_the_same_deadline() {
         axum::serve(listener, app).await.unwrap();
     });
     let mut resolver = Resolver::new(Settings {
-        timeout_ms: 300,
+        timeout_ms: 2000,
         max_parallel: 2,
         ..Default::default()
     })

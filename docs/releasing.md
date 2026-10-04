@@ -44,7 +44,9 @@ gh workflow run release.yml --repo crdffrance/NoiseFence --ref master -f release
 Preflight resolves the tag once; every validation, build and publication job checks
 out that exact commit. This can repair runner configuration without moving a tag
 or changing its sources. Bookworm test containers explicitly map `localhost.` to
-loopback so the rooted-MX regression test never depends on external DNS. Drafts can be resumed;
+loopback so the rooted-MX regression test never depends on external DNS. Rust
+CI runs test cases serially to keep independent timing-sensitive network fixtures
+from competing for runner resources; concurrency within each fixture is retained. Drafts can be resumed;
 if a release is already public, a retry verifies identical assets and leaves it
 unchanged. Differing public assets fail rather than being replaced. Review the explicit compatibility windows in `src/cluster/protocol.rs`,
 `artifacts.rs` and `worker.rs` when changing the version; a shared SemVer prefix

@@ -88,7 +88,8 @@ jobs:
             if [ "$pull_attempt" -eq 3 ]; then exit 1; fi
             sleep "$((pull_attempt * 5))"
           done
-          docker run --pull=never --rm --add-host=localhost.:127.0.0.1 --volume "$PWD:/workspace" --workdir /workspace \
+          docker run --pull=never --rm --add-host=localhost.:127.0.0.1 \
+            --env RUST_TEST_THREADS=1 --volume "$PWD:/workspace" --workdir /workspace \
             "$build_image" \
             sh -c 'getent hosts localhost. && cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
       - run: python3 scripts/collect_licenses.py
