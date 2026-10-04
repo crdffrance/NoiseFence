@@ -2,6 +2,9 @@
 
 ## Unreleased — Corroboration consistency
 
+- Show authenticated server version, serving node and engine build in the console. Add optional cached stable-release checks for administrators, with no automatic installation.
+- Add direct annotation-sample links that survive sign-in and retain server-side access checks.
+
 - Add page-scoped bulk human annotations with search, selection, optional PUB type, default preservation of existing labels, and atomic access-checked SQLite/PostgreSQL writes.
 - Identify NoiseFence and its GitHub repository in the SMTP greeting, preserving the configured server hostname.
 - Stabilize adaptive-export persistence fixtures independently of SMTP timing budgets, retain incomplete-observation exclusions, and align console-preview tests with the required-corroboration policy.

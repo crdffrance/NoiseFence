@@ -91,6 +91,8 @@ import {
 import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
 import { QualityConsole, QualityDetails } from './quality';
+import { qualityDestination } from './quality-link';
+import { SoftwareStatus } from './software';
 import { ReliabilityConsole } from './reliability';
 import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
@@ -336,7 +338,7 @@ function Home() {
     setHasMore(false);
     setFilter('all');
     setOffset(0);
-    setSection('messages');
+    setSection(next && qualityDestination(window.location.search).quality ? 'quality' : 'messages');
     setDomain('');
     setDomains([]);
     setAdminDirty(false);
@@ -476,6 +478,10 @@ function Home() {
     setClusterDirty(false);
     setPreferenceDirty(false);
     setSection(next);
+    const url = new URL(window.location.href);
+    if (next === 'quality') url.searchParams.set('view', 'quality');
+    else { url.searchParams.delete('view'); url.searchParams.delete('sample'); }
+    window.history.replaceState(null, '', url);
     setFilter(nextFilter);
     setOffset(0);
     setSelected(null);
@@ -855,6 +861,7 @@ function Home() {
           </nav>
         </div>
         <div className="rail-footer">
+          <SoftwareStatus key={user.username} user={user} />
           <div className="signed-in-user">
             <span className="user-avatar">
               {Array.from(user.username).slice(0, 2).join('').toUpperCase()}

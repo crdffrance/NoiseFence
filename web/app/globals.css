@@ -837,3 +837,14 @@ details.management-card summary {
 .quality-member-selected { border-left: 3px solid var(--primary); padding-left: 1rem; }
 .quality-select, .quality-controls label.quality-select { display: flex; align-items: center; gap: .5rem; min-width: 0; margin-top: .75rem; }
 .quality-select input { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
+
+.software-status { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.software-status summary { cursor: pointer; margin-top: 6px; }
+.software-status p { margin: 8px 0; }
+.software-status a { text-decoration: underline; }
+.software-auto-check { display: flex; gap: 8px; align-items: flex-start; }
+.shell .rail-footer .software-status { border-color: #364355; }
+.shell .rail-footer .software-status .muted { color: #b5c1d1; }
+.shell .rail-footer .software-status button { color: #f5f7fc; background: #2b3749; border: 1px solid #75859b; padding: 6px 10px; width: 100%; }
+.shell .rail-footer .software-status button:hover { background: #39475b; }
+.shell .rail-footer .software-status output { display: block; }

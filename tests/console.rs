@@ -2415,3 +2415,60 @@ async fn calibration_workbench_is_admin_only_and_requires_origin_csrf_and_owned_
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn software_identity_requires_session_and_release_checks_require_admin_csrf() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = common::config(dir.path());
+    let store = Store::open(dir.path()).unwrap();
+    let alice = account(&store, "alice", false, vec![]).await;
+    let admin = account(&store, "admin", true, vec![]).await;
+    let app = api::router(cfg, store.clone()).unwrap();
+    assert_eq!(
+        request(&app, "", "/system/version", None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, version) = request(&app, &alice, "/system/version", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(version["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(version["engine_build"].as_str().unwrap().len(), 64);
+    assert_eq!(version["automatic_installation"], false);
+    assert_eq!(
+        request(&app, &alice, "/admin/updates/check", Some(json!({})))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    // None of these rejected requests may reach GitHub.
+    for (origin, csrf) in [
+        ("https://attacker.example", "test-csrf"),
+        ("http://127.0.0.1:3000", "wrong"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/admin/updates/check")
+                    .header("cookie", format!("noisefence_session={admin}"))
+                    .header("origin", origin)
+                    .header("x-csrf-token", csrf)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, "/system/version", None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}

@@ -1,7 +1,8 @@
 'use client';
 import {ReleaseReadiness} from './release-readiness';
 import {ReadinessExclusions} from './release-readiness-view';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { qualityDestination, qualityLink } from './quality-link';
 import {QualityWorkbench,type DatasetPurpose} from './quality-workbench';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export function QualityDetails({report}:{report:QualityReport}) {
   </section>;
 }
 export function QualityConsole({user}:{user:User}) {
+  const linkedSampleLoaded = useRef(false);
   const [batches,setBatches]=useState<Batch[]>([]),[selected,setSelected]=useState('');
   const [loaded,setLoaded]=useState<{id:string;revision:number;offset:number;members:Member[];readiness?:SampleReadiness}>({id:'',revision:0,offset:0,members:[]});
   const [offset,setOffset]=useState(0);
@@ -41,7 +43,13 @@ export function QualityConsole({user}:{user:User}) {
   useEffect(()=>{
     const controller=new AbortController();
     api<{cohorts:{id:string;messages:number;since:number;until:number}[];batches:Batch[];candidate_configured:boolean;observation_start:number|null}>('/quality/samples',undefined,undefined,{signal:controller.signal})
-      .then(result=>{if(!controller.signal.aborted){setCohorts(result.cohorts);setBatches(result.batches);setConfigured(result.candidate_configured);setObservationStart(result.observation_start);}})
+      .then(result=>{if(!controller.signal.aborted){setCohorts(result.cohorts);setBatches(result.batches);setConfigured(result.candidate_configured);setObservationStart(result.observation_start);
+        if (!linkedSampleLoaded.current) {
+          linkedSampleLoaded.current = true;
+          const sample = qualityDestination(window.location.search).sample;
+          if (sample && result.batches.some(b => b.id === sample)) setSelected(sample);
+          else if (sample) setError('This sample is unavailable or outside your access. Select an accessible sample below.');
+        }}})
       .catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return ()=>controller.abort();
   },[revision]);
@@ -62,6 +70,9 @@ export function QualityConsole({user}:{user:User}) {
     }catch(e){setError(e instanceof Error?e.message:"Creation not available.");}
     finally{setBusy(false);}
   }
+  useEffect(()=>{
+    if(selected) window.history.replaceState(null, '', qualityLink(selected));
+  },[selected]);
   const current=batches.find(b=>b.id===selected);
   const loading=!!selected && (loaded.id!==selected || loaded.revision!==revision || loaded.offset!==offset);
   const members=selected && !loading ? loaded.members : [];
@@ -82,6 +93,7 @@ export function QualityConsole({user}:{user:User}) {
       </div>{error && <p className="error" role="alert">{error}</p>}
     </section>
     <section className="panel"><h2>Samples retained</h2>
+      {selected && <p><a href={qualityLink(selected)}>Direct link to this annotation sample</a></p>}
       {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} disabled={annotating} onChange={e=>{setSelected(e.target.value);setOffset(0);setAnnotationNotice('');}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.purpose} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
       {current && <><p>{current.sampling==='confirmed_regression'?`${current.selected} confirmed regression references · Not a representative traffic sample`:`${current.selected} messages drawn from ${current.population}`} · {current.available} still accessible · {current.labelled} annotated.</p>
         <p className="notice">Check the original in your mailbox before answering. The subject alone is insufficient. If unsure, choose “I cannot conclude”.</p>

@@ -5,6 +5,7 @@ mod ha;
 mod mfa;
 mod onboarding;
 mod quality;
+mod software;
 use crate::{
     config::Config,
     message, now,
@@ -36,6 +37,7 @@ use tower_http::services::ServeDir;
 
 #[derive(Clone)]
 pub struct App {
+    updates: Arc<software::Cache>,
     pub config: Arc<Config>,
     pub store: Store,
     control: Option<Arc<crate::control::Controller>>,
@@ -654,6 +656,7 @@ pub fn router_controlled(
         Some(Arc::new(crate::mfa::Key::open(&store.root)?))
     };
     let app = App {
+        updates: Arc::new(software::Cache::new(None)),
         mfa_key,
         config: config.clone(),
         store,
@@ -685,6 +688,7 @@ pub fn router_controlled(
         .merge(admin::routes())
         .merge(onboarding::routes())
         .merge(quality::routes())
+        .merge(software::routes())
         .merge(adaptive::routes())
         .merge(mfa::routes());
     Ok(Router::new()

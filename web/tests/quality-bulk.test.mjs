@@ -30,3 +30,19 @@ test('bulk annotations start without inferred labels or selection and preserve e
   assert.match(html,/&lt;script&gt;unsafe/);
   assert.match(html,/newsletter may be wanted or unwanted/);
 });
+
+const {SoftwareStatus} = await import(await moduleURL('../app/software.tsx', {
+  '@/components/ui/button': button,
+  './client': new URL('../app/client.ts', import.meta.url).href,
+}));
+test('software identity is not fabricated and update checks are opt-in for administrators', () => {
+  const render = admin => renderToStaticMarkup(createElement(SoftwareStatus, { user: {username:'alice', csrf:'fixture', admin, addresses:[]} }));
+  const user = render(false);
+  assert.match(user, /Loading version/);
+  assert.doesNotMatch(user, /Software updates|Check for updates|checkbox/);
+  const admin = render(true);
+  assert.match(admin, /Software updates/);
+  assert.match(admin, /Automatically check while this console is open/);
+  assert.doesNotMatch(admin, /checked=""/);
+  assert.match(admin, /Installation remains a server operation/);
+});

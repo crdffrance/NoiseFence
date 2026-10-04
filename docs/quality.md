@@ -141,3 +141,7 @@ models fail compatibility validation; do not edit their declared digest or reuse
 old vectors with the new digest. Retain old history, collect compatible observations,
 and refit and independently evaluate before selecting a candidate. No promotion is
 automatic. See [shared eligibility](unified-decisions.md#shared-provider-eligibility-and-native-accounting).
+
+## Direct annotation links
+
+Open `/?view=quality` on your console host to go straight to Filter quality after sign-in. Each selected sample exposes a **Direct link to this annotation sample**, using `/?view=quality&sample=<batch UUID>`. The link grants no access: the API still checks the session, sample ownership and recipient permissions.
