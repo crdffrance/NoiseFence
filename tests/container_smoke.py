@@ -149,7 +149,7 @@ def main():
             assert docker('exec', name, 'id', '-u') == '10001'
             html, _ = request('/')
             assert b'lang="en"' in html and b'NoiseFence' in html
-            assets = set(re.findall(rb'(?:src|href)="(/_next/static/[^"?]+)', html))
+            assets = set(re.findall(rb'(?:src|href)="(/assets/[^"?]+)', html))
             assert assets, 'Missing built console assets'
             for asset in assets:
                 body, headers = request(asset.decode())

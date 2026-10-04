@@ -2,10 +2,10 @@
 
 `Cargo.toml` is the source of truth for the product version. The frontend, `Cargo.lock`, the fuzz lockfile and `web/package-lock.json` carry the same version for NoiseFence. The model has its own version: a training run is not a new version of the software.
 
-The repository uses `main`, descriptive commits and annotated tags `vMAJOR.MINOR.PATCH`. Unsuffixed tags are the final releases; `-dev.N` and `-rc.N` are prereleases. The project remains in 0.x. An incompatible change requires a minor version as long as the project remains in 0.x; a compatible correction requires a patch version. The changelog specifies migrations and limits.
+The repository uses `master`, descriptive commits and annotated tags `vMAJOR.MINOR.PATCH`. Unsuffixed tags are the final releases; `-dev.N` and `-rc.N` are prereleases. The project remains in 0.x. An incompatible change requires a minor version as long as the project remains in 0.x; a compatible correction requires a patch version. The changelog specifies migrations and limits.
 
 ```sh
-python3 scripts/version.py --set 0.18.0
+python3 scripts/version.py --set 0.29.2
 # Update the corresponding section of CHANGELOG.md.
 python3 scripts/version.py --check
 cargo fmt --check
@@ -13,15 +13,41 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Also check the console as indicated in CONTRIBUTING.md. Commit changes and wait for CI to pass, then create and push the corresponding annotated tag. The `scripts/version.py --check --tag v0.18.0` command refuses a different tag from the manifest version.
+Also check the console as indicated in CONTRIBUTING.md. Commit changes and wait for CI to pass, then create and push the corresponding annotated tag. The `scripts/version.py --check --tag v0.29.2` command refuses a different tag from the manifest version.
 
 The `release.yml` workflow compiles into a Rust Bookworm image identified by its digest, on x86-64 and ARM64. It assembles binary, static frontend, licenses, examples, and documentation, then prepares a GitHub Release with the SHA-256 checksums. The workflow also calls the complete `check.yml` suite on the same tag; failure prohibits publication. Tests use `cargo test --release`, with the same profile as the distributed binary. This profile also avoids [gemm-f16's debug ARM64 compilation issue](https://github.com/sarah-quinones/gemm/issues/31). The main CI also checks the multilingual engine on an ARM64 runner. The exact sources are accessible from the release tag. Reports, trained models, keys and server-specific configurations remain outside Git, with the exception of explicitly versioned aggregated research reports.
 
-The notes are extracted from the only section of the changelog corresponding to the tag by `scripts/release_notes.py`. An absent, empty or duplicated section blocks the release. Prereleases are published with the GitHub indicator "Pre-release"; the final versions are prepared in draft to check the two archives before publication. Control the SHA-256 checksums, `build.json` (version, commit and architecture), licenses and the absence of private data. Then publish the draft:
+The notes are extracted from the single matching changelog section by
+`scripts/release_notes.py`; missing, empty or duplicate sections block publication.
+The publish job verifies both architectures, each outer SHA-256, every internal
+`SHA256SUMS` entry, and `build.json` version/platform/commit against the tag checkout.
+It uploads to a draft, downloads and compares the uploaded bytes, then publishes.
+Unsuffixed versions become stable releases; suffixed versions remain prereleases.
+
+Release publication is triggered by a pushed tag, not by an ordinary commit to
+`master`. A successful branch build alone does not create a release. For example:
 
 ```sh
-gh release edit v0.18.0 --repo crdffrance/NoiseFence --draft=false --prerelease=false --latest
+git tag -a v0.29.2 -m "NoiseFence v0.29.2"
+git push origin v0.29.2
 ```
+
+For a transient infrastructure failure, re-run the failed jobs in Actions, or run
+`gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.2`.
+Manual dispatch requires a tag matching the manifests. Drafts can be resumed;
+if a release is already public, a retry verifies identical assets and leaves it
+unchanged. Differing public assets fail rather than being replaced. Review the explicit compatibility windows in `src/cluster/protocol.rs`,
+`artifacts.rs` and `worker.rs` when changing the version; a shared SemVer prefix
+is not a compatibility guarantee. Run the cluster and retained-policy regression
+tests before tagging. The failed v0.29.1 tag is retained for traceability and has
+no published release. Code fixes
+require a new version and tag, not a rerun of an old tag. Publication runs are
+serialized per tag and are never cancelled by a later request for the same tag.
+
+StepSecurity Harden-Runner monitors dependency-heavy build jobs in audit mode.
+The publish job blocks connections outside its GitHub/artifact allowlist. Review
+network findings in each Actions job summary; see [build security](../SECURITY.md).
+Third-party Actions are pinned by full commit SHA and updated through Dependabot.
 
 Never move a published tag or replace its archives with a different build. A correction requires a new version. Before the first opening of the repository, also check branches, tags and objects of history to avoid publishing deleted secrets from the only current tree.
 

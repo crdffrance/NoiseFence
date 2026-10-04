@@ -1618,6 +1618,12 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     settings.filters.resolve_uncertain_by_score = true;
     settings.filters.partial_actions = true;
     let mut bundle = artifacts::capture(&cfg, settings, 1).unwrap().bundle;
+    let prior_patch = bundle.for_build("0.29.0").unwrap();
+    let mut expected_patch = serde_json::to_value(&bundle).unwrap();
+    expected_patch["build"] = json!("0.29.0");
+    expected_patch["digest"] = json!(prior_patch.digest);
+    assert_eq!(serde_json::to_value(&prior_patch).unwrap(), expected_patch);
+    prior_patch.validate().unwrap();
     let prior = bundle.for_build("0.28.0-rc.9").unwrap();
     let mut expected = serde_json::to_value(&bundle).unwrap();
     expected["build"] = json!("0.28.0-rc.9");
@@ -1628,6 +1634,7 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     bundle.credential_generation = Some("b".repeat(64));
     bundle.digest = bundle.hash().unwrap();
     assert!(bundle.for_build("0.28.0-rc.9").is_err());
+    assert!(bundle.for_build("0.29.0").is_err());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
     let mut unknown = prior;
     unknown.build = "0.29.1".into();

@@ -7,7 +7,13 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Build and verify the measurement tool
         run: |
           docker run --rm --volume "$PWD:/workspace" --workdir /workspace \
@@ -34,7 +40,7 @@ jobs:
               'image':'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922'}
           (root/'var/pipeline-probe/build.json').write_text(json.dumps(metadata,indent=2)+'\n')
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pipeline-probe-linux-amd64
           path: var/pipeline-probe/

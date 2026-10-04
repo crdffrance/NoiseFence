@@ -544,8 +544,8 @@ fn validate_retained_builds(
             continue;
         }
         ensure!(
-            env!("CARGO_PKG_VERSION") == "0.29.0"
-                && bundle.build == "0.28.0-rc.9"
+            matches!(env!("CARGO_PKG_VERSION"), "0.29.0" | "0.29.2")
+                && matches!(bundle.build.as_str(), "0.28.0-rc.9" | "0.29.0")
                 && retained
                     .bundles()
                     .iter()
@@ -596,6 +596,13 @@ mod migration_build_tests {
             validate_retained_builds(&journal(env!("CARGO_PKG_VERSION"), 2), &retained).is_ok()
         );
         assert!(validate_retained_builds(&journal("0.28.0-rc.9", 2), &retained).is_err());
+        let prior_patch = journal("0.29.0", 1);
+        assert!(validate_retained_builds(&prior_patch, &prior_patch).is_ok());
+        assert!(validate_retained_builds(&journal("0.29.0", 2), &prior_patch).is_err());
+        for unsupported_build in ["0.29.1", "0.29.3", "0.30.0"] {
+            let unsupported = journal(unsupported_build, 1);
+            assert!(validate_retained_builds(&unsupported, &unsupported).is_err());
+        }
         let unsupported = journal("0.28.0-rc.8", 1);
         assert!(validate_retained_builds(&unsupported, &unsupported).is_err());
         let mut changed = serde_json::to_value(&retained).unwrap();

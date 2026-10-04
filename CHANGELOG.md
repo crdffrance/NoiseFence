@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — Corroboration consistency
+## 0.29.2 — Reliable releases and hardened builds
+
+- Extend the explicitly audited cluster compatibility window to 0.29.2, retaining verified rc.9/0.29.0 policy bundles without authorizing new mixed-build activation or arbitrary future versions.
+- Publish stable tagged releases automatically after the full validation suite and both Linux builds pass. Verify outer and internal SHA-256 checksums, executable architecture and source commit before publication; support safe draft retries without replacing published assets.
+- Add commit-pinned StepSecurity Harden-Runner to every Actions job, audit build egress and restrict the publication job to GitHub endpoints. Pin all third-party actions and enable weekly Dependabot updates for Actions.
+- Remove unused server-rendering and component-generator dependencies from the static console build. Preserve React components and styles with a direct Vite build; eliminate the unpatched braces dependency instead of suppressing the npm audit.
+
 
 - Show authenticated server version, serving node and engine build in the console. Add optional cached stable-release checks for administrators, with no automatic installation.
 - Add direct annotation-sample links that survive sign-in and retain server-side access checks.

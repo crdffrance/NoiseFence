@@ -3,7 +3,7 @@
 
 NoiseFence is developed under GPL-3.0-only. Contributions to the project are proposed under this same license, keeping the records of third-party components.
 
-Create a branch from `main` and propose a pull request describing the problem, the behaviour obtained and the checks performed. For a SMTP, persistence or authorization change, add a targeted regression test. Never include real messages, private addresses, SQLite databases, corpus, production keys or server configurations in a contribution.
+Create a branch from `master` and propose a pull request describing the problem, the behaviour obtained and the checks performed. For a SMTP, persistence or authorization change, add a targeted regression test. Never include real messages, private addresses, SQLite databases, corpus, production keys or server configurations in a contribution.
 
 ```sh
 python3 scripts/version.py --check
