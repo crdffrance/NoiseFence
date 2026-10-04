@@ -34,7 +34,17 @@ git push origin v0.29.2
 
 For a transient infrastructure failure, re-run the failed jobs in Actions, or run
 `gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.2`.
-Manual dispatch requires a tag matching the manifests. Drafts can be resumed;
+Manual dispatch requires a tag matching the manifests. When repairing only build
+infrastructure, dispatch the current workflow with an existing immutable source tag:
+
+```sh
+gh workflow run release.yml --repo crdffrance/NoiseFence --ref master -f release_tag=v0.29.2
+```
+
+Preflight resolves the tag once; every validation, build and publication job checks
+out that exact commit. This can repair runner configuration without moving a tag
+or changing its sources. Bookworm test containers explicitly map `localhost.` to
+loopback so the rooted-MX regression test never depends on external DNS. Drafts can be resumed;
 if a release is already public, a retry verifies identical assets and leaves it
 unchanged. Differing public assets fail rather than being replaced. Review the explicit compatibility windows in `src/cluster/protocol.rs`,
 `artifacts.rs` and `worker.rs` when changing the version; a shared SemVer prefix
