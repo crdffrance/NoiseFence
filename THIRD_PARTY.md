@@ -2,7 +2,7 @@
 
 The NoiseFence code is distributed under GPL-3.0-only. Dependencies keep their respective licenses. `Cargo.lock` and `web/package-lock.json` identify the exact versions and allow their sources to be found in official records.
 
-The server uses, among other things, Tokio, rustls/ring, mail-auth, mail-parser, Axum, rusqlite/SQLite, Argon2 and reqwest (MIT/Apache-2.0). The graphical components are derived from shadcn/ui (MIT) and Base UI (MIT), with React (MIT) and Lucide (ISC). The generated components in `web/components/ui` are derived from shadcn/ui; their records are reproduced in `licenses/shadcn-ui-MIT.txt`.
+The server uses, among other things, Tokio, rustls/ring, mail-auth, mail-parser, Axum, rusqlite/SQLite, Argon2 and reqwest (MIT/Apache-2.0). The graphical components are derived from shadcn/ui (MIT) and Base UI (MIT), with React (MIT) and Lucide (ISC). The generated components in `web/components/ui` and the CSS utilities in `web/app/shadcn-utilities.css` (shadcn 4.18.0) are derived from shadcn/ui; their records are reproduced in `licenses/shadcn-ui-MIT.txt`.
 
 The release build collects the license texts available from the sources of the npm crates and packages installed under `third-party-licenses`. The JSON manifest in this folder links each dependency to its license declaration and records.
 
