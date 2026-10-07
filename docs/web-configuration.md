@@ -58,3 +58,13 @@ Older saved settings inherit missing module parameters from the host configurati
 Storage is **schema 5 once paired replication is activated**. Never downgrade an active HA queue to a pre-0.17.3 binary, remove its `ha_required` marker, or restore an older database over accepted mail. A policy revision rollback is different from a binary/database rollback. See [operations](operations.md) and [high availability](high-availability.md) for compatible recovery procedures.
 
 Destination verification is available under **Administration → Domains → Verify recipients at destination**, together with bounded deadlines and positive/negative cache TTLs. It can accompany wildcard domain reception but cannot accompany recipient fallback. See [recipient verification and fallback](recipient-fallback.md).
+
+### LLM pricing availability
+
+Advanced LLM settings and Server status show the cost-verification deadline,
+including a warning during its final seven days and an explicit suspension notice
+after 30 days. This mirrors the existing server guard; it does not renew dates,
+raise budgets or enable a provider. Verify the provider's actual prices before
+saving a new date. A current date does not guarantee capacity, credentials or
+budget availability. If external analysis is intentionally suspended, leave it
+suspended; an unavailable opinion is not a spam detection.

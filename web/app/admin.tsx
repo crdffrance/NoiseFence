@@ -1,4 +1,5 @@
 'use client';
+import { LlmPricingNotice } from './llm-pricing-notice';
 import { ResearchArchiveSettings, type ArchiveSettings } from './research-archive';
 import { AdmissionEditor, type AdmissionSettings } from './smtp-admission';
 import {
@@ -167,6 +168,7 @@ type Metrics = {
   max_analysis_ms_last_hour: number;
   disk_available_bytes: number;
   llm_budget?: {
+    pricing_checked_at?: number;
     accounted_micro_eur: number;
     monthly_budget_micro_eur: number;
     requests: number;
@@ -1622,11 +1624,12 @@ export function AdminConsole({
               by message
             </span>
           </div>
+          {metrics?.llm_budget && <LlmPricingNotice checkedAt={metrics.llm_budget.pricing_checked_at} />}
           {metrics?.llm_budget && (
             <p className="notice">
               Scaleway analysis:{' '}
               {(metrics.llm_budget.accounted_micro_eur / 1e6).toFixed(2)} € recorded on{' '}
-              {(metrics.llm_budget.monthly_budget_micro_eur / 1e6).toFixed(2)} € per month · {metrics.llm_budget.requests} demande(s).
+              {(metrics.llm_budget.monthly_budget_micro_eur / 1e6).toFixed(2)} € per month · {metrics.llm_budget.requests} requests.
             </p>
           )}
           <section className="panel">

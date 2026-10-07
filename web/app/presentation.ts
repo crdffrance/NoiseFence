@@ -60,6 +60,8 @@ export function scorePresentation(mail: ScoreInput) {
       label: value === null ? 'Score unavailable' : complete ? 'Risk index' : 'Partial risk index',
       detail: (value === null
         ? 'No usable score was recorded. The automatic policy accepts the message without inventing a risk value.'
+        : resolution.guard === 'authenticated_benign_conflict'
+        ? `Accepted after an authenticated benign conflict. The original index ${value.toFixed(2)} / 100 remains diagnostic; it is not proof of spam or safety.`
         : resolution.guard === 'corroboration_required'
         ? `Accepted because required corroboration is missing. Content index ${value.toFixed(2)} / 100 remains advisory and cannot confirm itself. This is not proof of legitimacy.`
         : `Engine classification: ${classification} by configured threshold: content index ${value.toFixed(2)} / 100, threshold ${resolution.threshold.toFixed(2)}. This index is not a spam probability.`)
@@ -177,7 +179,7 @@ export function arbitrationExplanation(report?: Arbitration | null, resolution?:
       ambiguous: 'Uncertain second opinion',
       corroborated: 'Corroborating signals',
     }[report.resolution],
-    detail: `Recorded baseline: ${label(report.baseline.outcome)}. Second opinion: ${label(report.opinion)}. ${resolution ? `${resolution.guard === 'corroboration_required' ? 'Required corroboration policy' : 'Automatic threshold policy'}: ${label(resolution.decision.outcome)}. The original disagreement is retained as a diagnostic.` : report.decision.outcome === 'undetermined' ? 'The engine abstains; recipient rules can determine classification and delivery.' : 'These opinions are not independent evidence.'}`,
+    detail: `Recorded baseline: ${label(report.baseline.outcome)}. Second opinion: ${label(report.opinion)}. ${resolution ? `${resolution.guard === 'authenticated_benign_conflict' ? 'Authenticated conflict policy' : resolution.guard === 'corroboration_required' ? 'Required corroboration policy' : 'Automatic threshold policy'}: ${label(resolution.decision.outcome)}. The original disagreement is retained as a diagnostic.` : report.decision.outcome === 'undetermined' ? 'The engine abstains; recipient rules can determine classification and delivery.' : 'These opinions are not independent evidence.'}`,
   };
 }
 
@@ -239,6 +241,8 @@ export function classificationQualification(mail: DecisionInput): string | null 
   if (classification(mail).label !== 'Ham') return null;
   if (record?.classification === 'unassessed' || report?.score_resolution?.score === null
       || report?.category === 'undetermined') return 'Accepted by default · not assessed';
+  if (report?.score_resolution?.guard === 'authenticated_benign_conflict')
+    return 'Accepted · authenticated conflict';
   if (report?.score_resolution?.guard === 'corroboration_required')
     return 'Accepted · corroboration missing';
   return null;
@@ -254,6 +258,8 @@ export function classificationDetail(mail: DecisionInput): string {
     return 'Ham — fail-open grouping: insufficient recorded evidence. This is not a safety guarantee. The original analysis and delivery remain unchanged.';
   if (classification(mail).label === 'Ham' && report?.score_resolution?.score === null)
     return 'Ham — accepted without a usable score. Analysis details remain available.';
+  if (report?.score_resolution?.guard === 'authenticated_benign_conflict')
+    return 'Authenticated evidence conflicts with the uncalibrated index. Accepted by policy, not declared safe.';
   if (report?.score_resolution?.guard === 'corroboration_required')
     return 'Ham — accepted because required corroboration is missing. The high content index cannot confirm itself; this is not proof of legitimacy.';
   return 'NoiseFence verdict. Analysis coverage and delivery actions are shown separately.';

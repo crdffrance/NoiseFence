@@ -16,6 +16,7 @@
 
 - [Score, classification, coverage and actions](filter-policy.md)
 - [Filter qualification procedure](filter-qualification.md)
+- [Private offline decision replay](decision-replay.md)
 - [Message diagnostic headers](message-headers.md)
 - [Remote SMTP and filter diagnostics](smtp-diagnostics.md)
 - [Custom rules, profiles and onboarding](custom-filtering.md)

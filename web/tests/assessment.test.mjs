@@ -37,3 +37,11 @@ test('optional gaps remain visible without claiming a partial core scan or chang
   assert.match(shown.detail,/VirusTotal reputation, URL destinations/);
   assert.doesNotMatch(shown.detail,/Configured checks completed/);
 });
+
+test('authenticated conflict guard is explained without pretending a high index is below threshold',()=>{
+  const mail={category:'legitimate',complete:true,assessment:{version:1,complete:true,category:'legitimate',classification_source:'score_threshold',score:{value:99.8,model:'synthetic'},score_resolution:{decision:{outcome:'legitimate'},score:99.8,threshold:95,guard:'authenticated_benign_conflict'}}};
+  assert.equal(classification(mail).label,'Ham');
+  assert.equal(scorePresentation(mail).value,99.8);
+  assert.match(scorePresentation(mail).detail,/authenticated benign conflict/);
+  assert.doesNotMatch(scorePresentation(mail).detail,/by configured threshold/);
+});

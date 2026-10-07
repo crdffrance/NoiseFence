@@ -4,6 +4,8 @@ use super::{Category, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const VERSION: &str = "llm-grounding-2";
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Claim {
@@ -170,7 +172,7 @@ pub fn validate(
         }
     }
     Report {
-        version: "llm-grounding-2".into(),
+        version: VERSION.into(),
         supported: issues.is_empty() && accepted > 0,
         mail_kind: kind,
         accepted_citations: accepted,
