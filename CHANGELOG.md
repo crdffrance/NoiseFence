@@ -4,6 +4,7 @@
 
 - Preserve authenticated, grounded benign conflicts when resolving an uncalibrated content score. Keep the recorded index, malware priority, threat exclusions and independent Rspamd comparison.
 - Explain the conflict guard consistently in the console and show LLM pricing expiry before and after suspension, without renewing dates or enabling external analysis.
+- Update the formatter worker and source-map dependencies to clear newly reported build-tool advisories; retain the blocking npm audit.
 - Add a private, offline decision replay tool and document its evaluation limits. No model training or historical reclassification.
 
 ## 0.29.3 — Reliable releases and hardened builds
