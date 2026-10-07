@@ -279,3 +279,141 @@ fn required_confirmation_cannot_be_undone_by_a_saturated_score() {
         assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
     }
 }
+
+fn authenticated_conflict() -> Scan {
+    use noisefence::{
+        antivirus::AntivirusStatus,
+        evidence::{AuthResult, Evidence, Source, State},
+        llm::{Category as LlmCategory, LlmResult, LlmStatus, Verdict},
+    };
+    let mut s = review(99.8, true);
+    s.antivirus.status = AntivirusStatus::Clean;
+    s.signatures.status = AntivirusStatus::Clean;
+    s.message_context = Some(Default::default());
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let mut e = Evidence::new(
+        &cfg,
+        noisefence::evidence::Artifacts::new(&cfg, None, None, false),
+        false,
+    );
+    e.source = Source::SmtpSession;
+    e.authentication.state = State::Complete;
+    e.authentication.dmarc_state = State::Complete;
+    e.authentication.dmarc_spf = Some(AuthResult::Pass);
+    e.authentication.dmarc_dkim = Some(AuthResult::Pass);
+    s.evidence = Some(e);
+    s.llm = LlmResult {
+        status: LlmStatus::Complete,
+        verdict: Some(Verdict {
+            category: LlmCategory::Legitimate,
+            spam_probability: 0.1,
+            confidence: 0.95,
+            explanation: "Synthetic receipt".into(),
+        }),
+        grounding: Some(noisefence::llm::grounding::Report {
+            version: "llm-grounding-2".into(),
+            supported: true,
+            mail_kind: noisefence::quality::Kind::Transactional,
+            accepted_citations: 1,
+            issues: vec![],
+        }),
+        ..Default::default()
+    };
+    s
+}
+
+#[test]
+fn grounded_authenticated_conflict_preserves_score_and_definitive_verdict() {
+    let mut s = authenticated_conflict();
+    decision::finalize(&mut s, 95.);
+    assert_eq!(s.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+    assert_eq!(s.score, 99.8);
+    assert_eq!(
+        s.score_resolution.as_ref().unwrap().guard.as_deref(),
+        Some("authenticated_benign_conflict")
+    );
+    let once = serde_json::to_value(&s).unwrap();
+    decision::finalize(&mut s, 95.);
+    assert_eq!(serde_json::to_value(&s).unwrap(), once);
+}
+
+#[test]
+fn authentication_or_llm_alone_never_suppresses_a_high_score() {
+    for variant in 0..11 {
+        let mut s = authenticated_conflict();
+        match variant {
+            0 => s.evidence.as_mut().unwrap().source = noisefence::evidence::Source::ContentOnly,
+            1 => {
+                s.evidence.as_mut().unwrap().authentication.dmarc_state =
+                    noisefence::evidence::State::Unavailable
+            }
+            2 => s.llm.grounding.as_mut().unwrap().supported = false,
+            3 => s.llm.status = noisefence::llm::LlmStatus::PricingExpired,
+            4 => s.message_context.as_mut().unwrap().action_demand = true,
+            5 => s.signatures.status = noisefence::antivirus::AntivirusStatus::Suspicious,
+            6 => s.antivirus.status = noisefence::antivirus::AntivirusStatus::Unavailable,
+            7 => s.complete = false,
+            8 => s.message_context.as_mut().unwrap().direct_extortion = true,
+            9 => s.llm.grounding.as_mut().unwrap().version = "unknown-future-contract".into(),
+            _ => {
+                let mut p = noisefence::protection::Report::default();
+                p.add(
+                    "known_phishing_url",
+                    "link_reputation",
+                    "synthetic",
+                    "local",
+                    "Synthetic finding",
+                );
+                s.protection = Some(p);
+            }
+        }
+        decision::finalize(&mut s, 95.);
+        assert_eq!(
+            s.decision.as_ref().unwrap().outcome,
+            Outcome::Unwanted,
+            "variant {variant}"
+        );
+    }
+}
+
+#[test]
+fn authenticated_report_context_survives_llm_suspension_but_not_malware() {
+    let mut s = authenticated_conflict();
+    s.llm = Default::default();
+    s.message_context.as_mut().unwrap().threat_report = true;
+    decision::finalize(&mut s, 95.);
+    assert_eq!(s.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+    s.antivirus.status = noisefence::antivirus::AntivirusStatus::Malware;
+    decision::apply(&mut s, false);
+    decision::finalize(&mut s, 95.);
+    assert_eq!(
+        s.decision.as_ref().unwrap().source,
+        DecisionSource::Antivirus
+    );
+    assert_eq!(s.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+}
+
+#[test]
+fn observed_phishing_opinion_and_rspamd_independence_are_preserved() {
+    use noisefence::llm::Category as LlmCategory;
+    let mut phishing = authenticated_conflict();
+    let verdict = phishing.llm.verdict.as_mut().unwrap();
+    verdict.category = LlmCategory::Phishing;
+    verdict.spam_probability = 0.99;
+    decision::finalize(&mut phishing, 95.);
+    assert_eq!(
+        phishing.decision.as_ref().unwrap().outcome,
+        Outcome::Unwanted
+    );
+    let mut s = authenticated_conflict();
+    // Even the strongest comparison action cannot affect the native guard.
+    s.rspamd = Some(
+        serde_json::from_value(
+            serde_json::json!({"status":"complete","action":"reject","score":100.0,"job_id":"synthetic","started_at":0,"expires_at":1,"raw_sha256":"synthetic","profile":"test","settings_sha256":"synthetic","elapsed_ms":1,"symbols":[],"comparison":"inconclusive"}),
+        )
+        .unwrap(),
+    );
+    decision::finalize(&mut s, 95.);
+    assert_eq!(s.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+}

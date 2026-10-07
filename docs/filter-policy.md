@@ -38,3 +38,23 @@ The original policy records the content threshold, mode, policy version and weig
 Keep representative human labels separate from model predictions. Report recall, precision, false-positive rate, review/partial coverage and confidence intervals on an independent recent sample. Selected corrections are useful for finding defects but are not an unbiased estimate of traffic-wide accuracy.
 
 NoiseFence does not claim perfect filtering. The current feature set and passing regression tests do not establish 95% capture or a 0.1% false-positive rate. See [quality](quality.md), [reliability](reliability.md) and [validation results](validation-results.md).
+
+## Authenticated conflicts with an uncalibrated index
+
+`decision-policy-9` preserves a narrow benign-conflict guard during final score
+resolution. A high historical content index no longer erases both observed aligned
+DMARC authentication and either grounded low-risk LLM evidence or the existing
+report/transaction context. The final verdict is Ham (or Pub where the recorded
+marketing assessment applies); the unchanged index remains diagnostic.
+
+This requires readable content, complete core analysis, clean primary antivirus
+and signature checks, and no corroborated threat, known malicious indicator,
+confirmed campaign, explicit action demand, extortion or injected reward lure.
+Authentication alone is insufficient. Unsupported, stale or unavailable LLM
+opinions do not qualify. Rspamd is never consulted. The separate report/transaction
+context path can work without a LLM. A confirmed malware result retains priority.
+
+The recorded resolution identifies `authenticated_benign_conflict`, so the console
+does not misleadingly describe the outcome as a score below threshold. Historical
+records are unchanged. This guard reduces a demonstrated class of false positives;
+it neither recalibrates the underlying model nor establishes general safety.

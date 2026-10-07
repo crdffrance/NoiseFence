@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Filtering conflict safeguards
+
+- Preserve authenticated, grounded benign conflicts when resolving an uncalibrated content score. Keep the recorded index, malware priority, threat exclusions and independent Rspamd comparison.
+- Explain the conflict guard consistently in the console and show LLM pricing expiry before and after suspension, without renewing dates or enabling external analysis.
+- Add a private, offline decision replay tool and document its evaluation limits. No model training or historical reclassification.
+
 ## 0.29.3 — Reliable releases and hardened builds
 
 - Make release network fixtures independent of external localhost DNS, test ordering and filesystem timestamp granularity. Isolate network tests in CI and support a repaired workflow targeting an immutable source tag.

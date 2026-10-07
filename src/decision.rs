@@ -5,7 +5,7 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-8";
+pub const VERSION: &str = "decision-policy-9";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -79,9 +79,19 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
         .iter()
         .any(|r| r.id == crate::confirmation::REVIEW_REASON)
         && !crate::confirmation::corroborated(scan);
+    let benign_conflict = !corroboration_missing
+        && previous.source == DecisionSource::Legacy
+        && authenticated_benign_conflict(scan);
+    let guard = if corroboration_missing {
+        Some("corroboration_required")
+    } else if benign_conflict {
+        Some("authenticated_benign_conflict")
+    } else {
+        None
+    };
     let decision = Decision {
         source: DecisionSource::Legacy,
-        outcome: if !corroboration_missing && score.is_some_and(|s| s >= threshold) {
+        outcome: if guard.is_none() && score.is_some_and(|s| s >= threshold) {
             Outcome::Unwanted
         } else {
             Outcome::Legitimate
@@ -95,7 +105,9 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
     }
     scan.decision = Some(decision.clone());
     scan.score_resolution = Some(ScoreResolution {
-        version: if corroboration_missing {
+        version: if benign_conflict {
+            "score-resolution-3"
+        } else if corroboration_missing {
             "score-resolution-2"
         } else {
             "score-resolution-1"
@@ -108,17 +120,60 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
         partial: !scan.complete,
         previous_category,
         projected: false,
-        guard: corroboration_missing.then(|| "corroboration_required".into()),
+        guard: guard.map(str::to_owned),
     });
     scan.reasons.push(Signal {
         id: SCORE_RESOLUTION_REASON.into(),
-        detail: if corroboration_missing {
+        detail: if benign_conflict {
+            "Accepted by conflict policy: observed aligned authentication and grounded benign analysis or reporting context contradict the uncalibrated index. No confirmed threat overrides this guard. The original score remains diagnostic, not proof of spam or safety.".into()
+        } else if corroboration_missing {
             "Accepted by configured policy: required corroboration is missing. The content index remains visible but cannot confirm itself. This is not proof of legitimacy.".into()
         } else { score.map_or_else(
             || "No usable content score: automatic fail-open classification; analysis remains unavailable.".into(),
             |score| format!("Automatic classification by configured policy: content index {score:.2} compared with threshold {threshold:.2}. Detector uncertainty remains recorded; no manual review is required.")) },
         weight: 0.0,
     });
+}
+
+/// A high uncalibrated index cannot simply erase a qualified benign conflict.
+/// Authentication alone, an unavailable LLM, imported headers and an unsupported
+/// LLM explanation never establish this guard. Rspamd is deliberately absent.
+fn authenticated_benign_conflict(scan: &Scan) -> bool {
+    if !scan.complete
+        || scan.features_complete != Some(true)
+        || scan.antivirus.status != AntivirusStatus::Clean
+        || scan.signatures.status != AntivirusStatus::Clean
+        || crate::confirmation::corroborated(scan)
+        || scan.protection.as_ref().is_some_and(|p| {
+            p.findings.iter().any(|f| {
+                matches!(
+                    f.id.as_str(),
+                    "known_phishing_url" | "known_malicious_indicator" | "confirmed_campaign"
+                )
+            })
+        })
+        || !scan
+            .evidence
+            .as_ref()
+            .is_some_and(crate::evidence::eligibility::dmarc_pass)
+        || scan.message_context.as_ref().is_none_or(|c| {
+            c.encrypted || c.action_demand || c.direct_extortion || c.injected_reward_lure
+        })
+    {
+        return false;
+    }
+    let opinion = scan.llm.opinion();
+    if opinion == Some(Outcome::Unwanted) {
+        return false;
+    }
+    crate::message_context::needs_review(scan)
+        || (opinion == Some(Outcome::Legitimate)
+            && scan.llm.grounding.as_ref().is_some_and(|g| {
+                g.version == crate::llm::grounding::VERSION
+                    && g.supported
+                    && g.accepted_citations > 0
+                    && g.issues.is_empty()
+            }))
 }
 
 /// Delivery policy always terminates; individual detector opinions may abstain.
@@ -269,7 +324,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     // Re-evaluate from the saved input when applying recipient policies. Never
     // treat our own abstention as new evidence or accumulate explanation rows.
     if let Some(previous) = scan.arbitration.take()
-        && previous.version == VERSION
+        && matches!(previous.version.as_str(), "decision-policy-8" | VERSION)
         && scan.complete
         && scan.decision.as_ref() == Some(&previous.decision)
     {
