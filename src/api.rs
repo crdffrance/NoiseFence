@@ -624,9 +624,8 @@ async fn security_headers(req: Request, next: Next) -> Response {
     h.insert("x-content-type-options", "nosniff".parse().unwrap());
     h.insert("referrer-policy", "no-referrer".parse().unwrap());
     h.insert("x-frame-options", "DENY".parse().unwrap());
-    h.insert("content-security-policy","default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'".parse().unwrap());
-    if verification_page {
-        h.insert("content-security-policy","default-src 'none'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'unsafe-inline'; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'".parse().unwrap());
+    if !verification_page {
+        h.insert("content-security-policy","default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'".parse().unwrap());
     }
     response
 }
@@ -700,6 +699,7 @@ pub fn router_controlled(
     Ok(Router::new()
         .nest("/api/v1/replication", ha::routes(app.clone()))
         .route("/verify-sender", get(sender_verification::page))
+        .route("/verify-sender.js", get(sender_verification::script))
         .nest("/api/v1", api)
         .route("/healthz", get(health))
         .fallback_service(

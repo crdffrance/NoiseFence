@@ -11,6 +11,7 @@ struct Proof {
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/sender-verification/info", post(info))
+        .route("/sender-verification/challenge", post(challenge))
         .route("/sender-verification/confirm", post(confirm))
         .layer(DefaultBodyLimit::max(4096))
 }
@@ -60,7 +61,52 @@ async fn info(
         .run(move |db| crate::traffic::verification::authorize(db, &proof.token, now()))
         .await
         .map_err(unavailable)?;
-    Ok(Json(json!({"id":id,"site_key":s.verification.site_key})))
+    Ok(Json(
+        json!({"id":id,"provider":s.verification.captcha_provider,"site_key":s.verification.site_key}),
+    ))
+}
+async fn challenge(
+    State(app): State<App>,
+    h: HeaderMap,
+    Json(proof): Json<Proof>,
+) -> ApiResult<Json<Value>> {
+    gate(&app, &h, &proof)?;
+    let permit = CAPTCHA_CAPACITY.try_acquire().map_err(|_| {
+        Error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Verification busy; try again shortly".into(),
+        )
+    })?;
+    let cfg = app.effective();
+    let s = crate::traffic::settings(&cfg)
+        .filter(|s| s.verification.enabled && cfg.filter.mode != crate::config::Mode::Observe)
+        .ok_or_else(|| unavailable(anyhow::anyhow!("disabled")))?;
+    if s.verification.captcha_provider != crate::traffic::verification::CaptchaProvider::SelfHosted
+    {
+        return Err(unavailable(anyhow::anyhow!("not local")));
+    }
+    let token = proof.token.clone();
+    app.store
+        .read(move |db| crate::traffic::verification::authorize(db, &token, now()))
+        .await
+        .map_err(unavailable)?;
+    let (permit, prepared) = tokio::task::spawn_blocking(move || {
+        crate::traffic::verification::captcha::prepare().map(|prepared| (permit, prepared))
+    })
+    .await
+    .map_err(anyhow::Error::from)?
+    .map_err(unavailable)?;
+    let result = app
+        .store
+        .run(move |db| {
+            let _permit = permit;
+            crate::traffic::verification::captcha::save(db, &proof.token, now(), prepared)
+        })
+        .await
+        .map_err(unavailable)?;
+    Ok(Json(
+        serde_json::to_value(result).map_err(anyhow::Error::from)?,
+    ))
 }
 async fn confirm(
     State(app): State<App>,
@@ -68,17 +114,44 @@ async fn confirm(
     Json(proof): Json<Proof>,
 ) -> ApiResult<Json<Value>> {
     gate(&app, &h, &proof)?;
-    let _permit = CAPTCHA_CAPACITY.try_acquire().map_err(|_| {
+    let permit = CAPTCHA_CAPACITY.try_acquire().map_err(|_| {
         Error(
             StatusCode::TOO_MANY_REQUESTS,
             "Verification busy; try again shortly".into(),
         )
     })?;
-    crate::traffic::verification::confirm(&app.store, &app.effective(), proof.token, proof.captcha)
-        .await
-        .map_err(unavailable)?;
+    let store = app.store.clone();
+    let cfg = app.effective();
+    // The permit follows the work, including a durable commit after HTTP cancellation.
+    tokio::spawn(async move {
+        let _permit = permit;
+        crate::traffic::verification::confirm(&store, &cfg, proof.token, proof.captcha).await
+    })
+    .await
+    .map_err(anyhow::Error::from)?
+    .map_err(unavailable)?;
     Ok(Json(json!({"confirmed":true})))
 }
-pub(super) async fn page() -> axum::response::Html<&'static str> {
-    axum::response::Html(include_str!("sender_verification.html"))
+pub(super) async fn page(State(app): State<App>) -> Response {
+    let turnstile = crate::traffic::settings(&app.effective()).is_some_and(|s| {
+        s.verification.captcha_provider == crate::traffic::verification::CaptchaProvider::Turnstile
+    });
+    let mut response =
+        axum::response::Html(include_str!("sender_verification.html")).into_response();
+    let policy = if turnstile {
+        "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'unsafe-inline'; img-src data:; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    } else {
+        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", policy.parse().unwrap());
+    response
+}
+
+pub(super) async fn script() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("sender_verification.js"),
+    )
 }

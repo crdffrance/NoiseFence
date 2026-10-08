@@ -352,6 +352,7 @@ impl Store {
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
         db.execute_batch(crate::traffic::runtime::SCHEMA)?;
         db.execute_batch(crate::traffic::verification::SCHEMA)?;
+        db.execute_batch(crate::traffic::verification::captcha::SCHEMA)?;
         Ok(Self {
             management: central.map(Arc::new),
             activation,

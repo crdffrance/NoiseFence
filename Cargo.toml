@@ -1,6 +1,6 @@
 [package]
 name = "noisefence"
-version = "0.30.0"
+version = "0.30.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
@@ -55,6 +55,7 @@ tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 deadpool-postgres = "0.14"
 tokio-postgres-rustls = "0.14"
+png = "=0.18.1"
 
 [build-dependencies]
 sha2 = "0.10"
