@@ -289,6 +289,24 @@ impl Config {
         if let Some(cluster) = &self.cluster {
             cluster.validate()?;
         }
+        if let Some(traffic) = crate::traffic::settings(self) {
+            if traffic.verification.enabled && !crate::cluster::is_worker(self) {
+                ensure!(
+                    traffic.verification.public_origin.trim_end_matches('/')
+                        == self.web.public_origin.trim_end_matches('/'),
+                    "Verification origin must match the console origin"
+                );
+            }
+            for scope in traffic.scopes.keys() {
+                ensure!(
+                    scope.strip_prefix("*@").map_or_else(
+                        || self.recipient(scope).is_some(),
+                        |d| self.domains.iter().any(|v| v.name == d)
+                    ),
+                    "Unknown traffic scope"
+                );
+            }
+        }
         if let Some(settings) = &self.smtp_admission {
             settings.validate()?;
         }

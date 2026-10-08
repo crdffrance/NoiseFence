@@ -9,6 +9,7 @@ import { OnboardingGate } from './onboarding';
 import { AdaptiveDetails } from './adaptive';
 import type { AdaptiveReport, AdaptiveClass } from './adaptive-types';
 import { EarlyRblDetails } from './rbl';
+import {TrafficDetails,type TrafficReport} from './traffic';
 import { AdmissionDetails, type AdmissionDecision } from './smtp-admission';
 import type { EarlyRbl } from './rbl-types';
 import { FilteringDetails, type FilteringAssessment } from './custom-filtering';
@@ -209,6 +210,7 @@ type Mail = {
     scoring_enabled: boolean;
   };
   early_rbl?: EarlyRbl;
+  traffic?:TrafficReport;
   smtp_admission?: AdmissionDecision[];
   adaptive?: AdaptiveReport;
   semantic?: {
@@ -1153,6 +1155,7 @@ function Home() {
                               )}
                           </div>
                         )}
+                      {selected.traffic && <TrafficDetails report={selected.traffic}/>}
                       {!!selected.smtp_admission?.length && (
                         <AdmissionDetails reports={selected.smtp_admission} />
                       )}

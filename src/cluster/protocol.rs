@@ -14,7 +14,7 @@ pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
         || (matches!(
             env!("CARGO_PKG_VERSION"),
-            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4"
+            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0"
         ) && matches!(
             build,
             "0.14.0"
@@ -50,6 +50,7 @@ pub fn compatible_build(build: &str) -> bool {
                 | "0.28.0-rc.9"
                 | "0.29.0"
                 | "0.29.3"
+                | "0.29.4"
         ))
 }
 
@@ -167,13 +168,16 @@ pub fn secrets(config: &crate::config::Config) -> Result<BTreeMap<String, String
     if let Some(key) = crate::management::dqs_key(config)? {
         secrets.insert("spamhaus".into(), key);
     }
+    if let Some(key) = crate::management::read_key(&config.data_dir, "turnstile")? {
+        secrets.insert("turnstile".into(), key);
+    }
     Ok(secrets)
 }
 pub fn install_secrets(root: &Path, secrets: &BTreeMap<String, String>) -> Result<String> {
-    ensure!(secrets.len() <= 4, "Too many credentials");
+    ensure!(secrets.len() <= 5, "Too many credentials");
     for (name, key) in secrets {
         ensure!(
-            ["crdf", "virustotal", "scaleway", "spamhaus"].contains(&name.as_str()),
+            ["crdf", "virustotal", "scaleway", "spamhaus", "turnstile"].contains(&name.as_str()),
             "Unrecognized credential"
         );
         match name.as_str() {

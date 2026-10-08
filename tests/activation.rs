@@ -771,7 +771,7 @@ async fn smtp_rejects_an_old_epoch_after_release_and_accepts_the_next_transactio
     assert!(
         fields
             .iter()
-            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 11\r\n"))
+            .any(|f| f.starts_with(b"X-NoiseFence-Header-Version: 12\r\n"))
     );
 
     // Keep the same live socket across more updates than the runtime bound.

@@ -1709,6 +1709,11 @@ async fn main() -> Result<()> {
                 Some(control.clone()),
                 rx.clone(),
             ));
+            let mut sender_verification = tokio::spawn(noisefence::traffic::verification::run(
+                store.clone(),
+                control.clone(),
+                rx.clone(),
+            ));
             let archive =
                 tokio::spawn(noisefence::research_archive::run(store.clone(), rx.clone()));
             let mut replication = tokio::spawn(noisefence::ha::run(store.clone(), rx.clone()));
@@ -1724,6 +1729,7 @@ async fn main() -> Result<()> {
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             tokio::select! {
                 _=tokio::signal::ctrl_c()=>{},_ = term.recv()=>{},
+                r=&mut sender_verification=>{r??;anyhow::bail!("Sender verification worker stopped unexpectedly");},
                 r=&mut smtp=>{r??;anyhow::bail!("SMTP stopped unexpectedly");},
                 r=&mut relay=>{r??;anyhow::bail!("relay stopped unexpectedly");},
                 r=&mut api=>{r??;anyhow::bail!("API stopped unexpectedly");}
@@ -1732,7 +1738,15 @@ async fn main() -> Result<()> {
             }
             stop.send(true)?;
             let _ = tokio::time::timeout(std::time::Duration::from_secs(35), async {
-                let _ = tokio::join!(smtp, relay, api, cluster, replication, archive);
+                let _ = tokio::join!(
+                    smtp,
+                    relay,
+                    api,
+                    cluster,
+                    replication,
+                    archive,
+                    sender_verification
+                );
             })
             .await;
         }

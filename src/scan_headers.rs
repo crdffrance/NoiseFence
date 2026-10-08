@@ -30,6 +30,7 @@ pub(crate) const FIELDS: &[&str] = &[
     "X-NoiseFence-Reputation",
     "X-NoiseFence-RBL",
     "X-NoiseFence-Native",
+    "X-NoiseFence-Traffic",
 ];
 
 pub(crate) fn signed_fields() -> impl Iterator<Item = &'static str> {
@@ -213,6 +214,19 @@ pub(crate) fn render(
         mail_parser::DateTime::from_timestamp(crate::now()).to_rfc822()
     );
     let mut h = Writer(Default::default());
+    if let Some(traffic) = &scan.traffic {
+        h.field(
+            "X-NoiseFence-Traffic",
+            format!(
+                "status={}; action={}; enforced={};",
+                token(&traffic.status).unwrap_or("unknown"),
+                word(&traffic.action),
+                yes(traffic.enforced)
+            ),
+        );
+    } else {
+        h.field("X-NoiseFence-Traffic", "not_recorded");
+    }
     let report = assessment::assess(scan, config.filter.threshold);
     let record = scan.recipient_decision.as_ref();
     h.field(
@@ -325,7 +339,7 @@ pub(crate) fn render(
     };
 
     h.field("X-NoiseFence-Id", id);
-    h.field("X-NoiseFence-Header-Version", "11");
+    h.field("X-NoiseFence-Header-Version", "12");
     h.field("X-NoiseFence-Version", env!("CARGO_PKG_VERSION"));
     h.field(
         "X-NoiseFence-Mode",
@@ -666,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn version_eleven_has_one_verdict_and_a_stable_signed_inventory() {
+    fn version_twelve_has_one_verdict_and_a_stable_signed_inventory() {
         let wire = render(
             &config(),
             "192.0.2.1".parse().unwrap(),
@@ -680,7 +694,7 @@ mod tests {
             .map(|l| l.split_once(':').unwrap().0)
             .collect();
         assert_eq!(actual, FIELDS);
-        assert_eq!(FIELDS.len(), 25);
+        assert_eq!(FIELDS.len(), 26);
         assert!(
             FIELDS
                 .iter()
@@ -700,7 +714,7 @@ mod tests {
         ] {
             assert!(!wire.contains(&format!("X-NoiseFence-{removed}:")));
         }
-        assert!(wire.contains("X-NoiseFence-Header-Version: 11\r\n"));
+        assert!(wire.contains("X-NoiseFence-Header-Version: 12\r\n"));
     }
 
     #[test]
@@ -781,7 +795,7 @@ mod tests {
             detail: "private body".into(),
         }];
         let h = headers(&s);
-        assert_eq!(h["x-noisefence-header-version"], "11");
+        assert_eq!(h["x-noisefence-header-version"], "12");
         assert_eq!(h["x-noisefence-score"], number(Some(s.score)));
         assert!(h["x-noisefence-rules"].contains("rules-retained=2.5; total-logit=-2.5;"));
         assert!(h["x-noisefence-rules"].contains("rule.spf_fail=+0.0000;"));
@@ -1153,7 +1167,7 @@ mod contract_tests {
                 ("X-NoiseFence-Score", number(report.score.value)),
                 ("X-NoiseFence-Score-Type", word(&report.score.kind)),
                 ("X-NoiseFence-Verdict", report.verdict().into()),
-                ("X-NoiseFence-Header-Version", "11".into()),
+                ("X-NoiseFence-Header-Version", "12".into()),
             ] {
                 assert!(
                     wire.contains(&format!("{name}: {value}\r\n")),

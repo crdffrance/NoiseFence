@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { api, type User } from './client';
 import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, savesBlocked, type SaveResult } from './activation';
+import {TrafficPolicyEditor,defaultTrafficPolicy} from './traffic';
 import type { Preferences, Preference } from './management';
 import type { CustomPolicy, Profile } from './custom-filtering';
 type Rule = CustomPolicy['rules'][number];
@@ -15,6 +16,7 @@ type View = {
   scopes: string[];
   mode: string;
   sensitivity_locked: boolean;
+  personal_traffic:boolean;
 };
 const fields: Record<Rule['conditions'][number]['field'], string> = {
   envelope_from: "Envelope sender",
@@ -236,6 +238,7 @@ export function MyFilters({
             disabled={!view.settings.enabled || busy || !scope || blocked}
             className="personal-controls"
           >
+            {view.personal_traffic && <section className="management-card"><h3>Traffic protection</h3><label><input type="checkbox" checked={!!draft.traffic} onChange={e=>setDraft({...draft,traffic:e.target.checked?{...defaultTrafficPolicy}:null})}/> Customize traffic limits for this scope</label>{draft.traffic && <TrafficPolicyEditor value={draft.traffic} onChange={traffic=>setDraft({...draft,traffic})}/>}</section>}
             <section className="management-card">
               <label className="setting-toggle">
                 <input

@@ -500,7 +500,9 @@ impl Controller {
         actor: String,
         token_hash: String,
     ) -> Result<Journal> {
-        let mut settings = self.snapshot().settings.clone();
+        let snapshot = self.snapshot();
+        crate::preferences::validate_traffic_edit(&snapshot.config, &scope, preference.as_ref())?;
+        let mut settings = snapshot.settings.clone();
         if let Some(p) = preference {
             settings.preferences.mailboxes.insert(scope.clone(), p);
         } else {

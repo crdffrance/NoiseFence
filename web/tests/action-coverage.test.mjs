@@ -18,3 +18,10 @@ test('the UI reads the recorded missing requirements without using current setti
   ]);
   assert.equal(coverageRequirements({...recorded,missing:['subject_rewrite']}).at(-1).met,false);
 });
+
+ test('transport holds have an explicit basis independent of content detection', () => {
+ assert.match(actionBasis('traffic_policy'),/independent of content score/);
+ assert.match(actionReason('traffic_limit'),/Shared traffic limit/);
+ assert.match(actionReason('sender_verification'),/CAPTCHA/);
+ assert.match(actionRequirement('transport_policy_met'),/traffic or sender-verification/);
+ });

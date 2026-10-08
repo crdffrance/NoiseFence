@@ -6,13 +6,13 @@ export type ActionCoverage = {
   missing: string[];
 };
 export function actionBasis(basis: string) {
-  return ({ delivery: 'Delivery policy', complete_analysis: 'Complete analysis', primary_malware: 'Confirmed malware',
+  return ({ traffic_policy:'Transport policy (independent of content score)', delivery: 'Delivery policy', complete_analysis: 'Complete analysis', primary_malware: 'Confirmed malware',
     recipient_rule: 'Explicit recipient rule', established_threat: 'Established threat evidence',
     score_threshold: 'Configured score threshold', validated_fusion: 'Validated fusion decision',
     message_kind: 'Recorded message kind', unresolved: 'No determinate classification' } as Record<string,string>)[basis] ?? 'Basis not recorded';
 }
 export function actionRequirement(requirement: string) {
-  return ({ complete_analysis: 'Complete analysis', primary_malware: 'Trusted primary malware finding',
+  return ({ transport_policy_met:'Enforced traffic or sender-verification policy', complete_analysis: 'Complete analysis', primary_malware: 'Trusted primary malware finding',
     matched_recipient_rule: 'Explicit rule matched using available facts', established_threat: 'Required threat evidence observed',
     usable_content: 'Content extraction completed', usable_score: 'Usable risk index', threshold_met: 'Applicable threshold reached',
     automatic_score_policy: 'Automatic score policy enabled', validated_fusion: 'Valid fusion decision for this message',
@@ -20,7 +20,7 @@ export function actionRequirement(requirement: string) {
     subject_rewrite: 'Subject renderer ready' } as Record<string,string>)[requirement] ?? 'Unknown requirement';
 }
 export function actionReason(reason: string) {
-  return ({ observation: 'Observation mode: deliver without a tag', incomplete: 'Complete analysis required by the recorded policy',
+  return ({ traffic_limit:'Shared traffic limit: hold this recipient delivery', sender_verification:'Await sender confirmation with CAPTCHA', observation: 'Observation mode: deliver without a tag', incomplete: 'Complete analysis required by the recorded policy',
     action_requirements_unmet: 'Required decision evidence is missing', subject_rewrite_unavailable: 'The subject cannot be rewritten safely',
     category_without_prefix: 'No subject prefix applies to this category', malware_priority: 'Primary malware policy takes precedence',
     category: 'Recorded category policy', custom_policy: 'Recorded recipient policy' } as Record<string,string>)[reason] ?? 'Other recorded policy reason';

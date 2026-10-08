@@ -240,7 +240,7 @@ pub fn validate_rbl(settings: &crate::rbl::Settings, base: &Config) -> Result<()
 pub const WEB_DQS: &str = "NOISEFENCE_WEB_DQS";
 fn key_path(root: &std::path::Path, provider: &str) -> Result<std::path::PathBuf> {
     ensure!(
-        matches!(provider, "spamhaus" | "scaleway"),
+        matches!(provider, "spamhaus" | "scaleway" | "turnstile"),
         "Unknown provider."
     );
     Ok(root.join("credentials").join(format!("{provider}.key")))

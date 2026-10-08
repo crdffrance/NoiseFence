@@ -118,6 +118,10 @@ flowchart TB
 
 Multiple MX records alone do not replicate accepted messages. With **mandatory paired replication**, SMTP acceptance waits for two durable copies; an unavailable peer causes a temporary `451` response. Replica takeover and console recovery require fencing and controlled promotion, not an automatic two-node election. See [multi-MX management](docs/multi-mx.md) and [high availability](docs/high-availability.md).
 
+## Flood protection and sender verification
+
+Optional shared traffic limits protect recipients from repeated senders and identical-message floods without changing content scores. Administrators and authorized mailbox owners can configure observation, temporary SMTP deferral and quarantine. An opt-in, scoped sender-verification flow supports expiring links and server-verified CAPTCHA. See [configuration, requirements and recovery behavior](docs/traffic-protection.md). Both features are disabled by default.
+
 ## Defaults and limits
 
 **Observation is the default.** It records decisions while delivering without subject tagging or quarantine. Paid providers are inactive until configured with an authorized key and budget. Optional active URL following is off by default; it has separate network restrictions and resource limits.

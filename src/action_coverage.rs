@@ -8,6 +8,7 @@ pub const VERSION: &str = "action-coverage-1";
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Basis {
+    TrafficPolicy,
     Delivery,
     CompleteAnalysis,
     PrimaryMalware,
@@ -22,6 +23,7 @@ pub enum Basis {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Requirement {
+    TransportPolicyMet,
     CompleteAnalysis,
     PrimaryMalware,
     MatchedRecipientRule,

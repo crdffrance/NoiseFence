@@ -544,12 +544,16 @@ fn validate_retained_builds(
             continue;
         }
         ensure!(
-            matches!(env!("CARGO_PKG_VERSION"), "0.29.0" | "0.29.3" | "0.29.4")
-                && matches!(bundle.build.as_str(), "0.28.0-rc.9" | "0.29.0" | "0.29.3")
-                && retained
-                    .bundles()
-                    .iter()
-                    .any(|old| old.digest == bundle.digest),
+            matches!(
+                env!("CARGO_PKG_VERSION"),
+                "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0"
+            ) && matches!(
+                bundle.build.as_str(),
+                "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4"
+            ) && retained
+                .bundles()
+                .iter()
+                .any(|old| old.digest == bundle.digest),
             "Activation requires matching node builds or a verified retained migration policy"
         );
     }
@@ -602,7 +606,10 @@ mod migration_build_tests {
         let prior_release = journal("0.29.3", 1);
         assert!(validate_retained_builds(&prior_release, &prior_release).is_ok());
         assert!(validate_retained_builds(&journal("0.29.3", 2), &prior_release).is_err());
-        for unsupported_build in ["0.29.1", "0.29.5", "0.30.0"] {
+        let previous_stable = journal("0.29.4", 1);
+        assert!(validate_retained_builds(&previous_stable, &previous_stable).is_ok());
+        assert!(validate_retained_builds(&journal("0.29.4", 2), &previous_stable).is_err());
+        for unsupported_build in ["0.29.1", "0.29.5", "9.9.9"] {
             let unsupported = journal(unsupported_build, 1);
             assert!(validate_retained_builds(&unsupported, &unsupported).is_err());
         }

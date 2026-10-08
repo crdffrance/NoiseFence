@@ -445,6 +445,23 @@ async fn session(
                     address
                 };
                 if let Some(recipient) = cfg.recipient(lookup) {
+                    if crate::traffic::settings(&cfg).is_some()
+                        && crate::traffic::runtime::early(
+                            &state.store,
+                            &cfg,
+                            crate::traffic::runtime::Early {
+                                peer: peer.ip(),
+                                sender: from.as_ref().unwrap().clone(),
+                                recipient: recipient.address.clone(),
+                                policy_hash: crate::traffic::runtime::policy_hash(&cfg),
+                            },
+                        )
+                        .await
+                    {
+                        tracing::info!(peer=%peer,"SMTP deferred before DATA by an existing shared traffic limit");
+                        reply(&mut io, "451 4.7.1 Traffic limit; please retry later\r\n").await?;
+                        continue;
+                    }
                     if cfg.smtp_admission.as_ref().is_some_and(|s| s.enabled) {
                         if admission_reputation.is_none() {
                             admission_reputation = Some(
@@ -640,11 +657,26 @@ async fn session(
                         &helo,
                         &sender,
                         &id,
-                        (&recipients, &early_rbl, activation_epoch.as_ref()),
+                        (
+                            &recipients,
+                            &early_rbl,
+                            activation_epoch.as_ref(),
+                            Some(&state.store),
+                        ),
                     )
                     .await;
                 let result = match result {
                     Ok(mut variants) => {
+                        if variants
+                            .iter()
+                            .any(|v| v.scan.traffic.as_ref().is_some_and(|r| r.defer()))
+                        {
+                            drop(comparison);
+                            tracing::info!(id=%id,"SMTP temporarily deferred by shared traffic limits");
+                            reply(&mut io, "451 4.7.1 Traffic limit; please retry later\r\n")
+                                .await?;
+                            continue;
+                        }
                         for variant in &mut variants {
                             early_rbl.attach(&mut variant.scan);
                             variant.scan.smtp_admission = admission_reports.clone();

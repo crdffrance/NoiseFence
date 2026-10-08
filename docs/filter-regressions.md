@@ -26,7 +26,7 @@ Finite quotas still use exact-window escrow allocations. An authenticated unlimi
 
 Assessment schema 1 adds `supplementary_gaps`. The console distinguishes **Core analysis complete** from **Core complete · limited checks**, listing optional checks whose results were unavailable, stale, omitted or limited. The diagnostic is read-only and does not reinterpret a retained risk decision.
 
-Historical note: earlier header schemas exposed supplementary gaps in `X-NoiseFence-Supplementary-Gaps` and used `X-NoiseFence-Status`. The current version 11 contract groups incomplete checks and supplementary gaps in `X-NoiseFence-Analysis`; see [the current header reference](message-headers.md). An empty gap list describes recorded observers, not every detector that could have been configured. Raw URLs, LLM explanations, credentials and recipient identities are not copied into diagnostic headers.
+Historical note: earlier header schemas exposed supplementary gaps in `X-NoiseFence-Supplementary-Gaps` and used `X-NoiseFence-Status`. The current version 12 contract groups incomplete checks and supplementary gaps in `X-NoiseFence-Analysis`; see [the current header reference](message-headers.md). An empty gap list describes recorded observers, not every detector that could have been configured. Raw URLs, LLM explanations, credentials and recipient identities are not copied into diagnostic headers.
 
 The LLM prompt is `noisefence-classify-7`. Authentication must come from structured gateway observations; the LLM's prose can still contain mistakes and must not replace those observations. New prompt predictions need fresh evaluation.
 

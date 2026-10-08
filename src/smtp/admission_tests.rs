@@ -142,3 +142,117 @@ async fn observation_does_not_sleep_or_change_score_and_records_transport_diagno
     dns.abort();
     let _ = dns.await;
 }
+
+#[tokio::test]
+async fn traffic_actions_are_recipient_scoped_and_never_change_content_scores() {
+    for (action, observe) in [
+        (crate::traffic::Action::Observe, false),
+        (crate::traffic::Action::Defer, false),
+        (crate::traffic::Action::Quarantine, false),
+        (crate::traffic::Action::Quarantine, true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut cfg: Config =
+            toml::from_str(include_str!("../../config/development.toml")).unwrap();
+        cfg.data_dir = root.path().into();
+        cfg.smtp.minimum_free_bytes = 0;
+        cfg.filter.mode = if observe {
+            crate::config::Mode::Observe
+        } else {
+            crate::config::Mode::Enforce
+        };
+        let policy = crate::traffic::Policy {
+            action,
+            sender_limit: 0,
+            domain_limit: 0,
+            recipient_limit: 0,
+            duplicate_limit: 1,
+            ..Default::default()
+        };
+        cfg.smtp_admission = Some(Settings {
+            traffic: Some(Box::new(crate::traffic::Settings {
+                enabled: true,
+                policy: policy.clone(),
+                scopes: std::collections::BTreeMap::from([(
+                    "bob@example.test".into(),
+                    crate::traffic::Policy {
+                        duplicate_limit: 0,
+                        ..policy
+                    },
+                )]),
+                ..Default::default()
+            })),
+            ..Default::default()
+        });
+        let cfg = Arc::new(cfg);
+        let store = Store::open(root.path()).unwrap();
+        let rbl = crate::rbl::Runtime::new(None, None).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let state = State {
+            config: cfg.clone(),
+            store: store.clone(),
+            engine: Arc::new(Engine::new(cfg).unwrap()),
+            processing: Arc::new(Semaphore::new(1)),
+        };
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            session(
+                socket,
+                "8.8.8.8:40000".parse().unwrap(),
+                state,
+                None,
+                None,
+                Arc::new(rbl),
+                Arc::new(crate::recipient_verification::Runtime::default()),
+            )
+            .await
+        });
+        let mut wire: Wire = BufReader::new(Box::new(TcpStream::connect(address).await.unwrap()));
+        assert_eq!(crate::relay::response(&mut wire).await.unwrap().code, 220);
+        command(&mut wire, "EHLO sender.example.test\r\n", 250).await;
+        for n in 0..2 {
+            command(&mut wire, "MAIL FROM:<sender@example.org>\r\n", 250).await;
+            command(&mut wire, "RCPT TO:<alice@example.test>\r\n", 250).await;
+            command(&mut wire, "RCPT TO:<bob@example.test>\r\n", 250).await;
+            command(&mut wire, "DATA\r\n", 354).await;
+            let expected = if n == 1 && action == crate::traffic::Action::Defer && !observe {
+                451
+            } else {
+                250
+            };
+            command(&mut wire,"From: sender@example.org\r\nTo: alice@example.test\r\nSubject: Hello\r\n\r\nIdentical content.\r\n.\r\n",expected).await;
+        }
+        let rows=store.read(|db|Ok(db.prepare("SELECT d.address,d.status,m.scan FROM deliveries d JOIN messages m ON m.id=d.message_id ORDER BY d.id")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)).await.unwrap();
+        assert_eq!(
+            rows.len(),
+            if action == crate::traffic::Action::Defer && !observe {
+                2
+            } else {
+                4
+            }
+        );
+        let scans: Vec<crate::engine::Scan> = rows
+            .iter()
+            .map(|r| serde_json::from_str(&r.2).unwrap())
+            .collect();
+        assert!(scans.iter().all(|s| s.score == scans[0].score));
+        let held = rows
+            .iter()
+            .filter(|r| r.1 == "quarantined")
+            .collect::<Vec<_>>();
+        if action == crate::traffic::Action::Quarantine && !observe {
+            assert_eq!(held.len(), 1);
+            assert_eq!(held[0].0, "alice@example.test");
+        } else {
+            assert!(held.is_empty());
+        }
+        assert!(
+            scans
+                .iter()
+                .all(|s| s.traffic.is_some() && s.traffic_candidates.is_empty())
+        );
+        command(&mut wire, "QUIT\r\n", 221).await;
+        server.await.unwrap().unwrap();
+    }
+}

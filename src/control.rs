@@ -867,6 +867,7 @@ impl Controller {
             snapshot.settings.preferences.enabled,
             "Customization disabled by the administrator."
         );
+        crate::preferences::validate_traffic_edit(&snapshot.config, &scope, preference.as_ref())?;
         let mut settings = snapshot.settings.clone();
         if let Some(p) = preference {
             settings.preferences.mailboxes.insert(scope.clone(), p);
@@ -915,6 +916,7 @@ impl Controller {
             let require_fusion_workers=config.fusion.as_ref().is_some_and(|f| f.family_caps &&
                 (previous.config.fusion.as_ref().is_none_or(|p| !p.family_caps) ||
                  (f.mode==crate::fusion::runtime::Mode::Decision && previous.config.fusion.as_ref().is_none_or(|p| p.mode!=f.mode))));
+            let require_traffic_workers=config.smtp_admission.as_ref().is_some_and(|s|s.traffic.is_some());
             let require_scoped_workers=config.custom_filtering.as_ref().is_some_and(|p|p.ordering==crate::custom_filtering::Ordering::Scoped);
             let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {
@@ -932,13 +934,14 @@ impl Controller {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
                 ensure!(enabled,"Administrator rights revoked.");
                 }
-                if require_partial_workers || require_fusion_workers || require_scoped_workers {
+                if require_partial_workers || require_fusion_workers || require_scoped_workers || require_traffic_workers {
                     let mut query=tx.prepare("SELECT COALESCE(last_seen,0),COALESCE(json_extract(CASE WHEN json_valid(status) THEN status ELSE '{}' END,'$.build'),'') FROM cluster_nodes WHERE enabled=1")?;
                     let nodes=query.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
                     ensure!(nodes.iter().all(|(seen,build)| *seen>=worker_cutoff
                         && (!require_partial_workers || crate::cluster::protocol::supports_partial_actions(build))
                         && (!require_fusion_workers || crate::cluster::protocol::supports_capped_fusion(build))
-                        && (!require_scoped_workers || crate::cluster::protocol::supports_scoped_policy(build))),
+                        && (!require_scoped_workers || crate::cluster::protocol::supports_scoped_policy(build))
+                        && (!require_traffic_workers || build==env!("CARGO_PKG_VERSION"))),
                         "Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions, capped fusion or scoped policy inheritance.");
                 }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;

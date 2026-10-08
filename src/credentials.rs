@@ -20,10 +20,11 @@ impl Snapshot {
         Ok(Self(crate::cluster::protocol::secrets(config)?))
     }
     pub fn from_map(keys: BTreeMap<String, String>) -> Result<Self> {
-        ensure!(keys.len() <= 4, "Too many provider credentials");
+        ensure!(keys.len() <= 5, "Too many provider credentials");
         for (name, key) in &keys {
             ensure!(
-                ["crdf", "virustotal", "scaleway", "spamhaus"].contains(&name.as_str())
+                ["crdf", "virustotal", "scaleway", "spamhaus", "turnstile"]
+                    .contains(&name.as_str())
                     && (16..=256).contains(&key.len())
                     && key.bytes().all(|b| if name == "spamhaus" {
                         b.is_ascii_alphanumeric()
@@ -37,7 +38,8 @@ impl Snapshot {
     }
     pub fn replacing(&self, provider: String, key: Option<String>) -> Result<Self> {
         ensure!(
-            ["crdf", "virustotal", "scaleway", "spamhaus"].contains(&provider.as_str()),
+            ["crdf", "virustotal", "scaleway", "spamhaus", "turnstile"]
+                .contains(&provider.as_str()),
             "Unknown provider"
         );
         let mut next = self.export();
