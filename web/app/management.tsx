@@ -27,6 +27,7 @@ export type RblSettings = {
 };
 export type Detection = { modules: Record<string, Record<string, unknown>> };
 export type Preference = {
+  traffic?:import('./traffic').TrafficPolicy|null;
   profile: Profile | null;
   rules: CustomPolicy['rules'];
 };
@@ -898,7 +899,7 @@ export function ManagedKeys({
   }, [revision]);
   return (
     <section className="management-card management-settings">
-      <h3>Spamhaus keys DQS and Scaleway</h3>
+      <h3>Provider credentials</h3>
       <p>
         Server-side private storage. Keys are never rereaded in the browser, exported or saved in history. CRDF and VirusTotal are configured in &quot;Advanced Protection&quot;.
       </p>
@@ -916,6 +917,7 @@ export function ManagedKeys({
             <option value="spamhaus">
               Spamhaus DQS · {keys.spamhaus ? "configured" : "to be connected"}
             </option>
+            <option value="turnstile">Cloudflare Turnstile · {keys.turnstile ? "configured" : "to be connected"}</option>
             {keys.scaleway_available && (
               <option value="scaleway">
                 Scaleway · {keys.scaleway ? "configured" : "to be connected"}

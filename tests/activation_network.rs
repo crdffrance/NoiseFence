@@ -848,6 +848,7 @@ async fn web_saves_stage_scoped_preferences_and_never_expose_global_proposals() 
             .mailboxes
             .get("alice@example.test"),
         Some(&noisefence::preferences::Preference {
+            traffic: None,
             profile: None,
             rules: vec![]
         })

@@ -407,6 +407,21 @@ impl Bundle {
     /// Build participates in the digest; never rewrite it without recomputing it.
     pub fn for_build(&self, build: &str) -> Result<Self> {
         self.validate()?;
+        let traffic = self
+            .settings
+            .smtp_admission
+            .as_ref()
+            .is_some_and(|s| s.traffic.is_some())
+            || self
+                .settings
+                .preferences
+                .mailboxes
+                .values()
+                .any(|p| p.traffic.is_some());
+        ensure!(
+            !traffic || build == env!("CARGO_PKG_VERSION"),
+            "Upgrade every MX before configuring traffic protection"
+        );
         ensure!(
             self.credential_generation.is_none() || build == env!("CARGO_PKG_VERSION"),
             "Credential-bound policy requires a matching build"
@@ -420,7 +435,7 @@ impl Bundle {
         // rollout. Credential-bound activation above still requires equal builds.
         if matches!(
             env!("CARGO_PKG_VERSION"),
-            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4"
+            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0-dev"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -432,8 +447,10 @@ impl Bundle {
         // same typed shape as rc.9. Preserve that policy when reading/migrating
         // the prior release. The credential-bound check above still forbids
         // activating it on a mixed-version enrolled cluster.
-        if matches!(env!("CARGO_PKG_VERSION"), "0.29.0" | "0.29.3" | "0.29.4")
-            && matches!(build, "0.28.0-rc.9" | "0.29.0" | "0.29.3")
+        if matches!(
+            env!("CARGO_PKG_VERSION"),
+            "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0-dev"
+        ) && matches!(build, "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4")
         {
             let mut bundle = self.clone();
             bundle.build = build.into();

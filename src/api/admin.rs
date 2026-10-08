@@ -639,7 +639,7 @@ async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Val
         user.addresses
     };
     Ok(Json(
-        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
+        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"personal_traffic":crate::traffic::settings(&s.config).is_some_and(|s|s.allow_personal),"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
     ))
 }
 async fn preference_activation(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
@@ -740,12 +740,12 @@ async fn managed_keys(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Va
                 || if name == "spamhaus" {
                     c.base.filter.spamhaus_key_env.is_some()
                 } else {
-                    c.base.llm.is_some()
+                    name == "scaleway" && c.base.llm.is_some()
                 }
         }
     };
     Ok(Json(
-        json!({"spamhaus":present("spamhaus"),"scaleway":present("scaleway"),"scaleway_available":c.base.llm.is_some()}),
+        json!({"spamhaus":present("spamhaus"),"scaleway":present("scaleway"),"scaleway_available":c.base.llm.is_some(),"turnstile":present("turnstile")}),
     ))
 }
 
@@ -762,8 +762,10 @@ async fn save_managed_key(
     Json(body): Json<ManagedKey>,
 ) -> ApiResult<Json<Value>> {
     let user = administrator(&app, &h, true).await?;
-    if !matches!(body.provider.as_str(), "spamhaus" | "scaleway")
-        || !(16..=256).contains(&body.key.len())
+    if !matches!(
+        body.provider.as_str(),
+        "spamhaus" | "scaleway" | "turnstile"
+    ) || !(16..=256).contains(&body.key.len())
         || !body.key.bytes().all(|b| {
             if body.provider == "spamhaus" {
                 b.is_ascii_alphanumeric()

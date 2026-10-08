@@ -32,6 +32,8 @@ impl Default for Settings {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Preference {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic: Option<crate::traffic::Policy>,
     pub profile: Option<Profile>,
     pub rules: Vec<Rule>,
 }
@@ -87,6 +89,14 @@ impl Settings {
                     || cfg.recipient(scope).is_some_and(|r| r.address == *scope)),
                 "Unknown personal scope."
             );
+            if let Some(traffic) = &p.traffic {
+                traffic.validate()?;
+                ensure!(
+                    traffic.action != crate::traffic::Action::Quarantine
+                        || self.allowed_actions.contains(&Action::Quarantine),
+                    "Personal quarantine action is not allowed"
+                );
+            }
             ensure!(p.rules.len() <= self.max_rules, "Too many personal rules.");
             for r in &p.rules {
                 ensure!(
@@ -249,4 +259,22 @@ impl Settings {
         }
         Cow::Owned(combined)
     }
+}
+
+/// Preserve dormant settings when an administrator disables the feature, while
+/// rejecting new delegated edits without current authorization.
+pub fn validate_traffic_edit(cfg: &Config, scope: &str, next: Option<&Preference>) -> Result<()> {
+    let old = cfg
+        .preferences
+        .mailboxes
+        .get(scope)
+        .and_then(|p| p.traffic.as_ref());
+    let next = next.and_then(|p| p.traffic.as_ref());
+    ensure!(
+        next.is_none()
+            || next == old
+            || crate::traffic::settings(cfg).is_some_and(|s| s.allow_personal),
+        "Personal traffic controls are disabled"
+    );
+    Ok(())
 }

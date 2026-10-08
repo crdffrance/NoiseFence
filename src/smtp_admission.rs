@@ -30,6 +30,8 @@ pub enum Mode {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic: Option<Box<crate::traffic::Settings>>,
     pub greylisting: bool,
     pub minimum_providers: usize,
     pub allow_networks: Vec<String>,
@@ -52,6 +54,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            traffic: None,
             greylisting: true,
             minimum_providers: 2,
             allow_networks: Vec::new(),
@@ -71,6 +74,9 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
+        if let Some(traffic) = &self.traffic {
+            traffic.validate()?;
+        }
         ensure!(
             (2..=8).contains(&self.minimum_providers),
             "Admission requires 2..8 independent signals"

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.0-dev — Shared traffic controls (unreleased)
+
+- Add opt-in, per-recipient shared sender/domain/recipient/exact-body limits, with observation, temporary SMTP deferral and quarantine independently of content verdicts.
+- Add scoped sender verification with expiring capability links, server-verified Turnstile CAPTCHA, durable-acceptance gating, invitation quotas and recipient-bound remembered grants. Existing security quarantines cannot be released by verification.
+- Expose administrator and delegated mailbox settings, private CAPTCHA credential activation and per-message transport details. Keep controls disabled by default and retain content observation safeguards.
+- Extend the signed header inventory to schema 12 with bounded `X-NoiseFence-Traffic` diagnostics; require compatible MX builds before activating new policy fields.
+- Document configuration, outbound relay requirements, privacy, bounded state and coordinator recovery limitations.
+
 ## 0.29.4 — Filtering conflict safeguards
 
 - Preserve verified 0.29.0/0.29.3 cluster policy bundles during the coordinated upgrade; keep new credential-bound activation restricted to matching node builds.

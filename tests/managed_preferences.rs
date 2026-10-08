@@ -40,6 +40,7 @@ fn personal_rules_are_recipient_bound_with_admin_malware_and_observation_guards(
     cfg.preferences.mailboxes.insert(
         "alice@example.test".into(),
         Preference {
+            traffic: None,
             profile: None,
             rules: vec![rule(
                 "alice@example.test",
@@ -112,6 +113,7 @@ fn personal_scope_actions_and_proton_requirements_cannot_be_bypassed() {
     let root = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(root.path())).clone();
     let mut preference = Preference {
+        traffic: None,
         profile: None,
         rules: vec![rule("*", Category::Spam, Action::Tag)],
     };
@@ -154,6 +156,7 @@ fn exact_mailbox_overrides_domain_and_disabled_self_service_inherits() {
     cfg.preferences.mailboxes.insert(
         "*@example.test".into(),
         Preference {
+            traffic: None,
             profile: None,
             rules: vec![rule("*@example.test", Category::Spam, Action::Quarantine)],
         },
@@ -161,6 +164,7 @@ fn exact_mailbox_overrides_domain_and_disabled_self_service_inherits() {
     cfg.preferences.mailboxes.insert(
         "alice@example.test".into(),
         Preference {
+            traffic: None,
             profile: None,
             rules: vec![],
         },
@@ -195,6 +199,7 @@ fn case_distinct_mailboxes_do_not_share_personal_preferences() {
     cfg.preferences.mailboxes.insert(
         "Alice@example.test".into(),
         Preference {
+            traffic: None,
             profile: None,
             rules: vec![rule(
                 "Alice@example.test",
@@ -250,6 +255,7 @@ fn inherit_keeps_the_administrator_exact_mailbox_threshold_and_follows_later_upd
     cfg.preferences.mailboxes.insert(
         recipient.address.clone(),
         Preference {
+            traffic: None,
             profile: Some(profile),
             rules: vec![],
         },

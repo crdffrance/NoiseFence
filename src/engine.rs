@@ -33,6 +33,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+struct ProcessingContext<'a> {
+    source: crate::evidence::Source,
+    scopes: &'a [String],
+    recipients: &'a [crate::config::Recipient],
+    early_rbl: Option<&'a crate::rbl::Report>,
+    epoch: Option<&'a crate::cluster::activation::Epoch>,
+    store: Option<&'a crate::store::Store>,
+}
 pub const FEATURE_COUNT: usize = 16_384;
 fn rsa_key(pem: &str) -> Result<RsaKey<Sha256>> {
     let der = rustls_pemfile::private_key(&mut std::io::BufReader::new(pem.as_bytes()))?
@@ -81,6 +89,10 @@ pub struct SemanticResult {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic: Option<crate::traffic::Report>,
+    #[serde(skip)]
+    pub traffic_candidates: crate::traffic::runtime::Reports,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activation_epoch: Option<crate::cluster::activation::Epoch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1261,13 +1273,14 @@ impl Engine {
                 helo,
                 sender,
                 id,
-                (
-                    crate::evidence::Source::SuppliedEnvelope,
-                    &[],
-                    &[],
-                    None,
-                    None,
-                ),
+                ProcessingContext {
+                    source: crate::evidence::Source::SuppliedEnvelope,
+                    scopes: &[],
+                    recipients: &[],
+                    early_rbl: None,
+                    epoch: None,
+                    store: None,
+                },
             )
             .await?;
         let variant = variants.remove(0);
@@ -1284,9 +1297,10 @@ impl Engine {
             &[crate::config::Recipient],
             &crate::rbl::Report,
             Option<&crate::cluster::activation::Epoch>,
+            Option<&crate::store::Store>,
         ),
     ) -> Result<Vec<crate::store::QueueVariant>> {
-        let (recipients, early_rbl, epoch) = context;
+        let (recipients, early_rbl, epoch, store) = context;
         let scopes: Vec<_> = recipients
             .iter()
             .filter_map(|r| {
@@ -1303,13 +1317,14 @@ impl Engine {
             helo,
             sender,
             id,
-            (
-                crate::evidence::Source::SmtpSession,
-                &scopes,
+            ProcessingContext {
+                source: crate::evidence::Source::SmtpSession,
+                scopes: &scopes,
                 recipients,
-                Some(early_rbl),
+                early_rbl: Some(early_rbl),
                 epoch,
-            ),
+                store,
+            },
         )
         .await
     }
@@ -1320,20 +1335,14 @@ impl Engine {
         helo: &str,
         sender: &str,
         id: &str,
-        context: (
-            crate::evidence::Source,
-            &[String],
-            &[crate::config::Recipient],
-            Option<&crate::rbl::Report>,
-            Option<&crate::cluster::activation::Epoch>,
-        ),
+        context: ProcessingContext<'_>,
     ) -> Result<Vec<crate::store::QueueVariant>> {
         let started = Instant::now();
         let mut scan = self.extract(raw);
-        if let Some(epoch) = context.4 {
+        if let Some(epoch) = context.epoch {
             epoch.validate()?;
         }
-        scan.activation_epoch = context.4.cloned();
+        scan.activation_epoch = context.epoch.cloned();
         scan.features_complete.get_or_insert(scan.complete);
         if let Some(settings) = &self.config.mailing {
             scan.mailing = Some(crate::mailing::inspect(
@@ -1342,7 +1351,7 @@ impl Engine {
                 self.config.filter.max_analysis_bytes,
             ));
         }
-        self.start_evidence(&mut scan, context.0);
+        self.start_evidence(&mut scan, context.source);
         let headers = message::fields(raw)?.0;
         let (semantic, antivirus, signatures, vision, native_filter) = tokio::join!(
             async {
@@ -1374,7 +1383,7 @@ impl Engine {
             },
             async {
                 match &self.native_filter {
-                    Some(runtime) => Some(runtime.inspect(raw, context.1).await),
+                    Some(runtime) => Some(runtime.inspect(raw, context.scopes).await),
                     None => None,
                 }
             }
@@ -1501,19 +1510,30 @@ impl Engine {
         // Context is attached only after extraction succeeds.
         let opaque = scan.message_context.as_ref().is_some_and(|c| c.encrypted);
         if (!scan.features_complete.unwrap_or(scan.complete) && !opaque) || excessive_signatures {
+            if let Some(store) = context.store {
+                crate::traffic::runtime::prepare(
+                    store,
+                    &self.config,
+                    raw,
+                    &mut scan,
+                    (ip, sender, id, context.recipients),
+                )
+                .await;
+            }
             return self.finish_unchecked(
                 raw,
                 scan,
                 ip,
                 id,
                 started,
-                (sender, context.2, context.3),
+                (sender, context.recipients, context.early_rbl),
             );
         }
         // Slots outlive the cancellable join: a completed independent check
         // must survive another check exhausting the enclosing deadline.
         let mut completed_policy = None;
         let mut completed_llm = None;
+        let mut content_ready = false;
         let work = async {
             let authenticated =
                 AuthenticatedMessage::parse(raw).context("authentication parsing failed")?;
@@ -1667,8 +1687,8 @@ impl Engine {
                     &self.config.data_dir,
                     raw,
                     &scan,
-                    context.1,
-                    context.2,
+                    context.scopes,
+                    context.recipients,
                     &targets,
                 )
                 .await,
@@ -1680,7 +1700,7 @@ impl Engine {
                     .remember(
                         &self.config.data_dir,
                         observation,
-                        context.1,
+                        context.scopes,
                         scan.raw_sha256.as_deref().unwrap_or(""),
                     )
                     .await;
@@ -1729,7 +1749,7 @@ impl Engine {
                         (&self.protection, &self.config.protection)
                     {
                         runtime
-                            .observe(&mut scan, targets, &settings.policy, context.1)
+                            .observe(&mut scan, targets, &settings.policy, context.scopes)
                             .await;
                     }
                 },
@@ -1752,21 +1772,42 @@ impl Engine {
                 self.score(&mut scan);
             }
             let Some((arc, results)) = authenticated_results else {
+                if let Some(store) = context.store {
+                    crate::traffic::runtime::prepare(
+                        store,
+                        &self.config,
+                        raw,
+                        &mut scan,
+                        (ip, sender, id, context.recipients),
+                    )
+                    .await;
+                }
                 return Ok(self.finish_unchecked(
                     raw,
                     scan.clone(),
                     ip,
                     id,
                     started,
-                    (sender, context.2, context.3),
+                    (sender, context.recipients, context.early_rbl),
                 ));
             };
             self.decide(&mut scan);
+            content_ready = true;
+            if let Some(store) = context.store {
+                crate::traffic::runtime::prepare(
+                    store,
+                    &self.config,
+                    raw,
+                    &mut scan,
+                    (ip, sender, id, context.recipients),
+                )
+                .await;
+            }
             // Header timing is the completed analysis, before wire rendering/ARC.
             scan.subject_rewrite_ready = Some(arc.can_be_sealed() && self.arc_key.is_some());
             // The stored elapsed time below additionally includes these operations.
             scan.elapsed_ms = started.elapsed().as_millis() as u64;
-            if let Some(report) = context.3 {
+            if let Some(report) = context.early_rbl {
                 report.attach(&mut scan);
             }
             Ok::<_, anyhow::Error>(self.variants(
@@ -1774,7 +1815,7 @@ impl Engine {
                 &scan,
                 sender,
                 id,
-                context.2,
+                context.recipients,
                 |scan, variant_id| {
                     let subject_tag = if scan
                         .action
@@ -1805,7 +1846,7 @@ impl Engine {
                         subject_tag,
                         &format!(
                             "{}{}",
-                            self.headers(ip, variant_id, scan, context.3),
+                            self.headers(ip, variant_id, scan, context.early_rbl),
                             results.to_header()
                         ),
                     )?;
@@ -1839,15 +1880,34 @@ impl Engine {
             }
             _ => {
                 Self::retain_checks(&mut scan, &mut completed_policy, &mut completed_llm);
-                scan.complete = false;
+                if !content_ready {
+                    scan.complete = false;
+                    scan.reasons.push(Signal {
+                        id: "checks_unavailable".into(),
+                        detail: "Checks incomplete or timed out".into(),
+                        weight: 0.0,
+                    });
+                }
                 scan.tagged = false;
                 scan.pub_tagged = false;
-                scan.reasons.push(Signal {
-                    id: "checks_unavailable".into(),
-                    detail: "Checks incomplete or timed out".into(),
-                    weight: 0.0,
-                });
-                self.finish_unchecked(raw, scan, ip, id, started, (sender, context.2, context.3))
+                if let Some(store) = context.store {
+                    crate::traffic::runtime::prepare(
+                        store,
+                        &self.config,
+                        raw,
+                        &mut scan,
+                        (ip, sender, id, context.recipients),
+                    )
+                    .await;
+                }
+                self.finish_unchecked(
+                    raw,
+                    scan,
+                    ip,
+                    id,
+                    started,
+                    (sender, context.recipients, context.early_rbl),
+                )
             }
         }
     }
@@ -1901,7 +1961,9 @@ impl Engine {
         crate::decision_record::record_analysis(&mut base, &self.config);
         base.action = Some(crate::actions::evaluate(scan, &self.config));
         let recorded_at = crate::now();
-        if (self.config.custom_filtering.is_some() || !self.config.preferences.mailboxes.is_empty())
+        if (self.config.custom_filtering.is_some()
+            || !self.config.preferences.mailboxes.is_empty()
+            || !scan.traffic_candidates.is_empty())
             && !recipients.is_empty()
         {
             let facts = crate::custom_filtering::Facts::message(
@@ -1927,7 +1989,7 @@ impl Engine {
                 };
                 let policy = effective.as_ref();
                 let prepared = own_prepared.as_ref().unwrap_or(&common_prepared);
-                let assessment = crate::custom_filtering::assess_prepared(
+                let mut assessment = crate::custom_filtering::assess_prepared(
                     policy,
                     &self.config,
                     scan,
@@ -1936,6 +1998,24 @@ impl Engine {
                     recorded_at,
                 );
                 let mut s = base.clone();
+                s.traffic_candidates.clear();
+                s.traffic = scan.traffic_candidates.get(&recipient.address).cloned();
+                if let Some(report) = &mut s.traffic
+                    && report.verification_id.is_some()
+                    && assessment.category != crate::mailing::Category::Legitimate
+                {
+                    report.verification_id = None;
+                    report.enforced = false;
+                    report.status = "verification_ineligible".into();
+                }
+                if let Some(report) = &s.traffic {
+                    // An existing security/user quarantine cannot be released by CAPTCHA.
+                    if assessment.action.effective == crate::actions::Action::Quarantine {
+                        s.traffic.as_mut().unwrap().verification_id = None;
+                    } else {
+                        report.apply(&mut assessment.action);
+                    }
+                }
                 s.delivery_classification = Some(assessment.category);
                 s.transaction_id = Some(id.into());
                 s.action = Some(assessment.action.clone());
@@ -1946,12 +2026,15 @@ impl Engine {
                     recorded_at,
                 );
                 budget.metadata(&(recipient, &assessment))?;
-                let key = s
+                let mut key = s
                     .recipient_decision
                     .as_ref()
                     .expect("recorded recipient")
                     .policy_sha256
                     .clone();
+                if let Some(report) = &s.traffic {
+                    key.push_str(&message::digest(&serde_json::to_vec(report)?));
+                }
                 if let Some(index) = groups.get(&key).copied().filter(|i| {
                     variants[*i].recipients.len() < crate::queue_body::MAX_RECIPIENTS_PER_VARIANT
                 }) {

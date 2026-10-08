@@ -104,6 +104,8 @@ pub struct VisibleMail {
     pub semantic: VisibleSemantic,
     pub smtp_policy: crate::smtp_policy::PolicyResult,
     pub early_rbl: Option<crate::rbl::Report>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic: Option<crate::traffic::Report>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub smtp_admission: Vec<crate::smtp_admission::Decision>,
     pub adaptive: Option<crate::adaptive::Report>,
@@ -181,6 +183,7 @@ impl MailMetadata {
             semantic: s.semantic.into(),
             smtp_policy: s.smtp_policy,
             early_rbl: s.early_rbl,
+            traffic: s.traffic,
             smtp_admission: s.smtp_admission,
             vision: s.vision,
             protection: s.protection,
@@ -347,6 +350,8 @@ impl Store {
         })?
         .initialize(&mut db)?;
         db.execute_batch(crate::smtp_admission::runtime::SCHEMA)?;
+        db.execute_batch(crate::traffic::runtime::SCHEMA)?;
+        db.execute_batch(crate::traffic::verification::SCHEMA)?;
         Ok(Self {
             management: central.map(Arc::new),
             activation,

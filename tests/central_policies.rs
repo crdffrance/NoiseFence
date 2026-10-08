@@ -434,6 +434,7 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
     personal.settings.preferences.mailboxes.insert(
         "alice@example.test".into(),
         noisefence::preferences::Preference {
+            traffic: None,
             profile: None,
             rules: Vec::new(),
         },

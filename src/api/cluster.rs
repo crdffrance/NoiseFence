@@ -24,6 +24,18 @@ pub(super) fn routes(app: App) -> Router<App> {
             management_guard,
         ));
     let nodes = Router::new()
+        .route(
+            "/cluster/v1/traffic/early",
+            post(traffic_early).layer(DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/cluster/v1/traffic/check",
+            post(traffic_check).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/cluster/v1/traffic/arm",
+            post(traffic_arm).layer(DefaultBodyLimit::max(16384)),
+        )
         .route("/cluster/v1/sync", post(sync))
         .route("/cluster/v2/sync", post(sync_v2))
         .merge(management)
@@ -967,5 +979,42 @@ async fn admission(
                 request,
             )
             .await,
+    ))
+}
+
+async fn traffic_check(
+    State(app): State<App>,
+    Json(body): Json<crate::traffic::runtime::Request>,
+) -> ApiResult<Json<crate::traffic::runtime::Reports>> {
+    let cfg = coordinator(&app)?.snapshot().config.clone();
+    Ok(Json(
+        crate::traffic::runtime::local(&app.store, &cfg, body).await?,
+    ))
+}
+async fn traffic_arm(
+    State(app): State<App>,
+    Json(body): Json<crate::traffic::verification::Arm>,
+) -> ApiResult<Json<std::collections::BTreeMap<String, bool>>> {
+    let cfg = coordinator(&app)?.snapshot().config.clone();
+    if !crate::traffic::settings(&cfg).is_some_and(|s| s.verification.enabled)
+        || cfg.filter.mode == crate::config::Mode::Observe
+    {
+        return Err(Error(
+            StatusCode::CONFLICT,
+            "Sender verification disabled".into(),
+        ));
+    }
+    Ok(Json(
+        crate::traffic::verification::arm(&app.store, body).await?,
+    ))
+}
+
+async fn traffic_early(
+    State(app): State<App>,
+    Json(body): Json<crate::traffic::runtime::Early>,
+) -> ApiResult<Json<bool>> {
+    let cfg = coordinator(&app)?.snapshot().config.clone();
+    Ok(Json(
+        crate::traffic::runtime::early_local(&app.store, &cfg, body).await?,
     ))
 }

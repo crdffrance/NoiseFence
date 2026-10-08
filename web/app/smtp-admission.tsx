@@ -1,7 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from './client';
+import {TrafficEditor,type TrafficSettings} from './traffic';
 export type AdmissionSettings = {
+  traffic?:TrafficSettings|null;
   enabled: boolean;
   mode: 'observe' | 'enforce';
   greylisting: boolean;
@@ -112,6 +114,7 @@ export function AdmissionEditor({
   );
   return (
     <section className="management-settings">
+      <TrafficEditor value={value.traffic} onChange={traffic=>onChange({...value,traffic})}/>
       <div className="management-card">
         <h2>Greylisting and transport protection</h2>
         <p>

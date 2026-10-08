@@ -544,12 +544,16 @@ fn validate_retained_builds(
             continue;
         }
         ensure!(
-            matches!(env!("CARGO_PKG_VERSION"), "0.29.0" | "0.29.3" | "0.29.4")
-                && matches!(bundle.build.as_str(), "0.28.0-rc.9" | "0.29.0" | "0.29.3")
-                && retained
-                    .bundles()
-                    .iter()
-                    .any(|old| old.digest == bundle.digest),
+            matches!(
+                env!("CARGO_PKG_VERSION"),
+                "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0-dev"
+            ) && matches!(
+                bundle.build.as_str(),
+                "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4"
+            ) && retained
+                .bundles()
+                .iter()
+                .any(|old| old.digest == bundle.digest),
             "Activation requires matching node builds or a verified retained migration policy"
         );
     }

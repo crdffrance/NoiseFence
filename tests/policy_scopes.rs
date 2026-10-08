@@ -78,6 +78,7 @@ fn scope_profiles_inherit_through_personal_and_admin_without_losing_domain_rules
     cfg.preferences.mailboxes.insert(
         "*@example.test".into(),
         Preference {
+            traffic: None,
             profile: Some(profile("personal-domain", None)),
             rules: vec![rule(
                 "domain-rule",
@@ -90,6 +91,7 @@ fn scope_profiles_inherit_through_personal_and_admin_without_losing_domain_rules
     cfg.preferences.mailboxes.insert(
         recipient.address.clone(),
         Preference {
+            traffic: None,
             profile: Some(profile("personal-mailbox", None)),
             rules: vec![],
         },
@@ -164,6 +166,7 @@ fn scoped_rules_have_stable_authority_specificity_stop_and_missing_fact_traces()
     cfg.preferences.mailboxes.insert(
         recipient.address.clone(),
         Preference {
+            traffic: None,
             profile: None,
             rules: vec![rule(
                 "user",
@@ -269,6 +272,7 @@ fn origins_cannot_be_supplied_by_clients_and_legacy_rule_ids_cannot_collide() {
     cfg.preferences.mailboxes.insert(
         recipient.address.clone(),
         Preference {
+            traffic: None,
             profile: None,
             rules: vec![rule(
                 "mailbox-0",
@@ -340,6 +344,7 @@ fn personal_ties_use_original_ids_and_canonical_score_rules_match_the_display() 
         cfg.preferences.mailboxes.insert(
             recipient.address.clone(),
             Preference {
+                traffic: None,
                 profile: None,
                 rules: rules.clone(),
             },

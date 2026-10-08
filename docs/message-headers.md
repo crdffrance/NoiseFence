@@ -1,16 +1,16 @@
 # Message headers
 
-NoiseFence adds a versioned set of diagnostic headers to newly prepared messages. The current wire contract is **version 11**, identified by `X-NoiseFence-Header-Version`. Every generated NoiseFence header is included in the ARC signing inventory when sealing succeeds.
+NoiseFence adds a versioned set of diagnostic headers to newly prepared messages. The current wire contract is **version 12**, identified by `X-NoiseFence-Header-Version`. Every generated NoiseFence header is included in the ARC signing inventory when sealing succeeds.
 
 The headers describe the analysis and policy recorded when the message was accepted. They do not prove that the destination placed the message in an inbox, and a risk index is not a spam probability. Rspamd is an independent comparison and never supplies or changes the NoiseFence verdict.
 
 ## Header catalog
 
-The contract keeps the same 25 fields in a stable order. Details that describe the same subject are grouped into a small number of semicolon-delimited fields; values are bounded ASCII tokens and may be folded across lines as permitted by RFC 5322.
+The contract contains 26 fields in a stable order. Details that describe the same subject are grouped into a small number of semicolon-delimited fields; values are bounded ASCII tokens and may be folded across lines as permitted by RFC 5322.
 
 | Header | Meaning |
 | --- | --- |
-| `X-NoiseFence-Header-Version` | Wire schema version. Current value: `11`. |
+| `X-NoiseFence-Header-Version` | Wire schema version. Current value: `12`. |
 | `X-NoiseFence-Id` | Queue/message identifier. It is not an authorization token. |
 | `X-NoiseFence-Version` | NoiseFence software version. |
 | `X-NoiseFence-Verdict` | User-facing class: `spam`, `ham` or `pub`. Phishing and malware map to `spam`. |
@@ -35,13 +35,14 @@ The contract keeps the same 25 fields in a stable order. Details that describe t
 | `X-NoiseFence-Reputation` | CRDF and VirusTotal status/count/cache/failure summaries. |
 | `X-NoiseFence-RBL` | Early SMTP admission checks, listing counts, unavailable/skipped counts and the admission action. |
 | `X-NoiseFence-Native` | Native engine state, mode, delivery effect, calibration, duration and bounded symbol ledger. |
+| `X-NoiseFence-Traffic` | Traffic status, transport action and enforcement; `not_recorded` when absent. No content score or private verification token. |
 
 Grouped headers use simple `key=value;` atoms. Lists use commas. Consumers should parse field names case-insensitively, unfold legal header continuations, and ignore unknown keys so additive details can be introduced without renaming the wire contract. Do not parse the folded display lines as independent fields.
 
 ## Example
 
 ```text
-X-NoiseFence-Header-Version: 11
+X-NoiseFence-Header-Version: 12
 X-NoiseFence-Id: 58a05c8a-413e-474a-a4c0-6898ffa10e2e
 X-NoiseFence-Verdict: spam
 X-NoiseFence-Classification: phishing
@@ -75,3 +76,5 @@ The values above are illustrative. In particular, the message identifier, activa
 - The action describes the gateway's recorded policy, not a later release from quarantine or destination inbox placement. SMTP can retry after a lost final acknowledgement, so exactly-once delivery is not guaranteed.
 
 See [filter policy](filter-policy.md), [SMTP diagnostics](smtp-diagnostics.md), [Proton validation](proton-validation.md), [RFC 5322](https://www.rfc-editor.org/rfc/rfc5322.html#section-2.2.3) and [RFC 8617 (ARC)](https://www.rfc-editor.org/rfc/rfc8617.html).
+
+`X-NoiseFence-Traffic` (schema 12) reports `status`, transport `action` and `enforced`, or `not_recorded` for messages without traffic diagnostics. It never includes a challenge token, recipient address or content score. Historical schema 11 messages remain valid history.
