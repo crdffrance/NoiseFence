@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased — Filtering conflict safeguards
+## 0.29.4 — Filtering conflict safeguards
+
+- Preserve verified 0.29.0/0.29.3 cluster policy bundles during the coordinated upgrade; keep new credential-bound activation restricted to matching node builds.
 
 - Preserve authenticated, grounded benign conflicts when resolving an uncalibrated content score. Keep the recorded index, malware priority, threat exclusions and independent Rspamd comparison.
 - Explain the conflict guard consistently in the console and show LLM pricing expiry before and after suspension, without renewing dates or enabling external analysis.
