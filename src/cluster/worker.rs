@@ -546,7 +546,7 @@ fn validate_retained_builds(
         ensure!(
             matches!(
                 env!("CARGO_PKG_VERSION"),
-                "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0-dev"
+                "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0"
             ) && matches!(
                 bundle.build.as_str(),
                 "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4"

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.30.0-dev — Shared traffic controls (unreleased)
+## 0.30.0 — Shared traffic controls
 
 - Add opt-in, per-recipient shared sender/domain/recipient/exact-body limits, with observation, temporary SMTP deferral and quarantine independently of content verdicts.
 - Add scoped sender verification with expiring capability links, server-verified Turnstile CAPTCHA, durable-acceptance gating, invitation quotas and recipient-bound remembered grants. Existing security quarantines cannot be released by verification.
