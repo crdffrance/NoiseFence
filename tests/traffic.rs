@@ -410,3 +410,269 @@ fn result_cache_is_bounded_and_capacity_failure_rolls_back_counters() {
         0
     );
 }
+
+#[test]
+fn local_captcha_needs_no_provider_secret_and_legacy_provider_shape_is_preserved() {
+    let (_root, mut cfg, mut db) = setup();
+    let traffic = cfg
+        .smtp_admission
+        .as_mut()
+        .unwrap()
+        .traffic
+        .as_mut()
+        .unwrap();
+    let legacy = serde_json::to_value(&traffic.verification).unwrap();
+    assert!(legacy.get("captcha_provider").is_none());
+    let restored: verification::Settings = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(serde_json::to_value(restored).unwrap(), legacy);
+    traffic.policy.verify_new_senders = true;
+    traffic.verification = verification::Settings {
+        enabled: true,
+        captcha_provider: verification::CaptchaProvider::SelfHosted,
+        public_origin: "https://mx.example.test".into(),
+        notification_from: "verify@example.test".into(),
+        relay_hosts: vec!["relay.example.test:25".into()],
+        ..Default::default()
+    };
+    traffic.verification.validate().unwrap();
+    assert!(cfg.provider_credentials.is_none());
+    let mut req = request(&cfg);
+    req.authenticated = true;
+    req.verification_eligible = true;
+    assert!(report(&mut db, &cfg, &req, 100).hold());
+    cfg.filter.mode = Mode::Observe;
+    let mut req = request(&cfg);
+    req.authenticated = true;
+    req.verification_eligible = true;
+    assert!(!report(&mut db, &cfg, &req, 101).hold());
+}
+
+#[tokio::test]
+async fn self_hosted_captcha_api_enforces_origin_expiry_one_attempt_and_scoped_grants() {
+    use axum::{
+        body::Body,
+        http::{Request as HttpRequest, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+    async fn post(
+        app: &axum::Router,
+        path: &str,
+        value: serde_json::Value,
+        origin: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::post(format!("/api/v1/sender-verification/{path}"))
+                    .header("Content-Type", "application/json")
+                    .header("Origin", origin)
+                    .body(Body::from(value.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null),
+        )
+    }
+    let (root, mut cfg, _) = setup();
+    cfg.web.public_origin = "https://mx.example.test".into();
+    let origin = cfg.web.public_origin.clone();
+    let s = &mut cfg
+        .smtp_admission
+        .as_mut()
+        .unwrap()
+        .traffic
+        .as_mut()
+        .unwrap()
+        .verification;
+    s.enabled = true;
+    s.captcha_provider = verification::CaptchaProvider::SelfHosted;
+    s.public_origin = origin.clone();
+    s.notification_from = "verify@example.test".into();
+    s.relay_hosts = vec!["relay.example.test".into()];
+    let store = noisefence::store::Store::open(root.path()).unwrap();
+    let (id,token)=store.run(|db|{
+        let id=uuid::Uuid::new_v4().to_string();let secret=vec![42u8;32];
+        db.execute("INSERT INTO sender_verification_key_v1 VALUES(1,?1)",[secret.as_slice()])?;
+        db.execute("INSERT INTO sender_verification_v1(id,sender,recipient,created,expires,armed) VALUES(?1,'sender@example.org','alice@example.test',?2,?3,1)",params![id,noisefence::now(),noisefence::now()+3600])?;
+        let mac=ring::hmac::sign(&ring::hmac::Key::new(ring::hmac::HMAC_SHA256,&secret),id.as_bytes());
+        Ok((id.clone(),format!("{id}.{}",hex::encode(mac.as_ref()))))
+    }).await.unwrap();
+    let app = noisefence::api::router(std::sync::Arc::new(cfg.clone()), store.clone()).unwrap();
+    let page = app
+        .clone()
+        .oneshot(
+            HttpRequest::get("/verify-sender")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csp = page.headers()["content-security-policy"].to_str().unwrap();
+    assert!(!csp.contains("cloudflare") && !csp.contains("script-src 'self' 'unsafe-inline'"));
+    assert_eq!(page.headers()["cache-control"], "no-store");
+    assert_eq!(
+        post(
+            &app,
+            "challenge",
+            serde_json::json!({"token":token}),
+            "https://attacker.test"
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(
+            &app,
+            "challenge",
+            serde_json::json!({"token":"invalid"}),
+            &origin
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        post(&app, "info", serde_json::json!({"token":token}), &origin)
+            .await
+            .1["provider"],
+        "self_hosted"
+    );
+    let (status, c) = post(
+        &app,
+        "challenge",
+        serde_json::json!({"token":token}),
+        &origin,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        c["image"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,")
+    );
+    assert!(c.get("answer").is_none());
+    let incorrect = serde_json::json!({"id":c["id"],"answer":"!!!!!!"}).to_string();
+    assert_eq!(
+        post(
+            &app,
+            "confirm",
+            serde_json::json!({"token":token,"captcha":incorrect}),
+            &origin
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    store
+        .run(|db| {
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM sender_captcha_v1", [], |r| r
+                    .get::<_, i64>(0))?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let (_, c) = post(
+        &app,
+        "challenge",
+        serde_json::json!({"token":token}),
+        &origin,
+    )
+    .await;
+    let challenge_id = c["id"].as_str().unwrap().to_string();
+    let ticket = id.clone();
+    let key = challenge_id.clone();
+    store
+        .run(move |db| {
+            let message = format!("noisefence/local-captcha/v1\0{ticket}\0{key}\0AC234Y");
+            let mac = ring::hmac::sign(
+                &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &[42; 32]),
+                message.as_bytes(),
+            );
+            db.execute(
+                "UPDATE sender_captcha_v1 SET answer_mac=?2 WHERE id=?1",
+                params![key, mac.as_ref()],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let correct = serde_json::json!({"id":challenge_id,"answer":"ac234y"}).to_string();
+    assert_eq!(
+        post(
+            &app,
+            "confirm",
+            serde_json::json!({"token":token,"captcha":correct}),
+            &origin
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(
+            &app,
+            "confirm",
+            serde_json::json!({"token":token,"captcha":correct}),
+            &origin
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        post(
+            &app,
+            "challenge",
+            serde_json::json!({"token":token}),
+            &origin
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    store
+        .run(move |db| {
+            assert!(db.query_row(
+                "SELECT verified IS NOT NULL FROM sender_verification_v1 WHERE id=?1",
+                [id],
+                |r| r.get::<_, bool>(0)
+            )?);
+            let grants: Vec<(String, String)> = db
+                .prepare("SELECT sender,recipient FROM sender_verification_grants_v1")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            assert_eq!(
+                grants,
+                vec![("sender@example.org".into(), "alice@example.test".into())]
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+    cfg.filter.mode = Mode::Observe;
+    let observed = noisefence::api::router(std::sync::Arc::new(cfg), store).unwrap();
+    for endpoint in ["info", "challenge", "confirm"] {
+        assert_eq!(
+            post(
+                &observed,
+                endpoint,
+                serde_json::json!({"token":token,"captcha":correct}),
+                &origin
+            )
+            .await
+            .0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+}

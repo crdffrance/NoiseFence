@@ -435,7 +435,7 @@ impl Bundle {
         // rollout. Credential-bound activation above still requires equal builds.
         if matches!(
             env!("CARGO_PKG_VERSION"),
-            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0"
+            "0.28.0-rc.8" | "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -449,9 +449,11 @@ impl Bundle {
         // activating it on a mixed-version enrolled cluster.
         if matches!(
             env!("CARGO_PKG_VERSION"),
-            "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0"
-        ) && matches!(build, "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4")
-        {
+            "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1"
+        ) && matches!(
+            build,
+            "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0"
+        ) {
             let mut bundle = self.clone();
             bundle.build = build.into();
             bundle.digest = bundle.hash()?;

@@ -19,6 +19,7 @@ export type TrafficSettings = {
     enabled: boolean;
     public_origin: string;
     site_key: string;
+    captcha_provider?: 'turnstile' | 'self_hosted';
     notification_from: string;
     relay_hosts: string[];
     lifetime_hours: number;
@@ -54,6 +55,7 @@ const defaults: TrafficSettings = {
     enabled: false,
     public_origin: '',
     site_key: '',
+    captcha_provider: 'self_hosted',
     notification_from: '',
     relay_hosts: [],
     lifetime_hours: 24,
@@ -261,11 +263,31 @@ export function TrafficEditor({
           />{' '}
           Enable verification service
         </label>
+        <label className="field">
+          CAPTCHA provider
+          <select
+            value={verification.captcha_provider ?? 'turnstile'}
+            onChange={(e) =>
+              setVerification({
+                captcha_provider: e.target.value as 'turnstile' | 'self_hosted',
+              })
+            }
+          >
+            <option value="self_hosted">Self-hosted image CAPTCHA</option>
+            <option value="turnstile">Cloudflare Turnstile</option>
+          </select>
+          <small>
+            The self-hosted option generates and verifies images locally. No
+            CAPTCHA API key or external request is needed. Visual challenges do
+            not guarantee human identity; manual release is available for
+            accessibility.
+          </small>
+        </label>
         <div className="form-grid">
           {(
             [
               ['public_origin', 'Console HTTPS origin'],
-              ['site_key', 'Cloudflare Turnstile site key'],
+
               ['notification_from', 'Notification From address'],
             ] as const
           ).map(([key, label]) => (
@@ -277,6 +299,15 @@ export function TrafficEditor({
               />
             </label>
           ))}
+          {(verification.captcha_provider ?? 'turnstile') === 'turnstile' && (
+            <label className="field">
+              Cloudflare Turnstile site key
+              <input
+                value={verification.site_key}
+                onChange={(e) => setVerification({ site_key: e.target.value })}
+              />
+            </label>
+          )}
           {(
             [
               ['lifetime_hours', 'Link lifetime (hours)', 1, 72],
@@ -319,11 +350,11 @@ export function TrafficEditor({
         </label>
         <p className="muted">
           Requires an IP-authorized outbound relay with verified TLS; SMTP AUTH
-          is not supported for invitations. Configure the private Turnstile
-          secret in Provider credentials. Invitation frequency is additionally
-          capped at one per sender per rolling day. A failed/uncertain
-          invitation is not resent automatically; recipients can release held
-          mail manually.
+          is not supported for invitations. Only Cloudflare Turnstile requires a
+          private secret in Provider credentials. Invitation frequency is
+          additionally capped at one per sender per rolling day. A
+          failed/uncertain invitation is not resent automatically; recipients
+          can release held mail manually.
         </p>
       </div>
     </section>

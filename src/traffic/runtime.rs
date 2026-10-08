@@ -292,10 +292,7 @@ pub fn check(
             && policy.verify_new_senders
             && settings.verification.enabled
             && request.verification_eligible
-            && cfg
-                .provider_credentials
-                .as_ref()
-                .is_some_and(|s| s.get("turnstile").is_some())
+            && settings.verification.available(cfg)
             && cfg.filter.mode != crate::config::Mode::Observe
             && let Some(id) =
                 verification::ticket(&tx, &settings.verification, sender, recipient, now)?

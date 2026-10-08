@@ -120,7 +120,7 @@ Multiple MX records alone do not replicate accepted messages. With **mandatory p
 
 ## Flood protection and sender verification
 
-Optional shared traffic limits protect recipients from repeated senders and identical-message floods without changing content scores. Administrators and authorized mailbox owners can configure observation, temporary SMTP deferral and quarantine. An opt-in, scoped sender-verification flow supports expiring links and server-verified CAPTCHA. See [configuration, requirements and recovery behavior](docs/traffic-protection.md). Both features are disabled by default.
+Optional shared traffic limits protect recipients from repeated senders and identical-message floods without changing content scores. Administrators and authorized mailbox owners can configure observation, temporary SMTP deferral and quarantine. An opt-in, scoped sender-verification flow supports expiring links and a self-hosted image CAPTCHA, with optional Cloudflare Turnstile. The local option needs no CAPTCHA API key or external service. See [configuration, requirements and recovery behavior](docs/traffic-protection.md). Both features are disabled by default.
 
 ## Defaults and limits
 

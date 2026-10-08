@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.1 — Self-hosted sender CAPTCHA
+
+- Generate and validate sender-verification image CAPTCHAs locally in Rust, without a third-party API key. Keep Turnstile as an explicit alternative and preserve existing provider behavior.
+- Bind each short-lived, single-attempt challenge to its invitation, store only an HMAC of the answer, invalidate replaced images, and enforce existing request/concurrency limits.
+- Add the provider selector, first-party confirmation script, image refresh, keyboard-friendly inputs and provider-specific Content Security Policy. Document visual-accessibility and OCR limitations and manual release.
+- Keep observation, durable-acceptance gating, recipient scope, content security and SMTP notification requirements unchanged. Preserve verified retained 0.30.0 policy bundles during upgrades.
+
 ## 0.30.0 — Shared traffic controls
 
 - Add opt-in, per-recipient shared sender/domain/recipient/exact-body limits, with observation, temporary SMTP deferral and quarantine independently of content verdicts.

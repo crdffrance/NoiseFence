@@ -7,6 +7,21 @@ use rand::RngCore;
 use rusqlite::{OptionalExtension, params};
 use std::time::Duration;
 
+pub mod captcha;
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptchaProvider {
+    #[default]
+    Turnstile,
+    SelfHosted,
+}
+impl CaptchaProvider {
+    fn is_turnstile(&self) -> bool {
+        *self == Self::Turnstile
+    }
+}
+
 pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sender_verification_key_v1 (id INTEGER PRIMARY KEY CHECK(id=1), key BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS sender_verification_v1 (
@@ -22,6 +37,8 @@ pub struct Settings {
     pub enabled: bool,
     pub public_origin: String,
     pub site_key: String,
+    #[serde(skip_serializing_if = "CaptchaProvider::is_turnstile")]
+    pub captcha_provider: CaptchaProvider,
     pub notification_from: String,
     pub relay_hosts: Vec<String>,
     pub lifetime_hours: u16,
@@ -34,6 +51,7 @@ impl Default for Settings {
             enabled: false,
             public_origin: String::new(),
             site_key: String::new(),
+            captcha_provider: CaptchaProvider::Turnstile,
             notification_from: String::new(),
             relay_hosts: Vec::new(),
             lifetime_hours: 24,
@@ -43,6 +61,13 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    pub fn available(&self, cfg: &crate::config::Config) -> bool {
+        self.captcha_provider == CaptchaProvider::SelfHosted
+            || cfg
+                .provider_credentials
+                .as_ref()
+                .is_some_and(|keys| keys.get("turnstile").is_some())
+    }
     pub fn validate(&self) -> Result<()> {
         ensure!(
             (1..=72).contains(&self.lifetime_hours)
@@ -64,14 +89,16 @@ impl Settings {
                 && url.path() == "/",
             "Verification requires an HTTPS origin"
         );
-        ensure!(
-            (10..=256).contains(&self.site_key.len())
-                && self
-                    .site_key
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
-            "Invalid Turnstile site key"
-        );
+        if self.captcha_provider == CaptchaProvider::Turnstile {
+            ensure!(
+                (10..=256).contains(&self.site_key.len())
+                    && self
+                        .site_key
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+                "Invalid Turnstile site key"
+            );
+        }
         ensure!(
             crate::config::valid_address(&self.notification_from),
             "Invalid notification sender"
@@ -189,7 +216,7 @@ pub fn ticket(
     tx.execute("INSERT INTO sender_verification_v1(id,sender,recipient,created,expires) VALUES(?1,?2,?3,?4,?5)",params![id,sender,recipient,now,now+i64::from(settings.lifetime_hours)*3600])?;
     Ok(Some(id))
 }
-fn capability(db: &rusqlite::Connection, id: &str) -> Result<String> {
+fn signing_secret(db: &rusqlite::Connection) -> Result<Vec<u8>> {
     let mut secret = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
     db.execute(
@@ -201,6 +228,10 @@ fn capability(db: &rusqlite::Connection, id: &str) -> Result<String> {
         [],
         |r| r.get(0),
     )?;
+    Ok(secret)
+}
+fn capability(db: &rusqlite::Connection, id: &str) -> Result<String> {
+    let secret = signing_secret(db)?;
     let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret);
     Ok(format!(
         "{id}.{}",
@@ -280,39 +311,48 @@ pub async fn confirm(
     let id = store
         .run(move |db| authorize(db, &token_copy, crate::now()))
         .await?;
-    let secret = cfg
-        .provider_credentials
-        .as_ref()
-        .and_then(|s| s.get("turnstile"))
-        .context("CAPTCHA credential unavailable")?;
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(5))
-        .build()?;
-    let mut reply = client
-        .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-        .json(&serde_json::json!({"secret":secret,"response":response}))
-        .send()
-        .await?;
-    ensure!(reply.status().is_success(), "CAPTCHA provider unavailable");
-    let mut bytes = Vec::new();
-    while let Some(chunk) = reply.chunk().await? {
-        ensure!(
-            bytes.len() + chunk.len() <= 16384,
-            "CAPTCHA reply too large"
-        );
-        bytes.extend_from_slice(&chunk);
-    }
-    let origin = reqwest::Url::parse(&settings.public_origin)?;
-    validate_captcha(
-        &serde_json::from_slice(&bytes)?,
-        origin.host_str().unwrap(),
-        &id,
-    )?;
+    let local_proof = if settings.captcha_provider == CaptchaProvider::SelfHosted {
+        Some(serde_json::from_str::<captcha::Answer>(&response)?)
+    } else {
+        let secret = cfg
+            .provider_credentials
+            .as_ref()
+            .and_then(|s| s.get("turnstile"))
+            .context("CAPTCHA credential unavailable")?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(5))
+            .build()?;
+        let mut reply = client
+            .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+            .json(&serde_json::json!({"secret":secret,"response":response}))
+            .send()
+            .await?;
+        ensure!(reply.status().is_success(), "CAPTCHA provider unavailable");
+        let mut bytes = Vec::new();
+        while let Some(chunk) = reply.chunk().await? {
+            ensure!(
+                bytes.len() + chunk.len() <= 16384,
+                "CAPTCHA reply too large"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        let origin = reqwest::Url::parse(&settings.public_origin)?;
+        validate_captcha(
+            &serde_json::from_slice(&bytes)?,
+            origin.host_str().unwrap(),
+            &id,
+        )?;
+        None
+    };
     store.run(move |db| {
         let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let id=authorize(&tx,&token,crate::now())?;
+        if let Some(proof)=&local_proof {
+            let valid=captcha::consume(&tx,&id,proof,crate::now())?;
+            if !valid { tx.commit()?; anyhow::bail!("CAPTCHA verification failed; request a new image"); }
+        }
         tx.execute("DELETE FROM sender_verification_grants_v1 WHERE expires<=?1",[crate::now()])?;
         ensure!(tx.query_row("SELECT COUNT(*) FROM sender_verification_grants_v1",[],|r|r.get::<_,i64>(0))?<10000,"Verified sender capacity exhausted");
         tx.execute("INSERT INTO sender_verification_grants_v1 SELECT sender,recipient,?2 FROM sender_verification_v1 WHERE id=?1 ON CONFLICT(sender,recipient) DO UPDATE SET expires=excluded.expires",params![id,crate::now()+i64::from(settings.remember_days)*86400])?;
@@ -433,6 +473,7 @@ pub async fn run(
     loop {
         tokio::select! { _=stop.changed()=>{return Ok(());}, _=tokio::time::sleep(Duration::from_secs(15))=>{} }
         if let Err(error)=store.run(|db| {
+            db.execute("DELETE FROM sender_captcha_v1 WHERE expires<=?1",[crate::now()])?;
             db.execute("DELETE FROM sender_verification_v1 WHERE id IN (SELECT id FROM sender_verification_v1 WHERE expires<?1 LIMIT 128)",[crate::now()-86400])?;
             db.execute("DELETE FROM sender_verification_grants_v1 WHERE rowid IN (SELECT rowid FROM sender_verification_grants_v1 WHERE expires<=?1 LIMIT 128)",[crate::now()])?;
             db.execute("DELETE FROM traffic_operations_v1 WHERE id IN (SELECT id FROM traffic_operations_v1 WHERE created<?1 LIMIT 128)",[crate::now()-3600])?;
@@ -450,10 +491,7 @@ pub async fn run(
             tracing::warn!(%error,"Sender verification queue unavailable");
         }
         if !crate::cluster::is_worker(&cfg)
-            && cfg
-                .provider_credentials
-                .as_ref()
-                .is_some_and(|keys| keys.get("turnstile").is_some())
+            && s.verification.available(&cfg)
             && let Err(error) = notify(&store, &cfg, &s.verification).await
         {
             tracing::warn!(%error,"Sender verification notification unavailable");
