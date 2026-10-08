@@ -13,7 +13,7 @@ Use the source checkout for Docker builds; native release archives contain prebu
 ```sh
 git clone https://github.com/crdffrance/NoiseFence.git
 cd NoiseFence
-git checkout v0.29.3
+git checkout v0.29.4
 ```
 
 From the checkout root:
