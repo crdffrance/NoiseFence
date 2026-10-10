@@ -7,7 +7,10 @@ import {api,type User} from './client';
 import {MetricTable,FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,type FoldReadiness,type ExportExposure,type Metrics,type RecordedPolicy} from './quality-results';
 export type DatasetPurpose='development'|'regression'|'holdout';
 type Readiness=FoldReadiness;
+type ProfileMetrics={population:number;labelled:number;paired:number;excluded_from_pair:number;baseline:Metrics;rspamd:Metrics};
 type Report={exposure?:ExportExposure;risk?:{test?:Metrics};evaluation_scope?:string;recorded_policy?:RecordedPolicy;status?:string;error_code?:string;coverage?:Record<string,number>;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics;
+  operating_profiles?:Record<string,Record<string,ProfileMetrics>>;
+  slices?:Record<string,{baseline:Metrics;rspamd?:Metrics;candidate?:Metrics}>;
   paired?:{baseline:Metrics;rspamd:Metrics;coverage:Record<string,number>;campaigns:Report['campaigns'];capture_comparison_supported:boolean;profiles:{native:string;rspamd:string;messages:number}[]};
   campaigns?:{count?:number;conflicting?:number;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics};
   mail_kind?:{publicity?:Metrics};legacy_score_calibration?:{reliability:{bin:number;count:number;mean_prediction:number;spam_fraction:number}[]};
@@ -58,6 +61,17 @@ export function QualityWorkbench({user,batch,purpose,refresh}:{user:User;batch:s
         <FullSampleResults report={j.report}/>
       </>:(j.operation==='train'?<TrainingResults risk={j.report.risk}/>:<FullSampleResults report={j.report}/>)}{j.report.coverage&&<p>{j.report.coverage.labelled??j.report.coverage.usable??0} usable or labelled observations · {j.report.coverage.unlabelled_or_uncertain??0} unlabelled or uncertain · {j.report.coverage.deleted_or_no_longer_authorized??0} missing from the original draw.</p>}
       {j.operation!=='train'&&<><ExposureNotice value={j.report.exposure}/><PolicyResults value={j.report.recorded_policy}/></>}
+      {j.report.operating_profiles&&<details><summary>Performance with available and missing detectors</summary>
+        <p className="notice">These are actual arrival profiles, not simulated LLM-off results. Both engines use the same human-labelled messages within each table. Different populations cannot prove that a detector helped or harmed accuracy.</p>
+        {['llm','crdf','virustotal'].map(detector=><div key={detector}><h4>{({llm:'LLM',crdf:'CRDF',virustotal:'VirusTotal'} as Record<string,string>)[detector]}</h4>
+          {['complete','not_complete','not_recorded'].map(state=>{const p=j.report?.operating_profiles?.[detector]?.[state];return p&&p.population>0?<details key={state}><summary>{({complete:'Completed',not_complete:'Disabled, unavailable or limited',not_recorded:'Availability not recorded'} as Record<string,string>)[state]} · {p.population} messages</summary>
+            <p>{p.labelled} human-labelled · {p.paired} paired · {p.excluded_from_pair} excluded because an engine result is missing.</p><MetricTable report={p}/></details>:null;})}
+        </div>)}
+      </details>}
+      {j.report.slices&&<details><summary>Errors by human-annotated mail type</summary>
+        <p className="muted small">Wanted newsletters and promotions are legitimate risk labels. An unwanted promotion remains spam. Missing type annotations are kept separate.</p>
+        {Object.entries(j.report.slices).filter(([,r])=>r.baseline.messages>0).map(([kind,r])=><details key={kind}><summary>{kind.replaceAll('_',' ')}</summary><MetricTable report={r} caption="Population metrics for this human-labelled mail type; missing decisions remain in coverage counts"/></details>)}
+      </details>}
       {(j.report.paired?.campaigns??j.report.campaigns)&&<details><summary>Campaign-level comparison</summary><MetricTable report={(j.report.paired?.campaigns??j.report.campaigns)!} caption="One paired representative per campaign when paired results are available"/><p className="muted small">Conflicting labels are excluded before pairing. Missing campaign identities cannot establish independent samples.</p></details>}
       {j.report.mail_kind?.publicity&&<details><summary>Mail type: newsletter / promotion</summary><MetricTable report={{candidate:j.report.mail_kind.publicity}}/><p className="muted small">These are mail-type errors, separate from malicious-message errors.</p></details>}
       {!!j.report.legacy_score_calibration?.reliability.length&&<details><summary>Historical score reliability</summary><p className="muted small">The historical index is not a calibrated probability. Compare each score band with its human-labelled spam fraction.</p><div className="quality-table-scroll"><table className="quality-metrics"><thead><tr><th>Index band</th><th>Messages</th><th>Mean index</th><th>Human-labelled spam</th></tr></thead><tbody>{j.report.legacy_score_calibration.reliability.map(b=><tr key={b.bin}><th>{b.bin*10}–{b.bin*10+10}</th><td>{b.count}</td><td>{(b.mean_prediction*100).toFixed(1)}</td><td>{percent(b.spam_fraction)}</td></tr>)}</tbody></table></div></details>}

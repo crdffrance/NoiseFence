@@ -1,5 +1,36 @@
 # Calibration workbench
 
+## Availability and mail-type comparisons (0.30.2)
+
+New comparison reports include `operating_profiles`. In the Web workbench, open
+**Performance with available and missing detectors** to inspect paired results
+separately for LLM, CRDF and VirusTotal. Each detector has complete, not-complete
+and unrecorded populations. Only validated compatible observation vectors establish
+availability; missing/incompatible vectors cannot be called LLM-off observations.
+Both engines use the same labelled messages within each table. Population,
+labelled, paired and excluded counts remain explicit; an empty class has no
+measurable accuracy. Old reports are not retroactively assigned profile results.
+
+These are arrival-time comparisons, not a simulation of switching off a detector.
+Different populations and repeated campaigns prevent causal conclusions. Use the
+existing frozen `without_llm` and `without_providers` training ablations, then a
+new prospective labelled holdout under the intended deployment conditions. A
+suspended LLM stays suspended; comparison jobs have no network access.
+
+**Errors by human-annotated mail type** separates notifications, transactions,
+conversations, newsletters and promotions. Wanted publicity has legitimate risk;
+unsolicited or malicious marketing can have spam risk. A publicity signal cannot
+bypass a threat decision. Keep missing mail-type annotations separate rather than
+inferring consent from a bulk-mail header.
+
+Start with uniformly sampled development traffic and annotate both wanted and
+unwanted messages. A targeted disagreement review is useful diagnosis but cannot
+establish a population false-positive rate. Compare mixed historical cohorts for
+diagnosis, then select one exact cohort for fitting. Keep regression/holdout
+campaign reservations and the five chronological partitions intact. Insufficient
+labels, campaign diversity or compatible observations produce readiness results,
+not a new model. Software fixes alone do not qualify a calibrated operating score.
+
 ## Paired engine comparisons
 
 Comparison schema `noisefence-quality-comparison-3` preserves the `paired` section introduced in schema 2. The console presents this section first: both engines are measured on exactly the same human-labelled messages, with a recorded NoiseFence verdict and a completed Rspamd analysis. Missing or interrupted analyses are counted separately by human class and excluded from paired rates. A completed `greylist`, `soft reject` or custom Rspamd action remains a non-final decision, counted as review rather than a spam detection.

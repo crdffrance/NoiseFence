@@ -326,7 +326,7 @@ async fn loops_hop_limit_ambiguous_headers_scripts_and_body_limits_remain_incomp
                 "/",
                 200,
                 vec![("content-type", "text/html")],
-                "<script>location='/secret'</script>",
+                "<script>location=unknownDestination()</script>",
             )],
             Detail::ClientScript,
             1,
@@ -353,6 +353,66 @@ async fn loops_hop_limit_ambiguous_headers_scripts_and_body_limits_remain_incomp
         assert_eq!(captured.lock().unwrap().len(), hops);
         server.abort();
     }
+}
+
+#[tokio::test]
+async fn literal_script_redirects_are_followed_but_data_scripts_are_inert() {
+    let (resolver, captured, server) = fixture(vec![
+        ("/", 200, vec![("content-type", "text/html")],
+            "<script type='application/ld+json'>{\"url\":\"https://ignored.example/\"}</script><script>window.location.replace('/final?token=PRIVATE');</script>"),
+        ("/final", 200, vec![("content-type", "text/html")],
+            "<script type='application/json'>{\"navigation\":\"ignored\"}</script><p>Final page</p>"),
+    ]).await;
+    let (report, urls) = resolver
+        .inspect(&["http://start.example.com/".into()], false)
+        .await;
+    assert!(report.chains[0].complete, "{report:?}");
+    assert_eq!(captured.lock().unwrap().len(), 2);
+    assert!(urls.contains("http://start.example.com/final?token=PRIVATE"));
+    assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn script_navigation_cannot_bypass_network_boundaries() {
+    let (resolver, captured, server) = fixture(vec![(
+        "/",
+        200,
+        vec![("content-type", "text/html")],
+        "<script>location='http://169.254.169.254/latest/meta-data/';</script>",
+    )])
+    .await;
+    let (report, _) = resolver
+        .inspect(&["http://start.example.com/".into()], false)
+        .await;
+    assert_eq!(report.chains[0].detail, Some(Detail::ForbiddenAddress));
+    assert_eq!(captured.lock().unwrap().len(), 1);
+    server.abort();
+}
+
+#[test]
+fn ambiguous_or_dynamic_pages_do_not_claim_a_final_destination() {
+    let base = safe_url("https://example.com/").unwrap();
+    for html in [
+        "<script src='/analytics.js'></script>",
+        "<script>analytics()</script>",
+        "<script>if(false)location='/never'</script>",
+        "<script>location='/a'</script><script>location='/b'</script>",
+        "<script>location='/a'</script><script src='/override.js'></script>",
+        "<meta http-equiv='refresh' content='0;url=/a'><script>location='/b'</script>",
+        "<script type='application/json' src='/script'></script>",
+        "<script type='module'>location='/a'</script>",
+        "<script nomodule>location='/a'</script>",
+        "<body onload=\"location='/a'\">Final</body>",
+        "<img src='/missing' onerror=\"location='/a'\"><script type='application/json'>{}</script>",
+    ] {
+        assert_eq!(html_next(&base, html), Err(Detail::ClientScript), "{html}");
+    }
+    assert_eq!(
+        html_next(&base, "<script type='APPLICATION/LD+JSON'>{}</script>"),
+        Ok(None)
+    );
+    assert_eq!(html_next(&base, "<script></script>"), Ok(None));
 }
 
 #[tokio::test]

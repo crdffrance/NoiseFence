@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.2 — Filter coverage and qualification diagnostics
+
+- Resolve bounded, literal JavaScript navigation without executing scripts. Distinguish inert JSON/JSON-LD data blocks from executable scripts; retain uncertainty for dynamic scripts, event handlers and competing destinations. Keep per-hop SSRF, TLS and deadline checks.
+- Record cancellation-safe reputation timing for cache reads, request capacity, quota/cache writes, response headers and response bodies. Show per-message details and bounded aggregate diagnostics without exposing targets or credentials.
+- Store validated CRDF batch results in one durable cache transaction. Keep quotas, provider cooldowns, cache expiry, missing-result handling and analysis deadlines unchanged.
+- Compare recorded NoiseFence/Rspamd outcomes separately by actual LLM/CRDF/VirusTotal availability and human-annotated mail type. Unknown availability remains separate from disabled detectors; reports do not infer human labels or establish counterfactual accuracy.
+- Preserve verified retained 0.30.1 cluster policies. No model is trained, promoted or enabled by upgrading; observation and configured LLM suspension remain unchanged.
+
 ## 0.30.1 — Self-hosted sender CAPTCHA
 
 - Generate and validate sender-verification image CAPTCHAs locally in Rust, without a third-party API key. Keep Turnstile as an explicit alternative and preserve existing provider behavior.

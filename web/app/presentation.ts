@@ -199,6 +199,12 @@ export function checkFailure(reason?: string | null) {
         http: 'Provider HTTP error',
         response_limit: 'Response exceeds the allowed limit',
         invalid_response: 'Invalid or incompatible response',
+        crdf_target_mismatch: 'CRDF response refers to a different target',
+        crdf_target_missing: 'CRDF response omits a requested target',
+        crdf_duplicate_target: 'CRDF response repeats a target',
+        crdf_count_mismatch: 'CRDF response target count does not match the request',
+        crdf_provider_error: 'CRDF reports an API error',
+        crdf_invalid_schema: 'CRDF response format is not supported',
         accounting: 'Token usage exceeds the reserved budget',
       } as Record<string, string>
     )[reason] ?? 'Unknown cause'

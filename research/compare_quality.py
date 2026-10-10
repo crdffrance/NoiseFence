@@ -2,7 +2,7 @@
 """Compare recorded engines against human labels, without retraining or network I/O."""
 from collections import Counter
 import math
-from train_quality import load_dataset, read_jsonl, components, readiness, partition
+from train_quality import load_dataset, read_jsonl, components, readiness, partition, PROTOCOL
 from quality_metrics import outcomes, metrics
 from evaluate_quality import baseline
 from recorded_decisions import engine_decision, engine_outcome, policy_report, raw_score
@@ -59,6 +59,41 @@ def paired_comparison(rows):
     return result
 
 
+def operating_profiles(rows, usable):
+    """Actual receipt-time availability, not a counterfactual LLM-off replay.
+
+    Only validated, compatible observations can establish a detector state.
+    Missing/incompatible vectors are a separate population, never 'LLM off'.
+    """
+    observed = {r['id']: r for r in usable}
+    indexes = {f['name']: i for i, f in enumerate(PROTOCOL['features'])}
+    result = {}
+    for detector, prefix in [('llm', 'llm.state.'), ('crdf', 'provider.crdf.'),
+                             ('virustotal', 'provider.virustotal.')]:
+        state_indexes = {name[len(prefix):]: i for name, i in indexes.items()
+                         if name.startswith(prefix) and '.' not in name[len(prefix):]}
+        groups = {'complete': [], 'not_complete': [], 'not_recorded': []}
+        for row in rows:
+            q = observed.get(row['id'])
+            values = q['quality']['values'] if q else None
+            states = [state for state, i in state_indexes.items() if values is not None and values[i] == 1]
+            state = ('complete' if states[0] == 'complete' else 'not_complete') if len(states) == 1 else 'not_recorded'
+            groups[state].append(row)
+        result[detector] = {}
+        for state, group in groups.items():
+            labelled = [r for r in group if r.get('risk') in ('legitimate', 'spam')]
+            paired = [r for r in labelled if engine_decision(r) is not None
+                      and (r.get('rspamd') or {}).get('status') == 'complete']
+            labels = [int(r['risk'] == 'spam') for r in paired]
+            result[detector][state] = {
+                'population': len(group), 'labelled': len(labelled), 'paired': len(paired),
+                'excluded_from_pair': len(labelled) - len(paired),
+                'baseline': outcomes(labels, [baseline(r) for r in paired]),
+                'rspamd': outcomes(labels, [rspamd_outcome(r) for r in paired]),
+            }
+    return result
+
+
 def compare(dataset):
     header,usable,coverage,_,digest=load_dataset(dataset,allow_multiple_artifacts=True)
     records,again=read_jsonl(dataset)
@@ -86,7 +121,7 @@ def compare(dataset):
     cy=[int(r['risk']=='spam') for r in representatives]
     latency=sorted(r['pipeline_elapsed_ms'] for r in rows if type(r.get('pipeline_elapsed_ms')) in (int,float) and 0<=r['pipeline_elapsed_ms']<=3600000)
     report={'schema':'noisefence-quality-comparison-3','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
-      'exposure':exposure_report(header),'paired':paired_comparison(rows),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
+      'exposure':exposure_report(header),'paired':paired_comparison(rows),'operating_profiles':operating_profiles(rows,usable),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
       'coverage':{**coverage,'labelled':len(labelled),'unlabelled_or_uncertain':len(rows)-len(labelled)},
       'baseline':outcomes(y,native),'rspamd':outcomes(y,other),'legacy_score_calibration':lexical,
       'campaigns':{'count':len(representatives),'conflicting':conflicts,
@@ -107,6 +142,7 @@ def compare(dataset):
         'Message intervals assume independent observations; also inspect campaign metrics.',
         'A previously examined sample is a regression set, not independent qualification.',
         'Recorded total latency cannot establish native warm-cache performance.']}
+    report['limitations'].append('Operating profiles describe actual recorded availability. Different populations cannot establish the causal benefit of the LLM or reputation services; use frozen ablations and future labelled traffic.')
     for kind in ('conversation','transactional','notification','newsletter','promotion','other',None):
         group=[r for r in labelled if r.get('kind')==kind];labels=[int(r['risk']=='spam') for r in group]
         report['slices'][kind or 'unlabelled_type']={'baseline':outcomes(labels,[baseline(r) for r in group]),'rspamd':outcomes(labels,[rspamd_outcome(r) for r in group])}
