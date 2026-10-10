@@ -92,6 +92,39 @@ async fn cached_detection_survives_quota_cooldown_and_busy_transport() {
     assert_eq!(report.checked, 1);
     assert_eq!(hits.len(), 1);
 }
+
+#[tokio::test]
+async fn a_waiting_http_response_is_not_reported_as_local_capacity_wait() {
+    let root = tempfile::tempdir().unwrap();
+    save_key(root.path(), Provider::Crdf, "synthetic-key-timing-1234").unwrap();
+    let mut client = Client::new(
+        &Settings {
+            timeout_ms: 500,
+            ..Default::default()
+        },
+        root.path(),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    client.endpoint_override = Some(format!("http://{}/lookup", listener.local_addr().unwrap()));
+    let server = tokio::spawn(async move {
+        let (_socket, _) = listener.accept().await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let mut targets = Targets::default();
+    targets.domains.insert("example.org".into());
+    let (report, hits) = client
+        .inspect(Provider::Crdf, true, &targets, &Policy::default())
+        .await;
+    server.abort();
+    assert!(hits.is_empty());
+    assert_eq!(report.failure, Some(Failure::Timeout));
+    assert_eq!(report.request_count, 1);
+    let timing = report.timing.unwrap();
+    assert!(timing.phase_ms[&Phase::ResponseHeaders] > 0);
+    assert!(!timing.cancelled.contains_key(&Phase::Capacity));
+    assert!(report.http_status_counts.is_empty());
+}
 #[tokio::test]
 async fn queued_requests_do_not_consume_quota_when_cancelled() {
     let root = tempfile::tempdir().unwrap();
@@ -110,6 +143,10 @@ async fn queued_requests_do_not_consume_quota_when_cancelled() {
         .await;
     assert_eq!(report.failure, Some(Failure::Timeout));
     assert_eq!(report.request_count, 0);
+    let timing = report.timing.as_ref().unwrap();
+    assert!(timing.deadline_exceeded);
+    assert_eq!(timing.cancelled.get(&Phase::Capacity), Some(&1));
+    assert!(!timing.phase_ms.contains_key(&Phase::ResponseHeaders));
     assert_eq!(
         quota_usage(root.path(), Provider::Crdf).unwrap().day_used,
         0

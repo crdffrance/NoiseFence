@@ -108,6 +108,28 @@ interrupt unfinished work; it does not erase a completed peer result or convert
 an unavailable result into a clean verdict. Completed campaign observations are
 retained on the same basis. This does not extend the total analysis deadline.
 
+### Timing and timeout diagnosis (0.30.2)
+
+Message details and the reliability dashboard distinguish cache reads, waiting
+for a request slot, quota/cache writes, waiting for response headers and reading
+the response body. The header phase includes connection setup and TLS; it cannot
+isolate provider processing time. Cancelled phases and the overall deadline are
+recorded even when a request is interrupted. Durations sum operations, including
+concurrent requests; they can exceed message elapsed time and are not percentiles.
+Historical messages without timing are shown as unrecorded, not zero.
+
+A deadline with no request sent suggests local capacity or storage pressure.
+A sent request with no HTTP status and a long header phase indicates waiting
+for the network/API response. Diagnose these separately before changing a Web
+timeout or concurrency limit. A large cache-write phase calls for a storage
+investigation. Valid CRDF batch entries now share one durable SQLite transaction,
+reducing repeated WAL synchronizations. No deadline or provider quota is lifted.
+
+Provider cooldowns, malformed CRDF target bindings and HTTP failures use fixed
+diagnostic codes; reports never include raw responses or credentials. Stale
+VirusTotal data and unavailable checks remain missing evidence, not a clean
+result or a spam vote. Complete and failed targets keep their existing semantics.
+
 CRDF batch validation records fixed diagnostic counters for target mismatch,
 missing targets, duplicate targets, count mismatch, provider errors and invalid
 schema. These counters contain no response body, URL or credential. Target

@@ -20,6 +20,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+mod script;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -329,7 +330,7 @@ impl Resolver {
     pub async fn inspect(&self, urls: &[String], truncated: bool) -> (Report, BTreeSet<String>) {
         let start = Instant::now();
         let mut report = Report {
-            version: "url-resolution-4".into(),
+            version: "url-resolution-5".into(),
             settings_sha256: crate::message::digest(
                 &serde_json::to_vec(&self.settings).expect("URL settings"),
             ),
@@ -465,11 +466,27 @@ fn refresh_target(value: &str) -> std::result::Result<&str, Detail> {
 }
 fn html_next(base: &Url, body: &str) -> std::result::Result<Option<Url>, Detail> {
     let doc = scraper::Html::parse_document(body);
+    let all = scraper::Selector::parse("*").unwrap();
+    for (index, element) in doc.select(&all).take(8193).enumerate() {
+        if index == 8192 {
+            return Err(Detail::BodyLimit);
+        }
+        // Inline handlers can navigate without a script element (for example
+        // body onload or image onerror). Never call such a page resolved.
+        if element
+            .value()
+            .attrs()
+            .any(|(name, value)| name.starts_with("on") && !value.trim().is_empty())
+        {
+            return Err(Detail::ClientScript);
+        }
+    }
     let selector = scraper::Selector::parse("meta[http-equiv], base[href], script").unwrap();
     let mut destination = None;
     let mut base = base.clone();
     let mut base_seen = false;
-    let mut script = false;
+    let mut script_destination = None;
+    let mut unresolved_script = false;
     for (index, element) in doc.select(&selector).take(1025).enumerate() {
         if index == 1024 {
             return Err(Detail::BodyLimit);
@@ -479,7 +496,32 @@ fn html_next(base: &Url, body: &str) -> std::result::Result<Option<Url>, Detail>
                 base = resolve_location(&base, element.value().attr("href").unwrap())?;
                 base_seen = true;
             }
-            "script" => script = true,
+            "script" => {
+                let mime = element.value().attr("type").unwrap_or("").trim();
+                // These are data blocks, not executable JavaScript. Do not
+                // infer that arbitrary analytics or external scripts are safe.
+                if ["application/json", "application/ld+json"]
+                    .iter()
+                    .any(|t| mime.eq_ignore_ascii_case(t))
+                    && element.value().attr("src").is_none()
+                {
+                    continue;
+                }
+                let text: String = element.text().collect();
+                if element.value().attr("src").is_some()
+                    || element.value().attr("nomodule").is_some()
+                    || element.value().attr("language").is_some()
+                    || !matches!(mime, "" | "text/javascript" | "application/javascript")
+                {
+                    unresolved_script = true;
+                } else if let Some(target) = script::literal_destination(&text) {
+                    if script_destination.replace(target.to_owned()).is_some() {
+                        unresolved_script = true;
+                    }
+                } else if !text.trim().is_empty() {
+                    unresolved_script = true;
+                }
+            }
             "meta"
                 if element
                     .value()
@@ -501,14 +543,17 @@ fn html_next(base: &Url, body: &str) -> std::result::Result<Option<Url>, Detail>
             _ => {}
         }
     }
+    if unresolved_script || (destination.is_some() && script_destination.is_some()) {
+        return Err(Detail::ClientScript);
+    }
     if let Some(destination) = destination {
         return Ok(Some(resolve_location(
             &base,
             refresh_target(&destination)?,
         )?));
     }
-    if script {
-        return Err(Detail::ClientScript);
+    if let Some(destination) = script_destination {
+        return Ok(Some(resolve_location(&base, &destination)?));
     }
     Ok(None)
 }

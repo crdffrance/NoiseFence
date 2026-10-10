@@ -16,6 +16,10 @@ pub struct Provider {
     http_status: BTreeMap<u16, usize>,
     failures: BTreeMap<String, usize>,
     retry_after_max_seconds: u64,
+    timed_messages: usize,
+    deadline_exceeded: usize,
+    phase_ms: BTreeMap<crate::protection::providers::TimingPhase, u64>,
+    cancelled_phases: BTreeMap<crate::protection::providers::TimingPhase, usize>,
 }
 impl Provider {
     fn add(&mut self, p: &ProviderReport) {
@@ -24,6 +28,16 @@ impl Provider {
         self.cached += p.cache_hits.min(12);
         self.omitted += p.omitted.min(128);
         self.requests += p.request_count.min(24);
+        if let Some(timing) = &p.timing {
+            self.timed_messages += 1;
+            self.deadline_exceeded += usize::from(timing.deadline_exceeded);
+            for (&phase, &ms) in &timing.phase_ms {
+                *self.phase_ms.entry(phase).or_default() += ms.min(120_000);
+            }
+            for (&phase, &n) in &timing.cancelled {
+                *self.cancelled_phases.entry(phase).or_default() += n.min(24);
+            }
+        }
         self.retry_after_max_seconds = self
             .retry_after_max_seconds
             .max(p.retry_after_seconds.unwrap_or(0).min(7 * 86400));
@@ -49,6 +63,16 @@ impl Provider {
                     serde_json::Value::String(name.clone()),
                 )
                 .is_ok()
+                    || matches!(
+                        name.as_str(),
+                        "provider_backoff"
+                            | "crdf_target_mismatch"
+                            | "crdf_target_missing"
+                            | "crdf_duplicate_target"
+                            | "crdf_count_mismatch"
+                            | "crdf_provider_error"
+                            | "crdf_invalid_schema"
+                    )
                 {
                     *self.failures.entry(name.clone()).or_default() += (*count).min(24);
                 }

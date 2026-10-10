@@ -206,6 +206,10 @@ pub struct ProviderReport {
     pub failure_counts: std::collections::BTreeMap<String, usize>,
     #[serde(default)]
     pub retry_after_seconds: Option<u64>,
+    /// None on historical reports. Durations sum concurrent operations and can
+    /// exceed elapsed_ms; they are diagnostics, never scoring features.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<providers::TimingReport>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderObservation {

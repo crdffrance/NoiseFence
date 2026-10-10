@@ -1,4 +1,5 @@
 use super::{Policy, ProviderReport, Quota, Settings, Status, Targets};
+mod timing;
 use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
+pub use timing::{Phase as TimingPhase, TimingReport};
+use timing::{Phase, Timings};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -162,6 +165,7 @@ struct TransportMetrics {
     statuses: Mutex<BTreeMap<u16, usize>>,
     failures: Mutex<BTreeMap<String, usize>>,
     retry_after: Mutex<Option<u64>>,
+    timings: Timings,
 }
 impl TransportMetrics {
     fn failure(&self, failure: Failure) {
@@ -434,7 +438,8 @@ impl Client {
     ) -> Result<()> {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move||->Result<()>{
-            let db=db.lock().map_err(|_|anyhow::anyhow!("Provider cache lock"))?;let now=crate::now();
+            let mut connection=db.lock().map_err(|_|anyhow::anyhow!("Provider cache lock"))?;
+            let db=connection.transaction()?;let now=crate::now();
             db.execute("DELETE FROM cache WHERE expires<=?1",[now])?;
             db.execute("DELETE FROM cooldown WHERE expires<=?1",[now])?;
             if let Some(seconds) = cooldown {
@@ -443,7 +448,27 @@ impl Client {
             if let Some(verdict)=verdict {
                 db.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY expires LIMIT MAX(0,(SELECT COUNT(*) FROM cache)-9999))",[])?;
                 db.execute("INSERT OR REPLACE INTO cache VALUES(?1,?2,?3)",params![key,now+if matches!(verdict,Verdict::Unknown|Verdict::Stale){300}else{1800},serde_json::to_string(&verdict)?])?;
-            }Ok(())
+            }db.commit()?;Ok(())
+        }).await?
+    }
+    /// One durable transaction for a bounded batch, instead of several WAL
+    /// synchronizations per target inside the shared analysis deadline.
+    async fn remember_batch(&self, values: Vec<(String, Verdict)>) -> Result<()> {
+        ensure!(values.len() <= 12, "Oversized reputation cache batch");
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut db = db.lock().map_err(|_| anyhow::anyhow!("Provider cache lock"))?;
+            let tx = db.transaction()?;
+            let now = crate::now();
+            tx.execute("DELETE FROM cache WHERE expires<=?1", [now])?;
+            for (key, verdict) in values {
+                let ttl = if matches!(verdict, Verdict::Unknown | Verdict::Stale) {300} else {1800};
+                tx.execute("INSERT OR REPLACE INTO cache VALUES(?1,?2,?3)",
+                    params![key, now + ttl, serde_json::to_string(&verdict)?])?;
+            }
+            tx.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY expires LIMIT MAX(0,(SELECT COUNT(*) FROM cache)-10000))", [])?;
+            tx.commit()?;
+            Ok(())
         }).await?
     }
     fn request(
@@ -508,7 +533,10 @@ impl Client {
             retryable: error.is_connect(),
         };
         metrics.requests.fetch_add(1, Ordering::Relaxed);
-        let mut response = request.send().await.map_err(network)?;
+        let span = metrics.timings.start(Phase::ResponseHeaders);
+        let response = request.send().await;
+        span.finish();
+        let mut response = response.map_err(network)?;
         let code = response.status().as_u16();
         *metrics.statuses.lock().unwrap().entry(code).or_default() += 1;
         if code == 404 && provider == Provider::Virustotal {
@@ -543,7 +571,13 @@ impl Client {
             return Err(invalid(Failure::ResponseLimit));
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(network)? {
+        loop {
+            let span = metrics.timings.start(Phase::ResponseBody);
+            let chunk = response.chunk().await;
+            span.finish();
+            let Some(chunk) = chunk.map_err(network)? else {
+                break;
+            };
             if bytes.len() + chunk.len() > 256 * 1024 {
                 return Err(invalid(Failure::ResponseLimit));
             }
@@ -566,13 +600,18 @@ impl Client {
         let cache_key = target_key(provider, &credential, indicator, file);
         for attempt in 0..2 {
             // Do not consume a quota reservation while waiting behind other requests.
-            let Ok(_slot) = self.requests.acquire().await else {
+            let span = metrics.timings.start(Phase::Capacity);
+            let slot = self.requests.acquire().await;
+            span.finish();
+            let Ok(_slot) = slot else {
                 return failed(Status::Unavailable, Some(Failure::Network));
             };
-            match self
+            let span = metrics.timings.start(Phase::Storage);
+            let reservation = self
                 .reserve(provider, cache_key.clone(), credential.clone(), quota)
-                .await
-            {
+                .await;
+            span.finish();
+            match reservation {
                 Ok(Reservation::Cached(verdict)) => return cached(verdict),
                 Ok(Reservation::Quota) => return failed(Status::Quota, None),
                 Ok(Reservation::Backoff) => {
@@ -609,9 +648,11 @@ impl Client {
             drop(_slot);
             match result {
                 Ok(verdict) => {
+                    let span = metrics.timings.start(Phase::Storage);
                     let _ = self
                         .remember(cache_key, credential, Some(verdict), false)
                         .await;
+                    span.finish();
                     return Lookup {
                         verdict: Some(verdict),
                         status: Status::Complete,
@@ -655,18 +696,23 @@ impl Client {
         );
         let mut failure = failed(Status::Unavailable, Some(Failure::Network));
         for attempt in 0..2 {
-            let Ok(slot) = self.requests.acquire().await else {
+            let span = metrics.timings.start(Phase::Capacity);
+            let slot = self.requests.acquire().await;
+            span.finish();
+            let Ok(slot) = slot else {
                 break;
             };
-            match self
+            let span = metrics.timings.start(Phase::Storage);
+            let reserved = self
                 .reserve(
                     Provider::Crdf,
                     reservation.clone(),
                     credential.clone(),
                     quota,
                 )
-                .await
-            {
+                .await;
+            span.finish();
+            match reserved {
                 Ok(Reservation::Fetch) => {}
                 Ok(Reservation::Backoff) => {
                     *metrics
@@ -707,15 +753,18 @@ impl Client {
             drop(slot);
             match result {
                 Ok(verdicts) => {
-                    for (indicator, verdict) in indicators.iter().zip(&verdicts) {
-                        if let Some(verdict) = verdict {
-                            let cache_key =
-                                target_key(Provider::Crdf, &credential, indicator, false);
-                            let _ = self
-                                .remember(cache_key, credential.clone(), Some(*verdict), false)
-                                .await;
-                        }
-                    }
+                    let values = indicators
+                        .iter()
+                        .zip(&verdicts)
+                        .filter_map(|(indicator, verdict)| {
+                            verdict.map(|v| {
+                                (target_key(Provider::Crdf, &credential, indicator, false), v)
+                            })
+                        })
+                        .collect();
+                    let span = metrics.timings.start(Phase::Storage);
+                    let _ = self.remember_batch(values).await;
+                    span.finish();
                     return verdicts
                         .into_iter()
                         .map(|verdict| match verdict {
@@ -810,7 +859,10 @@ impl Client {
                 .iter()
                 .map(|(indicator, file)| target_key(provider, &credential, indicator, *file))
                 .collect();
-            let Ok(values) = self.cached_many(keys).await else {
+            let span = metrics.timings.start(Phase::Cache);
+            let values = self.cached_many(keys).await;
+            span.finish();
+            let Ok(values) = values else {
                 report.status = Status::Unavailable;
                 report.failure = Some(Failure::Storage);
                 return;
@@ -891,10 +943,11 @@ impl Client {
                 }
             }
         };
-        if tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), work)
-            .await
-            .is_err()
-        {
+        let deadline_exceeded =
+            tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), work)
+                .await
+                .is_err();
+        if deadline_exceeded {
             report.status = Status::Unavailable;
             report.failure = Some(Failure::Timeout);
             metrics.failure(Failure::Timeout);
@@ -905,6 +958,11 @@ impl Client {
         }
         report.elapsed_ms = started.elapsed().as_millis() as u64;
         metrics.copy_to(&mut report);
+        report.timing = Some(
+            metrics
+                .timings
+                .report(self.config.timeout_ms, deadline_exceeded),
+        );
         if let Some(failure) = report.failure {
             let token = serde_json::to_value(failure).expect("failure token");
             report

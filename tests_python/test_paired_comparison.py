@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'research'))
 try:
-    from compare_quality import paired_comparison
+    from compare_quality import paired_comparison, operating_profiles, PROTOCOL
     from evaluate_quality import baseline
     from recorded_decisions import policy_outcome
 except ImportError:
@@ -76,6 +76,34 @@ class PairedComparisonTests(unittest.TestCase):
         self.assertEqual(report['campaigns']['count'],1)
         self.assertEqual(report['campaigns']['baseline']['tp'],1)
         self.assertEqual(report['campaigns']['rspamd']['fn'],1)
+
+    def test_actual_llm_absence_is_separate_from_missing_observations(self):
+        rows=[self.row('llm'),self.row('no-llm','spam','unwanted','greylist'),self.row('missing')]
+        indexes={f['name']:i for i,f in enumerate(PROTOCOL['features'])}
+        for row, state in zip(rows, ['complete','disabled']):
+            values=[0.0]*len(indexes)
+            values[indexes['llm.state.'+state]]=1
+            values[indexes['provider.crdf.unavailable']]=1
+            values[indexes['provider.virustotal.stale']]=1
+            row['quality']={'values':values}
+        before=copy.deepcopy(rows)
+        report=operating_profiles(rows,rows[:2])
+        self.assertEqual(rows,before)
+        self.assertEqual(report['llm']['complete']['paired'],1)
+        self.assertEqual(report['llm']['not_complete']['baseline']['tp'],1)
+        self.assertEqual(report['llm']['not_complete']['rspamd']['spam_to_review'],1)
+        self.assertEqual(report['llm']['not_recorded']['population'],1)
+        self.assertIsNone(report['llm']['not_recorded']['baseline']['recall'])
+        self.assertEqual(report['crdf']['not_complete']['population'],2)
+        self.assertEqual(report['virustotal']['not_complete']['population'],2)
+
+    def test_missing_rspamd_does_not_disappear_from_profile_coverage(self):
+        row=self.row('missing-rspamd');row['rspamd']=None
+        profile=operating_profiles([row],[])['llm']['not_recorded']
+        self.assertEqual(profile['labelled'],1)
+        self.assertEqual(profile['excluded_from_pair'],1)
+        self.assertEqual(profile['paired'],0)
+        self.assertIsNone(profile['baseline']['fpr'])
 
 
 if __name__=='__main__': unittest.main()

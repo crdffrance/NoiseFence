@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
 import { checkFailure } from './presentation';
+import { ProviderTimingDetails } from './provider-timing-view';
+import type { ProviderTiming } from './provider-timing';
 import { providerCredentialLabel, providerToggleDisabled, keySaveNotice } from './provider-credentials';
 import {
   ProviderQuotas,
@@ -376,6 +378,7 @@ const statuses: Record<string, string> = {
   stale: "Stale data",
 };
 type ProviderReport = {
+  timing?: ProviderTiming | null;
   request_count?:number;http_status_counts?:Record<string,number>;failure_counts?:Record<string,number>;retry_after_seconds?:number|null;
   failure?: string | null;
   omitted?: number;
@@ -449,6 +452,7 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
             {r.elapsed_ms} ms
           </p>
           {r.failure && <p className="notice">{checkFailure(r.failure)}.</p>}
+          <ProviderTimingDetails timing={r.timing}/>
           {r.request_count!=null && <p className="muted small">{r.request_count} network requests · {Object.entries(r.http_status_counts ?? {}).map(([code,n])=>`HTTP ${code} : ${n}`).join(' · ') || "no recorded HTTP response"}{r.retry_after_seconds ? ` · pause requested: ${r.retry_after_seconds} s` : ''}</p>}
           {Object.entries(r.failure_counts ?? {}).map(([reason,n])=><p className="muted small" key={reason}>{checkFailure(reason)} : {n} incident(s), including those recovered.</p>)}
           {r.cache_hits > 0 && (
