@@ -55,6 +55,18 @@ fn conditional_notices_require_a_completed_security_event_and_keep_current_deman
             false,
             false,
         ),
+        (
+            "Your password was changed",
+            "If this was you, do not ignore this message.",
+            false,
+            false,
+        ),
+        (
+            "Modification du mot de passe",
+            "Si c'était vous, ne pas ignorer cette demande.",
+            false,
+            false,
+        ),
     ] {
         let raw =
             format!("Subject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}");
