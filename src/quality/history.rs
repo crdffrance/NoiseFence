@@ -19,6 +19,42 @@ pub struct Report {
     pub established: bool,
     #[serde(default)]
     pub behavior: Option<super::behavior::Report>,
+    /// Diagnostic recency, not a probability, scoring input or allowlist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recency: Option<Recency>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Recency {
+    pub evaluated_at: i64,
+    pub half_life_days: u32,
+    pub wanted_weight: f64,
+    pub unwanted_weight: f64,
+    pub last_seen_age_seconds: Option<u64>,
+}
+fn recency(campaigns: &BTreeMap<String, (bool, bool, i64)>, at: i64) -> Recency {
+    let mut result = Recency {
+        evaluated_at: at,
+        half_life_days: 14,
+        wanted_weight: 0.,
+        unwanted_weight: 0.,
+        last_seen_age_seconds: None,
+    };
+    for &(wanted, unwanted, last) in campaigns.values() {
+        if wanted == unwanted || last >= at || last < at.saturating_sub(30 * 86400) {
+            continue;
+        }
+        let age = (at - last) as u64;
+        result.last_seen_age_seconds =
+            Some(result.last_seen_age_seconds.map_or(age, |old| old.min(age)));
+        let weight = 2f64.powf(-(age as f64) / (14. * 86400.));
+        if wanted {
+            result.wanted_weight += weight;
+        } else {
+            result.unwanted_weight += weight;
+        }
+    }
+    result
 }
 impl Default for Report {
     fn default() -> Self {
@@ -31,6 +67,7 @@ impl Default for Report {
             conflict: false,
             established: false,
             behavior: None,
+            recency: None,
         }
     }
 }
@@ -122,7 +159,7 @@ pub async fn inspect_with_context(
                 r.get::<_, Option<String>>(4)?,
             ))
         })?;
-        let mut campaigns: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+        let mut campaigns: BTreeMap<String, (bool, bool, i64)> = BTreeMap::new();
         let mut behavior_history = super::behavior::History::default();
         let mut days = std::collections::BTreeSet::new();
         for (index, row) in rows.enumerate() {
@@ -138,11 +175,13 @@ pub async fn inspect_with_context(
             let entry = campaigns.entry(fingerprint).or_default();
             entry.0 |= !min;
             entry.1 |= max;
+            entry.2 = entry.2.max(created);
             days.insert(created / 86400);
         }
         behavior_history.finish(result.behavior.as_mut().unwrap());
         result.observed_days = days.len();
-        for (legit, spam) in campaigns.values() {
+        result.recency = Some(recency(&campaigns, now));
+        for (legit, spam, _) in campaigns.values() {
             result.conflict |= *legit && *spam;
             if *legit && !spam {
                 result.legitimate_campaigns += 1;
@@ -178,5 +217,28 @@ pub async fn inspect_with_context(
             }
             report
         }
+    }
+}
+
+#[cfg(test)]
+mod recency_tests {
+    use super::*;
+    #[test]
+    fn campaign_memory_decays_and_excludes_conflicting_future_and_expired_examples() {
+        let at = 40 * 86400;
+        let campaigns = BTreeMap::from([
+            ("wanted".into(), (true, false, at - 14 * 86400)),
+            ("unwanted".into(), (false, true, at - 28 * 86400)),
+            ("conflict".into(), (true, true, at - 1)),
+            ("future".into(), (true, false, at + 1)),
+            ("expired".into(), (true, false, at - 31 * 86400)),
+        ]);
+        let report = recency(&campaigns, at);
+        assert_eq!(report.wanted_weight, 0.5);
+        assert_eq!(report.unwanted_weight, 0.25);
+        assert_eq!(report.last_seen_age_seconds, Some(14 * 86400));
+        let mut older = campaigns;
+        older.remove("future");
+        assert!(recency(&older, at + 86400).wanted_weight < report.wanted_weight);
     }
 }

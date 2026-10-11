@@ -263,10 +263,25 @@ async fn local_detector_cache_preserves_votes_scopes_freshness_and_read_only_smt
         &targets,
     )
     .await;
+    // Sender votes and policy features must be identical across backends.
+    // Diagnostic recency advances with wall time between the two inspections.
+    let mut before_json = serde_json::to_value(&before).unwrap();
+    let mut after_json = serde_json::to_value(&after).unwrap();
+    before_json.as_object_mut().unwrap().remove("recency");
+    after_json.as_object_mut().unwrap().remove("recency");
+    assert_eq!(before_json, after_json);
+    let a = after.recency.as_ref().unwrap();
+    let b = before.recency.as_ref().unwrap();
+    let elapsed = a.evaluated_at - b.evaluated_at;
+    assert!(elapsed >= 0);
+    assert_eq!(a.half_life_days, b.half_life_days);
     assert_eq!(
-        serde_json::to_value(&before).unwrap(),
-        serde_json::to_value(&after).unwrap()
+        a.last_seen_age_seconds,
+        b.last_seen_age_seconds.map(|age| age + elapsed as u64)
     );
+    let decay = 2f64.powf(-(elapsed as f64) / (14. * 86400.));
+    assert!((a.wanted_weight - b.wanted_weight * decay).abs() < 1e-12);
+    assert!((a.unwanted_weight - b.unwanted_weight * decay).abs() < 1e-12);
     assert_eq!(
         serde_json::to_value(&fuzzy_before).unwrap(),
         serde_json::to_value(

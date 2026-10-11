@@ -163,3 +163,9 @@ Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md). Report vulne
 Optional: [independent Rspamd comparison](docs/rspamd-comparison.md) provides asynchronous second opinions in the console. Rspamd never changes NoiseFence's verdict, score or delivery decision.
 
 The [calibration workbench](docs/calibration-workbench.md) compares NoiseFence and Rspamd against human labels, isolates holdouts, and manages shadow candidates from the Web console.
+
+The workbench also shows score saturation and threshold tradeoffs for each detector
+cohort and actual LLM state. These diagnostics help distinguish a threshold problem
+from poor score separation; they do not activate a model or claim that the index is
+a calibrated probability. Sender-history recency is advisory, and optional provider
+timeouts retain already validated observations without claiming complete coverage.

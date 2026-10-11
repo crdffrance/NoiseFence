@@ -95,6 +95,7 @@ def operating_profiles(rows, usable):
 
 
 def compare(dataset):
+    from score_tradeoffs import score_tradeoffs
     header,usable,coverage,_,digest=load_dataset(dataset,allow_multiple_artifacts=True)
     records,again=read_jsonl(dataset)
     if digest!=again:raise ValueError('Dataset changed during comparison')
@@ -121,7 +122,7 @@ def compare(dataset):
     cy=[int(r['risk']=='spam') for r in representatives]
     latency=sorted(r['pipeline_elapsed_ms'] for r in rows if type(r.get('pipeline_elapsed_ms')) in (int,float) and 0<=r['pipeline_elapsed_ms']<=3600000)
     report={'schema':'noisefence-quality-comparison-3','dataset_sha256':digest,'purpose':header.get('purpose','regression'),'sampling':header['sampling'],
-      'exposure':exposure_report(header),'paired':paired_comparison(rows),'operating_profiles':operating_profiles(rows,usable),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
+      'exposure':exposure_report(header),'paired':paired_comparison(rows),'operating_profiles':operating_profiles(rows,usable),'score_tradeoffs':score_tradeoffs(rows,usable,PROTOCOL),'recorded_policy':policy_report(rows),'evaluation_scope':'recorded_engines_with_separate_policy_results',
       'coverage':{**coverage,'labelled':len(labelled),'unlabelled_or_uncertain':len(rows)-len(labelled)},
       'baseline':outcomes(y,native),'rspamd':outcomes(y,other),'legacy_score_calibration':lexical,
       'campaigns':{'count':len(representatives),'conflicting':conflicts,

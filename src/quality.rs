@@ -97,6 +97,7 @@ impl Report {
             "sender":{"status":self.sender.status,"established":self.sender.established,
                 "conflict":self.sender.conflict,"legitimate_campaigns":self.sender.legitimate_campaigns,
                 "unwanted_campaigns":self.sender.unwanted_campaigns,"observed_days":self.sender.observed_days,
+                "recency":self.sender.recency,
                 "behavior":self.sender.behavior.as_ref().map(|b|serde_json::json!({"status":b.status,"new_recipient":b.new_recipient,"new_link_domain":b.new_link_domain,"new_request":b.new_request,"observation_only":true}))}})
     }
 }

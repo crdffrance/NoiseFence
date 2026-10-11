@@ -5,7 +5,7 @@ use crate::{
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "decision-policy-9";
+pub const VERSION: &str = "decision-policy-10";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -148,7 +148,12 @@ fn authenticated_benign_conflict(scan: &Scan) -> bool {
             p.findings.iter().any(|f| {
                 matches!(
                     f.id.as_str(),
-                    "known_phishing_url" | "known_malicious_indicator" | "confirmed_campaign"
+                    "known_phishing_url"
+                        | "known_malicious_indicator"
+                        | "confirmed_campaign"
+                        | "lookalike_sender"
+                        | "protected_display_name"
+                        | "reply_domain_mismatch"
                 )
             })
         })
@@ -324,7 +329,10 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     // Re-evaluate from the saved input when applying recipient policies. Never
     // treat our own abstention as new evidence or accumulate explanation rows.
     if let Some(previous) = scan.arbitration.take()
-        && matches!(previous.version.as_str(), "decision-policy-8" | VERSION)
+        && matches!(
+            previous.version.as_str(),
+            "decision-policy-8" | "decision-policy-9" | VERSION
+        )
         && scan.complete
         && scan.decision.as_ref() == Some(&previous.decision)
     {
@@ -395,7 +403,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
             scan.pub_tagged = false;
             scan.reasons.push(Signal {
                 id: CONTEXT_REASON.into(),
-                detail: "Authenticated threat-report or transaction context conflicts with an uncorroborated content score. Automatic policy will resolve the classification; context is not proof of legitimacy.".into(),
+                detail: "Authenticated reporting, transaction or conditional security-notice context conflicts with an uncorroborated content score. Automatic policy will resolve the classification; context is not proof of legitimacy.".into(),
                 weight: 0.0,
             });
         }

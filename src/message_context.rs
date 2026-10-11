@@ -153,19 +153,13 @@ impl Context {
             && body.contains("payments");
         self.transaction_notice =
             shipment || (payment_subject && payment_body) || transfer || trip_receipt;
-        self.conditional_security_notice = [
-            "if this was you",
-            "if it was you",
-            "si c’était vous",
-            "si c'etait vous",
-            "si c'était vous",
-        ]
-        .iter()
-        .any(|p| body.contains(p))
-            && ["ignore", "ignorer"].iter().any(|p| body.contains(p))
-            && ["password", "mot de passe", "security", "sécurité"]
-                .iter()
-                .any(|p| subject.contains(p));
+        static SECURITY_EVENT: OnceLock<Regex> = OnceLock::new();
+        static OPTIONAL_ACTION: OnceLock<Regex> = OnceLock::new();
+        self.conditional_security_notice = SECURITY_EVENT.get_or_init(|| Regex::new(
+            r"(?i)\b(?:password (?:was |has been )?(?:changed|reset)|(?:modification|changement) du mot de passe|security (?:information|info) (?:was |has been )?added|informations de s[eé]curit[eé].{0,45}ajout[eé]es)\b"
+        ).unwrap()).is_match(&subject) && OPTIONAL_ACTION.get_or_init(|| Regex::new(
+            r"\b(?:if (?:this|it) was you[ ,:;\t-]*(?:then )?(?:(?:(?:you (?:can|may)|please) )?ignore|no action is required)|si c['’][eé]tait vous[ ,:;\t-]*(?:vous pouvez ignorer|aucune action n['’]est (?:requise|n[eé]cessaire)))\b"
+        ).unwrap()).is_match(&body);
         static DEMAND: OnceLock<Regex> = OnceLock::new();
         self.direct_extortion =
             direct_extortion(&subject, &body) && !self.threat_report && !self.transaction_notice;
@@ -223,8 +217,10 @@ pub fn needs_review(scan: &Scan) -> bool {
     let Some(context) = &scan.message_context else {
         return false;
     };
-    if !(context.threat_report || context.transaction_notice)
+    if !(context.threat_report || context.transaction_notice || context.conditional_security_notice)
         || context.action_demand
+        || context.direct_extortion
+        || context.injected_reward_lure
         || crate::confirmation::corroborated(scan)
     {
         return false;

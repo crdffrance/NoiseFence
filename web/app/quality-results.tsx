@@ -81,3 +81,28 @@ export function TrainingFailure({code}:{code:string}) {
   };
   return <p role="alert" className="notice">{explanations[code] ?? 'Research job failed. Check the worker and dataset compatibility.'} No model was activated. <code>{code}</code></p>;
 }
+
+export type ScoreTradeoffsReport={schema:string;scope:string;may_activate:boolean;excluded:Record<string,number>;
+  profiles:{cohort:string;llm_state:string;messages:number;wanted:number;unwanted:number;saturated:number;
+    empirical_target_possible:boolean|null;points:{threshold:number;metrics:Metrics}[]}[]};
+export function ScoreTradeoffs({value}:{value:ScoreTradeoffsReport}) {
+  if(value.schema!=='noisefence-score-tradeoffs-1'||value.scope!=='historical_index_only_not_policy_replay'||value.may_activate!==false)
+    return <p className="notice">Score diagnostics use an unsupported report format. Run a new comparison.</p>;
+  return <details><summary>Score separation and sensitivity tradeoffs</summary>
+    <p className="notice">Diagnostic projections only. These tables compare the historical index with a threshold. They do not replay antivirus priority, evidence guards, recipient rules or delivery actions. No setting is changed.</p>
+    <p className="muted small">Each model cohort and recorded LLM feature state is evaluated separately. Historical skipped states can combine several reasons. This is not an experiment switching the LLM off. Repeated campaigns are correlated; sample results do not qualify a production threshold.</p>
+    {!value.profiles.length&&<p>No compatible human-labelled scores are available.</p>}
+    {value.profiles.map(p=><details key={`${p.cohort}-${p.llm_state}`}><summary>LLM: {p.llm_state.replaceAll('_',' ')} · {p.messages} labelled messages · cohort {p.cohort.slice(0,8)}</summary>
+      <p>{p.wanted} wanted · {p.unwanted} unwanted · {p.saturated} indices at or above 99.9 / 100.</p>
+      <p className="notice">{p.empirical_target_possible==null
+        ?'Both wanted and unwanted examples are required to assess score separation.'
+        :p.empirical_target_possible
+          ?'At least one tested threshold reaches the empirical targets on this sample. Independent qualification and policy replay are still required.'
+          :'No tested threshold reaches both 95% capture and at most 0.1% false positives on this sample. Raising sensitivity alone does not solve the observed overlap.'}</p>
+      <div className="quality-table-scroll"><table className="quality-metrics"><caption>Threshold-only projection · index / 100 · not spam probability</caption>
+        <thead><tr><th>Threshold</th><th>Capture</th><th>False positives</th><th>False-positive 95% interval</th></tr></thead>
+        <tbody>{p.points.map(point=><tr key={point.threshold}><th>{point.threshold}</th><td>{percent(point.metrics.recall)}</td><td>{point.metrics.fp} · {percent(point.metrics.fpr)}</td><td>{point.metrics.fpr_ci95?.map(percent).join('–')??'Not measured'}</td></tr>)}</tbody>
+      </table></div></details>)}
+    {Object.keys(value.excluded).length>0&&<p className="muted small">Excluded: {Object.entries(value.excluded).map(([reason,n])=>`${reason.replaceAll('_',' ')}: ${n}`).join(' · ')}.</p>}
+  </details>;
+}
