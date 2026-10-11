@@ -443,6 +443,7 @@ impl Bundle {
                 | "0.30.0"
                 | "0.30.1"
                 | "0.30.2"
+                | "0.30.3"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -456,10 +457,10 @@ impl Bundle {
         // activating it on a mixed-version enrolled cluster.
         if matches!(
             env!("CARGO_PKG_VERSION"),
-            "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1" | "0.30.2"
+            "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1" | "0.30.2" | "0.30.3"
         ) && matches!(
             build,
-            "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1"
+            "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1" | "0.30.2"
         ) {
             let mut bundle = self.clone();
             bundle.build = build.into();

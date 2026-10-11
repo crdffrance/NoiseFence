@@ -85,6 +85,29 @@ pub fn open(config: &Config, purpose: Purpose) -> Result<Store> {
     };
     Store::open_bound(&config.data_dir, &selection, central)
 }
+/// Read the selected authority without opening/migrating the writable queue,
+/// loading models, starting listeners, or falling back to obsolete SQLite rows.
+pub async fn health(config: &Config) -> Result<serde_json::Value> {
+    let selection = selected(config)?;
+    let cluster = config
+        .cluster
+        .as_ref()
+        .context("Cluster configuration required")?;
+    match config
+        .management
+        .as_ref()
+        .context("Selected management required")?
+    {
+        Management::PostgreSql { connection } => {
+            super::Central::new_bound(connection, &selection.database)?
+                .worker_health(cluster.max_stale_seconds)
+                .await
+        }
+        Management::Coordinator {} => {
+            Ok(serde_json::json!({"backend":"coordinator","checked_at":crate::now()}))
+        }
+    }
+}
 /// Check again under the daemon lock immediately before starting any service.
 /// A queue-only restore cannot authorize a rollback of central access records.
 pub fn require_complete_recovery(config: &Config) -> Result<()> {

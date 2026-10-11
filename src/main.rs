@@ -30,6 +30,8 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Read bounded operational counters from the selected management authority; no mutations.
+    ManagementHealth,
     /// Verify a recovered console against local and PostgreSQL receipts; no listeners or state changes.
     ManagementRecoveryCheckConsole,
     /// Initialize this stopped MX's durable management journal before exporting it.
@@ -525,6 +527,16 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::ManagementHealth => {
+            let config = Config::load(&cli.config)?;
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                noisefence::central::bootstrap::health(&config),
+            )
+            .await??;
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
         Command::ManagementRecoveryCheckConsole => {
             let config = Config::load(&cli.config)?;
             let result = noisefence::central::recovery::activation::check(&config).await?;

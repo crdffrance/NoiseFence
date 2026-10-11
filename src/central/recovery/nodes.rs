@@ -47,6 +47,7 @@ impl Central {
             .get(0);
         let expected:BTreeMap<String,String>=tx.query("SELECT node,epoch FROM noisefence.sources WHERE enabled AND node<>$1 ORDER BY node FOR SHARE",&[&owner]).await.map_err(database_error)?.into_iter().map(|r|(r.get(0),r.get(1))).collect();
         ensure!(&expected == workers, "Recovery worker source set changed");
+        // Fence KEY SHARE credential readers before rotating recovered identities.
         let rows=tx.query("SELECT node,epoch,token_hash FROM noisefence.cluster_nodes WHERE enabled ORDER BY node FOR UPDATE",&[]).await.map_err(database_error)?;
         let enrolled: BTreeMap<String, String> =
             rows.iter().map(|r| (r.get(0), r.get(1))).collect();

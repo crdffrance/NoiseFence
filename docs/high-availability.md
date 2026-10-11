@@ -49,6 +49,14 @@ access before starting a restored service.
 
 The local replication settings are never overwritten by distributed Web policy. `allow_loopback_http` is for isolated loopback tests only. Reaching the replica storage quota causes temporary failure; monitor unconfirmed candidates as well as accepted copies.
 
+Incremental SQLite checkpoints pin a committed read transaction throughout the
+copy. Concurrent WAL writers can proceed without restarting the backup at each
+step; the 30-second copy deadline bounds snapshot retention. Integrity checks,
+file digests and authority comparisons still run before publication. Monitor
+successful checkpoint age as well as failed attempts, and periodically test a
+restore into an isolated destination. A console checkpoint failure does not imply
+a failure of the separate durable message-replication protocol.
+
 <a id="bascule-planifiée"></a>
 ### Preparing a selected console configuration
 

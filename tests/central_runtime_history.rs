@@ -12,6 +12,118 @@ use noisefence::{
     quality, runtime_history,
     store::Store,
 };
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn credential_reads_allow_status_updates_but_respect_revocation_locks() {
+    let f = postgres::Fixture::new().await;
+    let peer = outbox::Identity {
+        node: "mx2".into(),
+        epoch: uuid::Uuid::new_v4().to_string(),
+    };
+    let hash = "a".repeat(64);
+    f.central.register_source(&peer).await.unwrap();
+    f.central
+        .enroll_node(&peer, "Secondary", &hash)
+        .await
+        .unwrap();
+    let authenticated = f
+        .central
+        .authenticate_node("mx2", &hash)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut writer = f.connect().await;
+    let tx = writer.transaction().await.unwrap();
+    tx.execute(
+        "UPDATE noisefence.cluster_nodes SET last_seen=100 WHERE node='mx2'",
+        &[],
+    )
+    .await
+    .unwrap();
+    // Held until after the real authenticated history read: old FOR SHARE
+    // waits for this unrelated status update and hits lock_timeout=500ms.
+    f.central
+        .runtime_history(Some(&authenticated))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let tx = writer.transaction().await.unwrap();
+    tx.query_one(
+        "SELECT node FROM noisefence.cluster_nodes WHERE node='mx2' FOR UPDATE",
+        &[],
+    )
+    .await
+    .unwrap();
+    let error = f
+        .central
+        .runtime_history(Some(&authenticated))
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        error.to_string().contains("55P03"),
+        "revocation must retain exclusive protection"
+    );
+    tx.execute(
+        "UPDATE noisefence.cluster_nodes SET token_hash=$1 WHERE node='mx2'",
+        &[&"b".repeat(64)],
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert!(
+        f.central
+            .runtime_history(Some(&authenticated))
+            .await
+            .is_err()
+    );
+    assert!(
+        f.central
+            .authenticate_node("mx2", &hash)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let now = noisefence::now();
+    assert_eq!(
+        f.central.worker_health(60).await.unwrap()["stale_workers"],
+        1
+    );
+    writer
+        .execute(
+            "UPDATE noisefence.cluster_nodes SET last_seen=$1 WHERE node='mx2'",
+            &[&now],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        f.central.worker_health(60).await.unwrap()["stale_workers"],
+        0
+    );
+    writer
+        .execute(
+            "UPDATE noisefence.cluster_nodes SET last_seen=$1 WHERE node='mx2'",
+            &[&(now + 3600)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        f.central.worker_health(60).await.unwrap()["stale_workers"],
+        1
+    );
+    writer
+        .execute(
+            "UPDATE noisefence.cluster_nodes SET enabled=false WHERE node='mx2'",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(f.central.worker_health(60).await.unwrap()["workers"], 0);
+    f.finish().await;
+}
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
 async fn local_detector_cache_preserves_votes_scopes_freshness_and_read_only_smtp() {

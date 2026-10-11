@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.30.3 — Reliable cluster operations and checkpoints
+
+- Allow PostgreSQL node-status updates during authenticated history reads while keeping exclusive credential rotation and revocation locks. Preserve database deadlines and authority binding.
+- Pin a committed SQLite read snapshot during incremental backups so concurrent WAL writes do not repeatedly restart the copy. Keep the copy deadline, integrity check, private output and durable publication.
+- Read coordinator worker health from the selected PostgreSQL authority through a bounded, read-only `management-health` command. Never fall back to obsolete SQLite worker rows.
+- Exclude remote console-history mirrors from the local delivery queue monitor and measure released quarantine items from their release time. Preserve every queued message and replica ownership.
+- Add an explicit monitor-only option for intentionally suspended LLM pricing; the default alert remains. This option never renews pricing or enables content transfer.
+- Retain verified 0.30.2 policies during upgrade. Observation, mandatory message replication, filter thresholds and provider budgets remain unchanged.
+
 ## 0.30.2 — Filter coverage and qualification diagnostics
 
 - Resolve bounded, literal JavaScript navigation without executing scripts. Distinguish inert JSON/JSON-LD data blocks from executable scripts; retain uncertainty for dynamic scripts, event handlers and competing destinations. Keep per-hop SSRF, TLS and deadline checks.
