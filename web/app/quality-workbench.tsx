@@ -4,12 +4,13 @@ import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, type SaveResult } from './activation';
 import {Button} from '@/components/ui/button';
 import {api,type User} from './client';
-import {MetricTable,FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,type FoldReadiness,type ExportExposure,type Metrics,type RecordedPolicy} from './quality-results';
+import {MetricTable,FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,ScoreTradeoffs,type ScoreTradeoffsReport,type FoldReadiness,type ExportExposure,type Metrics,type RecordedPolicy} from './quality-results';
 export type DatasetPurpose='development'|'regression'|'holdout';
 type Readiness=FoldReadiness;
 type ProfileMetrics={population:number;labelled:number;paired:number;excluded_from_pair:number;baseline:Metrics;rspamd:Metrics};
 type Report={exposure?:ExportExposure;risk?:{test?:Metrics};evaluation_scope?:string;recorded_policy?:RecordedPolicy;status?:string;error_code?:string;coverage?:Record<string,number>;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics;
   operating_profiles?:Record<string,Record<string,ProfileMetrics>>;
+  score_tradeoffs?:ScoreTradeoffsReport;
   slices?:Record<string,{baseline:Metrics;rspamd?:Metrics;candidate?:Metrics}>;
   paired?:{baseline:Metrics;rspamd:Metrics;coverage:Record<string,number>;campaigns:Report['campaigns'];capture_comparison_supported:boolean;profiles:{native:string;rspamd:string;messages:number}[]};
   campaigns?:{count?:number;conflicting?:number;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics};
@@ -61,6 +62,7 @@ export function QualityWorkbench({user,batch,purpose,refresh}:{user:User;batch:s
         <FullSampleResults report={j.report}/>
       </>:(j.operation==='train'?<TrainingResults risk={j.report.risk}/>:<FullSampleResults report={j.report}/>)}{j.report.coverage&&<p>{j.report.coverage.labelled??j.report.coverage.usable??0} usable or labelled observations · {j.report.coverage.unlabelled_or_uncertain??0} unlabelled or uncertain · {j.report.coverage.deleted_or_no_longer_authorized??0} missing from the original draw.</p>}
       {j.operation!=='train'&&<><ExposureNotice value={j.report.exposure}/><PolicyResults value={j.report.recorded_policy}/></>}
+      {j.report.score_tradeoffs&&<ScoreTradeoffs value={j.report.score_tradeoffs}/>}
       {j.report.operating_profiles&&<details><summary>Performance with available and missing detectors</summary>
         <p className="notice">These are actual arrival profiles, not simulated LLM-off results. Both engines use the same human-labelled messages within each table. Different populations cannot prove that a detector helped or harmed accuracy.</p>
         {['llm','crdf','virustotal'].map(detector=><div key={detector}><h4>{({llm:'LLM',crdf:'CRDF',virustotal:'VirusTotal'} as Record<string,string>)[detector]}</h4>

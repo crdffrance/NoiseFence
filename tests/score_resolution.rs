@@ -339,6 +339,74 @@ fn grounded_authenticated_conflict_preserves_score_and_definitive_verdict() {
 }
 
 #[test]
+fn conditional_security_notices_work_without_llm_but_never_bypass_observed_threats() {
+    use noisefence::{antivirus::AntivirusStatus, evidence::AuthResult, llm::LlmResult};
+    for variant in 0..7 {
+        let mut s = authenticated_conflict();
+        s.llm = LlmResult::default();
+        s.message_context
+            .as_mut()
+            .unwrap()
+            .conditional_security_notice = true;
+        s.decision = Some(Decision::legacy(&s, 95.));
+        match variant {
+            1 => s.message_context.as_mut().unwrap().action_demand = true,
+            2 => s.message_context.as_mut().unwrap().injected_reward_lure = true,
+            3 => s.message_context.as_mut().unwrap().direct_extortion = true,
+            4 => {
+                let a = &mut s.evidence.as_mut().unwrap().authentication;
+                a.dmarc_spf = Some(AuthResult::Fail);
+                a.dmarc_dkim = Some(AuthResult::Fail);
+            }
+            5 => s.antivirus.status = AntivirusStatus::Malware,
+            6 => s.signatures.status = AntivirusStatus::Suspicious,
+            _ => (),
+        }
+        decision::apply(&mut s, false);
+        decision::finalize(&mut s, 95.);
+        assert_eq!(
+            s.decision.as_ref().unwrap().outcome,
+            if variant == 0 {
+                Outcome::Legitimate
+            } else {
+                Outcome::Unwanted
+            }
+        );
+        assert_eq!(s.score, 99.8);
+        let once = serde_json::to_value(&s).unwrap();
+        decision::apply(&mut s, false);
+        decision::finalize(&mut s, 95.);
+        assert_eq!(serde_json::to_value(&s).unwrap(), once);
+    }
+}
+
+#[test]
+fn identity_anomalies_prevent_benign_context_from_becoming_a_sender_allowlist() {
+    for id in [
+        "lookalike_sender",
+        "protected_display_name",
+        "reply_domain_mismatch",
+    ] {
+        let mut s = authenticated_conflict();
+        let mut report = noisefence::protection::Report::default();
+        report.add(
+            id,
+            "identity",
+            "synthetic.example",
+            "headers",
+            "Synthetic identity conflict",
+        );
+        s.protection = Some(report);
+        decision::finalize(&mut s, 95.);
+        assert_eq!(
+            s.decision.as_ref().unwrap().outcome,
+            Outcome::Unwanted,
+            "{id}"
+        );
+    }
+}
+
+#[test]
 fn authentication_or_llm_alone_never_suppresses_a_high_score() {
     for variant in 0..11 {
         let mut s = authenticated_conflict();

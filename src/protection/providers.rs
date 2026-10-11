@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -166,8 +166,42 @@ struct TransportMetrics {
     failures: Mutex<BTreeMap<String, usize>>,
     retry_after: Mutex<Option<u64>>,
     timings: Timings,
+    // Validated, target-bound responses survive cancellation during cache I/O.
+    // One inspection has at most twelve targets; this is not a shared cache.
+    completed: Mutex<BTreeMap<(String, bool), Verdict>>,
 }
 impl TransportMetrics {
+    fn completed(&self, indicator: &str, file: bool, verdict: Verdict) {
+        let mut completed = self.completed.lock().unwrap();
+        if completed.len() < 12 {
+            completed.insert((indicator.to_owned(), file), verdict);
+        }
+    }
+    fn preserve_completed(
+        &self,
+        provider: Provider,
+        applied: &BTreeSet<(String, bool)>,
+        report: &mut ProviderReport,
+        hits: &mut Vec<(String, bool)>,
+    ) {
+        for ((indicator, file), verdict) in self.completed.lock().unwrap().iter() {
+            if !applied.contains(&(indicator.clone(), *file)) {
+                apply_lookup(
+                    report,
+                    hits,
+                    provider,
+                    indicator,
+                    *file,
+                    Lookup {
+                        verdict: Some(*verdict),
+                        status: Status::Complete,
+                        cached: false,
+                        failure: None,
+                    },
+                );
+            }
+        }
+    }
     fn failure(&self, failure: Failure) {
         let token = serde_json::to_value(failure).expect("failure token");
         *self
@@ -648,10 +682,15 @@ impl Client {
             drop(_slot);
             match result {
                 Ok(verdict) => {
+                    metrics.completed(indicator, file, verdict);
                     let span = metrics.timings.start(Phase::Storage);
-                    let _ = self
+                    if self
                         .remember(cache_key, credential, Some(verdict), false)
-                        .await;
+                        .await
+                        .is_err()
+                    {
+                        metrics.failure(Failure::Storage);
+                    }
                     span.finish();
                     return Lookup {
                         verdict: Some(verdict),
@@ -753,6 +792,11 @@ impl Client {
             drop(slot);
             match result {
                 Ok(verdicts) => {
+                    for (indicator, verdict) in indicators.iter().zip(&verdicts) {
+                        if let Some(verdict) = verdict {
+                            metrics.completed(indicator, false, *verdict);
+                        }
+                    }
                     let values = indicators
                         .iter()
                         .zip(&verdicts)
@@ -763,7 +807,9 @@ impl Client {
                         })
                         .collect();
                     let span = metrics.timings.start(Phase::Storage);
-                    let _ = self.remember_batch(values).await;
+                    if self.remember_batch(values).await.is_err() {
+                        metrics.failure(Failure::Storage);
+                    }
                     span.finish();
                     return verdicts
                         .into_iter()
@@ -845,6 +891,7 @@ impl Client {
             ..Default::default()
         };
         let mut hits = Vec::new();
+        let mut applied = BTreeSet::new();
         let metrics = Arc::new(TransportMetrics::default());
         let work = async {
             if indicators.is_empty() {
@@ -871,6 +918,7 @@ impl Client {
             // Cache coverage is independent of quota, provider health and request capacity.
             for ((indicator, file), value) in indicators.iter().zip(values) {
                 if let Some(value) = value {
+                    applied.insert((indicator.clone(), *file));
                     apply_lookup(
                         &mut report,
                         &mut hits,
@@ -897,6 +945,7 @@ impl Client {
                     self.query_crdf_batch(&key, &names, quota, metrics.clone())
                         .await,
                 ) {
+                    applied.insert((indicator.clone(), *file));
                     apply_lookup(&mut report, &mut hits, provider, indicator, *file, value);
                 }
                 return;
@@ -934,6 +983,7 @@ impl Client {
                 }
                 match completed {
                     Ok((indicator, file, value)) => {
+                        applied.insert((indicator.clone(), file));
                         apply_lookup(&mut report, &mut hits, provider, &indicator, file, value)
                     }
                     Err(_) => {
@@ -948,6 +998,7 @@ impl Client {
                 .await
                 .is_err();
         if deadline_exceeded {
+            metrics.preserve_completed(provider, &applied, &mut report, &mut hits);
             report.status = Status::Unavailable;
             report.failure = Some(Failure::Timeout);
             metrics.failure(Failure::Timeout);
@@ -1576,6 +1627,39 @@ mod transport_tests {
     // assertions run. Keep a bounded fixture budget separate from the explicit
     // 100 ms timeout test below; production defaults and validation are unchanged.
     const FUNCTIONAL_TIMEOUT_MS: u64 = 10_000;
+    #[test]
+    fn validated_responses_survive_cache_cancellation_without_duplicate_votes() {
+        let metrics = TransportMetrics::default();
+        metrics.completed("malicious.example", false, Verdict::Malicious);
+        metrics.completed("clean.example", false, Verdict::NoHit);
+        metrics.completed("unknown.example", false, Verdict::Unknown);
+        let mut report = ProviderReport {
+            status: Status::Complete,
+            ..Default::default()
+        };
+        let mut hits = Vec::new();
+        apply_lookup(
+            &mut report,
+            &mut hits,
+            Provider::Crdf,
+            "clean.example",
+            false,
+            cached(Verdict::NoHit),
+        );
+        let applied = BTreeSet::from([("clean.example".to_owned(), false)]);
+        metrics.preserve_completed(Provider::Crdf, &applied, &mut report, &mut hits);
+        assert_eq!(report.checked, 3);
+        assert_eq!(report.malicious, 1);
+        assert_eq!(report.cache_hits, 1);
+        assert_eq!(hits, vec![("malicious.example".to_owned(), false)]);
+        assert_eq!(report.observations.len(), 3);
+        assert_eq!(report.unknown, 1);
+        // Failure/absence has no completed verdict to preserve.
+        let empty = TransportMetrics::default();
+        empty.failure(Failure::InvalidResponse);
+        empty.preserve_completed(Provider::Crdf, &BTreeSet::new(), &mut report, &mut hits);
+        assert_eq!(report.checked, 3);
+    }
     async fn server(
         status: &str,
         body: String,

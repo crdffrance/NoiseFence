@@ -1,5 +1,24 @@
 # Calibration workbench
 
+## Score separation diagnostics
+
+New engine comparisons include **Score separation and sensitivity tradeoffs**.
+Each table uses one compatible detector cohort and one recorded LLM feature state.
+Historical `skipped` states can combine several reasons, including expired pricing;
+they cannot establish which reason applied. Disabled and unknown states remain
+separate. The table shows the historical
+index at fixed thresholds, saturated indices, wanted/unwanted denominators and
+false-positive confidence intervals. An absent class is not zero measured error.
+
+These are threshold-only diagnostics, not a replay of antivirus priority, evidence
+guards, recipient rules or delivery actions. They cannot activate a threshold or
+prove that switching the LLM off caused a change. Repeated campaigns remain
+correlated. If no tested threshold separates wanted and unwanted messages at the
+targets, use the development/calibration workflow rather than merely raising the
+threshold. The existing message-policy preview is still the place to simulate
+recipient rules on frozen observations; independent holdout qualification remains
+required before a model changes decisions.
+
 ## Availability and mail-type comparisons (0.30.2)
 
 New comparison reports include `operating_profiles`. In the Web workbench, open

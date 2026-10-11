@@ -6,9 +6,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 const source=await readFile(new URL('../app/quality-results.tsx',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from (["'])([^"']+)\1/g,(_,q,name)=>`from ${JSON.stringify(import.meta.resolve(name))}`);
-const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,ScoreTradeoffs}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const render=(component,props)=>renderToStaticMarkup(createElement(component,props));
 const metrics={messages:2,tp:1,fp:0,review:0,recall:1,fpr:0,precision:1,fpr_ci95:[0,.5],recall_ci95:[.5,1]};
+
+test('score diagnostics cannot claim policy replay or qualification',()=>{
+  const report={schema:'noisefence-score-tradeoffs-1',scope:'historical_index_only_not_policy_replay',may_activate:false,excluded:{missing_score:2},profiles:[{cohort:'abcdef12345',llm_state:'pricing_expired',messages:2,wanted:1,unwanted:1,saturated:1,empirical_target_possible:false,points:[{threshold:95,metrics}]}]};
+  const html=render(ScoreTradeoffs,{value:report});
+  assert.match(html,/No tested threshold/);assert.match(html,/No setting is changed/);
+  assert.match(html,/not spam probability/);assert.match(html,/missing score: 2/);
+  assert.match(html,/pricing expired/);assert.doesNotMatch(html,/>Apply|>Activate/);
+  assert.match(render(ScoreTradeoffs,{value:{...report,may_activate:true}}),/unsupported report/);
+  assert.match(render(ScoreTradeoffs,{value:{...report,profiles:[{...report.profiles[0],empirical_target_possible:null}]}}),/Both wanted and unwanted/);
+});
 
 test('new engine comparisons explain partial verdicts without claiming independent qualification',()=>{
   const html=render(FullSampleResults,{report:{baseline:metrics,evaluation_scope:'recorded_engines_with_separate_policy_results'}});

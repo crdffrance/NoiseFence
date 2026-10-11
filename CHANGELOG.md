@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.0 — Filter consolidation and score diagnostics
+
+- Preserve validated, target-bound CRDF and VirusTotal results when the deadline expires during cache persistence. Report the timeout and storage incidents separately; do not manufacture a successful full check or duplicate a completed target.
+- Resolve authenticated, completed security-event notifications without requiring an LLM when they explicitly permit no action and no observed threat contradicts that context. Sensitive demands, malware, suspicious signatures, identity anomalies and confirmed threats prevent the benign guard. Preserve original indices and immutable historical decisions.
+- Recognize distributed survey newsletters with matching content while retaining transactional exclusions. Publicity remains a mail type, never proof of consent or safety.
+- Add historical score/threshold diagnostics to the Web calibration workbench, separated by detector cohort and actual LLM state. Show saturation, capture/false-positive tradeoffs and missing classes. These diagnostics neither replay delivery policies nor activate thresholds.
+- Show bounded, time-decayed human sender history and clearer behavior explanations. Recency is observation-only and cannot bypass security checks or change scores.
+- Keep the existing observation policy, suspended LLM, provider budgets and required peer replicas during upgrade. This release does not fit or promote a model, establish a capture rate, or certify version 1.0 quality.
+
 ## 0.30.3 — Reliable cluster operations and checkpoints
 
 - Allow PostgreSQL node-status updates during authenticated history reads while keeping exclusive credential rotation and revocation locks. Preserve database deadlines and authority binding.

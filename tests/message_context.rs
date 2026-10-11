@@ -9,6 +9,63 @@ use noisefence::{
 
 const NOTICE: &[u8] = b"From: Shipping <shipping@example.org>\r\nSubject: Your package has been received\r\n\r\nThe buyer received your package, order STORAGE-2. They have 3 days to confirm it; your payment is then released automatically.\r\n";
 const REPORT: &[u8] = b"From: Research <research@example.org>\r\nSubject: Example URL feed\r\n\r\nhxxps://bad.example/a\r\nhxxps://bad.example/b\r\nhxxps://bad.example/c\r\n";
+
+#[test]
+fn conditional_notices_require_a_completed_security_event_and_keep_current_demands() {
+    for (subject, body, expected, demand) in [
+        (
+            "Your password was changed",
+            "If this was you, no action is required.",
+            true,
+            false,
+        ),
+        (
+            "Modification du mot de passe du compte",
+            "Si c'était vous, vous pouvez ignorer ce message.",
+            true,
+            false,
+        ),
+        (
+            "Security information was added",
+            "If this was you, ignore this notice.",
+            true,
+            false,
+        ),
+        (
+            "Urgent security alert",
+            "If this was you, ignore this notice.",
+            false,
+            false,
+        ),
+        (
+            "Your password was changed",
+            "Enter your password to verify your account. If this was you, ignore this notice.",
+            true,
+            true,
+        ),
+        (
+            "Your password was changed",
+            "A security change was recorded.",
+            false,
+            false,
+        ),
+        (
+            "Your password was changed",
+            "If this was you, visit our portal. Do not ignore this payment demand.",
+            false,
+            false,
+        ),
+    ] {
+        let raw =
+            format!("Subject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}");
+        let context = noisefence::message_context::inspect(raw.as_bytes());
+        assert_eq!(
+            context.conditional_security_notice, expected,
+            "{subject}: {body}"
+        );
+        assert_eq!(context.action_demand, demand);
+    }
+}
 fn candidate(raw: &[u8]) -> Scan {
     let root = tempfile::tempdir().unwrap();
     let mut scan = Engine::new(common::config(root.path()))

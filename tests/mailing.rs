@@ -11,6 +11,32 @@ fn mail(subject: &str, headers: &str, body: &str) -> Vec<u8> {
 }
 const LIST: &str = "List-Unsubscribe: <https://example.org/unsubscribe>\r\nList-ID: Offers <offers.example.org>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n";
 const OFFER: &str = "Offres exclusives : achetez maintenant, livraison offerte. Se désabonner.";
+
+#[test]
+fn survey_newsletters_need_distribution_and_do_not_reclassify_receipts() {
+    for (subject, body) in [
+        (
+            "Your voice matters: cloud survey",
+            "Share your insights in our survey. Unsubscribe.",
+        ),
+        (
+            "Participez à notre enquête",
+            "Donnez votre avis dans notre enquête. Se désabonner.",
+        ),
+    ] {
+        assert_eq!(inspect(subject, LIST, body).verdict, Verdict::Newsletter);
+        assert!(!inspect(subject, "", "Please answer our questions.").is_publicity());
+    }
+    assert!(
+        !inspect(
+            "Your verification code",
+            LIST,
+            "Your voice matters: survey. Your verification code is 123456."
+        )
+        .is_publicity()
+    );
+    assert!(!inspect("Survey incident report", "", "The survey failed.").is_publicity());
+}
 fn inspect(subject: &str, headers: &str, body: &str) -> mailing::Report {
     mailing::inspect(
         &mail(subject, headers, body),

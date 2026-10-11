@@ -22,9 +22,10 @@ export function QualityDetails({report}:{report:QualityReport}) {
     </>}
     <p className="muted small">This candidate analysis does not alter the classification applied or the delivery.</p>
     <p>{report.sender.established ? "Authenticated correspondence with a validated history." : report.sender.conflict ? "Contradictory corrections in correspondent's history." : "Historical confidence not established."}</p>
-    {report.sender.status === 'complete' && <p className="muted small">{report.sender.legitimate_campaigns} legitimate campaigns, {report.sender.unwanted_campaigns} undesirable · {report.sender.observed_days} No security checks are bypassed.</p>}
-    {report.sender.behavior && <p className="muted small">Contact person&apos;s habits: {report.sender.behavior.status==='complete'
-      ? [report.sender.behavior.new_recipient && "recipient not met",report.sender.behavior.new_link_domain && "new area of link",report.sender.behavior.new_request && "new type of application"].filter(Boolean).join(' · ') || "no changes observed"
+    {report.sender.status === 'complete' && <p className="muted small">{report.sender.legitimate_campaigns} wanted campaigns, {report.sender.unwanted_campaigns} unwanted · {report.sender.observed_days} observed days. No security checks are bypassed.</p>}
+    {report.sender.status==='complete'&&report.sender.recency&&<p className="muted small">Recent history: {report.sender.recency.wanted_weight.toFixed(2)} wanted / {report.sender.recency.unwanted_weight.toFixed(2)} unwanted campaign equivalents, with a {report.sender.recency.half_life_days}-day half-life. Diagnostic context only; this does not change the score or authorize the sender.</p>}
+    {report.sender.behavior && <p className="muted small">Sender context: {report.sender.behavior.status==='complete'
+      ? [report.sender.behavior.new_recipient && "new recipient",report.sender.behavior.new_link_domain && "new link domain",report.sender.behavior.new_request && "new request type"].filter(Boolean).join(' · ') || "no changes observed"
       : report.sender.behavior.status==='insufficient_history'?"insufficient annotated history":"comparison not available"}. Advisory observation; a novelty does not prove fraud.</p>}
   </section>;
 }

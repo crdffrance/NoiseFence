@@ -1,5 +1,26 @@
 # Filtering policy and score semantics
 
+## Consolidation in 0.31.0
+
+`decision-policy-10` recognizes a completed password/security-information change
+notification that explicitly allows no action as a possible benign conflict. It
+requires complete readable analysis, observed aligned DMARC, clean primary and
+supplementary scanners, and no corroborated threat or sensitive demand. Protected
+identity anomalies and a conflicting unwanted LLM opinion block the benign guard.
+The LLM is not required for this narrow context path. The original index remains
+visible and is not relabelled as a calibrated probability. Rspamd is never an input.
+
+`mailing-4` recognizes distributed survey newsletters with matching language;
+transactional exclusions and security precedence remain. A newsletter is not proof
+of consent. Unknown, stale, timed-out and quota-limited providers remain missing
+evidence. Validated target results survive a later cache-persistence timeout, while
+the provider report still records the deadline and incomplete coverage.
+
+Sender-history recency uses one contribution per non-conflicting human-labelled
+campaign, a 14-day half-life and the existing 30-day window. It is diagnostic only:
+neither new sender trust nor a scoring weight is created by these values. Evaluation
+references remain excluded from operational learning and sender trust.
+
 Every message has four separate pieces of information: **risk index, classification, analysis coverage and delivery policy**. The console, message-search API and new SMTP diagnostic headers share the same Rust assessment contract, version 1.
 
 ## Risk index

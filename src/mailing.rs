@@ -10,7 +10,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock, time::Instant};
 
-pub const VERSION: &str = "mailing-3";
+pub const VERSION: &str = "mailing-4";
 pub(crate) const SIGNAL_SQL: &str = "COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -351,7 +351,7 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         report,
         "newsletter_content",
         matches(
-            r"\b(?:newsletters?|lettre (?:d'information|hebdomadaire|mensuelle)|revue de presse|weekly (?:digest|roundup|newsletter)|daily digest|this week's (?:news|edition)|actualites de la semaine|bulletin (?:hebdomadaire|mensuel)|boletin|rundbrief)\b",
+            r"\b(?:newsletters?|lettre (?:d'information|hebdomadaire|mensuelle)|revue de presse|weekly (?:digest|roundup|newsletter)|daily digest|this week's (?:news|edition)|actualites de la semaine|bulletin (?:hebdomadaire|mensuel)|boletin|rundbrief)\b|\b(?:survey|enquete)\b.{0,100}\b(?:share your (?:voice|insights|opinion)|your voice matters|donnez votre avis|participez)\b|\b(?:share your (?:voice|insights|opinion)|your voice matters|donnez votre avis|participez)\b.{0,100}\b(?:survey|enquete)\b",
             &NEWS,
             &format!("{subject} {lead}"),
         ),

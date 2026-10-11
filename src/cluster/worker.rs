@@ -546,10 +546,24 @@ fn validate_retained_builds(
         ensure!(
             matches!(
                 env!("CARGO_PKG_VERSION"),
-                "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1" | "0.30.2" | "0.30.3"
+                "0.29.0"
+                    | "0.29.3"
+                    | "0.29.4"
+                    | "0.30.0"
+                    | "0.30.1"
+                    | "0.30.2"
+                    | "0.30.3"
+                    | "0.31.0"
             ) && matches!(
                 bundle.build.as_str(),
-                "0.28.0-rc.9" | "0.29.0" | "0.29.3" | "0.29.4" | "0.30.0" | "0.30.1" | "0.30.2"
+                "0.28.0-rc.9"
+                    | "0.29.0"
+                    | "0.29.3"
+                    | "0.29.4"
+                    | "0.30.0"
+                    | "0.30.1"
+                    | "0.30.2"
+                    | "0.30.3"
             ) && retained
                 .bundles()
                 .iter()
@@ -615,6 +629,9 @@ mod migration_build_tests {
         let previous_patch = journal("0.30.2", 1);
         assert!(validate_retained_builds(&previous_patch, &previous_patch).is_ok());
         assert!(validate_retained_builds(&journal("0.30.2", 2), &previous_patch).is_err());
+        let previous_release = journal("0.30.3", 1);
+        assert!(validate_retained_builds(&previous_release, &previous_release).is_ok());
+        assert!(validate_retained_builds(&journal("0.30.3", 2), &previous_release).is_err());
         for unsupported_build in ["0.29.1", "0.29.5", "9.9.9"] {
             let unsupported = journal(unsupported_build, 1);
             assert!(validate_retained_builds(&unsupported, &unsupported).is_err());
