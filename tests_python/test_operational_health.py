@@ -14,6 +14,67 @@ spec.loader.exec_module(health)
 
 
 class OperationalHealth(unittest.TestCase):
+    def test_selected_postgres_never_reads_obsolete_sqlite_workers(self):
+        with sqlite3.connect(':memory:') as db:
+            db.executescript("CREATE TABLE cluster_state(key,value);"
+                             "INSERT INTO cluster_state VALUES('role','coordinator');")
+            cfg = {'management': {'backend': 'postgresql'}}
+            report = {'backend': 'postgresql', 'workers': 1, 'stale_workers': 0}
+            metrics, issues = health.replication_status(db, cfg, 1000, report)
+            self.assertEqual(metrics['stale_workers'], 0)
+            self.assertEqual(issues, [])
+            report['stale_workers'] = 1
+            self.assertEqual(len(health.replication_status(db, cfg, 1000, report)[1]), 1)
+            with self.assertRaisesRegex(ValueError, 'no SQLite fallback'):
+                health.replication_status(db, cfg, 1000)
+
+    def test_management_probe_is_bounded_and_rejects_wrong_or_stale_authority(self):
+        good = {'backend': 'postgresql', 'checked_at': 1000, 'workers': 1, 'stale_workers': 0}
+        with patch.object(health.time, 'time', return_value=1000), patch.object(health.subprocess, 'run') as run:
+            run.return_value = Mock(returncode=0, stdout=json.dumps(good).encode())
+            self.assertEqual(health.management_status('/etc/private.toml'), good)
+            self.assertEqual(run.call_args.kwargs['timeout'], 8)
+            for changes in ({'backend': 'sqlite'}, {'checked_at': 0}, {'workers': True}, {'stale_workers': 2}):
+                run.return_value.stdout = json.dumps({**good, **changes}).encode()
+                with self.assertRaises(ValueError):
+                    health.management_status('/etc/private.toml')
+            run.return_value = Mock(returncode=1, stdout=b'', stderr=b'private connection data')
+            with self.assertRaisesRegex(ValueError, '^selected management health unavailable; no SQLite fallback$'):
+                health.management_status('/etc/private.toml')
+
+    def test_queue_excludes_history_mirrors_and_uses_quarantine_release_age(self):
+        with sqlite3.connect(':memory:') as db:
+            db.executescript("CREATE TABLE messages(id,created,is_dsn);"
+                             "CREATE TABLE deliveries(id,message_id,status);"
+                             "CREATE TABLE cluster_origin(message_id);"
+                             "CREATE TABLE delivery_policy(delivery_id,released_at);"
+                             "INSERT INTO messages VALUES('mirror',1,1),('local',990,1),('released',1,0);"
+                             "INSERT INTO deliveries VALUES(1,'mirror','pending'),(2,'local','pending'),(3,'released','sending');"
+                             "INSERT INTO cluster_origin VALUES('mirror');"
+                             "INSERT INTO delivery_policy VALUES(3,995);")
+            self.assertEqual(health.queue_status(db, 1000), {
+                'dsn': {'pending': 1, 'oldest_age_seconds': 10},
+                'mail': {'pending': 1, 'oldest_age_seconds': 5}})
+
+    def test_llm_suspension_requires_explicit_operator_intent_and_keeps_other_alerts(self):
+        cfg = {'pricing_checked_at': 0, 'monthly_budget_micro_eur': 20_000_000}
+        now = 31 * 86400
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            with self.assertRaisesRegex(ValueError, 'pricing'):
+                health.llm_status(cfg, root, now)
+            self.assertEqual(health.llm_status(cfg, root, now, True),
+                             {'status': 'suspended', 'reason': 'pricing_expired', 'expected': True})
+            self.assertEqual(list(root.iterdir()), [])
+            with self.assertRaisesRegex(ValueError, 'pricing'):
+                health.llm_status(cfg, root, 29 * 86400, True)
+            cfg['pricing_checked_at'] = now
+            with sqlite3.connect(root / 'llm-budget.sqlite3') as db:
+                db.executescript("CREATE TABLE llm_months(month,accounted,requests);"
+                                 "INSERT INTO llm_months VALUES(strftime('%Y-%m','now'),19000000,99);")
+            with self.assertRaisesRegex(ValueError, '90 percent'):
+                health.llm_status(cfg, root, now, True)
+
     def readiness(self, payload):
         response = Mock(status=200)
         response.read.return_value = json.dumps(payload).encode()

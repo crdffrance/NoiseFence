@@ -14,14 +14,32 @@ impl Authenticated {
     pub fn identity(&self) -> &Identity {
         &self.identity
     }
-    /// Recheck inside the transaction that accepts a payload. Rotation waits
-    /// for this read lock or wins first and causes the transaction to fail.
+    /// Recheck inside the transaction that accepts a payload. Identity changes
+    /// take FOR UPDATE (including recovery), so revocation still waits or wins
+    /// first. KEY SHARE allows unrelated heartbeat/status updates to proceed
+    /// during the longer runtime-history read without a lock upgrade conflict.
     pub(super) async fn check(&self, tx: &Transaction<'_>) -> Result<()> {
-        ensure!(tx.query_opt("SELECT node FROM noisefence.cluster_nodes WHERE node=$1 AND epoch=$2 AND token_hash=$3 AND enabled FOR SHARE", &[&self.identity.node,&self.identity.epoch,&self.hash]).await.map_err(database_error)?.is_some(),"Node credential revoked");
+        ensure!(tx.query_opt("SELECT node FROM noisefence.cluster_nodes WHERE node=$1 AND epoch=$2 AND token_hash=$3 AND enabled FOR KEY SHARE", &[&self.identity.node,&self.identity.epoch,&self.hash]).await.map_err(database_error)?.is_some(),"Node credential revoked");
         Ok(())
     }
 }
 impl Central {
+    /// Aggregate operational state only; no accounts, credentials or mail data.
+    pub async fn worker_health(&self, max_stale_seconds: i64) -> Result<serde_json::Value> {
+        ensure!(
+            (60..=604800).contains(&max_stale_seconds),
+            "Invalid worker freshness bound"
+        );
+        let db = self
+            .interactive
+            .get()
+            .await
+            .context("Central health capacity unavailable")?;
+        let row = db.query_one("SELECT count(*),count(*) FILTER (WHERE last_seen IS NULL OR last_seen<floor(extract(epoch FROM statement_timestamp()))::bigint-$1 OR last_seen>floor(extract(epoch FROM statement_timestamp()))::bigint),floor(extract(epoch FROM statement_timestamp()))::bigint FROM noisefence.cluster_nodes WHERE enabled", &[&max_stale_seconds]).await.map_err(database_error)?;
+        Ok(
+            serde_json::json!({"backend":"postgresql","checked_at":row.get::<_,i64>(2),"workers":row.get::<_,i64>(0),"stale_workers":row.get::<_,i64>(1)}),
+        )
+    }
     /// Explicit installer/import step; never enroll an unknown spool from an
     /// incoming payload. Existing identities cannot silently rotate or rebind.
     pub async fn enroll_node(
@@ -158,6 +176,8 @@ impl Central {
             .await
             .map_err(database_error)?
             .context("Enroll the node spool before editing its settings")?;
+        // Credential readers use KEY SHARE; changing credentials or enablement
+        // must explicitly acquire UPDATE, not the weaker implicit update lock.
         let r = tx
             .query_opt(
                 "SELECT epoch,version FROM noisefence.cluster_nodes WHERE node=$1 FOR UPDATE",

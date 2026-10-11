@@ -67,7 +67,49 @@ def readonly_db(path):
         db.close()
 
 
-def replication_status(db, config, now=None):
+def management_status(config_path):
+    result = subprocess.run(['/opt/noisefence/current/noisefence', '--config', str(config_path),
+                             'management-health'], capture_output=True, timeout=8)
+    if result.returncode or len(result.stdout) > 4096:
+        raise ValueError('selected management health unavailable; no SQLite fallback')
+    report = json.loads(result.stdout)
+    if (not isinstance(report, dict) or report.get('backend') != 'postgresql'
+            or type(report.get('checked_at')) is not int
+            or not -5 <= int(time.time()) - report['checked_at'] <= 10
+            or any(type(report.get(k)) is not int for k in ('workers', 'stale_workers'))
+            or not 0 <= report['stale_workers'] <= report['workers'] <= 63):
+        raise ValueError('invalid selected management health response')
+    return report
+
+
+def queue_status(db, now):
+    # cluster_origin is a console history mirror, never an owned relay job.
+    rows = db.execute("SELECT m.is_dsn,COUNT(*),MIN(COALESCE(p.released_at,m.created)) "
+                      "FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                      "LEFT JOIN delivery_policy p ON p.delivery_id=d.id "
+                      "WHERE d.status IN ('pending','sending') AND NOT EXISTS "
+                      "(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id) "
+                      "GROUP BY m.is_dsn").fetchall()
+    return {('dsn' if is_dsn else 'mail'): {
+        'pending': count, 'oldest_age_seconds': max(0, now - created) if created is not None else 0
+    } for is_dsn, count, created in rows}
+
+
+def llm_status(config, data, now, expected_suspension=False):
+    remaining = config['pricing_checked_at'] + 30 * 86400 - now
+    if remaining < 0 and expected_suspension:
+        return {'status': 'suspended', 'reason': 'pricing_expired', 'expected': True}
+    if remaining < 3 * 86400:
+        raise ValueError('LLM pricing must be reviewed within three days or is expired')
+    with readonly_db(data / 'llm-budget.sqlite3') as db:
+        row = db.execute("SELECT accounted,requests FROM llm_months WHERE month=strftime('%Y-%m','now')").fetchone() or (0, 0)
+    cap = config['monthly_budget_micro_eur']
+    if row[0] >= cap * 9 // 10:
+        raise ValueError('LLM local budget has reached 90 percent')
+    return {'accounted_micro_eur': row[0], 'requests': row[1], 'monthly_budget_micro_eur': cap}
+
+
+def replication_status(db, config, now=None, management=None):
     state = dict(db.execute("SELECT key,value FROM cluster_state WHERE key IN "
                             "('ha_required','ha_last_success','role','last_sync')"))
     # Timestamp after reading state: a heartbeat can advance during other checks.
@@ -91,10 +133,16 @@ def replication_status(db, config, now=None):
         if not 0 <= age <= stale:
             warnings.append('worker policy synchronization is stale')
     elif state.get('role') == 'coordinator':
-        ages = [now - (row[0] or 0) for row in db.execute(
-            'SELECT last_seen FROM cluster_nodes WHERE enabled=1')]
-        result['workers'] = len(ages)
-        result['stale_workers'] = sum(not 0 <= age <= stale for age in ages)
+        if config.get('management', {}).get('backend') == 'postgresql':
+            if management is None or management.get('backend') != 'postgresql':
+                raise ValueError('selected management health required; no SQLite fallback')
+            result.update(management_backend='postgresql', workers=management['workers'],
+                          stale_workers=management['stale_workers'])
+        else:
+            ages = [now - (row[0] or 0) for row in db.execute(
+                'SELECT last_seen FROM cluster_nodes WHERE enabled=1')]
+            result['workers'] = len(ages)
+            result['stale_workers'] = sum(not 0 <= age <= stale for age in ages)
         if result['stale_workers']:
             warnings.append('one or more enabled workers stopped synchronizing')
     return result, warnings
@@ -161,7 +209,7 @@ def write_json(path, value):
             os.unlink(pending)
 
 
-def check(config_file, output):
+def check(config_file, output, expected_llm_suspension=False):
     config = tomllib.loads(Path(config_file).read_text())
     now = int(time.time())
     issues = []
@@ -225,14 +273,9 @@ def check(config_file, output):
 
     def queue():
         with readonly_db(data / 'state.sqlite3') as db:
-            rows = db.execute("SELECT m.is_dsn,COUNT(*),MIN(m.created) FROM deliveries d "
-                              "JOIN messages m ON m.id=d.message_id "
-                              "WHERE d.status IN ('pending','sending') GROUP BY m.is_dsn").fetchall()
-        result = {}
-        for is_dsn, count, created in rows:
-            kind = 'dsn' if is_dsn else 'mail'
-            oldest = max(0, now - created) if created is not None else 0
-            result[kind] = {'pending': count, 'oldest_age_seconds': oldest}
+            result = queue_status(db, now)
+        for kind, row in result.items():
+            count, oldest = row['pending'], row['oldest_age_seconds']
             if count > 1000 or oldest > 1800:
                 issues.append({'check': 'queue_' + kind,
                                'error': f'{count} pending deliveries; oldest {oldest}s'})
@@ -263,8 +306,10 @@ def check(config_file, output):
 
     if config.get('cluster') or config.get('replication'):
         def replication():
+            management = (management_status(config_file)
+                          if config.get('management', {}).get('backend') == 'postgresql' else None)
             with readonly_db(data / 'state.sqlite3') as db:
-                result, warnings = replication_status(db, config)
+                result, warnings = replication_status(db, config, management=management)
             issues.extend({'check': 'replication', 'error': value} for value in warnings)
             return result
         issue('replication', replication)
@@ -282,18 +327,7 @@ def check(config_file, output):
                   sample_warnings(sample, history[-1] if history else {}))
 
     if config.get('llm', {}).get('monthly_budget_micro_eur', 0):
-        def llm():
-            remaining = config['llm']['pricing_checked_at'] + 30 * 86400 - now
-            if remaining < 3 * 86400:
-                raise ValueError('LLM pricing must be reviewed within three days or is expired')
-            with readonly_db(data / 'llm-budget.sqlite3') as db:
-                row = db.execute("SELECT accounted,requests FROM llm_months WHERE month=strftime('%Y-%m','now')").fetchone() or (0, 0)
-            cap = config['llm']['monthly_budget_micro_eur']
-            if row[0] >= cap * 9 // 10:
-                raise ValueError('LLM local budget has reached 90 percent')
-            return {'accounted_micro_eur': row[0], 'requests': row[1], 'monthly_budget_micro_eur': cap}
-
-        issue('llm_budget', llm)
+        issue('llm_budget', lambda: llm_status(config['llm'], data, now, expected_llm_suspension))
 
     report = {'checked_at': now, 'status': 'attention' if issues else 'ok',
               'checks': details, 'issues': issues}
@@ -309,5 +343,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='/etc/noisefence/config.toml')
     parser.add_argument('--output')
+    parser.add_argument('--expected-llm-suspension', action='store_true',
+                        help='Report an intentionally expired LLM pricing gate without an operational alert; never enables analysis')
     args = parser.parse_args()
-    raise SystemExit(check(args.config, args.output))
+    raise SystemExit(check(args.config, args.output, args.expected_llm_suspension))

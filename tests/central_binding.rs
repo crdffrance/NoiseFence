@@ -13,6 +13,7 @@ async fn database_binding_is_checked_on_new_and_reused_connections_in_both_pools
     };
     let runtime = Central::new_bound(&f.settings, &binding).unwrap();
     assert!(runtime.health().await.is_err());
+    assert!(runtime.worker_health(60).await.is_err());
     pg.execute(
         "INSERT INTO noisefence.migration_state VALUES(1,$1,100,NULL,$2)",
         &[
@@ -30,6 +31,7 @@ async fn database_binding_is_checked_on_new_and_reused_connections_in_both_pools
     .await
     .unwrap();
     runtime.health().await.unwrap();
+    assert_eq!(runtime.worker_health(60).await.unwrap()["workers"], 0);
     let wrong = Binding {
         instance: uuid::Uuid::new_v4().to_string(),
         ..binding.clone()

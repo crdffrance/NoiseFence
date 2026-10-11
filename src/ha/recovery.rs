@@ -11,11 +11,19 @@ use std::{
 };
 
 pub fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
+    snapshot_with_progress(source, destination, || {})
+}
+
+fn snapshot_with_progress(
+    source: &Path,
+    destination: &Path,
+    mut progress: impl FnMut(),
+) -> Result<()> {
     ensure!(
         source.is_file() && !destination.exists(),
         "Snapshot needs an existing source and a new destination"
     );
-    let input = Connection::open_with_flags(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut input = Connection::open_with_flags(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     input.busy_timeout(Duration::from_millis(250))?;
     OpenOptions::new()
         .write(true)
@@ -24,7 +32,14 @@ pub fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
         .open(destination)?;
     let mut output = Connection::open(destination)?;
     let result = (|| -> Result<()> {
-        let backup = rusqlite::backup::Backup::new(&input, &mut output)?;
+        // Pin one committed view before stepping the backup. Without this read
+        // transaction, writes from other connections restart the entire copy.
+        // WAL writers remain free to commit; the 30s deadline bounds WAL retention.
+        let snapshot = input.transaction()?;
+        snapshot.query_row("SELECT count(*) FROM sqlite_schema", [], |r| {
+            r.get::<_, i64>(0)
+        })?;
+        let backup = rusqlite::backup::Backup::new(&snapshot, &mut output)?;
         let started = Instant::now();
         loop {
             ensure!(
@@ -33,11 +48,12 @@ pub fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
             );
             match backup.step(256)? {
                 rusqlite::backup::StepResult::Done => break,
-                rusqlite::backup::StepResult::More => {}
+                rusqlite::backup::StepResult::More => progress(),
                 _ => std::thread::sleep(Duration::from_millis(20)),
             }
         }
         drop(backup);
+        drop(snapshot);
         ensure!(
             output.query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))? == "ok",
             "Invalid SQLite snapshot"
@@ -415,4 +431,50 @@ async fn restore_queue_mode(
     file.write_all(serde_json::to_string(&result)?.as_bytes())?;
     file.sync_all()?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn wal_writes_between_every_step_do_not_restart_or_mix_the_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("live.sqlite3");
+        let destination = root.path().join("snapshot.sqlite3");
+        let writer = Connection::open(&source).unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE generation(value); INSERT INTO generation VALUES(0); CREATE TABLE payload(data);").unwrap();
+        let tx = writer.unchecked_transaction().unwrap();
+        for _ in 0..1024 {
+            tx.execute("INSERT INTO payload VALUES(zeroblob(4096))", [])
+                .unwrap();
+        }
+        tx.commit().unwrap();
+        let mut commits = 0;
+        snapshot_with_progress(&source, &destination, || {
+            writer
+                .execute("UPDATE generation SET value=value+1", [])
+                .unwrap();
+            commits += 1;
+        })
+        .unwrap();
+        assert!(commits > 1, "fixture must span several backup steps");
+        let copy = Connection::open(destination).unwrap();
+        assert_eq!(
+            copy.query_row("SELECT value FROM generation", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            writer
+                .query_row("SELECT value FROM generation", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            commits
+        );
+        assert_eq!(
+            copy.query_row("SELECT count(*) FROM payload", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1024
+        );
+    }
 }

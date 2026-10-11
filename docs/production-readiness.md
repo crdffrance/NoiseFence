@@ -44,6 +44,23 @@ A full check is bounded by a 90-second unit timeout; systemd does not run two
 instances concurrently. SQLite queries are read-only and have a two-second
 execution deadline in addition to a one-second lock wait.
 
+For a selected PostgreSQL coordinator, install the matching gateway binary before
+the monitor script. The script calls `noisefence --config /etc/noisefence/config.toml
+management-health`: a five-second, authority-bound read returning only worker
+counts and a timestamp. Failed database checks remain visible; the monitor never
+uses old SQLite management rows as a fallback. Workers continue to check their
+local applied-policy timestamp. Local queue counts exclude `cluster_origin`
+history mirrors, which are not owned relay jobs; released quarantine items are
+aged from their release timestamp.
+
+If an operator deliberately leaves the LLM pricing gate expired, append
+`--expected-llm-suspension` to the health service's `ExecStart` using a systemd
+override. The report then records `suspended / pricing_expired / expected=true`
+instead of treating that known suspension as an operational fault. The default
+still alerts. Near-expiry pricing and budget alerts remain enabled, and this
+monitor option cannot change pricing, budgets, policies or external analysis.
+Remove the override when suspension is no longer intended.
+
 The latest report is `/var/lib/noisefence/operational-health.json`. The rolling
 history is `operational-health-history.json` in the same directory: at most 2,881
 samples and at most 48 hours. Both are private files (0600), with atomic replacement.
