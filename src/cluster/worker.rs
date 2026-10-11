@@ -554,6 +554,7 @@ fn validate_retained_builds(
                     | "0.30.2"
                     | "0.30.3"
                     | "0.31.0"
+                    | "0.31.1"
             ) && matches!(
                 bundle.build.as_str(),
                 "0.28.0-rc.9"

@@ -1,7 +1,8 @@
 # Changelog
 
-## 0.31.0 — Filter consolidation and score diagnostics
+## 0.31.1 — Filter consolidation and score diagnostics
 
+- Record the evaluation time of sender-history decay. Compare SQLite and PostgreSQL history using identical votes and the expected elapsed-time decay, rather than requiring time-dependent diagnostics to be byte-identical across successive calls.
 - Preserve validated, target-bound CRDF and VirusTotal results when the deadline expires during cache persistence. Report the timeout and storage incidents separately; do not manufacture a successful full check or duplicate a completed target.
 - Resolve authenticated, completed security-event notifications without requiring an LLM when they explicitly permit no action and no observed threat contradicts that context. Sensitive demands, malware, suspicious signatures, identity anomalies and confirmed threats prevent the benign guard. Preserve original indices and immutable historical decisions.
 - Recognize distributed survey newsletters with matching content while retaining transactional exclusions. Publicity remains a mail type, never proof of consent or safety.

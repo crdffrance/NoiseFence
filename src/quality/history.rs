@@ -26,6 +26,7 @@ pub struct Report {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Recency {
+    pub evaluated_at: i64,
     pub half_life_days: u32,
     pub wanted_weight: f64,
     pub unwanted_weight: f64,
@@ -33,6 +34,7 @@ pub struct Recency {
 }
 fn recency(campaigns: &BTreeMap<String, (bool, bool, i64)>, at: i64) -> Recency {
     let mut result = Recency {
+        evaluated_at: at,
         half_life_days: 14,
         wanted_weight: 0.,
         unwanted_weight: 0.,
