@@ -10,7 +10,12 @@ fn batches_bind_every_response_once_and_reject_foreign_or_duplicate_targets() {
     let a = unknown("https://first.example.com/");
     let b = unknown("https://second.example.com/");
     assert_eq!(
-        parse_crdf_batch(&json!({"error":false,"data":[b,a]}), &names).unwrap(),
+        parse_crdf_batch(
+            &json!({"error":false,"data":[b,a]}),
+            &names,
+            &TransportMetrics::default()
+        )
+        .unwrap(),
         vec![Some(Verdict::Unknown); 2]
     );
     for entries in [
@@ -19,7 +24,14 @@ fn batches_bind_every_response_once_and_reject_foreign_or_duplicate_targets() {
         json!([a, unknown("https://foreign.example.org/")]),
         json!([a, b, unknown("https://extra.example.org/")]),
     ] {
-        assert!(parse_crdf_batch(&json!({"error":false,"data":entries}), &names).is_err());
+        assert!(
+            parse_crdf_batch(
+                &json!({"error":false,"data":entries}),
+                &names,
+                &TransportMetrics::default()
+            )
+            .is_err()
+        );
     }
 }
 #[test]
@@ -253,7 +265,7 @@ fn one_invalid_target_preserves_other_batch_results_without_inventing_a_hit() {
     let names = vec!["good.example.com".into(), "bad.example.com".into()];
     let body = json!({"error":false,"data":[unknown("https://good.example.com/"),{"url":"https://bad.example.com/","error":true}]});
     assert_eq!(
-        parse_crdf_batch(&body, &names).unwrap(),
+        parse_crdf_batch(&body, &names, &TransportMetrics::default()).unwrap(),
         vec![Some(Verdict::Unknown), None]
     );
 }

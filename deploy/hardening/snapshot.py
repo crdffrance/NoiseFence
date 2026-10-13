@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a coherent, bounded offline snapshot; never roll a live queue back.
+"""Export a coherent, bounded snapshot; never roll a live queue back.
 
 The archive is sensitive. Invoke only through the restricted backup SSH account,
 and pipe stdout straight into restic. Diagnostics go to stderr. No upload API.
@@ -8,6 +8,8 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
+import types
 import json
 import os
 import re
@@ -157,6 +159,14 @@ def export(mode):
     os.umask(0o077);ROOT.mkdir(mode=0o700,parents=True,exist_ok=True)
     with (ROOT/'snapshot.lock').open('a') as own:
         fcntl.flock(own,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if mode == 'metadata':
+            cfg = tomllib.loads(Path('/etc/noisefence/config.toml').read_text())
+            if cfg.get('management') is not None:
+                spec = importlib.util.spec_from_file_location('nf_online_metadata', Path(__file__).with_name('online_metadata.py'))
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                # No service stop, timer changes or daemon writer lock.
+                return module.export(types.SimpleNamespace(**globals()))
         # Only operational data and configured model artifacts, never old research corpora.
         allowed=[p for p in DATA.iterdir() if p.name in ['protection','spool','incoming','cluster','credentials','mfa.key'] or p.name.startswith(('state.sqlite3','llm-budget.sqlite3','cluster-'))]
         cfg=tomllib.loads(Path('/etc/noisefence/config.toml').read_text())

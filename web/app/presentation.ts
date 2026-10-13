@@ -245,6 +245,8 @@ export function classificationQualification(mail: DecisionInput): string | null 
   const record = receiptDecision(mail);
   const report = receiptAssessment(mail);
   if (classification(mail).label !== 'Ham') return null;
+  if (record?.classification === 'unassessed' && report?.incomplete_reasons?.includes('encrypted_content'))
+    return 'Accepted by default · encrypted content';
   if (record?.classification === 'unassessed' || report?.score_resolution?.score === null
       || report?.category === 'undetermined') return 'Accepted by default · not assessed';
   if (report?.score_resolution?.guard === 'authenticated_benign_conflict')
@@ -259,6 +261,9 @@ export function classificationDetail(mail: DecisionInput): string {
   const report = receiptAssessment(mail);
   if (record && ['phishing', 'malware'].includes(record.classification))
     return `Spam — ${record.classification} detected.`;
+  if (classification(mail).label === 'Ham' && record?.classification === 'unassessed'
+      && report?.incomplete_reasons?.includes('encrypted_content'))
+    return 'Ham — accepted by policy: encrypted content could not be inspected. Transport checks are shown separately. No content score is available; this is not a safety guarantee.';
   if (classification(mail).label === 'Ham' && (record?.classification === 'unassessed' || report?.category === 'undetermined'
       || (!report && !mail.delivery_classification && mail.decision?.outcome !== 'unwanted' && mail.decision?.outcome !== 'legitimate')))
     return 'Ham — fail-open grouping: insufficient recorded evidence. This is not a safety guarantee. The original analysis and delivery remain unchanged.';

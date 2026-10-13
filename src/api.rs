@@ -52,11 +52,37 @@ pub struct App {
 pub struct Error(StatusCode, String);
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        (self.0, Json(json!({"error":self.1}))).into_response()
+        let mut response = (self.0, Json(json!({"error":self.1}))).into_response();
+        if self.0 == StatusCode::SERVICE_UNAVAILABLE {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, "1".parse().unwrap());
+        }
+        response
     }
 }
 impl From<anyhow::Error> for Error {
     fn from(e: anyhow::Error) -> Self {
+        if let Some(code) =
+            e.chain()
+                .find_map(|cause| match cause.downcast_ref::<rusqlite::Error>() {
+                    Some(rusqlite::Error::SqliteFailure(error, _))
+                        if matches!(
+                            error.code,
+                            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                        ) =>
+                    {
+                        Some(error.extended_code)
+                    }
+                    _ => None,
+                })
+        {
+            tracing::warn!(sqlite_code = code, "API storage temporarily busy");
+            return Self(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Storage temporarily busy; retry shortly.".into(),
+            );
+        }
         tracing::error!(error=%e,"API operation failed");
         Self(
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -10,7 +10,7 @@ identity anomalies and a conflicting unwanted LLM opinion block the benign guard
 The LLM is not required for this narrow context path. The original index remains
 visible and is not relabelled as a calibrated probability. Rspamd is never an input.
 
-`mailing-4` recognizes distributed survey newsletters with matching language;
+`mailing-5` recognizes distributed survey newsletters with matching language;
 transactional exclusions and security precedence remain. A newsletter is not proof
 of consent. Unknown, stale, timed-out and quota-limited providers remain missing
 evidence. Validated target results survive a later cache-persistence timeout, while
@@ -79,3 +79,13 @@ The recorded resolution identifies `authenticated_benign_conflict`, so the conso
 does not misleadingly describe the outcome as a score below threshold. Historical
 records are unchanged. This guard reduces a demonstrated class of false positives;
 it neither recalibrates the underlying model nor establishes general safety.
+
+A completed local publicity analysis can survive a missing SMTP/DNS consistency
+check when message content is available and no other core check is missing.
+This preserves the Pub type without asserting that DNS checks succeeded. It does
+not bypass action or subject-rewriting safeguards. Encrypted content remains
+unassessed: the console explicitly qualifies its fail-open Ham grouping and
+never invents a numerical content score.
+
+CRDF batch failures retain valid sibling results and fixed per-target failure
+codes. A provider failure is unavailable evidence, never a clean or malicious hit.

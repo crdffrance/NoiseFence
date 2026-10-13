@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.2 — Safer failure handling and uninterrupted metadata backups
+
+- Suppress a narrowly corroborated native extortion bounce after an exact, TLS-verified downstream content rejection, even while the optional LLM is suspended. Require completed failed authentication, phishing signatures and direct extortion context; preserve recipient corrections and normal DSNs. Do not remove already queued notifications.
+- Reserve the replica writer before reading its generation to avoid SQLite WAL upgrade conflicts. Return a retryable 503 with `Retry-After` for transient API storage contention instead of an undifferentiated 500.
+- Capture selected coordinator/worker metadata online, using bounded SQLite snapshots and PostgreSQL dumps without stopping SMTP. Verify frozen authority and artifacts before publishing; exclude all message bodies. Preserve offline full-backup behavior and private failure diagnostics.
+- Retain per-target CRDF error codes alongside valid batch results. Provider failures never become clean or malicious hits.
+- Preserve a completed publicity type when only SMTP/DNS consistency is missing. Explicitly qualify encrypted messages accepted by default in the English console, without fabricating a content score.
+- Retain verified prior policies during paired upgrades. No schema change, threshold promotion, Rspamd-driven decision, quota change or LLM activation is introduced. Full PostgreSQL restore validation and current human-labelled accuracy evaluation remain separate requirements.
+
 ## 0.31.1 — Filter consolidation and score diagnostics
 
 - Record the evaluation time of sender-history decay. Compare SQLite and PostgreSQL history using identical votes and the expected elapsed-time decay, rather than requiring time-dependent diagnostics to be byte-identical across successive calls.

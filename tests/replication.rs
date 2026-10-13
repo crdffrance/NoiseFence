@@ -133,6 +133,37 @@ async fn remote(p: &Pair, id: &str) -> ha::replica::Manifest {
     .await
     .unwrap()
 }
+
+#[tokio::test]
+async fn replica_waits_for_an_external_writer_before_reading_its_generation() {
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enqueue(&p, &id).await.unwrap();
+    ha::replica::synchronize(&p.a).await.unwrap();
+    let mut manifest = remote(&p, &id).await;
+    manifest.generation += 1;
+    let expected_generation = manifest.generation;
+    let mut cfg = (*p.config).clone();
+    cfg.cluster.as_mut().unwrap().node_id = "mx2".into();
+    cfg.replication.as_mut().unwrap().peer_id = "mx1".into();
+    let runtime = Arc::new(ha::Runtime::new(&cfg).unwrap());
+    let external = rusqlite::Connection::open(p._b.path().join("state.sqlite3")).unwrap();
+    external.execute_batch("BEGIN IMMEDIATE; INSERT INTO cluster_state(key,value) VALUES('test_external_writer','1')").unwrap();
+    let store = p.b.clone();
+    let pending = tokio::spawn(async move { ha::replica::ingest(&store, runtime, manifest).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(
+        !pending.is_finished(),
+        "A deferred snapshot upgrade failed instead of waiting for the writer"
+    );
+    external.execute_batch("COMMIT").unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), pending)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(remote(&p, &id).await.generation, expected_generation);
+}
 #[tokio::test]
 async fn fusion_score_boundary_crosses_replica_confirmation_without_using_content_cutoff() {
     let p = pair().await;

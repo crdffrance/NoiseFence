@@ -1,37 +1,40 @@
-<a id="protection-contre-les-notifications-de-spam-0153"></a>
-# Protection against spam notifications (0.15.3)
+# Backscatter protection
 
-A SMTP sender can usurp the address of a victim. If NoiseFence accepts the message and the supplier refuses it, a notice of non-delivery (DSN) returned to that sender can reach the victim: it is the backscanter.
+An SMTP envelope sender can be forged. When a destination rejects an accepted message, a delivery status notification (DSN) can therefore reach an innocent third party.
 
-The native policy `backscatter-1` is active for **new notification processing** on each MX, including observation. It does not change the ranking, filtering actions, or SMTP response at reception. It does not recall the notices already delivered and does not purg the DSN already in file.
+The native `backscatter-2` policy applies when processing **new delivery failures**, including in observation mode. It does not change incoming SMTP acceptance, Spam/Ham/Pub decisions or filtering actions. It does not recall delivered notifications or purge queued DSNs.
 
-## Required conditions
+## Required evidence
 
-The notification is blocked only after a permanent refusal of `550/554 5.7.1 rejected by rspamd filter` content after DATA, on a TLS connection whose certificate has been verified. The last log of the attempt and the persistent reason must correspond. A refusal of recipient, an expired delay, a generic response 5.7.1 or a truncated transcription are not enough.
+Suppression requires all of these conditions:
 
-A full analysis, a `unwanted` decision and authentication observations from the actual SMTP session are also required: SPF `fail`/`soft_fail`, authentication completed, no success or indeterminate DKIM/DMARC/ARC result. A message authenticated or imported for analysis does not benefit from this exception. A non-spam ranking from the recipient's rules or a "Legitime"/"PUB" user correction also retains normal notification.
+- A permanent, exact `550/554 5.7.1 rejected by rspamd filter` response after DATA, over certificate-verified TLS. The saved failure and complete delivery transcript must agree. Recipient rejection, retry expiry, generic policy errors and truncated transcripts do not qualify.
+- An unwanted engine decision, with no contradictory recipient classification or Ham/Pub feedback.
+- Complete authentication from the actual SMTP session: SPF fail/soft-fail and no successful or indeterminate DKIM, DMARC or ARC result. Imported messages and authenticated senders retain normal notifications.
+- One of the narrow content combinations below.
 
-Finally, **either**main antivirus malware detection, **or**all of the following:
+| Content evidence | Additional requirements |
+| --- | --- |
+| Main antivirus detects malware | Complete core analysis |
+| Supplementary `Sanesecurity.Phishing.*` signature plus completed LLM phishing verdict | Complete core analysis, index at least 99/100, LLM confidence and reported risk at least 0.9 |
+| Supplementary `Sanesecurity.Phishing.*` signature plus native direct-extortion context | Readable content, completed clean main antivirus, no legitimate LLM opinion, and no encrypted, quoted threat-report, transactional or conditional security-notice context |
 
-- local risk index of at least 99/100 ;
-- signature consultative `Sanesecurity.Phishing.*` ;
-- completed LLM analysis concluding to phishing, with reported probability and confidence of at least 0.9.
+The native extortion branch does not require an active LLM or use the shadow Rspamd result. Extortion extraction requires a direct compromise/disclosure threat and a cryptocurrency demand with a wallet. A missing SMTP/DNS consistency check is permitted only by the existing partial-coverage threat contract; missing content or authentication is not.
 
-These numbers do not constitute a statistical guarantee; the LLM already contributes to the score. The combination is deliberately narrow: specialized signature, authenticated remote refusal and index of usurpation complete the content. Incomplete analyses and insufficient evidence keep the DSN normal. Policy does not necessarily block all spam returns.
+A score, failed SPF, a remote rejection or a model opinion alone never suppresses a DSN. The quoted remote response is evidence of the destination's refusal, distinct from NoiseFence's independent Rspamd comparison. These conditions do not constitute a measured false-positive guarantee.
 
-<a id="conservation-interface-et-redémarrage"></a>
-## Storage, interface and restart
+## Persistence and diagnostics
 
-The delivery goes to `dsn_suppressed`, presented as "Blocked Notice (anti-backscatter)". The reason for the policy and the refusal remain visible in the diagnostics of the authorized recipient. This status is available in the search and goes back to the central console from the workers. The status and the audit `dsn_suppressed` are recorded in a single transaction. No DSN message is created. A resume cannot recreate this notice or replace an existing DSN.
+The recipient delivery moves to `dsn_suppressed`, shown as “Notification suppressed (backscatter protection)”. The policy version, reason and original rejection remain in the audit and delivery diagnostics. Status and audit are recorded in one transaction; no DSN is created. Restart cannot recreate that notification. Other recipients continue independently.
 
-The original body follows the usual preservation: deletion after resolution of all recipients, preservation if another delivery is still in file or quarantine. Metadata remains available for 30 days. No additional storage of content is added.
+The original body follows normal retention: it remains while another recipient is queued or quarantined and is removed after all recipients resolve, subject to any explicitly enabled research retention. Existing queued DSNs retain their normal lifecycle.
 
-The real DSN now indicates `Status` and `Diagnostic-Code` from the last attempt, or `5.4.7` for a file expiration. Diagnostics are limited, converted to ASCII, redacted addresses and protected against field injections. Errors without usable code keep `5.0.0`.
+Ordinary notifications preserve the last permanent enhanced status and bounded, ASCII-safe `Diagnostic-Code`; expired retries use `5.4.7`. Remote text cannot inject DSN fields.
 
-## Operations
+## Upgrade and verification
 
-Deploy the coordinator 0.15.3 before the workers. No change of SQL schema, key, account or budget. The new status requires a coordinator 0.15.3 for the historical recovery; do not return to a former coordinator as long as the workers transmit this state to him. The backend must never restore an old file over the messages accepted since.
+No database schema, credentials, quotas or observation settings change. Keep mandatory peer replication and activate a compatible release on every enrolled MX. Never restore an old queue database during rollback.
 
-The tests cover the preservation of legitimate notifications, missing/contradictory evidence, authentication, temporary responses, injections, multiple recipients, resumption and synchronization.
+Regression tests cover authenticated mail, quoted/report context, missing checks, recipient corrections, temporary errors, multiple recipients, durable suppression, restart and cluster synchronization.
 
-Reference: [RFC 5321, §6.2](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.2), which recommends avoiding notifications for hostile content when they cannot be usefully issued, and imposes great caution for exceptions to normal notification.
+Reference: [RFC 5321 §6.2](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.2). Silently discarding accepted mail requires great caution and very high confidence that it is seriously fraudulent or otherwise inappropriate.
