@@ -13,6 +13,70 @@ use noisefence::{
 };
 
 #[test]
+fn native_extortion_needs_independent_content_and_authentication_without_llm() {
+    let root = tempfile::tempdir().unwrap();
+    let mut scan = fixture::scan(common::config(root.path()));
+    scan.features_complete = Some(true);
+    scan.antivirus.status = AntivirusStatus::Clean;
+    scan.llm.status = LlmStatus::PricingExpired;
+    scan.llm.verdict = None;
+    scan.message_context = Some(noisefence::message_context::Context {
+        direct_extortion: true,
+        ..Default::default()
+    });
+    let remote = fixture::rejection();
+    assert_eq!(
+        backscatter::suppression_reason(&scan, &remote),
+        Some("native_extortion_signature_and_upstream_rejection")
+    );
+    let variations: &[fn(&mut Scan)] = &[
+        |s| s.features_complete = Some(false),
+        |s| s.message_context.as_mut().unwrap().direct_extortion = false,
+        |s| s.message_context.as_mut().unwrap().threat_report = true,
+        |s| s.message_context.as_mut().unwrap().transaction_notice = true,
+        |s| {
+            s.message_context
+                .as_mut()
+                .unwrap()
+                .conditional_security_notice = true
+        },
+        |s| s.message_context.as_mut().unwrap().encrypted = true,
+        |s| s.signatures.signature = Some("Sanesecurity.Junk.FIXTURE".into()),
+        |s| s.antivirus.status = AntivirusStatus::Unavailable,
+        |s| s.evidence.as_mut().unwrap().source = Source::ContentOnly,
+        |s| s.evidence.as_mut().unwrap().authentication.spf = Some(AuthResult::Pass),
+        |s| s.evidence.as_mut().unwrap().authentication.dkim = Some(vec![AuthResult::Pass]),
+        |s| s.evidence.as_mut().unwrap().authentication.arc = Some(AuthResult::Pass),
+        |s| s.evidence.as_mut().unwrap().authentication.state = State::Unavailable,
+        |s| s.delivery_classification = Some(noisefence::mailing::Category::Publicity),
+    ];
+    for (i, change) in variations.iter().enumerate() {
+        let mut candidate = scan.clone();
+        change(&mut candidate);
+        assert_eq!(
+            backscatter::suppression_reason(&candidate, &remote),
+            None,
+            "case {i}"
+        );
+    }
+    // An unrelated DNS-consistency outage must not turn a corroborated attack
+    // into a bounce, but missing authentication or content still prevents it.
+    scan.complete = false;
+    scan.reasons.push(noisefence::engine::Signal {
+        id: "smtp_policy_unavailable".into(),
+        detail: "Synthetic PTR timeout".into(),
+        weight: 0.,
+    });
+    assert!(backscatter::suppression_reason(&scan, &remote).is_some());
+    scan.reasons.push(noisefence::engine::Signal {
+        id: "encrypted_content".into(),
+        detail: "Synthetic unavailable content".into(),
+        weight: 0.,
+    });
+    assert_eq!(backscatter::suppression_reason(&scan, &remote), None);
+}
+
+#[test]
 fn missing_conflicting_or_authenticated_evidence_never_suppresses_a_notice() {
     let root = tempfile::tempdir().unwrap();
     let original = fixture::scan(common::config(root.path()));
@@ -87,94 +151,107 @@ fn missing_conflicting_or_authenticated_evidence_never_suppresses_a_notice() {
 
 #[tokio::test]
 async fn rejected_hostile_mail_is_terminal_audited_and_cannot_bounce_after_restart() {
-    let root = tempfile::tempdir().unwrap();
-    let config = common::config(root.path());
-    let store = Store::open(root.path()).unwrap();
-    let id = uuid::Uuid::new_v4().to_string();
-    store
-        .enqueue(
-            id.clone(),
-            "alice@example.test".into(),
-            vec![
-                config.recipient("alice@example.test").unwrap(),
-                config.recipient("bob@example.test").unwrap(),
-            ],
-            fixture::scan(config.clone()),
-            common::MESSAGE.to_vec(),
-        )
-        .await
-        .unwrap();
-    let failed = store.claim().await.unwrap().unwrap();
-    let other = store.claim().await.unwrap().unwrap();
-    let trace = fixture::rejection();
-    store
-        .finish_with_attempts(
-            &failed,
-            "failed",
-            trace.events.last().unwrap().response.as_deref().unwrap(),
-            0,
-            std::slice::from_ref(&trace),
-        )
-        .await
-        .unwrap();
-    let engine = Engine::new(config.clone()).unwrap();
-    relay::notifications(&config, &store, &engine)
-        .await
-        .unwrap();
-    assert!(!store.suppress_hostile_dsn(&failed).await.unwrap());
-    store
-        .enqueue_dsn(
-            failed.clone(),
-            b"must never be written".to_vec(),
-            vec!["127.0.0.1".into()],
-        )
-        .await
-        .unwrap();
-    store.cleanup().await.unwrap();
-    assert!(store.raw_path(&id).exists());
-    store.finish(&other, "delivered", "", 0).await.unwrap();
-    store.cleanup().await.unwrap();
-    assert!(!store.raw_path(&id).exists());
-    drop(store);
-    let store = Store::open(root.path()).unwrap();
-    store.recover().await.unwrap();
-    relay::notifications(&config, &store, &engine)
-        .await
-        .unwrap();
-    assert!(store.claim().await.unwrap().is_none());
-    assert!(store.failed().await.unwrap().is_empty());
-    store
-        .read(move |db| {
-            assert_eq!(
-                db.query_row(
-                    "SELECT status FROM deliveries WHERE id=?1",
-                    [failed.delivery_id],
-                    |r| r.get::<_, String>(0)
-                )?,
-                backscatter::STATUS
-            );
-            assert_eq!(
-                db.query_row("SELECT COUNT(*) FROM messages WHERE is_dsn=1", [], |r| r
-                    .get::<_, i64>(0))?,
-                0
-            );
-            assert_eq!(
-                db.query_row(
-                    "SELECT COUNT(*) FROM audit WHERE action='dsn_suppressed'",
-                    [],
-                    |r| r.get::<_, i64>(0)
-                )?,
-                1
-            );
-            assert_eq!(
-                db.query_row("SELECT COUNT(*) FROM delivery_attempts", [], |r| r
-                    .get::<_, i64>(0))?,
-                1
-            );
-            Ok(())
-        })
-        .await
-        .unwrap();
+    for native in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let config = common::config(root.path());
+        let store = Store::open(root.path()).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut scan = fixture::scan(config.clone());
+        if native {
+            scan.features_complete = Some(true);
+            scan.antivirus.status = AntivirusStatus::Clean;
+            scan.llm.status = LlmStatus::PricingExpired;
+            scan.llm.verdict = None;
+            scan.message_context = Some(noisefence::message_context::Context {
+                direct_extortion: true,
+                ..Default::default()
+            });
+        }
+        store
+            .enqueue(
+                id.clone(),
+                "alice@example.test".into(),
+                vec![
+                    config.recipient("alice@example.test").unwrap(),
+                    config.recipient("bob@example.test").unwrap(),
+                ],
+                scan,
+                common::MESSAGE.to_vec(),
+            )
+            .await
+            .unwrap();
+        let failed = store.claim().await.unwrap().unwrap();
+        let other = store.claim().await.unwrap().unwrap();
+        let trace = fixture::rejection();
+        store
+            .finish_with_attempts(
+                &failed,
+                "failed",
+                trace.events.last().unwrap().response.as_deref().unwrap(),
+                0,
+                std::slice::from_ref(&trace),
+            )
+            .await
+            .unwrap();
+        let engine = Engine::new(config.clone()).unwrap();
+        relay::notifications(&config, &store, &engine)
+            .await
+            .unwrap();
+        assert!(!store.suppress_hostile_dsn(&failed).await.unwrap());
+        store
+            .enqueue_dsn(
+                failed.clone(),
+                b"must never be written".to_vec(),
+                vec!["127.0.0.1".into()],
+            )
+            .await
+            .unwrap();
+        store.cleanup().await.unwrap();
+        assert!(store.raw_path(&id).exists());
+        store.finish(&other, "delivered", "", 0).await.unwrap();
+        store.cleanup().await.unwrap();
+        assert!(!store.raw_path(&id).exists());
+        drop(store);
+        let store = Store::open(root.path()).unwrap();
+        store.recover().await.unwrap();
+        relay::notifications(&config, &store, &engine)
+            .await
+            .unwrap();
+        assert!(store.claim().await.unwrap().is_none());
+        assert!(store.failed().await.unwrap().is_empty());
+        store
+            .read(move |db| {
+                assert_eq!(
+                    db.query_row(
+                        "SELECT status FROM deliveries WHERE id=?1",
+                        [failed.delivery_id],
+                        |r| r.get::<_, String>(0)
+                    )?,
+                    backscatter::STATUS
+                );
+                assert_eq!(
+                    db.query_row("SELECT COUNT(*) FROM messages WHERE is_dsn=1", [], |r| r
+                        .get::<_, i64>(0))?,
+                    0
+                );
+                assert_eq!(
+                    db.query_row(
+                        "SELECT COUNT(*) FROM audit WHERE action='dsn_suppressed'",
+                        [],
+                        |r| r.get::<_, i64>(0)
+                    )?,
+                    1
+                );
+                assert_eq!(
+                    db.query_row("SELECT COUNT(*) FROM delivery_attempts", [], |r| r
+                        .get::<_, i64>(0))?,
+                    1
+                );
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
 }
 
 #[tokio::test]

@@ -468,7 +468,9 @@ pub async fn ingest(store: &Store, runtime: Arc<Runtime>, manifest: Manifest) ->
     let generation = manifest.generation;
     let root = store.root.clone();
     store.run(move |db| {
-        let tx=db.transaction()?;
+        // Reserve the writer before reading; a deferred WAL read-to-write upgrade
+        // can fail immediately with SQLITE_BUSY_SNAPSHOT despite busy_timeout.
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let previous:Option<String>=tx.query_row("SELECT manifest FROM ha_remote WHERE owner=?1 AND id=?2",params![manifest.owner,manifest.id],|r|r.get(0)).optional()?;
         if let Some(raw)=previous {
             let old:Manifest=serde_json::from_str(&raw)?;

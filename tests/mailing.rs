@@ -340,3 +340,41 @@ fn modern_promotions_need_distribution_and_distinct_commercial_signals() {
         assert!(!inspect(subject, LIST, body).is_publicity(), "{subject}");
     }
 }
+
+#[test]
+fn readable_publicity_survives_only_a_dns_consistency_gap() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(root.path())).clone();
+    cfg.mailing = Some(Settings::default());
+    let mut scan =
+        Engine::new(Arc::new(cfg))
+            .unwrap()
+            .offline(&mail("Offres exclusives", LIST, OFFER));
+    scan.complete = false;
+    scan.features_complete = Some(true);
+    scan.reasons.push(noisefence::engine::Signal {
+        id: "smtp_policy_unavailable".into(),
+        detail: "Synthetic PTR timeout".into(),
+        weight: 0.,
+    });
+    assert_eq!(mailing::category(&scan, 95.), Category::Publicity);
+    for reason in [
+        "encrypted_content",
+        "checks_unavailable",
+        "vision_incomplete",
+    ] {
+        let mut limited = scan.clone();
+        limited.reasons.push(noisefence::engine::Signal {
+            id: reason.into(),
+            detail: String::new(),
+            weight: 0.,
+        });
+        assert_ne!(
+            mailing::category(&limited, 95.),
+            Category::Publicity,
+            "{reason}"
+        );
+    }
+    scan.features_complete = Some(false);
+    assert_ne!(mailing::category(&scan, 95.), Category::Publicity);
+}

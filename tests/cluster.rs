@@ -1241,7 +1241,7 @@ async fn suppressed_bounce_status_and_diagnostic_replicate_without_a_second_deli
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
             assert_eq!(status, "dsn_suppressed");
-            assert!(error.contains("backscatter-1"));
+            assert!(error.contains(noisefence::backscatter::VERSION));
             assert!(error.contains("554 5.7.1"));
             Ok(())
         })

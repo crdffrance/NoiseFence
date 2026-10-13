@@ -10,7 +10,7 @@ use crate::{
     llm::{Category, LlmStatus},
 };
 
-pub const VERSION: &str = "backscatter-1";
+pub const VERSION: &str = "backscatter-2";
 pub const STATUS: &str = "dsn_suppressed";
 
 /// A remote reply, a high score, failed SPF or an LLM opinion alone never suffice.
@@ -35,11 +35,18 @@ pub fn suppression_reason(scan: &Scan, attempt: &Attempt) -> Option<&'static str
                 "{} 5.7.1 rejected by rspamd filter",
                 final_reply.code?
             ))
-        || !scan.complete
         || scan.decision.as_ref()?.outcome != Outcome::Unwanted
         || scan
             .delivery_classification
             .is_some_and(|c| c != crate::mailing::Category::Spam)
+        || scan.recipient_decision.as_ref().is_some_and(|r| {
+            !matches!(
+                r.classification,
+                crate::decision_record::Classification::Spam
+                    | crate::decision_record::Classification::Phishing
+                    | crate::decision_record::Classification::Malware
+            )
+        })
     {
         return None;
     }
@@ -61,6 +68,33 @@ pub fn suppression_reason(scan: &Scan, attempt: &Attempt) -> Option<&'static str
         || auth.arc_state != State::Complete
         || !matches!(auth.arc, Some(AuthResult::None | AuthResult::Fail))
     {
+        return None;
+    }
+    // The local content signature and direct extortion extraction remain usable
+    // when the optional LLM is suspended. Neither a score nor Rspamd's shadow
+    // verdict participates in this exception. SMTP/DNS consistency may be missing
+    // only when the existing partial-coverage threat contract accepts that gap.
+    let native_extortion = scan.features_complete == Some(true)
+        && scan.antivirus.status == AntivirusStatus::Clean
+        && scan.signatures.status == AntivirusStatus::Suspicious
+        && scan
+            .signatures
+            .signature
+            .as_deref()
+            .is_some_and(|s| s.starts_with("Sanesecurity.Phishing."))
+        && scan.llm.opinion() != Some(Outcome::Legitimate)
+        && scan.message_context.as_ref().is_some_and(|c| {
+            c.direct_extortion
+                && !c.encrypted
+                && !c.threat_report
+                && !c.transaction_notice
+                && !c.conditional_security_notice
+        })
+        && (scan.complete || crate::decision::observed_threat_with_partial_coverage(scan));
+    if native_extortion {
+        return Some("native_extortion_signature_and_upstream_rejection");
+    }
+    if !scan.complete {
         return None;
     }
     if scan.antivirus.status == AntivirusStatus::Malware {

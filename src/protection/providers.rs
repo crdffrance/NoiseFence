@@ -219,7 +219,7 @@ impl TransportMetrics {
             "CRDF target missing" => "crdf_target_missing",
             "CRDF duplicate target" => "crdf_duplicate_target",
             "CRDF count mismatch" => "crdf_count_mismatch",
-            "CRDF error" => "crdf_provider_error",
+            "CRDF error" | "CRDF entry error" => "crdf_provider_error",
             _ => "crdf_invalid_schema",
         };
         *self
@@ -779,7 +779,7 @@ impl Client {
                 .await
                 .and_then(|body| {
                     body.ok_or_else(|| anyhow::anyhow!("CRDF missing body"))
-                        .and_then(|body| parse_crdf_batch(&body, indicators))
+                        .and_then(|body| parse_crdf_batch(&body, indicators, &metrics))
                         .map_err(|error| {
                             metrics.invalid_crdf_response(&error);
                             TransportError {
@@ -1139,6 +1139,7 @@ fn apply_lookup(
 fn parse_crdf_batch(
     body: &serde_json::Value,
     indicators: &[String],
+    metrics: &TransportMetrics,
 ) -> Result<Vec<Option<Verdict>>> {
     ensure!(body["error"].as_bool() == Some(false), "CRDF error");
     let entries = body["data"]
@@ -1161,7 +1162,13 @@ fn parse_crdf_batch(
             let entry = by_url
                 .get(crdf_url(indicator).as_str())
                 .ok_or_else(|| anyhow::anyhow!("CRDF target mismatch"))?;
-            Ok(parse_crdf_entry(entry, indicator).ok())
+            // Preserve the reason for each invalid target while retaining valid
+            // siblings. Never retain response text, URLs or provider messages.
+            Ok(parse_crdf_entry(entry, indicator)
+                .inspect_err(|error| {
+                    metrics.invalid_crdf_response(error);
+                })
+                .ok())
         })
         .collect()
 }
@@ -1183,10 +1190,10 @@ fn parse_crdf(body: &serde_json::Value, indicator: &str) -> Result<Verdict> {
 }
 fn parse_crdf_entry(entry: &serde_json::Value, indicator: &str) -> Result<Verdict> {
     ensure!(
-        entry["url"].as_str() == Some(crdf_url(indicator).as_str())
-            && entry["error"].as_bool() == Some(false),
-        "CRDF mismatch"
+        entry["url"].as_str() == Some(crdf_url(indicator).as_str()),
+        "CRDF target mismatch"
     );
+    ensure!(entry["error"].as_bool() == Some(false), "CRDF entry error");
     match entry["in_database"].as_bool() {
         Some(false) => Ok(Verdict::Unknown),
         Some(true) => {
@@ -1719,6 +1726,30 @@ mod transport_tests {
         assert_eq!(report.failure_counts["crdf_target_mismatch"], 1);
         assert_eq!(report.failure_counts["crdf_invalid_schema"], 1);
         assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE"));
+    }
+
+    #[test]
+    fn crdf_partial_batch_keeps_valid_results_and_a_fixed_failure_reason() {
+        let metrics = TransportMetrics::default();
+        let body = serde_json::json!({"error": false, "data": [
+            {"url":"https://good.example/","error":false,"in_database":false},
+            {"url":"https://failed.example/","error":true,"message":"PRIVATE provider text"}
+        ]});
+        let results = parse_crdf_batch(
+            &body,
+            &["failed.example".into(), "good.example".into()],
+            &metrics,
+        )
+        .unwrap();
+        assert!(results[0].is_none());
+        assert!(matches!(results[1], Some(Verdict::Unknown)));
+        let mut report = ProviderReport::default();
+        metrics.copy_to(&mut report);
+        assert_eq!(report.failure_counts["crdf_provider_error"], 1);
+        let serialized = serde_json::to_string(&report).unwrap();
+        for private in ["PRIVATE", "failed.example", "good.example"] {
+            assert!(!serialized.contains(private));
+        }
     }
 
     #[tokio::test]

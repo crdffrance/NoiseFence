@@ -95,20 +95,28 @@ and exact sudo grants for reading the normalized report and the two snapshot mod
 It cannot write/delete the central repository. Never grant a generic shell, SFTP
 write access to backups, or interpreter sudo access to that account.
 
-Snapshots copy the stopped node's SQLite, operational data, configured models,
-worker artifact cache, identity, MFA key and configuration. Training, URL-feed and
-calibration timers are paused and restored to their previous active state. Active
-or starting background writers prevent the copy. The exporter holds both daemon
-and calibration-worker file locks during SQLite/file capture and PostgreSQL dump;
-new lock files retain the service account's ownership. A separate resume timer protects against interruption during the short
-copy. The other node must remain healthy. Messages already accepted have independent
-local queues: this is not synchronous replication and cannot promise zero data loss.
+For selected format-seven PostgreSQL/coordinator installations, `metadata` archives
+use online SQLite backup APIs and a PostgreSQL dump. They include configuration,
+installed models, frozen policy artifacts, credentials and the MFA key. Authority,
+configuration and artifact identities are checked before and after capture; a policy
+change aborts the export. The exporter does not stop SMTP or pause timers. Deploy
+`snapshot.py` and `online_metadata.py` together, with the matching release's
+`deploy/ha/standby.py` available. A recovered console uses its dedicated checkpoint
+exporter rather than silently changing authority.
 
-`metadata` excludes spool and incoming bodies and cannot recover queued mail by
+Legacy installations and `full` archives retain the offline copy procedure:
+background writers are checked, the daemon and calibration worker are locked,
+and a timed guard restores the stopped service. With mandatory two-copy SMTP
+acceptance, stopping either peer temporarily defers new mail; another listening
+MX cannot remove that constraint. Online metadata backups avoid this outage.
+
+`metadata` excludes spool, incoming, replica and research-archive bodies and cannot recover queued mail by
 itself. `full` includes them, requires `body_retention_authorized=true` and an explicit
 1–30 day retention. Obtain the operator's choice before enabling it. Both modes
 contain sensitive configuration/metadata and must remain encrypted. Backup retention
 is distinct from live data deletion. Do not silently change this setting.
+
+Failed backup commands retain bounded diagnostics in root-only `last-tool-error.log`; the journal contains only a generic failure notice. A failed run never replaces the last successful backup status.
 
 Restic `--stdin-from-command` rejects a failed producer; a truncated export is not
 published as a successful backup. `central.py verify` decrypts the latest snapshots
@@ -158,7 +166,7 @@ For format-seven coordinators, the snapshot exporter includes a custom-format
 PostgreSQL dump in the same encrypted archive as local SQLite queue metadata,
 configuration and the original MFA key. The supported temporary hosting profile
 is PostgreSQL 17 with Unix peer authentication; other connection profiles fail
-before stopping the mail service. See [PostgreSQL backup details](../postgresql/README.md).
+before producing an archive. See [PostgreSQL backup details](../postgresql/README.md).
 
 Archive checks alone do not certify database recovery. A PostgreSQL snapshot
 returns `requires_postgresql_restore` until a separate isolated database restore

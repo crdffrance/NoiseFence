@@ -240,9 +240,12 @@ test('missing scores do not describe an explicit spam or pub rule as Ham', async
 
 
 test('qualification separates unassessed ham from guarded ham and never weakens spam', async () => {
-  const {classificationQualification} = await import('../app/presentation.ts');
+  const {classificationQualification, classificationDetail} = await import('../app/presentation.ts');
   const item = {recipient_decision: {version: 2, classification: 'unassessed', assessment: {version: 1, category: 'legitimate'}}};
   assert.equal(classificationQualification(item), 'Accepted by default · not assessed');
+  item.recipient_decision.assessment.incomplete_reasons = ['encrypted_content'];
+  assert.equal(classificationQualification(item), 'Accepted by default · encrypted content');
+  assert.match(classificationDetail(item), /encrypted content could not be inspected/);
   const guarded = {recipient_decision: {version: 2, classification: 'legitimate', assessment: {
     version: 1, category: 'legitimate', score_resolution: {score: 99.9, guard: 'corroboration_required'},
   }}};

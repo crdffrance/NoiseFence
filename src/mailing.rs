@@ -10,7 +10,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock, time::Instant};
 
-pub const VERSION: &str = "mailing-4";
+pub const VERSION: &str = "mailing-5";
 pub(crate) const SIGNAL_SQL: &str = "COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -130,12 +130,33 @@ pub fn category(scan: &Scan, threshold: f64) -> Category {
         Outcome::Unwanted => Category::Spam,
         Outcome::Undetermined => Category::Undetermined,
         Outcome::Legitimate
-            if scan.complete && scan.mailing.as_ref().is_some_and(Report::is_publicity) =>
+            if (scan.complete || readable_with_dns_gap(scan))
+                && scan.mailing.as_ref().is_some_and(Report::is_publicity) =>
         {
             Category::Publicity
         }
         Outcome::Legitimate => Category::Legitimate,
     }
+}
+
+// A PTR/sender-DNS timeout does not erase a completed local mail-kind analysis.
+// Coverage still constrains delivery actions and subject rewriting separately.
+// Encrypted content, failed extraction and other core gaps never qualify.
+fn readable_with_dns_gap(scan: &Scan) -> bool {
+    scan.features_complete == Some(true)
+        && !matches!(
+            scan.antivirus.status,
+            crate::antivirus::AntivirusStatus::Unavailable
+                | crate::antivirus::AntivirusStatus::Unscannable
+        )
+        && scan
+            .reasons
+            .iter()
+            .any(|r| r.id == "smtp_policy_unavailable")
+        && scan.reasons.iter().all(|r| {
+            !crate::assessment::INCOMPLETE_REASONS.contains(&r.id.as_str())
+                || r.id == "smtp_policy_unavailable"
+        })
 }
 
 fn normalize(value: &str) -> String {

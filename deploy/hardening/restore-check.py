@@ -70,7 +70,7 @@ def verify(archive_path):
             with sqlite3.connect('file:'+str(p)+'?mode=ro',uri=True) as db:
                 if db.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Invalid SQLite')
             databases.append(str(p.relative_to(root)))
-        if manifest['mode']=='metadata' and any(name.startswith(('data/spool/','data/incoming/')) for name in actual|set(links)):
+        if manifest['mode']=='metadata' and any(name.startswith(('data/spool/','data/incoming/','data/replicas/','data/research-archive/')) for name in actual|set(links)):
             raise ValueError('Metadata snapshot contains message bodies')
         state=root/'data/state.sqlite3'
         if state.exists():

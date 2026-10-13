@@ -24,7 +24,18 @@ def ssh(config,node,operation):
     return ['/usr/bin/ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=3','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+config['known_hosts'],'-i',config['ssh_key'],node['ssh'],operation]
 
 def execute(args,timeout=60):
-    return subprocess.run(args,capture_output=True,text=True,timeout=timeout,check=True).stdout
+    try:
+        return subprocess.run(args,capture_output=True,text=True,timeout=timeout,check=True).stdout
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        # Keep bounded tool diagnostics locally, never in the normalized report.
+        # In particular, do not log an argv or credentials to the journal.
+        detail=error.stderr or ''
+        if isinstance(detail,bytes):detail=detail.decode(errors='replace')
+        path=ROOT/'last-tool-error.log'
+        with path.open('w') as log:
+            os.fchmod(log.fileno(),0o600)
+            log.write(detail[-32768:])
+        raise RuntimeError('Backup tool failed; inspect the private last-tool-error.log') from None
 
 def restic(config,*args,timeout=1800):
     return execute(['/usr/bin/restic','--repo',config['repository'],'--password-file',config['password_file'],*args],timeout)
