@@ -330,7 +330,7 @@ impl Resolver {
     pub async fn inspect(&self, urls: &[String], truncated: bool) -> (Report, BTreeSet<String>) {
         let start = Instant::now();
         let mut report = Report {
-            version: "url-resolution-5".into(),
+            version: "url-resolution-6".into(),
             settings_sha256: crate::message::digest(
                 &serde_json::to_vec(&self.settings).expect("URL settings"),
             ),
@@ -447,9 +447,7 @@ fn resolve_location(base: &Url, location: &str) -> std::result::Result<Url, Deta
     {
         return Err(Detail::InvalidRedirect);
     }
-    let url = base
-        .join(location.trim())
-        .map_err(|_| Detail::InvalidRedirect)?;
+    let url = base.join(location).map_err(|_| Detail::InvalidRedirect)?;
     safe_url(url.as_str())
 }
 fn refresh_target(value: &str) -> std::result::Result<&str, Detail> {
@@ -515,7 +513,7 @@ fn html_next(base: &Url, body: &str) -> std::result::Result<Option<Url>, Detail>
                 {
                     unresolved_script = true;
                 } else if let Some(target) = script::literal_destination(&text) {
-                    if script_destination.replace(target.to_owned()).is_some() {
+                    if script_destination.replace(target).is_some() {
                         unresolved_script = true;
                     }
                 } else if !text.trim().is_empty() {

@@ -390,6 +390,98 @@ async fn script_navigation_cannot_bypass_network_boundaries() {
     server.abort();
 }
 
+#[tokio::test]
+async fn escaped_script_destinations_are_checked_and_remain_private() {
+    let (resolver, captured, server) = fixture(vec![
+        (
+            "/",
+            200,
+            vec![("content-type", "text/html")],
+            r"<script>window.location.replace('\x2ffinal\u{3f}token=PRIVATE');</script>",
+        ),
+        (
+            "/final",
+            200,
+            vec![("content-type", "text/html")],
+            "<p>Final page</p>",
+        ),
+    ])
+    .await;
+    let (report, urls) = resolver
+        .inspect(&["http://start.example.com/".into()], false)
+        .await;
+    assert_eq!(report.version, "url-resolution-6");
+    assert!(report.chains[0].complete, "{report:?}");
+    assert_eq!(captured.lock().unwrap().len(), 2);
+    assert!(urls.contains("http://start.example.com/final?token=PRIVATE"));
+    assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE"));
+    server.abort();
+}
+
+#[tokio::test]
+async fn decoded_addresses_and_controls_never_bypass_network_policy() {
+    for (body, detail) in [
+        (
+            r"<script>location='http:\/\/\u0031\u0032\u0037.0.0.1/private';</script>",
+            Detail::ForbiddenAddress,
+        ),
+        (
+            r"<script>location='http:\/\/169.254.169.254/latest/meta-data/';</script>",
+            Detail::ForbiddenAddress,
+        ),
+        (
+            r"<script>location='http:\/\/[::1]/private';</script>",
+            Detail::ForbiddenAddress,
+        ),
+        (
+            r"<script>location='http:\/\/user:pass@start.example.com/';</script>",
+            Detail::UnsafeUrl,
+        ),
+        (
+            r"<script>location='file:\/\/localhost/etc/passwd';</script>",
+            Detail::UnsafeUrl,
+        ),
+        (
+            r"<script>location='/path\x0d\x0aX-Test:attack';</script>",
+            Detail::ClientScript,
+        ),
+        (
+            r"<script>location='/\u005cprivate';</script>",
+            Detail::ClientScript,
+        ),
+    ] {
+        let (resolver, captured, server) =
+            fixture(vec![("/", 200, vec![("content-type", "text/html")], body)]).await;
+        let (report, urls) = resolver
+            .inspect(&["http://start.example.com/".into()], false)
+            .await;
+        assert_eq!(report.chains[0].detail, Some(detail), "{body}");
+        assert!(!report.chains[0].complete);
+        assert_eq!(captured.lock().unwrap().len(), 1);
+        assert_eq!(urls.len(), 1);
+        server.abort();
+    }
+}
+
+#[test]
+fn decoded_unicode_url_edges_are_not_silently_trimmed() {
+    let base = safe_url("https://example.com/").unwrap();
+    assert_eq!(
+        html_next(&base, r"<script>location='/final\u00a0';</script>")
+            .unwrap()
+            .unwrap()
+            .as_str(),
+        "https://example.com/final%C2%A0"
+    );
+    assert_eq!(
+        html_next(&base, r"<script>location=' /final '; </script>")
+            .unwrap()
+            .unwrap()
+            .as_str(),
+        "https://example.com/final"
+    );
+}
+
 #[test]
 fn ambiguous_or_dynamic_pages_do_not_claim_a_final_destination() {
     let base = safe_url("https://example.com/").unwrap();
@@ -476,61 +568,73 @@ fn html_is_inert_bounded_and_resolves_entities_without_fetching_subresources() {
 
 #[tokio::test]
 async fn live_protection_checks_final_exact_url_and_offline_processing_does_not_fetch() {
-    let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir(root.path().join("protection")).unwrap();
-    std::fs::write(root.path().join("protection/url-feed.json"), serde_json::json!({"version":1,"updated":crate::now(),"urls":["http://landing.example.org/final?token=CANARY"]}).to_string()).unwrap();
-    let (resolver, captured, server) = fixture(vec![
-        (
-            "/",
-            302,
-            vec![("location", "http://landing.example.org/final?token=CANARY")],
-            "",
-        ),
-        ("/final", 200, vec![("content-type", "text/html")], "final"),
-    ])
-    .await;
-    let mut config: crate::config::Config =
-        toml::from_str(include_str!("../../../config/development.toml")).unwrap();
-    config.data_dir = root.path().into();
-    let mut settings = crate::protection::Settings::default();
-    settings.policy.follow_urls = true;
-    settings.policy.campaigns = false;
-    config.protection = Some(settings.clone());
-    let mut runtime = crate::protection::Runtime::new(&settings, root.path()).unwrap();
-    runtime.redirects = resolver;
-    let raw = b"From: sender@example.com\r\nContent-Type: text/html\r\n\r\n<a href='http://start.example.com/'>Open</a><form action='http://start.example.com/do-not-submit'></form>";
-    let (report, targets) = runtime.local(raw, "", &config);
-    assert_eq!(targets.urls.len(), 1);
-    assert!(captured.lock().unwrap().is_empty());
-    let mut scan = crate::engine::Scan {
-        protection: Some(report),
-        ..Default::default()
-    };
-    let mut disabled = settings.policy.clone();
-    disabled.follow_urls = false;
-    runtime
-        .observe(&mut scan, super::super::Targets::default(), &disabled, &[])
+    for escaped in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("protection")).unwrap();
+        std::fs::write(root.path().join("protection/url-feed.json"), serde_json::json!({"version":1,"updated":crate::now(),"urls":["http://landing.example.org/final?token=CANARY"]}).to_string()).unwrap();
+        let initial = if escaped {
+            (
+                "/",
+                200,
+                vec![("content-type", "text/html")],
+                r"<script>window.location='http:\/\/landing.example.org\x2ffinal?token=CANARY';</script>",
+            )
+        } else {
+            (
+                "/",
+                302,
+                vec![("location", "http://landing.example.org/final?token=CANARY")],
+                "",
+            )
+        };
+        let (resolver, captured, server) = fixture(vec![
+            initial,
+            ("/final", 200, vec![("content-type", "text/html")], "final"),
+        ])
         .await;
-    assert!(scan.protection.as_ref().unwrap().url_resolution.is_none());
-    assert!(captured.lock().unwrap().is_empty());
-    runtime
-        .observe(&mut scan, targets, &settings.policy, &[])
-        .await;
-    let report = scan.protection.unwrap();
-    assert!(report.url_resolution.unwrap().chains[0].complete);
-    assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.id == "known_phishing_url" && f.sources.contains(&"redirect".into()))
-    );
-    assert!(
-        !serde_json::to_string(&report.findings)
-            .unwrap()
-            .contains("CANARY")
-    );
-    assert_eq!(captured.lock().unwrap().len(), 2);
-    server.abort();
+        let mut config: crate::config::Config =
+            toml::from_str(include_str!("../../../config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        let mut settings = crate::protection::Settings::default();
+        settings.policy.follow_urls = true;
+        settings.policy.campaigns = false;
+        config.protection = Some(settings.clone());
+        let mut runtime = crate::protection::Runtime::new(&settings, root.path()).unwrap();
+        runtime.redirects = resolver;
+        let raw = b"From: sender@example.com\r\nContent-Type: text/html\r\n\r\n<a href='http://start.example.com/'>Open</a><form action='http://start.example.com/do-not-submit'></form>";
+        let (report, targets) = runtime.local(raw, "", &config);
+        assert_eq!(targets.urls.len(), 1);
+        assert!(captured.lock().unwrap().is_empty());
+        let mut scan = crate::engine::Scan {
+            protection: Some(report),
+            ..Default::default()
+        };
+        let mut disabled = settings.policy.clone();
+        disabled.follow_urls = false;
+        runtime
+            .observe(&mut scan, super::super::Targets::default(), &disabled, &[])
+            .await;
+        assert!(scan.protection.as_ref().unwrap().url_resolution.is_none());
+        assert!(captured.lock().unwrap().is_empty());
+        runtime
+            .observe(&mut scan, targets, &settings.policy, &[])
+            .await;
+        let report = scan.protection.unwrap();
+        assert!(report.url_resolution.unwrap().chains[0].complete);
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.id == "known_phishing_url" && f.sources.contains(&"redirect".into()))
+        );
+        assert!(
+            !serde_json::to_string(&report.findings)
+                .unwrap()
+                .contains("CANARY")
+        );
+        assert_eq!(captured.lock().unwrap().len(), 2);
+        server.abort();
+    }
 }
 
 #[tokio::test]
