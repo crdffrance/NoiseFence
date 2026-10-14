@@ -6,6 +6,15 @@ The host-level `[replication]` configuration pairs two independent MX servers. B
 
 If replication is unavailable because of the network, TLS, disk or capacity, NoiseFence returns **451**, including failures during DATA. The sending server retains responsibility and retries. There is no automatic one-copy fallback. Two servers cannot form an independent quorum to distinguish a network partition from a failed coordinator.
 
+Authenticated heartbeats have one reserved read slot, independent of the four
+bounded requests waiting for the replica writer. They check storage reserves using
+a read-only WAL snapshot and do not wait for a slow body upload or cleanup to
+release the mutation lock. An exhausted reserve, failed authentication or an
+unavailable peer still prevents a successful heartbeat. A healthy heartbeat is
+only an availability signal: SMTP acceptance still requires the complete durable
+body and manifest receipts for every message variant. Busy mutations can therefore
+defer a message even while the peer heartbeat remains healthy.
+
 The intention to send is replicated before contacting the upstream. Local body removal waits for peer acknowledgement of terminal recipient states; a durable tombstone then permits remote deletion. Previously queued messages are protected before another delivery attempt. Copies received before the local acceptance transaction completes remain inert until manually reconciled; they are not assumed to be accepted mail.
 
 SMTP cannot guarantee exactly-once delivery. A lost final acknowledgement creates uncertainty. During recovery, confirmed delivered recipients are not retried. An uncertain acceptance, `sending` state, or referenced failure notice missing from the journal is held without automatic expiry. Inspect remote SMTP records before releasing it. See [RFC 5321](https://www.rfc-editor.org/rfc/rfc5321.html#section-6.1).

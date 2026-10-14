@@ -76,6 +76,7 @@ pub struct Runtime {
     pub capacity: Arc<tokio::sync::Semaphore>,
     pub serial: Arc<tokio::sync::Mutex<()>>,
     pub receivers: Arc<tokio::sync::Semaphore>,
+    pub heartbeats: Arc<tokio::sync::Semaphore>,
     pub max_message_bytes: u64,
     pub minimum_free_bytes: u64,
 }
@@ -115,6 +116,7 @@ impl Runtime {
             capacity: Arc::new(tokio::sync::Semaphore::new(2)),
             serial: Arc::new(tokio::sync::Mutex::new(())),
             receivers: Arc::new(tokio::sync::Semaphore::new(4)),
+            heartbeats: Arc::new(tokio::sync::Semaphore::new(1)),
             max_message_bytes: config.smtp.max_message_bytes as u64 + 256 * 1024,
             minimum_free_bytes: config.smtp.minimum_free_bytes,
         })

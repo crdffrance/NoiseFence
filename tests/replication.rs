@@ -1030,6 +1030,141 @@ async fn resync_requires_a_stopped_queue_and_rebuilds_a_replaced_peer_without_re
 }
 
 #[tokio::test]
+async fn heartbeat_stays_available_during_a_slow_body_without_acknowledging_it() {
+    use tokio::io::AsyncWriteExt;
+    let p = pair().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    let runtime = ha::Runtime::new(&p.config).unwrap();
+    let (mut writer, reader) = tokio::io::duplex(64);
+    let request = ha::replica::request(&runtime, &format!("body/{id}"))
+        .header(
+            "x-noisefence-sha256",
+            noisefence::message::digest(common::MESSAGE),
+        )
+        .header("x-noisefence-bytes", common::MESSAGE.len())
+        .body(reqwest::Body::wrap_stream(
+            tokio_util::io::ReaderStream::new(reader),
+        ));
+    let upload = tokio::spawn(async move { request.send().await });
+    writer.write_all(&common::MESSAGE[..16]).await.unwrap();
+    // Wait for the receiver to acquire its writer lock, without guessing a delay.
+    let directory = p.b.root.join("replicas/mx1");
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if std::fs::read_dir(&directory).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".partial-")
+            }) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let heartbeat = ha::replica::request(&runtime, "ping").send().await.unwrap();
+    assert_eq!(
+        heartbeat.status(),
+        200,
+        "An in-flight upload must not block the read-only heartbeat"
+    );
+    let receipt: ha::replica::Receipt = heartbeat.json().await.unwrap();
+    assert_eq!(receipt.id, "ping");
+    assert_eq!(receipt.generation, 0);
+    assert!(
+        !upload.is_finished(),
+        "Heartbeat must not acknowledge the partial body"
+    );
+    assert!(!ha::replica::body_path(&p.b, "mx1", &id).exists());
+    assert_eq!(
+        p.b.read(|db| Ok(
+            db.query_row("SELECT count(*) FROM ha_blobs", [], |r| r.get::<_, i64>(0))?
+        ))
+        .await
+        .unwrap(),
+        0
+    );
+    assert!(p.b.claim().await.unwrap().is_none());
+    // Even with a healthy heartbeat, an unfinished copy cannot satisfy acceptance.
+    ha::replica::synchronize(&p.a).await.unwrap();
+    assert!(ha::ready(&p.a));
+    writer.write_all(&common::MESSAGE[16..]).await.unwrap();
+    writer.shutdown().await.unwrap();
+    assert_eq!(upload.await.unwrap().unwrap().status(), 200);
+    assert_eq!(
+        std::fs::read(ha::replica::body_path(&p.b, "mx1", &id)).unwrap(),
+        common::MESSAGE
+    );
+    assert!(p.b.claim().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn independent_heartbeat_still_requires_peer_identity_and_storage_reserve() {
+    let p = pair().await;
+    let runtime = ha::Runtime::new(&p.config).unwrap();
+    for path in [
+        "ping",
+        "manifest",
+        "body/00000000-0000-4000-8000-000000000000",
+    ] {
+        let response = runtime
+            .http
+            .post(format!(
+                "{}/api/v1/replication/v1/{path}",
+                runtime.settings.peer_url
+            ))
+            .bearer_auth("invalid-fixture-credential")
+            .header("x-noisefence-node", "mx1")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401, "Identity required for {path}");
+    }
+    let response = runtime
+        .http
+        .post(format!(
+            "{}/api/v1/replication/v1/ping",
+            runtime.settings.peer_url
+        ))
+        .bearer_auth(&runtime.key)
+        .header("x-noisefence-node", "foreign-node")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    ha::replica::synchronize(&p.a).await.unwrap();
+    assert!(ha::ready(&p.a));
+    // Simulate the catalog reaching its configured reserve without allocating
+    // real disk space or uploading an oversized fixture.
+    p.b.run(|db| {
+        db.execute(
+            "INSERT INTO ha_blobs(owner,id,hash,bytes,updated) VALUES('mx1',?1,?2,?3,?4)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                "a".repeat(64),
+                64 * 1024 * 1024,
+                noisefence::now()
+            ],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let response = ha::replica::request(&runtime, "ping").send().await.unwrap();
+    assert_eq!(response.status(), 507);
+    assert!(
+        enqueue(&p, &uuid::Uuid::new_v4().to_string())
+            .await
+            .is_err()
+    );
+    assert!(p.a.claim().await.unwrap().is_none());
+    assert!(p.b.claim().await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn successful_idle_heartbeat_clears_the_previous_replication_incident() {
     let p = pair().await;
     p.a.run(|db| {
