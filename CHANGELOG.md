@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.3 — Inspect escaped redirect destinations safely
+
+- Decode bounded hexadecimal and Unicode escapes in a single literal JavaScript redirect without executing scripts. Revalidate the decoded destination through all existing URL/DNS/network guards, preserve Unicode path characters, and reject malformed or ambiguous statements. Record `url-resolution-6`; historical reports remain unchanged.
+
 ## 0.31.2 — Safer failure handling and uninterrupted metadata backups
 
 - Suppress a narrowly corroborated native extortion bounce after an exact, TLS-verified downstream content rejection, even while the optional LLM is suspended. Require completed failed authentication, phishing signatures and direct extortion context; preserve recipient corrections and normal DSNs. Do not remove already queued notifications.
