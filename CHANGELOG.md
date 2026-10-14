@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep the standalone policy task idle until shutdown instead of attempting cluster activation every two seconds. This removes false cluster warnings without ending the daemon's background task early or changing coordinator and worker behavior.
+
 ## 0.31.4 — Keep replica heartbeats responsive during writes
 
 - Give authenticated replica heartbeats their own bounded read capacity. Slow body uploads or serialized cleanup no longer occupy the heartbeat writer lock and incorrectly make SMTP readiness fail. Storage-reserve checks, request deadlines, serialized mutations and durable body/manifest receipts remain required; a heartbeat never acknowledges a message.

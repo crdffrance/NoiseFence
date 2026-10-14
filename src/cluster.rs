@@ -151,6 +151,13 @@ pub async fn run(
         };
         let policy = async {
             let mut stop = stop;
+            if control.base.cluster.is_none() {
+                // Standalone policy changes do not use coordinated activation.
+                // Stay alive until shutdown: the daemon treats an early worker
+                // exit as a failure, even when no cluster work is configured.
+                let _ = stop.changed().await;
+                return Ok(());
+            }
             loop {
                 tokio::select! {
                     _=stop.changed()=>return Ok(()),
