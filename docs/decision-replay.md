@@ -51,3 +51,27 @@ come at the expense of most detections.
   from one campaign do not constitute independent validation samples.
 - Never train on these labels automatically or activate enforcement from replay
   counts alone. Use the [qualification procedure](filter-qualification.md).
+
+## Re-extract context on the MX
+
+With a private original and its **recorded Scan JSON** available on the same host:
+
+```sh
+noisefence replay-context /private/message.eml --recorded /private/scan.json
+```
+
+This command requires the stored original SHA-256, receipt-time threshold and
+analysis policy. It refuses a substituted original, absent provenance, non-legacy
+decisions and oversized inputs (2 MiB original, 8 MiB recorded JSON). It runs
+before configuration/database loading, performs no network or provider calls,
+and emits only categories, contextual flags, coverage, index and guard metadata.
+`recorded` is the original category; `baseline` applies current decision code to
+old context; `candidate` applies it after re-extracting context. Scores, models and
+captured detector observations are reused, so this is a **context-policy
+regression**, not a fresh full-engine or independent quality evaluation. It does
+not replay custom recipient rules, rescore text or change delivery/history.
+
+Run where originals are retained; do not copy a production corpus to a workstation
+for this diagnostic. Keep exported originals private and remove temporary exports
+afterwards. AI labels may identify candidate defects but must remain distinct from
+human confirmations and independent evaluation references.
