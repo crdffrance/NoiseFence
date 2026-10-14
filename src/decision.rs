@@ -4,8 +4,9 @@ use crate::{
     engine::{Scan, Signal},
     fusion::runtime::{Decision, DecisionSource, Outcome},
 };
+pub mod replay;
 
-pub const VERSION: &str = "decision-policy-10";
+pub const VERSION: &str = "decision-policy-11";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -139,7 +140,7 @@ pub fn resolve_by_score(scan: &mut Scan, enabled: bool, threshold: f64) {
 /// Authentication alone, an unavailable LLM, imported headers and an unsupported
 /// LLM explanation never establish this guard. Rspamd is deliberately absent.
 fn authenticated_benign_conflict(scan: &Scan) -> bool {
-    if !scan.complete
+    if !(scan.complete || crate::mailing::readable_with_dns_gap(scan))
         || scan.features_complete != Some(true)
         || scan.antivirus.status != AntivirusStatus::Clean
         || scan.signatures.status != AntivirusStatus::Clean
@@ -331,7 +332,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     if let Some(previous) = scan.arbitration.take()
         && matches!(
             previous.version.as_str(),
-            "decision-policy-8" | "decision-policy-9" | VERSION
+            "decision-policy-8" | "decision-policy-9" | "decision-policy-10" | VERSION
         )
         && scan.complete
         && scan.decision.as_ref() == Some(&previous.decision)
@@ -388,11 +389,12 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     } else {
         let mut arbitration = arbitrate(scan);
         crate::confirmation::apply(scan, require_corroboration);
-        if scan.complete
+        if (scan.complete || crate::mailing::readable_with_dns_gap(scan))
             && scan.decision.as_ref().is_some_and(|d| {
                 d.source == DecisionSource::Legacy
                     && (d.outcome == Outcome::Unwanted
-                        || (context_reviewed && d.outcome == Outcome::Undetermined))
+                        || ((context_reviewed || !scan.complete)
+                            && d.outcome == Outcome::Undetermined))
             })
             && crate::message_context::needs_review(scan)
         {
@@ -403,7 +405,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
             scan.pub_tagged = false;
             scan.reasons.push(Signal {
                 id: CONTEXT_REASON.into(),
-                detail: "Authenticated reporting, transaction or conditional security-notice context conflicts with an uncorroborated content score. Automatic policy will resolve the classification; context is not proof of legitimacy.".into(),
+                detail: "Authenticated reporting, receipt or passive service-notice context conflicts with an uncorroborated content score. Automatic policy resolves the classification separately from check coverage; context is not proof of legitimacy.".into(),
                 weight: 0.0,
             });
         }

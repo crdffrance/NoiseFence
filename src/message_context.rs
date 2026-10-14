@@ -12,6 +12,10 @@ pub struct Context {
     pub transaction_notice: bool,
     #[serde(default)]
     pub conditional_security_notice: bool,
+    /// A bounded operational event or automatic software-update notice.
+    /// Still requires observed alignment, clean scanners and no sensitive demand.
+    #[serde(default)]
+    pub passive_service_notice: bool,
     /// An explicit demand conflicts with the apparent reporting/receipt context.
     #[serde(default)]
     pub action_demand: bool,
@@ -126,7 +130,7 @@ impl Context {
         let shipment = TRANSACTION.get_or_init(|| Regex::new(r"(?i)\b(?:colis|commande|order|package|shipment)\b.*\b(?:re[cç]u|retir[eé]|exp[eé]di[eé]|en route|received|delivered|shipped)\b").unwrap()).is_match(&subject)
         && (body.contains("commande") || body.contains("order") || body.contains("colis") || body.contains("package"));
         static RECEIPT: OnceLock<Regex> = OnceLock::new();
-        let payment_subject = RECEIPT.get_or_init(|| Regex::new(r"(?i)\b(?:re[cç]u (?:pour|de)|payment (?:receipt|confirmation|notification)|notification de paiement|paiement (?:effectu[eé]|re[cç]u)|automatic payment)\b").unwrap()).is_match(&subject);
+        let payment_subject = RECEIPT.get_or_init(|| Regex::new(r"(?i)\b(?:re[cç]u (?:pour|de|du)|r[eé]c[eé]piss[eé]|payment (?:receipt|confirmation|notification)|notification de paiement|paiement (?:effectu[eé]|re[cç]u)|automatic payment)\b").unwrap()).is_match(&subject);
         let payment_body = [
             "vous avez payé",
             "you paid",
@@ -135,6 +139,9 @@ impl Context {
             "traitée avec succès",
             "paiement effectué",
             "payment received",
+            "amount paid",
+            "montant payé",
+            "paiement a bien été pris en compte",
         ]
         .iter()
         .any(|s| body.contains(s));
@@ -151,8 +158,15 @@ impl Context {
             && body.contains("thanks for riding")
             && body.contains("trip fare")
             && body.contains("payments");
-        self.transaction_notice =
-            shipment || (payment_subject && payment_body) || transfer || trip_receipt;
+        static COMPLETED_PAYMENT: OnceLock<Regex> = OnceLock::new();
+        let completed_payment = COMPLETED_PAYMENT.get_or_init(|| Regex::new(
+            r"\b(?:votre paiement|le paiement|your payment|payment for)\b.{0,140}\b(?:a [eé]t[eé] (?:effectu[eé]|r[eé]alis[eé]) avec succ[eè]s|has been successfully completed)\b"
+        ).unwrap()).is_match(&body.split_whitespace().collect::<Vec<_>>().join(" "));
+        self.transaction_notice = shipment
+            || (payment_subject && (payment_body || completed_payment))
+            || transfer
+            || trip_receipt;
+        self.passive_service_notice = passive_service_notice(&subject, &body);
         static SECURITY_EVENT: OnceLock<Regex> = OnceLock::new();
         static OPTIONAL_ACTION: OnceLock<Regex> = OnceLock::new();
         self.conditional_security_notice = SECURITY_EVENT.get_or_init(|| Regex::new(
@@ -164,7 +178,65 @@ impl Context {
         self.direct_extortion =
             direct_extortion(&subject, &body) && !self.threat_report && !self.transaction_notice;
         self.action_demand = DEMAND.get_or_init(|| Regex::new(r"(?i)\b(?:enter (?:your |the )?(?:password|credentials|card)|verify your (?:account|identity|payment)|send (?:money|bitcoin)|transfer .{0,35}(?:wallet|bitcoin)|pay .{0,20}(?:bitcoin|btc)|install .{0,25}(?:software|application)|saisissez (?:votre |vos )?(?:mot de passe|identifiants)|v[eé]rifiez votre (?:compte|identit[eé])|g[eé]rer mon abonnement|annuler votre commande)\b").unwrap()).is_match(&body);
+        self.action_demand |= sensitive_service_demand(&body);
     }
+}
+
+fn passive_service_notice(subject: &str, body: &str) -> bool {
+    static OPERATION: OnceLock<Regex> = OnceLock::new();
+    static EVENT: OnceLock<Regex> = OnceLock::new();
+    static UPDATE: OnceLock<Regex> = OnceLock::new();
+    let operation = OPERATION.get_or_init(|| Regex::new(
+        r"\b(?:t[aâ]che de sauvegarde|backup (?:task|job)|v[eé]rification de l['’]int[eé]grit[eé]|integrity check)\b"
+    ).unwrap());
+    let event = EVENT.get_or_init(|| Regex::new(
+        r"\b(?:[eé]chec|[eé]chou[eé]|suspendu[eé]?|interrompu[eé]?|failed|failure|suspended|interrupted|resumed|completed)\b"
+    ).unwrap());
+    let operational = operation.is_match(subject)
+        && event.is_match(subject)
+        && operation.is_match(body)
+        && event.is_match(body);
+    let automatic_update = UPDATE
+        .get_or_init(|| {
+            Regex::new(
+                r"\b(?:mise [aà] jour du (?:logiciel|firmware)|(?:software|firmware) update)\b",
+            )
+            .unwrap()
+        })
+        .is_match(subject)
+        && [
+            "reçoivent automatiquement des mises à jour",
+            "sera installé automatiquement",
+            "will be installed automatically",
+            "automatically receives software updates",
+        ]
+        .iter()
+        .any(|p| body.contains(p));
+    operational || automatic_update
+}
+
+/// A service/receipt title cannot neutralize a current credential, restriction
+/// or urgent callback demand. No bank names, sender allowlists or link visits.
+fn sensitive_service_demand(body: &str) -> bool {
+    static CALL: OnceLock<Regex> = OnceLock::new();
+    static CARD: OnceLock<Regex> = OnceLock::new();
+    static ACTIVATE: OnceLock<Regex> = OnceLock::new();
+    static RESTRICTION: OnceLock<Regex> = OnceLock::new();
+    static CREDENTIAL: OnceLock<Regex> = OnceLock::new();
+    let text = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let callback = CALL.get_or_init(|| Regex::new(
+        r"\b(?:appelez|contactez|call|contact)\b.{0,60}\b(?:imm[eé]diatement|urgence|urgent|immediately|opposition|fraud)\b"
+    ).unwrap()).is_match(&text) && CARD.get_or_init(|| Regex::new(
+        r"\b(?:carte|card|paiement|payment|d[eé]bit|debit)\b"
+    ).unwrap()).is_match(&text);
+    let activation = ACTIVATE.get_or_init(|| Regex::new(
+        r"\b(?:activez|activer|activate|activation|mise [aà] jour obligatoire|mandatory update)\b"
+    ).unwrap()).is_match(&text) && RESTRICTION.get_or_init(|| Regex::new(
+        r"\b(?:bloqu[eé](?:e?s)?|blocage|suspendu(?:e?s)?|suspension|restreint(?:e?s)?|restricted|blocked|suspended)\b"
+    ).unwrap()).is_match(&text);
+    callback || activation || CREDENTIAL.get_or_init(|| Regex::new(
+        r"\b(?:saisir|saisissez|renseignez|communiquez|confirmez|enter|provide|confirm)\b.{0,35}\b(?:identifiants|mot de passe|code de s[eé]curit[eé]|password|credentials|security code)\b"
+    ).unwrap()).is_match(&text)
 }
 
 /// Intentionally narrow: quoted incidents and ordinary crypto receipts abstain.
@@ -217,7 +289,10 @@ pub fn needs_review(scan: &Scan) -> bool {
     let Some(context) = &scan.message_context else {
         return false;
     };
-    if !(context.threat_report || context.transaction_notice || context.conditional_security_notice)
+    if !(context.threat_report
+        || context.transaction_notice
+        || context.conditional_security_notice
+        || context.passive_service_notice)
         || context.action_demand
         || context.direct_extortion
         || context.injected_reward_lure

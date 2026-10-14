@@ -332,6 +332,13 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         iterations: usize,
     },
+    /// Replay context policy on a digest-bound original and recorded Scan JSON.
+    /// No provider calls, model loading, database access or delivery.
+    ReplayContext {
+        message: PathBuf,
+        #[arg(long)]
+        recorded: PathBuf,
+    },
     /// Run configured analysis once without queueing or delivering the message.
     Analyze {
         message: PathBuf,
@@ -527,6 +534,13 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::ReplayContext { message, recorded } => {
+            println!(
+                "{}",
+                serde_json::to_string(&noisefence::decision::replay::files(message, recorded)?)?
+            );
+            return Ok(());
+        }
         Command::ManagementHealth => {
             let config = Config::load(&cli.config)?;
             let result = tokio::time::timeout(

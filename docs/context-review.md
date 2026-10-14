@@ -1,6 +1,6 @@
 # Context, coverage and calibration
 
-NoiseFence 0.22.0 uses decision policy `decision-policy-5` and LLM prompt `noisefence-classify-6`. The prompt fingerprint and recorded policy distinguish new observations from earlier results.
+NoiseFence 0.31.5 records decision policy `decision-policy-11`. Recorded policy and detector versions distinguish new observations from historical results; this release does not change or activate the LLM.
 
 ## Readable content survives independent failures
 
@@ -10,9 +10,29 @@ Encrypted PGP/MIME and opaque S/MIME bodies are explicitly recorded as limited c
 
 ## Contextual false-positive safeguard
 
-The content parser recognizes bounded security-report, shipment-receipt and completed-payment contexts without a vendor allowlist. A high **legacy** score for one of these contexts requires review when aligned authentication was actually observed by the gateway and independent corroboration is absent. For example, a feed containing defanged threat indicators is not necessarily an attack; a receipt mentioning an automatic payment is not necessarily financial coercion.
+The content parser recognizes bounded security reports, shipment notices,
+completed payment receipts and passive service events without a sender allowlist.
+French and English receipts require matching completed-payment evidence in the
+body. Backup/integrity notifications require an operation and event in both the
+subject and body. Software-update notices require explicit automatic installation.
+An invoice title, a generic security alert or authentication alone is insufficient.
 
-This safeguard can only move an unwanted decision to **undetermined**. It never declares a message legitimate, reduces the numeric score, supplies missing authentication, or overrides the main antivirus or a separately validated fusion decision. Message-provided Authentication-Results headers cannot satisfy it. A malicious sender copying reporting language does not receive an allowlist bypass. Review remains necessary, and primary malware findings retain priority.
+A high legacy index conflicting with that context first becomes an internal
+abstention. The final policy accepts it as HAM (or PUB when a separate completed
+mail-kind analysis establishes that type) only when gateway-observed DMARC
+alignment passes, both malware/signature scans are clean and no corroborated
+threat or recorded identity/reputation conflict overrides the guard. The original
+numeric index stays visible as an uncalibrated diagnostic. The final decision is
+not “needs review”, and acceptance does not establish safety or recipient consent.
+
+An isolated SMTP/DNS consistency failure does not erase those observations.
+Coverage stays incomplete and subject rewriting still requires its own checks.
+Other core gaps, encrypted bodies, unavailable scanners and hostile LLM opinions
+do not qualify. Explicit credential requests, threatened restrictions combined
+with mandatory activation, and urgent payment/card callback demands prevent the
+guard even inside an apparent receipt or service notice. Malware and validated
+fusion decisions retain their own precedence. Message-supplied authentication
+headers never supply trusted alignment.
 
 The LLM receives actual MIME plain-text and cleaned HTML excerpts. Stylesheets, scripts, head/template blocks and duplicate HTML-to-text parts are excluded. `link_context` pairs a bounded anchor label with its destination scheme/host, omitting paths, query strings and user information. This context consumes part of the same text-byte cap, rather than increasing it. Anchor labels remain untrusted email content. The LLM receives lexical domain relationships derived from this bounded payload. A host under the sender's registrable domain is distinguished from a lookalike under another domain. These facts do not establish ownership, authentication or legitimacy. No link is opened by this analysis.
 

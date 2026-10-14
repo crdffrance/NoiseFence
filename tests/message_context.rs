@@ -11,6 +11,206 @@ const NOTICE: &[u8] = b"From: Shipping <shipping@example.org>\r\nSubject: Your p
 const REPORT: &[u8] = b"From: Research <research@example.org>\r\nSubject: Example URL feed\r\n\r\nhxxps://bad.example/a\r\nhxxps://bad.example/b\r\nhxxps://bad.example/c\r\n";
 
 #[test]
+fn completed_receipts_and_passive_operations_need_matching_body_evidence() {
+    for (subject, body, receipt, service) in [
+        (
+            "Express Reçu du paiement",
+            "Montant payé EUR 42.00. Référence de la transaction : TEST.",
+            true,
+            false,
+        ),
+        (
+            "Payment portal - Récépissé",
+            "Votre paiement a bien été pris en compte.",
+            true,
+            false,
+        ),
+        (
+            "2e paiement reçu pour Example",
+            "Votre paiement de 42 euros a été effectué avec succès.",
+            true,
+            false,
+        ),
+        (
+            "Payment confirmation",
+            "Payment for shipment TEST has been successfully completed.",
+            true,
+            false,
+        ),
+        (
+            "Payment confirmation",
+            "Payment for shipment TEST has not been successfully completed.",
+            false,
+            false,
+        ),
+        (
+            "Votre facture est disponible",
+            "Veuillez payer cette facture.",
+            false,
+            false,
+        ),
+        (
+            "Échec de la tâche de sauvegarde TEST",
+            "La tâche de sauvegarde TEST a échoué.",
+            false,
+            true,
+        ),
+        (
+            "La vérification de l’intégrité a échoué",
+            "La vérification de l’intégrité a échoué sur le serveur.",
+            false,
+            true,
+        ),
+        (
+            "Backup job failed",
+            "Your backup job failed on the storage server.",
+            false,
+            true,
+        ),
+        (
+            "Backup job failed",
+            "Buy our new storage offer!",
+            false,
+            false,
+        ),
+        (
+            "Mise à jour du logiciel interne",
+            "Les appareils reçoivent automatiquement des mises à jour.",
+            false,
+            true,
+        ),
+        (
+            "Firmware update",
+            "The update will be installed automatically.",
+            false,
+            true,
+        ),
+        (
+            "Firmware update",
+            "Install our application immediately.",
+            false,
+            false,
+        ),
+    ] {
+        let raw =
+            format!("Subject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}");
+        let c = noisefence::message_context::inspect(raw.as_bytes());
+        assert_eq!(c.transaction_notice, receipt, "{subject}: {body}");
+        assert_eq!(c.passive_service_notice, service, "{subject}: {body}");
+    }
+}
+
+#[test]
+fn receipt_or_service_wrapper_does_not_hide_bank_activation_or_callback_demands() {
+    for demand in [
+        "Activez votre service pour éviter le blocage de votre compte.",
+        "Mise à jour obligatoire, vos opérations seront bloquées.",
+        "Activate security before your account is suspended.",
+        "Un débit sur votre carte. Contactez immédiatement le service opposition.",
+        "A card payment was made. Call our fraud team immediately.",
+        "Renseignez vos identifiants et votre code de sécurité.",
+        "Provide your security code.",
+    ] {
+        let raw = format!(
+            "Subject: Payment receipt\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYou paid 42 euros. {demand}"
+        );
+        let context = noisefence::message_context::inspect(raw.as_bytes());
+        assert!(context.transaction_notice);
+        assert!(context.action_demand, "{demand}");
+        let mut scan = candidate(raw.as_bytes());
+        aligned(&mut scan);
+        scan.llm = Default::default();
+        scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Clean;
+        scan.signatures.status = noisefence::antivirus::AntivirusStatus::Clean;
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(
+            scan.decision.unwrap().outcome,
+            Outcome::Unwanted,
+            "{demand}"
+        );
+    }
+}
+
+#[test]
+fn smtp_dns_gap_does_not_turn_an_authenticated_passive_notice_into_spam() {
+    use noisefence::{antivirus::AntivirusStatus as Av, engine::Signal};
+    let raw = b"Subject: Backup job failed\r\n\r\nThe backup job failed on the storage server.\r\n";
+    for gap in [
+        None,
+        Some("smtp_policy_unavailable"),
+        Some("vision_incomplete"),
+        Some("llm_unavailable"),
+    ] {
+        let mut scan = candidate(raw);
+        aligned(&mut scan);
+        scan.llm = Default::default();
+        scan.antivirus.status = Av::Clean;
+        scan.signatures.status = Av::Clean;
+        if let Some(id) = gap {
+            scan.complete = false;
+            scan.reasons.push(Signal {
+                id: id.into(),
+                detail: "Synthetic missing check".into(),
+                weight: 0.,
+            });
+        }
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        let eligible = gap.is_none() || gap == Some("smtp_policy_unavailable");
+        assert_eq!(
+            scan.decision.as_ref().unwrap().outcome,
+            if eligible {
+                Outcome::Legitimate
+            } else {
+                Outcome::Unwanted
+            }
+        );
+        assert_eq!(scan.score, 99.);
+        assert_eq!(scan.complete, gap.is_none());
+        if eligible {
+            assert_eq!(
+                scan.score_resolution.as_ref().unwrap().guard.as_deref(),
+                Some("authenticated_benign_conflict")
+            );
+        }
+        let once = serde_json::to_value(&scan).unwrap();
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+    }
+}
+
+#[test]
+fn replay_is_digest_bound_private_and_never_changes_the_original() {
+    let raw = b"Subject: Payment receipt\r\n\r\nAmount paid: EUR 42.\r\n";
+    let mut scan = candidate(raw);
+    aligned(&mut scan);
+    scan.llm = Default::default();
+    scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Clean;
+    scan.signatures.status = noisefence::antivirus::AntivirusStatus::Clean;
+    scan.message_context = Some(Default::default());
+    // Reproduce the historical unrecognised receipt, with recorded policy.
+    let root = tempfile::tempdir().unwrap();
+    scan.analysis_policy = Some(noisefence::diagnostics::AnalysisPolicy::capture(
+        &common::config(root.path()),
+    ));
+    scan.raw_sha256 = Some(noisefence::message::digest(raw));
+    let before = serde_json::to_value(&scan).unwrap();
+    let report = decision::replay::compare(raw, &scan).unwrap();
+    assert_eq!(serde_json::to_value(&scan).unwrap(), before);
+    assert_eq!(report.recorded, noisefence::mailing::Category::Spam);
+    assert_eq!(report.baseline, noisefence::mailing::Category::Spam);
+    assert_eq!(report.candidate, noisefence::mailing::Category::Legitimate);
+    let output = serde_json::to_string(&report).unwrap();
+    assert!(!output.contains("EUR") && !output.contains("Payment receipt"));
+    assert!(decision::replay::compare(b"Substituted body", &scan).is_err());
+    scan.raw_sha256 = None;
+    assert!(decision::replay::compare(raw, &scan).is_err());
+}
+
+#[test]
 fn conditional_notices_require_a_completed_security_event_and_keep_current_demands() {
     for (subject, body, expected, demand) in [
         (

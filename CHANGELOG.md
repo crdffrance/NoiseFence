@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.31.5 — Context-aware receipt and service decisions
+
+- Recognize completed French and English payment receipts and bounded passive backup/software-update notices. Aligned authentication, clean scanners and the absence of observed threats remain mandatory for the contextual conflict safeguard; raw scores and receipt-time decisions are preserved.
+- Keep this safeguard when only SMTP/DNS consistency is unavailable. Other missing core checks, encrypted content, malicious indicators and active credential, account-restriction or urgent callback demands still prevent it. Record `decision-policy-11`; no threshold, model promotion, LLM activation or filtering-mode change.
+- Add the read-only `replay-context` diagnostic to compare context extraction against a digest-bound original using recorded policy and observations. It makes no provider requests and prints no mail content. AI annotations remain separate from human evaluation labels.
+- Preserve verified 0.31.4 policies during paired upgrades.
 - Keep the standalone policy task idle until shutdown instead of attempting cluster activation every two seconds. This removes false cluster warnings without ending the daemon's background task early or changing coordinator and worker behavior.
 
 ## 0.31.4 — Keep replica heartbeats responsive during writes

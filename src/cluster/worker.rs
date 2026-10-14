@@ -558,6 +558,7 @@ fn validate_retained_builds(
                     | "0.31.2"
                     | "0.31.3"
                     | "0.31.4"
+                    | "0.31.5"
             ) && matches!(
                 bundle.build.as_str(),
                 "0.28.0-rc.9"
@@ -572,6 +573,7 @@ fn validate_retained_builds(
                     | "0.31.1"
                     | "0.31.2"
                     | "0.31.3"
+                    | "0.31.4"
             ) && retained
                 .bundles()
                 .iter()
@@ -649,6 +651,9 @@ mod migration_build_tests {
         let previous_redirects = journal("0.31.3", 1);
         assert!(validate_retained_builds(&previous_redirects, &previous_redirects).is_ok());
         assert!(validate_retained_builds(&journal("0.31.3", 2), &previous_redirects).is_err());
+        let previous_heartbeat = journal("0.31.4", 1);
+        assert!(validate_retained_builds(&previous_heartbeat, &previous_heartbeat).is_ok());
+        assert!(validate_retained_builds(&journal("0.31.4", 2), &previous_heartbeat).is_err());
         for unsupported_build in ["0.29.1", "0.29.5", "9.9.9"] {
             let unsupported = journal(unsupported_build, 1);
             assert!(validate_retained_builds(&unsupported, &unsupported).is_err());

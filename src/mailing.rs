@@ -142,7 +142,7 @@ pub fn category(scan: &Scan, threshold: f64) -> Category {
 // A PTR/sender-DNS timeout does not erase a completed local mail-kind analysis.
 // Coverage still constrains delivery actions and subject rewriting separately.
 // Encrypted content, failed extraction and other core gaps never qualify.
-fn readable_with_dns_gap(scan: &Scan) -> bool {
+pub(crate) fn readable_with_dns_gap(scan: &Scan) -> bool {
     scan.features_complete == Some(true)
         && !matches!(
             scan.antivirus.status,
