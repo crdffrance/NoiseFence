@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.31.4 — Keep replica heartbeats responsive during writes
+
+- Give authenticated replica heartbeats their own bounded read capacity. Slow body uploads or serialized cleanup no longer occupy the heartbeat writer lock and incorrectly make SMTP readiness fail. Storage-reserve checks, request deadlines, serialized mutations and durable body/manifest receipts remain required; a heartbeat never acknowledges a message.
+- Preserve verified 0.31.3 policies during paired upgrades. No model, score, filter threshold or provider activation changes.
+
 ## 0.31.3 — Inspect escaped redirect destinations safely
 
 - Decode bounded hexadecimal and Unicode escapes in a single literal JavaScript redirect without executing scripts. Revalidate the decoded destination through all existing URL/DNS/network guards, preserve Unicode path characters, and reject malformed or ambiguous statements. Record `url-resolution-6`; historical reports remain unchanged.

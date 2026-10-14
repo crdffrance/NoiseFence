@@ -6,8 +6,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
 pub(super) fn routes(app: App) -> Router<App> {
-    Router::new()
-        .route("/v1/ping", post(ping))
+    let writers = Router::new()
         .route(
             "/v1/body/{id}",
             post(body).layer(DefaultBodyLimit::disable()),
@@ -16,10 +15,22 @@ pub(super) fn routes(app: App) -> Router<App> {
             "/v1/manifest",
             post(manifest).layer(DefaultBodyLimit::max(3 * 1024 * 1024)),
         )
+        .layer(middleware::from_fn_with_state(app.clone(), writer_guard));
+    Router::new()
+        .route("/v1/ping", post(ping))
+        .merge(writers)
         .layer(middleware::from_fn_with_state(app, guard))
 }
 async fn ping(State(app): State<App>) -> ApiResult<Json<replica::Receipt>> {
     let r = runtime(&app)?;
+    // A heartbeat reads a WAL snapshot and cannot acknowledge a message body.
+    // Reserve a bounded slot independent of long uploads and serialized cleanup.
+    let _slot = r.heartbeats.clone().try_acquire_owned().map_err(|_| {
+        Error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Replica heartbeat busy".into(),
+        )
+    })?;
     let space = crate::store::available_bytes(&app.store.root)?;
     let used = app
         .store
@@ -70,6 +81,25 @@ async fn guard(State(app): State<App>, request: Request, next: Next) -> Response
     if !authenticated(&runtime, &request) {
         return Error(StatusCode::UNAUTHORIZED, "Replica identity refused".into()).into_response();
     }
+    match tokio::time::timeout(
+        Duration::from_secs(runtime.settings.timeout_seconds),
+        next.run(request),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => Error(
+            StatusCode::GATEWAY_TIMEOUT,
+            "Replica operation expired".into(),
+        )
+        .into_response(),
+    }
+}
+async fn writer_guard(State(app): State<App>, request: Request, next: Next) -> Response {
+    let runtime = match runtime(&app) {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
     // Bound waiting requests independently of outbound slots to avoid pair deadlocks.
     let _slot = match runtime.receivers.clone().try_acquire_owned() {
         Ok(p) => p,
@@ -88,19 +118,7 @@ async fn guard(State(app): State<App>, request: Request, next: Next) -> Response
                     .into_response();
             }
         };
-    match tokio::time::timeout(
-        Duration::from_secs(runtime.settings.timeout_seconds),
-        next.run(request),
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => Error(
-            StatusCode::GATEWAY_TIMEOUT,
-            "Replica operation expired".into(),
-        )
-        .into_response(),
-    }
+    next.run(request).await
 }
 struct Partial(std::path::PathBuf);
 impl Drop for Partial {
