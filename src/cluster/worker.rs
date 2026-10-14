@@ -559,6 +559,7 @@ fn validate_retained_builds(
                     | "0.31.3"
                     | "0.31.4"
                     | "0.31.5"
+                    | "0.31.6"
             ) && matches!(
                 bundle.build.as_str(),
                 "0.28.0-rc.9"
@@ -574,6 +575,7 @@ fn validate_retained_builds(
                     | "0.31.2"
                     | "0.31.3"
                     | "0.31.4"
+                    | "0.31.5"
             ) && retained
                 .bundles()
                 .iter()

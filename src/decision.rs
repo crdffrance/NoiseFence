@@ -6,7 +6,7 @@ use crate::{
 };
 pub mod replay;
 
-pub const VERSION: &str = "decision-policy-11";
+pub const VERSION: &str = "decision-policy-12";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -332,7 +332,11 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
     if let Some(previous) = scan.arbitration.take()
         && matches!(
             previous.version.as_str(),
-            "decision-policy-8" | "decision-policy-9" | "decision-policy-10" | VERSION
+            "decision-policy-8"
+                | "decision-policy-9"
+                | "decision-policy-10"
+                | "decision-policy-11"
+                | VERSION
         )
         && scan.complete
         && scan.decision.as_ref() == Some(&previous.decision)

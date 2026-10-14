@@ -1,6 +1,6 @@
 # Context, coverage and calibration
 
-NoiseFence 0.31.5 records decision policy `decision-policy-11`. Recorded policy and detector versions distinguish new observations from historical results; this release does not change or activate the LLM.
+NoiseFence 0.31.6 records decision policy `decision-policy-12`. Recorded policy and detector versions distinguish new observations from historical results; this release does not change or activate the LLM.
 
 ## Readable content survives independent failures
 
@@ -29,10 +29,13 @@ An isolated SMTP/DNS consistency failure does not erase those observations.
 Coverage stays incomplete and subject rewriting still requires its own checks.
 Other core gaps, encrypted bodies, unavailable scanners and hostile LLM opinions
 do not qualify. Explicit credential requests, threatened restrictions combined
-with mandatory activation, and urgent payment/card callback demands prevent the
+with nearby mandatory activation, and urgent payment/card callback demands prevent the
 guard even inside an apparent receipt or service notice. Malware and validated
 fusion decisions retain their own precedence. Message-supplied authentication
-headers never supply trusted alignment.
+headers never supply trusted alignment. URL host/path tokens, including defanged
+indicators, are excluded from the new service-demand prose checks. Demands are
+evaluated within individual MIME alternatives so the end of a plain-text part
+and the beginning of its HTML rendering cannot create a synthetic association.
 
 The LLM receives actual MIME plain-text and cleaned HTML excerpts. Stylesheets, scripts, head/template blocks and duplicate HTML-to-text parts are excluded. `link_context` pairs a bounded anchor label with its destination scheme/host, omitting paths, query strings and user information. This context consumes part of the same text-byte cap, rather than increasing it. Anchor labels remain untrusted email content. The LLM receives lexical domain relationships derived from this bounded payload. A host under the sender's registrable domain is distinguished from a lookalike under another domain. These facts do not establish ownership, authentication or legitimacy. No link is opened by this analysis.
 

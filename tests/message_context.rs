@@ -11,6 +11,34 @@ const NOTICE: &[u8] = b"From: Shipping <shipping@example.org>\r\nSubject: Your p
 const REPORT: &[u8] = b"From: Research <research@example.org>\r\nSubject: Example URL feed\r\n\r\nhxxps://bad.example/a\r\nhxxps://bad.example/b\r\nhxxps://bad.example/c\r\n";
 
 #[test]
+fn reported_url_tokens_are_not_recipient_activation_demands() {
+    for indicator in [
+        "hxxps://blocked.example/activation",
+        "https://blocked.example/activation",
+        "blocked.example/activation",
+        "blocked[.]example/activation",
+        "activation-blocked.example",
+        "activation@blocked.example",
+    ] {
+        let raw = format!(
+            "Subject: Example URL feed\r\n\r\nhxxps://bad.example/a\r\nhxxps://bad.example/b\r\nhxxps://bad.example/c\r\n{indicator}\r\n"
+        );
+        let context = noisefence::message_context::inspect(raw.as_bytes());
+        assert!(context.threat_report);
+        assert!(!context.action_demand, "{indicator}");
+    }
+    let raw = format!(
+        "Subject: Backup job failed\r\n\r\nThe backup job failed. Activation is logged. {} A separate process was blocked.",
+        "Historical event. ".repeat(25)
+    );
+    assert!(
+        !noisefence::message_context::inspect(raw.as_bytes()).action_demand,
+        "{:?}",
+        noisefence::features::text(raw.as_bytes())
+    );
+}
+
+#[test]
 fn completed_receipts_and_passive_operations_need_matching_body_evidence() {
     for (subject, body, receipt, service) in [
         (

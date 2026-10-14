@@ -47,6 +47,24 @@ pub fn inspect(raw: &[u8]) -> Context {
         return result;
     };
     result.merge_text(&subject, &body);
+    // Evaluate demands within each bounded alternative. Joining a plain part
+    // and its HTML rendering can put unrelated end/start words next to each
+    // other, especially when whitespace prevents feature-text deduplication.
+    result.action_demand = (0..message.text_body_count().min(20)).any(|i| {
+        message.body_text(i).is_some_and(|text| {
+            action_demand(&text.chars().take(32_000).collect::<String>().to_lowercase())
+        })
+    }) || (0..message.html_body_count().min(20)).any(|i| {
+        message.body_html(i).is_some_and(|html| {
+            action_demand(
+                &crate::features::visible(&html)
+                    .chars()
+                    .take(32_000)
+                    .collect::<String>()
+                    .to_lowercase(),
+            )
+        })
+    });
     let sender = message
         .from()
         .and_then(|a| a.first())
@@ -174,12 +192,16 @@ impl Context {
         ).unwrap()).is_match(&subject) && OPTIONAL_ACTION.get_or_init(|| Regex::new(
             r"\b(?:if (?:this|it) was you[ ,:;\t-]*(?:then )?(?:(?:(?:you (?:can|may)|please) )?ignore|no action is required)|si c['’][eé]tait vous[ ,:;\t-]*(?:vous pouvez ignorer|aucune action n['’]est (?:requise|n[eé]cessaire)))\b"
         ).unwrap()).is_match(&body);
-        static DEMAND: OnceLock<Regex> = OnceLock::new();
         self.direct_extortion =
             direct_extortion(&subject, &body) && !self.threat_report && !self.transaction_notice;
-        self.action_demand = DEMAND.get_or_init(|| Regex::new(r"(?i)\b(?:enter (?:your |the )?(?:password|credentials|card)|verify your (?:account|identity|payment)|send (?:money|bitcoin)|transfer .{0,35}(?:wallet|bitcoin)|pay .{0,20}(?:bitcoin|btc)|install .{0,25}(?:software|application)|saisissez (?:votre |vos )?(?:mot de passe|identifiants)|v[eé]rifiez votre (?:compte|identit[eé])|g[eé]rer mon abonnement|annuler votre commande)\b").unwrap()).is_match(&body);
-        self.action_demand |= sensitive_service_demand(&body);
+        self.action_demand = action_demand(&body);
     }
+}
+
+fn action_demand(body: &str) -> bool {
+    static DEMAND: OnceLock<Regex> = OnceLock::new();
+    DEMAND.get_or_init(|| Regex::new(r"(?i)\b(?:enter (?:your |the )?(?:password|credentials|card)|verify your (?:account|identity|payment)|send (?:money|bitcoin)|transfer .{0,35}(?:wallet|bitcoin)|pay .{0,20}(?:bitcoin|btc)|install .{0,25}(?:software|application)|saisissez (?:votre |vos )?(?:mot de passe|identifiants)|v[eé]rifiez votre (?:compte|identit[eé])|g[eé]rer mon abonnement|annuler votre commande)\b").unwrap()).is_match(body)
+        || sensitive_service_demand(body)
 }
 
 fn passive_service_notice(subject: &str, body: &str) -> bool {
@@ -221,19 +243,28 @@ fn sensitive_service_demand(body: &str) -> bool {
     static CALL: OnceLock<Regex> = OnceLock::new();
     static CARD: OnceLock<Regex> = OnceLock::new();
     static ACTIVATE: OnceLock<Regex> = OnceLock::new();
-    static RESTRICTION: OnceLock<Regex> = OnceLock::new();
     static CREDENTIAL: OnceLock<Regex> = OnceLock::new();
-    let text = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    static URL: OnceLock<Regex> = OnceLock::new();
+    // Indicator feeds quote hostile URLs. Their hostname/path tokens are data,
+    // not prose asking this recipient to activate, call or disclose credentials.
+    let prose = URL
+        .get_or_init(|| {
+            Regex::new(
+        r"(?i)\b(?:https?|hxxps?)://[^\s<>]+|\b(?:[a-z0-9-]+(?:\.|\[\.\]))+[a-z]{2,63}(?:/[^\s<>]*)?"
+    ).unwrap()
+        })
+        .replace_all(body, " ");
+    let text = prose.split_whitespace().collect::<Vec<_>>().join(" ");
     let callback = CALL.get_or_init(|| Regex::new(
         r"\b(?:appelez|contactez|call|contact)\b.{0,60}\b(?:imm[eé]diatement|urgence|urgent|immediately|opposition|fraud)\b"
     ).unwrap()).is_match(&text) && CARD.get_or_init(|| Regex::new(
         r"\b(?:carte|card|paiement|payment|d[eé]bit|debit)\b"
     ).unwrap()).is_match(&text);
-    let activation = ACTIVATE.get_or_init(|| Regex::new(
-        r"\b(?:activez|activer|activate|activation|mise [aà] jour obligatoire|mandatory update)\b"
-    ).unwrap()).is_match(&text) && RESTRICTION.get_or_init(|| Regex::new(
-        r"\b(?:bloqu[eé](?:e?s)?|blocage|suspendu(?:e?s)?|suspension|restreint(?:e?s)?|restricted|blocked|suspended)\b"
-    ).unwrap()).is_match(&text);
+    let activation = ACTIVATE.get_or_init(|| {
+        let action = r"\b(?:activez|activer|activate|activation|mise [aà] jour obligatoire|mandatory update)\b";
+        let restriction = r"\b(?:bloqu[eé](?:e?s)?|blocage|suspendu(?:e?s)?|suspension|restreint(?:e?s)?|restricted|blocked|suspended)\b";
+        Regex::new(&format!(r"(?:{action}.{{0,180}}{restriction}|{restriction}.{{0,180}}{action})")).unwrap()
+    }).is_match(&text);
     callback || activation || CREDENTIAL.get_or_init(|| Regex::new(
         r"\b(?:saisir|saisissez|renseignez|communiquez|confirmez|enter|provide|confirm)\b.{0,35}\b(?:identifiants|mot de passe|code de s[eé]curit[eé]|password|credentials|security code)\b"
     ).unwrap()).is_match(&text)
