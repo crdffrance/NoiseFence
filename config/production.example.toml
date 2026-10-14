@@ -128,11 +128,11 @@ max_analysis_bytes = 2097152
 # max_output_tokens = 256
 # score_low = 20.0
 # score_high = 98.0
-# review_unconfirmed_high = true # Second avis au-dessus de score_high sans corroboration ; budget inchangé.
+# review_unconfirmed_high = true # Second opinion above score_high without corroboration; budget unchanged.
 # max_parallel = 2
 
-# La banque locale HTML/MIME est incluse quand [native_filter] est configuré.
-# Voir docs/rspamd-rules.md pour les douze identifiants et leurs limites.
+# Local HTML/MIME rules are included when [native_filter] is configured.
+# See docs/rspamd-rules.md for rule identifiers and their limitations.
 # [native_filter.content_rules]
 # enabled = true
 # disabled = ["NF_HTML_HIDDEN_TEXT"]
@@ -171,7 +171,7 @@ recipients = []
 [protection]
 timeout_ms = 1200
 max_parallel = 2
-# 0 = illimité ; réglables aussi dans la console (quotas partagés par serveur).
+# 0 = unlimited; also configurable in the console. Quotas use the shared provider ledger.
 crdf_per_minute = 2
 crdf_per_day = 200
 virustotal_per_minute = 4

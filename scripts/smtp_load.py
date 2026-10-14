@@ -27,6 +27,37 @@ def quantiles(values):
             if ordered else None for key, fraction in [('p50', .5), ('p95', .95), ('max', 1)]}
 
 
+def component_statuses(scans):
+    """Keep supplementary limits visible even when core analysis completed."""
+    paths = {name: (name, 'status')
+             for name in ('semantic', 'antivirus', 'signatures', 'vision', 'llm', 'mailing')}
+    paths.update({
+        'native': ('native_filter', 'report', 'status'),
+        'native_bayes': ('native_filter', 'report', 'bayes', 'status'),
+        'native_fuzzy': ('native_filter', 'report', 'fuzzy', 'status'),
+        'local_protection': ('protection', 'local_status'),
+        'feed': ('protection', 'feed_status'),
+        'campaign': ('protection', 'campaign_status'),
+        'crdf': ('protection', 'crdf', 'status'),
+        'virustotal': ('protection', 'virustotal', 'status'),
+    })
+
+    def read(scan, path):
+        value = scan
+        for key in path:
+            if value is None:
+                return 'absent'
+            if not isinstance(value, dict):
+                return 'invalid'
+            value = value.get(key)
+        if value is None:
+            return 'absent'
+        return value if isinstance(value, str) and value else 'invalid'
+
+    return {name: dict(Counter(read(scan, path) for scan in scans))
+            for name, path in paths.items()}
+
+
 def port():
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
@@ -90,10 +121,11 @@ async def run(args):
               'machine': {'system': platform.platform(), 'cpu_count': os.cpu_count()},
               'messages': args.messages, 'concurrency': args.concurrency,
               'message_bytes': args.message_bytes, 'processing': args.processing,
-              'relay_workers': args.relay_workers, 'retry_policy': 'bounded exponential jitter, max 2 seconds',
+              'relay_workers': args.relay_workers, 'retry_policy': 'bounded exponential jitter, below 2.4 seconds',
               'transport': 'loopback plaintext both hops', 'durability': 'unmodified SQLite FULL + spool fsync',
               'exclusions': ['DNS/authentication', 'DQS', 'LLM', 'Proton', 'TLS', 'traffic representativeness'],
               'components': {'semantic': bool(args.semantic_encoder),
+                             'native': getattr(args, 'native', False),
                              'semantic_parallel': args.semantic_parallel, 'semantic_timeout_ms': args.semantic_timeout_ms,
                              'antivirus': bool(args.antivirus_socket), 'signatures': bool(args.signatures_socket),
                              'vision': bool(args.vision_socket), 'protection': getattr(args, 'protection', False), 'html_fixture':getattr(args,'html',False), 'mailing':getattr(args,'mailing',False)},
@@ -183,6 +215,8 @@ async def run(args):
         config += '[protection]\n'
     if getattr(args,'mailing',False):
         config += '[mailing]\n'
+    if getattr(args, 'native', False):
+        config += '[native_filter]\nmode="observe"\nmax_parallel=1\ntimeout_ms=500\nfuzzy_memory=true\n'
     cfg = root/'config.toml'
     cfg.write_text(config)
     report['config_sha256'] = digest(config.encode())
@@ -291,8 +325,7 @@ async def run(args):
         extra = sorted(set(received_counts) - set(accepted))
         duplicates = sum(max(0, n-1) for n in received_counts.values())
         changed_bodies = sum(accepted.get(i, {}).get('body_sha256') != body for i, body, _ in received)
-        statuses = {component: dict(Counter(scan.get(component, {}).get('status', 'absent') for _, scan in scans))
-                    for component in ('semantic', 'antivirus', 'signatures', 'vision', 'llm')}
+        statuses = component_statuses([scan for _, scan in scans])
         if getattr(args,'mailing',False):
             reports=[scan.get('mailing') or {} for _,scan in scans]
             report['mailing']={'verdicts':dict(Counter(r.get('verdict','absent') for r in reports)),
@@ -308,6 +341,7 @@ async def run(args):
                   and {key for key, _ in scans} == {value['queue_id'] for value in accepted.values()})
         report.update(run_finished=True, correctness_passed=checks, accepted=len(accepted), delivered=len(received),
                       complete=complete, incomplete=len(scans)-complete, statuses=statuses,
+                      coverage_semantics='complete/incomplete and complete_per_second refer to core analysis only; inspect every component status',
                       missing=len(missing), extra=len(extra), duplicates=duplicates, changed_bodies=changed_bodies,
                       retryable_responses=dict(retries), acceptance_ms=quantiles(latencies),
                       analysis_ms=quantiles([scan['elapsed_ms'] for _, scan in scans]),
@@ -358,6 +392,7 @@ def main():
     for name in ('lexical-model', 'semantic-encoder', 'semantic-combination', 'antivirus-socket', 'signatures-socket', 'vision-socket'):
         parser.add_argument('--'+name, type=Path)
     parser.add_argument('--protection',action='store_true',help='Enable local advisory protection; no provider calls')
+    parser.add_argument('--native', action='store_true', help='Enable local native rules with an empty Bayes model and fuzzy store; no training')
     parser.add_argument('--mailing',action='store_true',help='Use synthetic newsletters and enable local PUB categorization')
     parser.add_argument('--html',action='store_true',help='Use synthetic HTML links for parser load')
     parser.add_argument('--semantic-parallel', type=int, default=1)
