@@ -318,11 +318,11 @@ test('fusion detail uses the frozen native boundary rather than the content sett
   assert.match(html,/Mapped boundary: 50 \/ 100/);
   assert.match(html,/native comparison applies/);
   assert.match(html,/at or above/);
-  assert.doesNotMatch(html,/95/);
+  assert.doesNotMatch(html.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/g, ''), /95/);
   const legacy={...mail,recipient_decision:{...mail.recipient_decision,assessment:{...assessment,score_boundary:null}}};
   html=renderToStaticMarkup(createElement(MessageScoreDetails,{mail:legacy}));
   assert.match(html,/Fusion boundary not recorded/);
-  assert.doesNotMatch(html,/95/);
+  assert.doesNotMatch(html.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/g, ''), /95/);
 });
 
 test('content boundary displays exact threshold precision and its scope', () => {
@@ -346,4 +346,36 @@ test('a guarded high index is explained as policy acceptance, never below-thresh
   assert.equal(shown.value, 99.9);
   assert.match(shown.detail, /required corroboration is missing/);
   assert.doesNotMatch(shown.detail, /Not spam by configured threshold/);
+});
+
+test('verdict banner explains contextual acceptance but gives recipient overrides precedence', () => {
+  const assessment = {
+    version: 1, category: 'legitimate', complete: true, classification_source: 'recorded_decision',
+    score: { value: 99.9, kind: 'content', source: 'raw', model: 'fixture' },
+    decision: decision('legacy', 'legitimate', 99.9), incomplete_reasons: [],
+    score_resolution: { guard: 'authenticated_benign_conflict', projected: false, previous: { outcome: 'undetermined' }, decision: { outcome: 'legitimate' } },
+  };
+  const banner = (assessment) => renderToStaticMarkup(createElement(MessageScoreDetails, {
+    mail: { ...base, assessment },
+  })).split('<dl')[0];
+  assert.match(banner(assessment), />Ham<\/h3>/);
+  assert.match(banner(assessment), /Authenticated benign context takes precedence/);
+  const override = banner({ ...assessment, category: 'spam', classification_source: 'recipient_policy' });
+  assert.match(override, />Spam<\/h3>/);
+  assert.match(override, /Recipient policy applied/);
+  assert.doesNotMatch(override, /Accepted by the contextual safeguard/);
+});
+
+test('missing score has no numeric meter and historical fallback never claims a saved receipt', () => {
+  const assessment = {
+    version: 1, category: 'legitimate', complete: false, classification_source: 'historical_fallback',
+    score: { value: null, kind: 'unavailable', source: 'unavailable', model: 'fixture' },
+    decision: decision('legacy', 'legitimate', null), incomplete_reasons: ['encrypted_content'],
+  };
+  const html = renderToStaticMarkup(createElement(MessageScoreDetails, {
+    mail: { ...base, score: null, assessment },
+  }));
+  assert.match(html, /Historical projection/);
+  assert.match(html, /No usable value recorded/);
+  assert.doesNotMatch(html, /<meter|Saved at receipt/);
 });

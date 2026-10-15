@@ -4,6 +4,8 @@ import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from './client';
 import { ReceiptActivation } from './receipt-activation';
+import { FilterOverview } from './filter-overview';
+import { RuleDetails } from './rule-details';
 import { ScoreAccounting, FusionAccountingView } from './scoring-view';
 import { observationState, observationRole, observationScope, observationName,
   observationResult, observationMeasurement, sharedObservationGroups,
@@ -565,7 +567,10 @@ export default function Diagnostics({
   return (
     <section className="panel message-diagnostics" aria-labelledby={titleId}>
       <div className="diagnostic-heading">
-        <h2 id={titleId}>Authentication and delivery trace</h2>
+        <div>
+          <p className="eyebrow">RECORDED EVIDENCE</p>
+          <h2 id={titleId}>Filters & evidence</h2>
+        </div>
         <Button
           variant="outline"
           disabled={loading}
@@ -613,15 +618,20 @@ export default function Diagnostics({
         </div>
       )}
       <div aria-busy={loading}>
+        <FilterOverview report={data?.analysis.observations} loading={loading} unavailable={!!error} />
+        <RuleDetails reasons={reasons} source={source} scoring={data?.analysis.scoring} />
         {data && (
           <>
             <details className="diagnostic-disclosure">
               <summary>Score accounting and detector observations</summary>
               <AnalysisDetails analysis={data.analysis} reasons={reasons} source={source} />
             </details>
-            <AuthenticationDetails
-              auth={data.analysis.evidence?.authentication}
-            />
+            <details className="diagnostic-disclosure">
+              <summary>SPF, DKIM, DMARC and ARC details</summary>
+              <AuthenticationDetails auth={data.analysis.evidence?.authentication} />
+            </details>
+            <details className="diagnostic-disclosure">
+              <summary>Delivery attempts and SMTP conversations</summary>
             <section
               className="diagnostic-section"
               aria-label="SMTP transmission per recipient"
@@ -649,6 +659,7 @@ export default function Diagnostics({
                 <p>No authorized recipients available for this message.</p>
               )}
             </section>
+            </details>
           </>
         )}
       </div>

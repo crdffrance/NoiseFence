@@ -9,9 +9,10 @@ const source = await readFile(new URL('../app/rule-details.tsx', import.meta.url
 let js = ts.transpileModule(source, { compilerOptions: {
   jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022,
 } }).outputText.replaceAll('"react/jsx-runtime"', JSON.stringify(import.meta.resolve('react/jsx-runtime')));
-for (const name of ['diagnostics-formatters', 'scoring-format']) {
+for (const name of ['diagnostics-formatters', 'scoring-format', 'filter-evidence']) {
   js = js.replaceAll(`'./${name}'`, JSON.stringify(new URL(`../app/${name}.ts`, import.meta.url).href));
 }
+for (const name of ['react', 'lucide-react']) js = js.replaceAll(`'${name}'`, JSON.stringify(import.meta.resolve(name)));
 const { RuleDetails } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const render = props => renderToStaticMarkup(createElement(RuleDetails, props));
 const reason = (id, weight) => ({ id, weight, detail: 'Synthetic finding' });
