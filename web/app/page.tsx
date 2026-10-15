@@ -41,7 +41,6 @@ import {
   type DiagnosticRecipient,
   type MessageDiagnostics,
 } from './diagnostics-formatters';
-import { RuleDetails } from './rule-details';
 import {
   MailingDetails,
   type MailingReport,
@@ -270,6 +269,7 @@ export default function Page() {
   );
 }
 function Home() {
+  const detailTitle = useRef<HTMLHeadingElement>(null);
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const [section, setSection] = useState<
@@ -315,6 +315,12 @@ function Home() {
     threshold: number | undefined;
   } | null>(null);
   const activeUser = useRef<User | null>(null);
+  const selectedMessageId = selected?.id;
+  useEffect(() => {
+    if (!selectedMessageId) return;
+    detailTitle.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [selectedMessageId]);
   const latestRequest = useRef(0);
   const changeSession = useCallback((next: User | null) => {
     activeUser.current = next;
@@ -1011,22 +1017,9 @@ function Home() {
                   <ArrowLeft size={17} /> Back to Messages
                 </Button>
                 <div className="detail-heading">
-                  <p className="eyebrow">FILTER DECISION</p>
-                  <p className="small">{classificationDetail(selected)}</p>
+                  <p className="eyebrow">MESSAGE DETAILS</p>
+                  <h1 ref={detailTitle} tabIndex={-1}>{selected.subject || "(No subject)"}</h1>
                   <div className="detail-badges">
-                    <span
-                      title={classificationDetail(selected)}
-                      className={`status ${classification(selected, historicalThreshold?.messageId === selected.id ? historicalThreshold.threshold : undefined).tone}`}
-                    >
-                      {
-                        classification(
-                          selected,
-                          historicalThreshold?.messageId === selected.id
-                            ? historicalThreshold.threshold
-                            : undefined,
-                        ).label
-                      }
-                    </span>
                     {publicitySignal(selected.mailing) &&
                       selected.category !== 'publicity' && (
                         <span className="status publicity">Marketing signals</span>
@@ -1038,7 +1031,7 @@ function Home() {
                     </span>
                     {selected.feedback_category && (
                       <span className="status">
-                        Correction :{' '}
+                        Your correction:{' '}
                         {selected.feedback_category === 'legitimate'
                           ? "Ham"
                           : selected.feedback_category === 'publicity'
@@ -1047,20 +1040,10 @@ function Home() {
                       </span>
                     )}
                   </div>
-                  <h1>{selected.subject || "(Not applicable)"}</h1>
-                  {selected.node_id && (
-                    <p className="mail-node-label">
-                      Server {selected.node_id} · last received status{' '}
-                      {selected.node_updated_at
-                        ? new Date(
-                            selected.node_updated_at * 1000,
-                          ).toLocaleString("en-GB")
-                        : "unknown"}
-                    </p>
-                  )}
                   <p className="muted">
                     {selected.sender || "Empty envelope sender"} ·{' '}
                     {new Date(selected.created * 1000).toLocaleString("en-GB")}
+                    {selected.node_id && <span title={selected.node_updated_at ? `Last received status: ${new Date(selected.node_updated_at * 1000).toLocaleString("en-GB")}` : "Last received status unknown"}> · {selected.node_id}</span>}
                   </p>
                 </div>
                 <section
@@ -1069,11 +1052,11 @@ function Home() {
                 >
                   <div className="analysis-section-heading">
                     <div>
-                      <p className="eyebrow">RECEIPT-TIME DECISION</p>
+                      <p className="eyebrow">FILTER ANALYSIS</p>
                       <h2>Message analysis</h2>
                     </div>
                     <span className="small muted">
-                      Saved at receipt · preserved when settings change
+                      Verdict · score · coverage · action
                     </span>
                   </div>
                   <MessageScoreDetails
@@ -1087,22 +1070,26 @@ function Home() {
                   />
                 </section>
                 <div className="detail-grid">
-                  <section className="panel analysis-panel">
-                    <div className="analysis-section-heading">
-                      <div>
-                        <p className="eyebrow">FILTER EVIDENCE</p>
-                        <h2>Triggered signals</h2>
-                      </div>
-                      <span className="status">
-                        {selected.reasons.length} signals
-                      </span>
-                    </div>
-                    <p className="muted small">
-                      Each finding is shown once. Expand it for evidence and its
-                      contribution to the recorded score.
-                    </p>
-                    <details className="analysis-details">
-                      <summary>Detector execution and availability</summary>
+                  <Suspense
+                    fallback={
+                      <section className="panel message-diagnostics">
+                        <output>Loading diagnostics of the message...</output>
+                      </section>
+                    }
+                  >
+                    <Diagnostics
+                      key={selected.id}
+                      messageId={selected.id}
+                      reasons={selected.reasons}
+                      source={selected.decision?.source}
+                      revision={diagnosticsRevision}
+                      onLoaded={diagnosticsLoaded}
+                      onRecipientLoaded={recipientLoaded}
+                    />
+                  </Suspense>
+                  <details className="panel engine-details-panel">
+                    <summary>Additional engine details</summary>
+                    <div className="engine-execution-details">
                       {selected.fusion &&
                         selected.fusion.status !== 'disabled' && (
                           <div className="notice">
@@ -1289,30 +1276,8 @@ function Home() {
                             · {selected.signatures.elapsed_ms} ms
                           </p>
                         )}
-                    </details>
-                    <RuleDetails
-                      scoring={selected.scoring}
-                      reasons={selected.reasons}
-                      source={selected.decision?.source}
-                    />
-                  </section>
-                  <Suspense
-                    fallback={
-                      <section className="panel message-diagnostics">
-                        <output>Loading diagnostics of the message...</output>
-                      </section>
-                    }
-                  >
-                    <Diagnostics
-                      key={selected.id}
-                      messageId={selected.id}
-                      reasons={selected.reasons}
-                      source={selected.decision?.source}
-                      revision={diagnosticsRevision}
-                      onLoaded={diagnosticsLoaded}
-                      onRecipientLoaded={recipientLoaded}
-                    />
-                  </Suspense>
+                    </div>
+                  </details>
                   {selected.mailing && (
                     <MailingDetails
                       report={selected.mailing}
@@ -1327,6 +1292,7 @@ function Home() {
                     <ProtectionDetails report={selected.protection} />
                   )}
                   <section className="panel message-actions-panel">
+                    <p className="eyebrow">YOUR FEEDBACK</p>
                     <h2>Correct classification</h2>
                     <p className="muted">
                       Correct the classification to support future evaluation and training.
@@ -1365,8 +1331,9 @@ function Home() {
                       </Button>
                     </div>
                     <p className="muted small">
-                      PUB refers to a legitimate advertisement or newsletter. Fraudulent advertising must be reported as spam.
+                      PUB is legitimate marketing. Report fraudulent offers as Spam.
                     </p>
+                    <details className="feedback-learning"><summary>Detailed learning labels</summary>
                     <AdaptiveDetails
                       key={`${user.username}-${selected.id}`}
                       id={selected.id}
@@ -1377,6 +1344,7 @@ function Home() {
                       blocked={busy}
                       onBusy={setBusy}
                     />
+                    </details>
                     <h2 className="subheading">Delivery</h2>
                     {selected.action && (
                       <p className="small muted">

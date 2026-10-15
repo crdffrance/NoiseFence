@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Redesign message details around the independent NoiseFence verdict, the recorded risk index, analysis coverage and delivery policy. Explain contextual safeguards and recipient overrides directly; keep Rspamd separate.
+- Group detector checks by family and add searchable signal explanations with retained/proposed weights, effect filters and explicit exclusions. Keep SMTP conversations, authentication and accounting in expandable sections; improve mobile layout and keyboard focus.
+
 ## 0.31.6 — Context-aware receipt and service decisions
 
 - Recognize completed French and English payment receipts and bounded passive backup/software-update notices. Aligned authentication, clean scanners and the absence of observed threats remain mandatory for the contextual conflict safeguard; raw scores and receipt-time decisions are preserved.

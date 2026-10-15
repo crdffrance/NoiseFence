@@ -18,7 +18,20 @@ See [Web configuration](web-configuration.md) for the complete control map. Glob
 
 Choose an authorized domain or all accessible messages, then search subjects, sender/recipient addresses, rule identifiers or queue IDs. Filter by classification, partial analysis, score, delivery state, date or MX node. Score searches use the same risk value shown in the list. Bodies and attachments are not indexed. See [message search](message-search.md).
 
-Open a message to inspect its classification independently from its risk index and coverage. A high index with an undetermined decision is a visible disagreement or missing-evidence case, not proof that the message is legitimate. Mark verified mistakes as spam, marketing or legitimate. Feedback never changes an already delivered Proton message and does not release quarantine.
+Open a message to inspect its NoiseFence verdict independently from the risk index and analysis coverage. A high index can coexist with Ham when a recorded safeguard or recipient policy takes precedence; the verdict banner explains that basis. The index is not a spam probability. Historical projections are identified separately from decisions saved at receipt.
+
+The message view separates four questions:
+
+- **NoiseFence verdict:** the recorded category and its basis, including recipient overrides or contextual safeguards.
+- **Risk index:** the recorded numeric result. An unavailable score stays blank; it never becomes an invented zero.
+- **Analysis coverage:** which checks completed or were limited. A completed check does not establish safety.
+- **Action at receipt:** the effective policy action, such as delivery in observation mode. The actual delivery status and remote SMTP replies appear separately.
+
+Under **Filters & evidence**, expand a family in **Checks at a glance** to inspect each detector's state, result and role. **Signals & explanations** supports search by signal name, identifier, evidence or recorded family. Use **Raises index**, **Lowers index** or **Context & exclusions** to narrow the list. Retained weights come from the recorded calculation; without that ledger, weights are explicitly proposed. They are not percentage points, do not sum to 100, and model summaries must not be added again.
+
+Expand the accounting, authentication or SMTP sections for technical details. If diagnostics fail to load, the page retains available signals and offers a retry without claiming the missing checks passed. Rspamd remains a separate comparison and never determines the NoiseFence verdict or action.
+
+Use **Correct classification** for verified mistakes: Ham, Spam or Pub. Additional learning labels are available in their own disclosure. Feedback never changes an already delivered Proton message and does not release quarantine.
 
 Quarantine actions apply to one authorized delivery at a time and require a concrete confirmation. Use the [actions guide](actions.md) before releasing or discarding mail.
 
