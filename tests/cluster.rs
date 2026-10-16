@@ -1628,7 +1628,10 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     let mut expected_preceding = serde_json::to_value(&bundle).unwrap();
     expected_preceding["build"] = json!("0.31.6");
     expected_preceding["digest"] = json!(preceding.digest);
-    assert_eq!(serde_json::to_value(&preceding).unwrap(), expected_preceding);
+    assert_eq!(
+        serde_json::to_value(&preceding).unwrap(),
+        expected_preceding
+    );
     preceding.validate().unwrap();
     let prior = bundle.for_build("0.28.0-rc.9").unwrap();
     let mut expected = serde_json::to_value(&bundle).unwrap();
