@@ -30,6 +30,8 @@ impl ProbeCategory {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Print the compiled engine identity without reading configuration or starting services.
+    BuildIdentity,
     /// Read bounded operational counters from the selected management authority; no mutations.
     ManagementHealth,
     /// Verify a recovered console against local and PostgreSQL receipts; no listeners or state changes.
@@ -534,6 +536,13 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::BuildIdentity => {
+            println!(
+                "{}",
+                serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"engine_build":env!("NOISEFENCE_DETECTOR_BUILD_SHA256")})
+            );
+            return Ok(());
+        }
         Command::ReplayContext { message, recorded } => {
             println!(
                 "{}",

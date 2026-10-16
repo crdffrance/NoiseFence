@@ -4,6 +4,7 @@ import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, type SaveResult } from './activation';
 import {Button} from '@/components/ui/button';
 import {api,type User} from './client';
+import {PairedErrorDetails,type PairedDiagnostics} from './quality-results';
 import {MetricTable,FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,ScoreTradeoffs,type ScoreTradeoffsReport,type FoldReadiness,type ExportExposure,type Metrics,type RecordedPolicy} from './quality-results';
 export type DatasetPurpose='development'|'regression'|'holdout';
 type Readiness=FoldReadiness;
@@ -12,7 +13,7 @@ type Report={exposure?:ExportExposure;risk?:{test?:Metrics};evaluation_scope?:st
   operating_profiles?:Record<string,Record<string,ProfileMetrics>>;
   score_tradeoffs?:ScoreTradeoffsReport;
   slices?:Record<string,{baseline:Metrics;rspamd?:Metrics;candidate?:Metrics}>;
-  paired?:{baseline:Metrics;rspamd:Metrics;coverage:Record<string,number>;campaigns:Report['campaigns'];capture_comparison_supported:boolean;profiles:{native:string;rspamd:string;messages:number}[]};
+  paired?:PairedDiagnostics & {baseline:Metrics;rspamd:Metrics;coverage:Record<string,number>;campaigns:Report['campaigns'];capture_comparison_supported:boolean;profiles:{native:string;rspamd:string;messages:number}[]};
   campaigns?:{count?:number;conflicting?:number;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics};
   mail_kind?:{publicity?:Metrics};legacy_score_calibration?:{reliability:{bin:number;count:number;mean_prediction:number;spam_fraction:number}[]};
   readiness?:{risk:Readiness;kind:Readiness};cohorts?:Record<string,{messages:number;readiness:Readiness}>;
@@ -56,6 +57,7 @@ export function QualityWorkbench({user,batch,purpose,refresh}:{user:User;batch:s
       {j.status==='queued'&&<Button variant="outline" disabled={busy} onClick={()=>action(`/quality/jobs/${j.id}/cancel`,{})}>Cancel queued job</Button>}
       {j.report&&<>{j.report.paired?<>
         <MetricTable report={j.report.paired} caption="Same human-labelled messages · recorded engine decisions · recipient overrides excluded"/>
+        <PairedErrorDetails value={j.report.paired}/>
         <p>{j.report.paired.coverage.paired} paired analyses · {j.report.paired.coverage.native_missing} missing NoiseFence decisions · {j.report.paired.coverage.rspamd_missing} missing Rspamd analyses. Missing results are excluded from this paired table.</p>
         {!j.report.paired.capture_comparison_supported&&<p className="notice">Only {j.report.paired.coverage.paired_spam} paired confirmed spams: too few to compare spam capture reliably. Zero false positives on a small sample does not establish production accuracy.</p>}
         {j.report.paired.profiles.length>1&&<p className="muted">This sample mixes {j.report.paired.profiles.length} detector profiles. Historical arrival results are not a replay of the current engines.</p>}

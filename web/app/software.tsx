@@ -3,7 +3,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type User } from './client';
 import { Button } from '@/components/ui/button';
 
-type Version = { version: string; engine_build: string; node: string };
+type Version = { version: string; engine_build: string; node: string;
+  configuration_revision?: number | null;
+  runtime?: {lexical:{version:string|null;sha256:string|null};semantic:{sha256:string|null};
+    fusion:{version:string;sha256:string;mode:string}|null;shadow:{version:string;observation_only:boolean}|null;
+    policy_sha256:string;cohort_sha256:string;decision_policy:string;score_combination:string;feature_version:number} | null;
+  console?: {version:string;source_sha256:string} | null;
+  deployment?: {deployed_at:number} | null;
+};
+const browserConsole = typeof __NOISEFENCE_CONSOLE__ === 'undefined' ? null : __NOISEFENCE_CONSOLE__;
 type Update = { status: string; latest_version?: string; release_url?: string; checked_at: number; next_check_at: number };
 const messages: Record<string, string> = {
   available: 'A newer stable release is available.',
@@ -58,6 +66,24 @@ export function SoftwareStatus({ user }: { user: User }) {
   return <div className="software-status">
     <div><strong>{version ? `NoiseFence ${version.version}` : versionError ? 'Version unavailable' : 'Loading version…'}</strong></div>
     {version && <div className="muted" title={`Serving API node: ${version.node}\nEngine build: ${version.engine_build}`}>{version.node} · build {version.engine_build.slice(0, 12)}</div>}
+    {version && <details><summary>Installed versions</summary>
+      <p className="muted">Current serving node. Each message keeps its own receipt-time identity.</p>
+      <dl className="software-identities">
+        <dt>Engine</dt><dd>{version.version} · <code>{version.engine_build}</code></dd>
+        <dt>Console in this browser</dt><dd>{browserConsole ? <>{browserConsole.version} · <code>{browserConsole.source_sha256}</code></> : 'Build identity not recorded'}</dd>
+        <dt>Console on this node</dt><dd>{version.console ? <>{version.console.version} · <code>{version.console.source_sha256}</code></> : 'Build identity not recorded'}</dd>
+        <dt>Deployment recorded</dt><dd>{version.deployment ? new Date(version.deployment.deployed_at*1000).toLocaleString('en-GB') : 'Not recorded for this engine and console'}</dd>
+        <dt>Configuration revision</dt><dd>{version.configuration_revision ?? 'Not recorded'}</dd>
+        <dt>Content model</dt><dd>{version.runtime?.lexical.version ?? 'Not recorded / not loaded'}{version.runtime?.lexical.sha256 && <code>{version.runtime.lexical.sha256}</code>}</dd>
+        <dt>Semantic model fingerprint</dt><dd><code>{version.runtime?.semantic.sha256 ?? 'Not recorded / not loaded'}</code></dd>
+        <dt>Fusion model</dt><dd>{version.runtime?.fusion ? <>{version.runtime.fusion.version} · {version.runtime.fusion.mode}<code>{version.runtime.fusion.sha256}</code></> : 'Not recorded / not loaded'}</dd>
+        <dt>Shadow model</dt><dd>{version.runtime?.shadow?.version ?? 'Not recorded / not loaded'}</dd>
+        <dt>Decision rules</dt><dd>{version.runtime?.decision_policy ?? 'Not recorded'}</dd>
+        <dt>Score combination</dt><dd>{version.runtime?.score_combination ?? 'Not recorded'}</dd>
+        <dt>Policy fingerprint</dt><dd><code>{version.runtime?.policy_sha256 ?? 'Not recorded'}</code></dd>
+      </dl>
+      {browserConsole && version.console && browserConsole.source_sha256 !== version.console.source_sha256 && <output>A different console build is installed. Reload this page to use it.</output>}
+    </details>}
     {user.admin && <details>
       <summary>Software updates{update?.status === 'available' ? ' · Available' : ''}</summary>
       <p>Check published stable releases on GitHub. Installation remains a server operation.</p>

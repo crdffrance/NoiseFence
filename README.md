@@ -164,6 +164,10 @@ Optional: [independent Rspamd comparison](docs/rspamd-comparison.md) provides as
 
 The [calibration workbench](docs/calibration-workbench.md) compares NoiseFence and Rspamd against human labels, isolates holdouts, and manages shadow candidates from the Web console.
 
+Follow the [filter improvement workflow](docs/filter-improvement-workflow.md) to
+confirm errors, keep training and evaluation separate, compare recipient-policy
+effects, and trace the engine, model and console versions behind a result.
+
 The workbench also shows score saturation and threshold tradeoffs for each detector
 cohort and actual LLM state. These diagnostics help distinguish a threshold problem
 from poor score separation; they do not activate a model or claim that the index is

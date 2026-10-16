@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { api } from './client';
 import type { CustomPolicy, FilteringAssessment } from './custom-filtering';
 import { PolicyTraceDetails } from './policy-trace-view';
-import { sampleChange } from './policy-trace';
+import { sampleChange, sampleExclusion } from './policy-trace';
 import { actionReason } from './action-coverage';
 
 type Result = {
@@ -15,10 +15,16 @@ type Result = {
   evaluated: number;
   changed: number;
   complete_comparisons: number;
+  recipient?: string;
+  draft_sha256?: string;
+  not_comparable?: number;
+  action_transitions?: Record<string, number>;
+  exclusions?: Record<string, number>;
   note: string;
   rows: {
     id: string;
     status: string;
+    exclusion_reasons?: string[];
     comparable?: boolean;
     changed?: boolean | null;
     before_category?: string;
@@ -145,6 +151,10 @@ export function PolicySample({
             · evaluated at {new Date(result.value.at * 1000).toISOString()}.
             Sample fingerprint: <code>{result.value.sample_sha256}</code>
           </p>
+          {result.value.draft_sha256 && <p className="muted small">Recipient: {result.value.recipient} · draft fingerprint: <code>{result.value.draft_sha256}</code></p>}
+          {result.value.not_comparable != null && <p>{result.value.not_comparable} messages cannot be compared completely. They are not counted as unchanged.</p>}
+          {!!Object.keys(result.value.action_transitions ?? {}).length && <ul aria-label="Effective action changes">{Object.entries(result.value.action_transitions!).map(([transition, count]) => <li key={transition}>{transition}: {count}</li>)}</ul>}
+          {!!Object.keys(result.value.exclusions ?? {}).length && <ul aria-label="Comparison limitations">{Object.entries(result.value.exclusions!).map(([reason, count]) => <li key={reason}>{sampleExclusion(reason)}: {count}</li>)}</ul>}
           <p className="muted small">
             {result.value.note} Unknown historical actions or missing rule facts
             are excluded from the complete comparison count.
@@ -154,6 +164,7 @@ export function PolicySample({
               <summary>
                 <code>{row.id}</code> · {sampleChange(row)}
               </summary>
+              {!!row.exclusion_reasons?.length && <ul>{row.exclusion_reasons.map(reason => <li key={reason}>{sampleExclusion(reason)}</li>)}</ul>}
               {row.assessment && (
                 <>
                   <p>

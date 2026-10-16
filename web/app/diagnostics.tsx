@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { api } from './client';
 import { ReceiptActivation } from './receipt-activation';
 import { FilterOverview } from './filter-overview';
+import { KeyEvidenceSummary } from './key-evidence-view';
 import { RuleDetails } from './rule-details';
 import { ScoreAccounting, FusionAccountingView } from './scoring-view';
 import { observationState, observationRole, observationScope, observationName,
@@ -618,6 +619,7 @@ export default function Diagnostics({
         </div>
       )}
       <div aria-busy={loading}>
+        {data && <KeyEvidenceSummary analysis={data.analysis} reasons={reasons} source={source} />}
         <FilterOverview report={data?.analysis.observations} loading={loading} unavailable={!!error} />
         <RuleDetails reasons={reasons} source={source} scoring={data?.analysis.scoring} />
         {data && (

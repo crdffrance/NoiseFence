@@ -280,6 +280,10 @@ pub struct Runtime {
     validation: Option<Validation>,
 }
 impl Runtime {
+    pub(crate) fn software_identity(&self) -> serde_json::Value {
+        serde_json::json!({"version": self.model.version, "sha256": self.sha256, "mode": self.mode})
+    }
+
     pub fn load(settings: &Settings, artifacts: &Artifacts) -> Result<Self> {
         settings.validate()?;
         let (model, sha256) = Model::load_bound(&settings.model)?;

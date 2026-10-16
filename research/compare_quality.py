@@ -47,6 +47,20 @@ def paired_comparison(rows):
     result['campaigns']={**measure(representatives),'count':len(representatives),'conflicting':conflicts}
     result['outcome_pairs']=[{'noisefence':a,'rspamd':b,'messages':n} for (a,b),n in sorted(
         Counter((engine_outcome(r),rspamd_outcome(r)) for r in paired).items())]
+    decisive = [r for r in paired if engine_outcome(r) in ('spam', 'legitimate')
+                and rspamd_outcome(r) in ('spam', 'legitimate')]
+    result['decisive'] = measure(decisive)
+    result['decisive']['excluded_nonfinal'] = len(paired) - len(decisive)
+    result['rspamd_nonfinal_actions'] = dict(sorted(Counter(
+        (r.get('rspamd') or {}).get('action') or 'not_recorded'
+        for r in paired if rspamd_outcome(r) == 'review').items()))
+    result['error_overlap'] = {}
+    for risk in ('legitimate', 'spam'):
+        group = [r for r in decisive if r['risk'] == risk]
+        counts = Counter((engine_outcome(r) != risk, rspamd_outcome(r) != risk) for r in group)
+        result['error_overlap'][risk] = dict(messages=len(group),
+            both_correct=counts[False, False], both_wrong=counts[True, True],
+            noisefence_only=counts[True, False], rspamd_only=counts[False, True])
     result['availability_by_label']={risk:dict(Counter(
         (r.get('rspamd') or {}).get('status') or 'missing' for r in labelled if r['risk']==risk))
         for risk in ('legitimate','spam')}

@@ -15,13 +15,74 @@ pub(super) fn routes() -> Router<App> {
 }
 async fn version(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     authenticated(&app, &h).await?;
+    let snapshot = app.control.as_ref().map(|control| control.snapshot());
+    let static_dir = app.config.web.static_dir.clone();
+    let installation = tokio::task::spawn_blocking(move || installed_identity(&static_dir))
+        .await
+        .unwrap_or_else(|_| json!({"console":null,"deployment":null}));
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "engine_build": env!("NOISEFENCE_DETECTOR_BUILD_SHA256"),
         "node": app.config.hostname,
+        "runtime": snapshot.as_ref().map(|s| s.engine.software_identity()),
+        "configuration_revision": snapshot.as_ref().map(|s| s.revision),
+        "console": installation["console"],
+        "deployment": installation["deployment"],
         "releases_url": RELEASES,
         "automatic_installation": false
     })))
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct ConsoleIdentity {
+    schema: String,
+    version: String,
+    source_sha256: String,
+}
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct DeploymentIdentity {
+    schema: String,
+    deployed_at: i64,
+    engine_version: String,
+    engine_build: String,
+    console_source_sha256: String,
+}
+fn bounded_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Option<T> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(8193).read_to_end(&mut bytes).ok()?;
+    (bytes.len() <= 8192)
+        .then(|| serde_json::from_slice(&bytes).ok())
+        .flatten()
+}
+fn installed_identity(web: &std::path::Path) -> Value {
+    let console = bounded_json::<ConsoleIdentity>(&web.join("version.json")).filter(|c| {
+        c.schema == "noisefence-console-1"
+            && stable_version(&c.version).is_some()
+            && crate::compatibility::valid_hash(&c.source_sha256)
+    });
+    // The sidecar is operator-written after a successful activation, outside the
+    // immutable release directory. Missing/stale receipts never imply a deployment time.
+    let deployment = web
+        .parent()
+        .and_then(|parent| bounded_json::<DeploymentIdentity>(&parent.join("deployment.json")))
+        .filter(|d| {
+            d.schema == "noisefence-deployment-1"
+                && d.deployed_at > 0
+                && d.deployed_at <= now()
+                && d.engine_version == env!("CARGO_PKG_VERSION")
+                && d.engine_build == env!("NOISEFENCE_DETECTOR_BUILD_SHA256")
+                && console
+                    .as_ref()
+                    .is_some_and(|c| c.source_sha256 == d.console_source_sha256)
+        });
+    json!({"console":console,"deployment":deployment})
 }
 async fn check(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     admin::administrator(&app, &h, true).await?;
@@ -114,6 +175,29 @@ async fn fetch_latest() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn deployment_receipts_are_bound_to_both_running_engine_and_installed_console() {
+        let dir = tempfile::tempdir().unwrap();
+        let web = dir.path().join("web");
+        std::fs::create_dir(&web).unwrap();
+        let console = json!({"schema":"noisefence-console-1","version":env!("CARGO_PKG_VERSION"),"source_sha256":"a".repeat(64)});
+        let mut receipt = json!({"schema":"noisefence-deployment-1","engine_version":env!("CARGO_PKG_VERSION"),"engine_build":env!("NOISEFENCE_DETECTOR_BUILD_SHA256"),"console_source_sha256":"a".repeat(64),"deployed_at":now()-10});
+        std::fs::write(web.join("version.json"), console.to_string()).unwrap();
+        assert!(installed_identity(&web)["deployment"].is_null());
+        let save =
+            |v: &Value| std::fs::write(dir.path().join("deployment.json"), v.to_string()).unwrap();
+        save(&receipt);
+        assert!(installed_identity(&web)["deployment"].is_object());
+        receipt["console_source_sha256"] = json!("b".repeat(64));
+        save(&receipt);
+        assert!(installed_identity(&web)["deployment"].is_null());
+        receipt["console_source_sha256"] = console["source_sha256"].clone();
+        receipt["engine_build"] = json!("c".repeat(64));
+        save(&receipt);
+        assert!(installed_identity(&web)["deployment"].is_null());
+        std::fs::write(web.join("version.json"), " ".repeat(9000)).unwrap();
+        assert!(installed_identity(&web)["console"].is_null());
+    }
     fn release(tag: &str) -> Release {
         Release {
             tag_name: tag.into(),

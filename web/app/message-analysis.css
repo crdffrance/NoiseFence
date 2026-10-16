@@ -682,3 +682,11 @@
   outline: 2px solid var(--ring);
   outline-offset: 4px;
 }
+.key-evidence-list { display: grid; gap: .75rem; padding-left: 1.4rem; }
+.key-evidence-list li { padding-left: .25rem; overflow-wrap: anywhere; }
+.key-evidence-list li > span { display: block; font-size: .8rem; }
+.key-evidence-list p { margin: .25rem 0 0; font-size: .85rem; }
+.software-identities { font-size: .8rem; }
+.software-identities dt { font-weight: 600; margin-top: .65rem; }
+.software-identities dd { margin: .15rem 0; overflow-wrap: anywhere; }
+.software-identities code { display: block; font-size: .72rem; }

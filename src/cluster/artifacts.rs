@@ -451,6 +451,7 @@ impl Bundle {
                 | "0.31.4"
                 | "0.31.5"
                 | "0.31.6"
+                | "0.31.7"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -478,6 +479,7 @@ impl Bundle {
                 | "0.31.4"
                 | "0.31.5"
                 | "0.31.6"
+                | "0.31.7"
         ) && matches!(
             build,
             "0.28.0-rc.9"
@@ -494,6 +496,7 @@ impl Bundle {
                 | "0.31.3"
                 | "0.31.4"
                 | "0.31.5"
+                | "0.31.6"
         ) {
             let mut bundle = self.clone();
             bundle.build = build.into();

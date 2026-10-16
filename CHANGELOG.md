@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.31.7 — Observable decisions and filter qualification
 
+- Preserve verified 0.31.6 policies during paired upgrades. No model fitting, threshold promotion, LLM activation or enforcement change.
+- Keep observation-only protection findings out of the contextual decision safeguard. For active CRDF/VirusTotal findings, require a matching usable malicious target; stale, conflicting, disabled and missing provider observations cannot silently veto the safeguard. Preserve completed malicious targets when another lookup exhausts its quota. Record `decision-policy-13`.
+- Show the three strongest retained inputs in message details, using the selected engine's own accounting. Excluded weights, duplicate signals, model summaries and Rspamd results are not added as votes.
+- Explain every non-comparable policy simulation row, bind reports to the draft fingerprint and recipient, and summarize effective-action transitions separately from category changes.
+- Separate matched final-verdict comparisons from Rspamd greylisting/soft rejection, and report which engine disagrees with human labels. These diagnostic subsets do not establish independent accuracy.
+- Identify loaded models, decision rules, score combination, configuration revision, engine build and browser/installed console builds separately. Display deployment time only when a bounded receipt matches the running engine and installed console; add `build-identity` and an atomic installer receipt.
 - Redesign message details around the independent NoiseFence verdict, the recorded risk index, analysis coverage and delivery policy. Explain contextual safeguards and recipient overrides directly; keep Rspamd separate.
 - Group detector checks by family and add searchable signal explanations with retained/proposed weights, effect filters and explicit exclusions. Keep SMTP conversations, authentication and accounting in expandable sections; improve mobile layout and keyboard focus.
 
