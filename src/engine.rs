@@ -581,6 +581,21 @@ pub struct Engine {
     _generation: Arc<crate::capacity::Permit>,
 }
 impl Engine {
+    /// Describe the loaded runtime, not mutable model files on disk. No secrets or paths.
+    pub fn software_identity(&self) -> serde_json::Value {
+        serde_json::json!({
+            "lexical": {"version": self.model.as_ref().map(|m| &m.version), "sha256": self.evidence_artifacts.lexical_model_sha256},
+            "semantic": {"sha256": self.evidence_artifacts.semantic_model_sha256},
+            "fusion": self.fusion.as_ref().map(|f| f.software_identity()),
+            "shadow": self.quality.as_ref().map(|m| serde_json::json!({"version": m.version, "observation_only": true})),
+            "policy_sha256": self.evidence_artifacts.policy_sha256,
+            "cohort_sha256": self.quality_artifacts_sha256(),
+            "decision_policy": crate::decision::VERSION,
+            "score_combination": crate::scoring::VERSION,
+            "feature_version": crate::features::VERSION
+        })
+    }
+
     pub fn quality_artifacts_sha256(&self) -> String {
         message::digest(
             &serde_json::to_vec(&(

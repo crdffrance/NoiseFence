@@ -58,6 +58,15 @@ Paired metrics use the recorded NoiseFence engine verdict, without recipient ove
 
 Each paired campaign uses the same earliest eligible representative for both engines. Campaign conflicts are checked before pairing, including labelled members without a Rspamd result. Missing campaign identities and detector-profile pairs are reported. Inspect campaign metrics alongside message counts: repeated messages are not independent trials, and mixed historical versions are not a replay of the current engines.
 
+**Where the engines disagree with human labels** additionally shows a matched
+subset where both engines produced final verdicts. It separates errors made by
+NoiseFence only, Rspamd only, both engines and neither engine, for wanted and
+unwanted messages. `greylist`, `soft reject` and other non-final actions retain
+their own counts. They never become HAM or SPAM by comparing Rspamd points with
+NoiseFence's index. The subset has a different denominator from full paired
+coverage and must not be selected to claim better accuracy. Reports generated
+before this extension display an explicit request to run a new comparison.
+
 The table includes spam and legitimate denominators, class-specific review counts and confidence intervals. The small-sample notice below 20 paired labelled spams is a warning, not an activation or accuracy qualification threshold. All results remain descriptive until an independent, representative evaluation establishes the required confidence bounds. Rspamd predictions never supply training labels.
 
 NoiseFence 0.25 adds a reproducible research workflow under **Filter quality**. It does not claim perfect filtering or Rspamd-equivalent accuracy. A regression fix, agreement with Rspamd and a passing software test are different from measured performance on future mail.

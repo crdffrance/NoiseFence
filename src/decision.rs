@@ -6,7 +6,7 @@ use crate::{
 };
 pub mod replay;
 
-pub const VERSION: &str = "decision-policy-12";
+pub const VERSION: &str = "decision-policy-13";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -146,17 +146,37 @@ fn authenticated_benign_conflict(scan: &Scan) -> bool {
         || scan.signatures.status != AntivirusStatus::Clean
         || crate::confirmation::corroborated(scan)
         || scan.protection.as_ref().is_some_and(|p| {
-            p.findings.iter().any(|f| {
-                matches!(
-                    f.id.as_str(),
-                    "known_phishing_url"
-                        | "known_malicious_indicator"
-                        | "confirmed_campaign"
-                        | "lookalike_sender"
-                        | "protected_display_name"
-                        | "reply_domain_mismatch"
-                )
-            })
+            !p.observation_only
+                && p.findings.iter().any(|f| {
+                    if f.id == "known_malicious_indicator" {
+                        return [
+                            ("crdf", crate::protection::Provider::Crdf, &p.crdf),
+                            (
+                                "virustotal",
+                                crate::protection::Provider::Virustotal,
+                                &p.virustotal,
+                            ),
+                        ]
+                        .iter()
+                        .any(|(name, provider, report)| {
+                            f.sources.iter().any(|s| s == name)
+                                && crate::protection::evidence::evaluate(*provider, report)
+                                    .targets
+                                    .iter()
+                                    .any(|t| {
+                                        t.malicious() && t.value.indicator_sha256 == f.indicator
+                                    })
+                        });
+                    }
+                    matches!(
+                        f.id.as_str(),
+                        "known_phishing_url"
+                            | "confirmed_campaign"
+                            | "lookalike_sender"
+                            | "protected_display_name"
+                            | "reply_domain_mismatch"
+                    )
+                })
         })
         || !scan
             .evidence
@@ -336,6 +356,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
                 | "decision-policy-9"
                 | "decision-policy-10"
                 | "decision-policy-11"
+                | "decision-policy-12"
                 | VERSION
         )
         && scan.complete

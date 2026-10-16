@@ -6,9 +6,20 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 const source=await readFile(new URL('../app/quality-results.tsx',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText.replace(/from (["'])([^"']+)\1/g,(_,q,name)=>`from ${JSON.stringify(import.meta.resolve(name))}`);
-const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,ScoreTradeoffs}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const {FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,ScoreTradeoffs,PairedErrorDetails}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const render=(component,props)=>renderToStaticMarkup(createElement(component,props));
 const metrics={messages:2,tp:1,fp:0,review:0,recall:1,fpr:0,precision:1,fpr_ci95:[0,.5],recall_ci95:[.5,1]};
+
+test('final-verdict diagnostics distinguish human errors and temporary SMTP actions',()=>{
+  const value={decisive:{messages:2,excluded_nonfinal:3,baseline:metrics,rspamd:metrics},error_overlap:{legitimate:{messages:1,both_correct:0,both_wrong:0,noisefence_only:1,rspamd_only:0}},rspamd_nonfinal_actions:{greylist:2,'soft reject':1}};
+  const html=render(PairedErrorDetails,{value});
+  assert.match(html,/Only NoiseFence wrong/);
+  assert.match(html,/greylist: 2/);
+  assert.match(html,/soft reject: 1/);
+  assert.match(html,/neither ham nor spam/);
+  assert.match(html,/selection differs from full paired coverage/);
+  assert.match(render(PairedErrorDetails,{value:{}}),/Run a new comparison/);
+});
 
 test('score diagnostics cannot claim policy replay or qualification',()=>{
   const report={schema:'noisefence-score-tradeoffs-1',scope:'historical_index_only_not_policy_replay',may_activate:false,excluded:{missing_score:2},profiles:[{cohort:'abcdef12345',llm_state:'pricing_expired',messages:2,wanted:1,unwanted:1,saturated:1,empirical_target_possible:false,points:[{threshold:95,metrics}]}]};

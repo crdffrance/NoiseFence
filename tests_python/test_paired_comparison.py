@@ -16,6 +16,24 @@ except ImportError:
 
 @unittest.skipIf(paired_comparison is None, 'Install research/requirements.txt')
 class PairedComparisonTests(unittest.TestCase):
+    def test_error_overlap_uses_human_labels_and_excludes_nonfinal_actions(self):
+        rows = [self.row('native-fp',native='unwanted'),
+                self.row('other-fp',action='reject'),
+                self.row('both-fp',native='unwanted',action='add header'),
+                self.row('native-fn',truth='spam',action='reject'),
+                self.row('grey',truth='spam',native='unwanted',action='greylist'),
+                self.row('soft',action='soft reject')]
+        before=copy.deepcopy(rows)
+        report=paired_comparison(rows)
+        self.assertEqual(rows,before)
+        self.assertEqual(report['decisive']['messages'],4)
+        self.assertEqual(report['decisive']['excluded_nonfinal'],2)
+        self.assertEqual(report['rspamd_nonfinal_actions'],{'greylist':1,'soft reject':1})
+        self.assertEqual(report['error_overlap']['legitimate'],dict(messages=3,both_correct=0,both_wrong=1,noisefence_only=1,rspamd_only=1))
+        self.assertEqual(report['error_overlap']['spam']['noisefence_only'],1)
+        self.assertEqual(report['baseline']['tp'],1) # Greylisting does not erase a native verdict.
+        self.assertEqual(report['rspamd']['spam_to_review'],1)
+
     def row(self, ident, truth='legitimate', native='legitimate', action='no action'):
         digest = hashlib.sha256(ident.encode()).hexdigest()
         return dict(id=ident, risk=truth, observed_at=100,

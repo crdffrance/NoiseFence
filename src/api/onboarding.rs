@@ -392,26 +392,39 @@ async fn sample(
     };
     let result=tokio::task::spawn_blocking(move|| -> Result<Value> {
         let mut rows=Vec::new();let mut matrix=std::collections::BTreeMap::<String,usize>::new();let mut changed=0usize;let mut complete_comparisons=0usize;let mut sample_binding=Vec::new();
+        let mut action_transitions=std::collections::BTreeMap::<String,usize>::new();
+        let mut exclusions=std::collections::BTreeMap::<&str,usize>::new();
+        let draft_sha256=message::digest(&serde_json::to_vec(&body.policy)?);
         for (id,row) in snapshots {
-            let Some((sender,json))=row else { rows.push(json!({"id":id,"status":"not_available"}));continue; };
+            let Some((sender,json))=row else {
+                *exclusions.entry("not_available_for_recipient").or_default()+=1;
+                rows.push(json!({"id":id,"status":"not_available","exclusion_reasons":["not_available_for_recipient"]}));continue;
+            };
             let scan:crate::engine::Scan=serde_json::from_str(&json)?;
             sample_binding.push(json!({"id":id,"scan_sha256":message::digest(json.as_bytes())}));
             let before=crate::assessment::historical(&scan);
             let assessment=crate::custom_filtering::simulate(&body.policy,&cfg,&scan,&sender,&recipient,at);
             let before_action=before.action.as_ref().map(|a|a.effective);
             let different=before.category!=assessment.category || before_action.is_some_and(|a|a!=assessment.action.effective);
-            let comparable=assessment.unavailable_conditions==0 && scan.recipient_decision.is_some() && before_action.is_some();
+            let mut reasons=Vec::new();
+            if assessment.unavailable_conditions>0 { reasons.push("missing_rule_facts"); }
+            if !scan.recipient_decision.as_ref().is_some_and(|r| (1..=crate::decision_record::VERSION).contains(&r.version)) { reasons.push("receipt_not_recorded_or_unsupported"); }
+            if before_action.is_none() { reasons.push("original_action_not_recorded"); }
+            let comparable=reasons.is_empty();
+            for reason in &reasons { *exclusions.entry(*reason).or_default()+=1; }
             changed+=usize::from(comparable && different);
             complete_comparisons+=usize::from(comparable);
             if comparable {
                 *matrix.entry(format!("{} -> {}",before.category.as_str(),assessment.category.as_str())).or_default()+=1;
+                *action_transitions.entry(format!("{} -> {}",serde_json::to_value(before_action.unwrap())?.as_str().unwrap_or("unknown"),serde_json::to_value(assessment.action.effective)?.as_str().unwrap_or("unknown"))).or_default()+=1;
             }
             rows.push(json!({"id":id,"status":"simulated","historical_policy_recorded":scan.recipient_decision.is_some(),"before_category":before.category,"before_action":before_action,
-                "changed":comparable.then_some(different),"comparable":comparable,"assessment":assessment}));
+                "changed":comparable.then_some(different),"comparable":comparable,"exclusion_reasons":reasons,"assessment":assessment}));
         }
         sample_binding.sort_by(|a,b|a["id"].as_str().cmp(&b["id"].as_str()));
         let sample_sha256=message::digest(&serde_json::to_vec(&json!({"recipient":recipient.address,"messages":sample_binding}))?);
         Ok(json!({"simulation":true,"at":at,"configuration_revision":revision,"sample_sha256":sample_sha256,
+            "recipient":recipient.address,"draft_sha256":draft_sha256,"action_transitions":action_transitions,"exclusions":exclusions,"not_comparable":rows.len()-complete_comparisons,
             "evaluated":sample_binding.len(),"changed":changed,"complete_comparisons":complete_comparisons,"matrix":matrix,"rows":rows,
             "note":"Policy-only simulation on frozen detector results and retained metadata. Uses saved global settings and personal preferences; bodies and unrecorded facts remain unknown. No messages are reanalysed, sent or changed; this is not an accuracy evaluation."}))
     }).await.map_err(anyhow::Error::from)??;

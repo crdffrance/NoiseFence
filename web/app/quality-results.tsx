@@ -1,6 +1,24 @@
 'use client';
 export type Metrics={messages:number;tp:number;fp:number;review:number;spam_total?:number;legitimate_total?:number;spam_to_review?:number;legitimate_to_review?:number;recall:number|null;fpr:number|null;precision:number|null;fpr_ci95:[number,number]|null;recall_ci95:[number,number]|null};
 export type MetricReport={baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics};
+export type PairedDiagnostics = {
+  decisive?: MetricReport & {messages:number;excluded_nonfinal:number};
+  rspamd_nonfinal_actions?: Record<string,number>;
+  error_overlap?: Record<string,{messages:number;both_correct:number;both_wrong:number;noisefence_only:number;rspamd_only:number}>;
+};
+export function PairedErrorDetails({value}:{value:PairedDiagnostics}) {
+  if (!value.decisive || !value.error_overlap) return <p className="muted small">Run a new comparison to separate final verdicts from temporary Rspamd actions.</p>;
+  return <details><summary>Where the engines disagree with human labels</summary>
+    <p>{value.decisive.messages} messages have a final verdict from both engines. {value.decisive.excluded_nonfinal} paired analyses have a non-final opinion and are excluded from this subset.</p>
+    <MetricTable report={value.decisive} caption="Same messages with two final verdicts · selection differs from full paired coverage"/>
+    <div className="quality-table-scroll"><table className="quality-metrics"><caption>Errors against human labels · final-verdict subset</caption>
+      <thead><tr><th>Human label</th><th>Messages</th><th>Both correct</th><th>Only NoiseFence wrong</th><th>Only Rspamd wrong</th><th>Both wrong</th></tr></thead>
+      <tbody>{Object.entries(value.error_overlap).map(([risk,row])=><tr key={risk}><th>{risk==='spam'?'Unwanted':'Wanted'}</th><td>{row.messages}</td><td>{row.both_correct}</td><td>{row.noisefence_only}</td><td>{row.rspamd_only}</td><td>{row.both_wrong}</td></tr>)}</tbody>
+    </table></div>
+    {!!Object.keys(value.rspamd_nonfinal_actions ?? {}).length && <p>Temporary or non-final Rspamd actions: {Object.entries(value.rspamd_nonfinal_actions!).map(([action,n])=>`${action}: ${n}`).join(' · ')}.</p>}
+    <p className="muted small">Greylisting and soft rejection are neither ham nor spam verdicts. This selected subset cannot replace full coverage or an independent test. Rspamd results never change NoiseFence decisions.</p>
+  </details>;
+}
 export type RecordedPolicy={classification:Metrics;records:number;snapshots:number;legacy_without_snapshot:number;invalid_snapshots:number;
   requested_actions:Record<string,Record<string,number>>;effective_actions:Record<string,Record<string,number>>;
   action_transitions:{requested:string;effective:string;records:number}[]};

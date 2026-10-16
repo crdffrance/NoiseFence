@@ -11,6 +11,94 @@ const NOTICE: &[u8] = b"From: Shipping <shipping@example.org>\r\nSubject: Your p
 const REPORT: &[u8] = b"From: Research <research@example.org>\r\nSubject: Example URL feed\r\n\r\nhxxps://bad.example/a\r\nhxxps://bad.example/b\r\nhxxps://bad.example/c\r\n";
 
 #[test]
+fn shadow_and_unusable_provider_findings_cannot_veto_a_context_guard() {
+    use noisefence::{
+        antivirus::AntivirusStatus as Av,
+        protection::{self, ProviderObservation, ProviderReport, Status},
+    };
+    let notices = [
+        NOTICE,
+        REPORT,
+        b"Subject: Firmware update\r\n\r\nThis firmware update will be installed automatically.",
+        b"Subject: Payment receipt\r\n\r\nYou paid EUR 10.00. No action is needed.",
+    ];
+    for raw in notices {
+        for (observe, status, matched, expected) in [
+            (true, Status::Complete, true, Outcome::Legitimate),
+            (false, Status::Complete, true, Outcome::Unwanted),
+            (false, Status::Quota, true, Outcome::Unwanted),
+            (false, Status::Stale, true, Outcome::Legitimate),
+            (false, Status::Disabled, true, Outcome::Legitimate),
+            (false, Status::Complete, false, Outcome::Legitimate),
+        ] {
+            let mut scan = candidate(raw);
+            scan.llm = LlmResult::default();
+            scan.antivirus.status = Av::Clean;
+            scan.signatures.status = Av::Clean;
+            aligned(&mut scan);
+            scan.protection = Some(protection::Report {
+                version: protection::VERSION.into(),
+                observation_only: observe,
+                virustotal: ProviderReport {
+                    status,
+                    captured_at: Some(1000),
+                    checked: 1,
+                    malicious: 1,
+                    observations: vec![ProviderObservation {
+                        indicator_sha256: "a".repeat(64),
+                        scope: "domain".into(),
+                        verdict: "malicious".into(),
+                        queried_at: 1000,
+                        cached: false,
+                        cache_max_age_seconds: 0,
+                        analysis_max_age_seconds: Some(3600),
+                    }],
+                    ..Default::default()
+                },
+                findings: vec![protection::Finding {
+                    id: "known_malicious_indicator".into(),
+                    family: "link_reputation".into(),
+                    indicator: if matched { "a" } else { "b" }.repeat(64),
+                    sources: vec!["virustotal".into()],
+                    detail: "Synthetic reputation finding".into(),
+                }],
+                ..Default::default()
+            });
+            decision::apply(&mut scan, false);
+            decision::finalize(&mut scan, 95.);
+            assert_eq!(
+                scan.decision.as_ref().unwrap().outcome,
+                expected,
+                "observe={observe}, matched={matched}"
+            );
+            assert_eq!(scan.score, 99.); // No fake recalibration to explain a policy decision.
+            if expected == Outcome::Legitimate {
+                assert_eq!(
+                    scan.score_resolution.as_ref().unwrap().guard.as_deref(),
+                    Some("authenticated_benign_conflict")
+                );
+            }
+            let once = serde_json::to_value(&scan).unwrap();
+            decision::apply(&mut scan, false);
+            decision::finalize(&mut scan, 95.);
+            assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+        }
+        // The same authentic-looking template with a credential demand never
+        // qualifies; a clean sender domain does not authenticate the request.
+        let mut attack = raw.to_vec();
+        attack.extend_from_slice(b"\r\nVerify your account and enter your password now.");
+        let mut scan = candidate(&attack);
+        aligned(&mut scan);
+        scan.llm = LlmResult::default();
+        scan.antivirus.status = Av::Clean;
+        scan.signatures.status = Av::Clean;
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    }
+}
+
+#[test]
 fn reported_url_tokens_are_not_recipient_activation_demands() {
     for indicator in [
         "hxxps://blocked.example/activation",

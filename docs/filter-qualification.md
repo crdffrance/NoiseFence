@@ -63,3 +63,5 @@ and collect fresh coverage counters. Keep a compatible rollback artifact. Do not
 activate subject tagging until the Proton validation is complete, or change
 quarantine/rejection policy as a side effect of model installation. Promotion
 requires measured qualification and an explicit policy activation.
+
+See the [filter improvement workflow](filter-improvement-workflow.md) for error confirmation, policy simulations, matched final-verdict comparisons and deployment identity.

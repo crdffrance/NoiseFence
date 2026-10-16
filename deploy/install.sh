@@ -71,4 +71,5 @@ if ! (if "$vision_installed"; then systemctl restart noisefence-vision.service |
     exit 1
 fi
 systemctl is-active noisefence.service
+python3 "$bundle/deploy/record-deployment.py" "$base"
 echo "NoiseFence $version installed. Existing configuration was preserved."

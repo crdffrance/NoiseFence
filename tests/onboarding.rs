@@ -120,6 +120,18 @@ async fn fixed_sample_is_scoped_bounded_read_only_and_marks_unknown_comparisons(
     assert_eq!(result["evaluated"], 2);
     assert_eq!(result["complete_comparisons"], 1);
     assert_eq!(result["changed"], 0);
+    assert_eq!(result["not_comparable"], 3);
+    assert_eq!(result["recipient"], "alice@example.test");
+    assert_eq!(
+        result["action_transitions"],
+        json!({"deliver -> deliver":1})
+    );
+    assert_eq!(result["exclusions"]["not_available_for_recipient"], 2);
+    assert_eq!(
+        result["rows"][1]["exclusion_reasons"],
+        json!(["receipt_not_recorded_or_unsupported"])
+    );
+    let first_draft = result["draft_sha256"].clone();
     assert_eq!(result["rows"][0]["changed"], false);
     assert_eq!(result["rows"][1]["changed"], Value::Null);
     assert_eq!(result["rows"][2]["status"], "not_available");
@@ -154,6 +166,10 @@ async fn fixed_sample_is_scoped_bounded_read_only_and_marks_unknown_comparisons(
     assert_eq!(status, StatusCode::OK, "{result}");
     assert_eq!(result["complete_comparisons"], 0);
     assert_eq!(result["matrix"], json!({}));
+    assert_eq!(result["action_transitions"], json!({}));
+    assert_ne!(result["draft_sha256"], first_draft);
+    assert_eq!(result["not_comparable"], 4);
+    assert_eq!(result["exclusions"]["missing_rule_facts"], 2);
     assert_eq!(result["rows"][0]["assessment"]["unavailable_conditions"], 1);
     for ids in [
         json!([]),

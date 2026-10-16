@@ -67,3 +67,12 @@ export function sampleChange(row: {
   if (!row.comparable || row.changed == null) return 'Comparison incomplete';
   return row.changed ? 'Would change' : 'Unchanged';
 }
+
+export function sampleExclusion(reason: string) {
+  return ({
+    not_available_for_recipient: 'Message unavailable for this recipient',
+    missing_rule_facts: 'At least one rule requires facts that were not retained',
+    receipt_not_recorded_or_unsupported: 'Original recipient decision is missing or uses an unsupported format',
+    original_action_not_recorded: 'Original delivery action was not recorded',
+  } as Record<string, string>)[reason] ?? 'Unrecognized comparison limitation';
+}
