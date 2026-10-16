@@ -539,14 +539,42 @@ pub fn features(e: &Evidence) -> Result<Vec<f64>> {
             e.smtp_policy_state == expected,
             "inconsistent SMTP policy state"
         );
+        // A DNS failure still produces one observation per identity. Preserve
+        // completed facts and encode missing checks through the unavailable state;
+        // an unavailable lookup is neither a pass nor an adverse DNS result.
+        let unavailable = [
+            "helo_dns_unavailable",
+            "ptr_dns_unavailable",
+            "sender_dns_unavailable",
+        ];
         ensure!(
             policy.checks.len() <= 3
-                && policy
-                    .checks
-                    .iter()
-                    .all(|s| POLICY_CHECKS.contains(&s.id.as_str())),
+                && policy.checks.iter().all(|s| {
+                    POLICY_CHECKS.contains(&s.id.as_str()) || unavailable.contains(&s.id.as_str())
+                }),
             "unknown SMTP policy check"
         );
+        let missing = policy
+            .checks
+            .iter()
+            .filter(|s| unavailable.contains(&s.id.as_str()))
+            .count();
+        let has_checks = match policy.status {
+            PolicyStatus::Complete => {
+                ensure!(missing == 0, "completed SMTP policy has missing checks");
+                true
+            }
+            PolicyStatus::Unavailable => {
+                // Older collectors retained no facts on a DNS failure.
+                ensure!(
+                    policy.checks.is_empty() || missing > 0,
+                    "unavailable SMTP policy has only completed checks"
+                );
+                !policy.checks.is_empty()
+            }
+            PolicyStatus::Busy => false,
+            PolicyStatus::Disabled => unreachable!(),
+        };
         for prefix in ["helo_", "ptr_", "sender_"] {
             let count = policy
                 .checks
@@ -554,8 +582,21 @@ pub fn features(e: &Evidence) -> Result<Vec<f64>> {
                 .filter(|s| s.id.starts_with(prefix))
                 .count();
             ensure!(
-                count == usize::from(policy.status == PolicyStatus::Complete),
+                count == usize::from(has_checks),
                 "incomplete or repeated SMTP identity check"
+            );
+        }
+        for (index, timeout) in policy.timeouts.iter().enumerate() {
+            let check = match timeout {
+                crate::smtp_policy::CheckKind::Helo => "helo_dns_unavailable",
+                crate::smtp_policy::CheckKind::Ptr => "ptr_dns_unavailable",
+                crate::smtp_policy::CheckKind::Sender => "sender_dns_unavailable",
+            };
+            ensure!(
+                policy.status == PolicyStatus::Unavailable
+                    && !policy.timeouts[..index].contains(timeout)
+                    && policy.checks.iter().any(|s| s.id == check),
+                "inconsistent SMTP DNS timeout"
             );
         }
     } else {
