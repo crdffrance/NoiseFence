@@ -374,3 +374,140 @@ fn family_limits_are_explicit_validated_and_bound_to_the_model_bytes() {
     m.combination = None;
     assert!(m.validate().is_err()); // v2 cannot silently fall back to uncapped
 }
+
+fn smtp_evidence(status: noisefence::smtp_policy::PolicyStatus, ids: &[&str]) -> Evidence {
+    use noisefence::smtp_policy::{PolicyResult, PolicyStatus};
+    let mut e = evidence();
+    e.smtp_policy_state = match status {
+        PolicyStatus::Complete => State::Complete,
+        PolicyStatus::Unavailable => State::Unavailable,
+        PolicyStatus::Busy => State::Busy,
+        PolicyStatus::Disabled => State::Disabled,
+    };
+    e.smtp_policy = Some(PolicyResult {
+        version: noisefence::smtp_policy::VERSION.into(),
+        status,
+        checks: ids
+            .iter()
+            .map(|id| noisefence::engine::Signal {
+                id: (*id).into(),
+                detail: "Synthetic SMTP observation".into(),
+                weight: 0.0,
+            })
+            .collect(),
+        ..Default::default()
+    });
+    e
+}
+
+#[test]
+fn partial_smtp_dns_observations_remain_usable_without_inventing_results() {
+    use noisefence::{
+        engine::Scan,
+        quality,
+        smtp_policy::{CheckKind, PolicyStatus},
+    };
+    for ids in [
+        [
+            "helo_literal_mismatch",
+            "ptr_dns_unavailable",
+            "sender_mx_present",
+        ],
+        [
+            "helo_dns_unavailable",
+            "ptr_dns_unavailable",
+            "sender_mx_present",
+        ],
+        ["helo_dns_unavailable", "ptr_missing", "sender_null"],
+        ["helo_verified", "ptr_verified", "sender_dns_unavailable"],
+        [
+            "helo_dns_unavailable",
+            "ptr_dns_unavailable",
+            "sender_dns_unavailable",
+        ],
+    ] {
+        let mut e = smtp_evidence(PolicyStatus::Unavailable, &ids);
+        for (id, kind) in [
+            ("helo_dns_unavailable", CheckKind::Helo),
+            ("ptr_dns_unavailable", CheckKind::Ptr),
+            ("sender_dns_unavailable", CheckKind::Sender),
+        ] {
+            if ids.contains(&id) {
+                e.smtp_policy.as_mut().unwrap().timeouts.push(kind);
+            }
+        }
+        assert_eq!(value(&e, "smtp_policy.state.unavailable"), 1.0);
+        assert_eq!(value(&e, "smtp_policy.state.complete"), 0.0);
+        for id in [
+            "helo_verified",
+            "helo_literal_mismatch",
+            "ptr_verified",
+            "ptr_missing",
+            "sender_mx_present",
+            "sender_null",
+        ] {
+            assert_eq!(
+                value(&e, &format!("smtp_policy.{id}")),
+                f64::from(ids.contains(&id))
+            );
+        }
+        assert!(!fusion::tag_eligible(&e));
+        let scan = Scan {
+            features_complete: Some(true),
+            evidence: Some(e),
+            ..Default::default()
+        };
+        let report = quality::snapshot(&scan, None);
+        assert!(report.complete_features);
+        assert_eq!(report.values.len(), quality::specs().len());
+        assert_eq!(report.candidate_status, "not_configured");
+    }
+    for status in [PolicyStatus::Unavailable, PolicyStatus::Busy] {
+        assert!(fusion::features(&smtp_evidence(status, &[])).is_ok());
+    }
+}
+
+#[test]
+fn contradictory_or_injected_smtp_observations_still_fail_closed() {
+    use noisefence::smtp_policy::{CheckKind, PolicyStatus};
+    for (status, ids) in [
+        (
+            PolicyStatus::Complete,
+            vec!["helo_dns_unavailable", "ptr_verified", "sender_mx_present"],
+        ),
+        (
+            PolicyStatus::Unavailable,
+            vec!["helo_verified", "ptr_verified", "sender_mx_present"],
+        ),
+        (
+            PolicyStatus::Unavailable,
+            vec!["helo_dns_unavailable", "ptr_verified"],
+        ),
+        (
+            PolicyStatus::Unavailable,
+            vec!["helo_dns_unavailable", "helo_verified", "sender_null"],
+        ),
+        (
+            PolicyStatus::Unavailable,
+            vec!["helo_dns_unavailable", "ptr_invented", "sender_null"],
+        ),
+        (
+            PolicyStatus::Busy,
+            vec!["helo_dns_unavailable", "ptr_verified", "sender_null"],
+        ),
+    ] {
+        assert!(
+            fusion::features(&smtp_evidence(status, &ids)).is_err(),
+            "{status:?}: {ids:?}"
+        );
+    }
+    let valid = smtp_evidence(
+        PolicyStatus::Unavailable,
+        &["helo_dns_unavailable", "ptr_verified", "sender_null"],
+    );
+    for timeouts in [vec![CheckKind::Ptr], vec![CheckKind::Helo, CheckKind::Helo]] {
+        let mut e = valid.clone();
+        e.smtp_policy.as_mut().unwrap().timeouts = timeouts;
+        assert!(fusion::features(&e).is_err());
+    }
+}

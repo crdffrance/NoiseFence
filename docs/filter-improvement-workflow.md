@@ -34,6 +34,12 @@ times is not a diverse training set.
 campaigns and incomplete protection provenance. A failed readiness check does
 not justify lowering the gate, manufacturing campaign identities or reusing the
 holdout. Continue labelling development traffic and keep the existing model.
+From 0.31.8, partially unavailable SMTP/DNS observations retain completed facts
+and an unavailable state in newly collected quality vectors. Missing DNS results
+are not a pass or a detection. Older `unsupported_evidence` vectors remain
+excluded: an upgrade does not silently rebuild historical training data. Collect
+a stable new detector cohort and retain the original human annotations.
+
 After fitting, freeze the candidate and evaluate it on later independent mail.
 Use [the calibration workbench](calibration-workbench.md) for the full protocol
 and [release gates](final-release-plan.md) for qualification requirements.

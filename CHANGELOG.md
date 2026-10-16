@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.8 — Preserve partial SMTP evidence for research
+
+- Fix the statistical encoder rejecting the collector's `helo_dns_unavailable`, `ptr_dns_unavailable` and `sender_dns_unavailable` observations. Partial DNS checks retain their completed facts and unavailable state without inventing a pass or a detection.
+- Validate one result per SMTP identity, consistent timeout markers and known check names; keep historical empty unavailable reports readable. Contradictory or injected observations remain rejected.
+- Collect usable quality vectors for new messages with partial SMTP/DNS evidence. Historical vectors and verdicts are not rewritten, and missing evidence does not become spam. Existing cohort, human-label and independent-evaluation requirements still apply.
+- Preserve verified 0.31.7 policies during paired upgrades. No new model, threshold change, provider activation or automatic promotion.
+
 ## 0.31.7 — Observable decisions and filter qualification
 
 - Update rustls to 0.23.45 in both application and fuzz lockfiles to fix TLS 1.3 encryption-level boundary validation ([GHSA-2mjx-qc3c-rqvc](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc)).
