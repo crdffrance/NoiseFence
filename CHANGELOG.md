@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased — Qualification guidance and operational verification
+## 0.31.9 — Qualification guidance and operational verification
 
 - Explain missing campaign counts and classes per chronological partition, with separate risk and mail-type readiness. Insufficient data still produces no candidate.
 - Compare custom policy drafts with saved settings and flag newly introduced, remaining and resolved false positives using only the requesting account's annotations on fully comparable messages. Keep the reference labels bound to the sample fingerprint and scoped to the selected recipient.
 - Provide a content-free external DNS/STARTTLS/SMTP-admission/HTTPS probe with bounded checks and a hardened systemd timer, ready for a separately supplied monitoring host.
 - Add a disposable, network-free native release lifecycle rehearsal. Refresh English validation and removal documentation; archive the September bootstrap results instead of presenting them as current performance.
-- No model promotion, threshold change, external-provider activation or delivery-policy change.
+- Preserve verified 0.31.8 policies during paired upgrades, while refusing newly introduced mixed-build credential-bound activations. No database schema migration.
+- Bind release execution to an immutable version tag on the protected default branch, isolate artifact builds from shared dependency caches, and review high-severity dependency changes in CI.
+- Keep separate detector cohorts when source fingerprints change. This release starts a new cohort; collect calibration data under a stable build and configuration rather than mixing historical observations.
+- No model promotion, threshold change, external-provider activation or delivery-policy change. Capture and false-positive targets remain unqualified; external monitoring requires a separate host.
 
 ## 0.31.8 — Preserve partial SMTP evidence for research
 
