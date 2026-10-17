@@ -13,7 +13,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Also check the console as indicated in CONTRIBUTING.md. Commit changes and wait for CI to pass, then create and push the corresponding annotated tag. The `scripts/version.py --check --tag v0.29.4` command refuses a different tag from the manifest version.
+Also check the console as indicated in CONTRIBUTING.md. Merge changes into the protected default branch after CI passes, then create and push the corresponding annotated tag from that merged commit. The `scripts/version.py --check --tag v0.29.4` command refuses a different tag from the manifest version.
 
 The `release.yml` workflow compiles into a Rust Bookworm image identified by its digest, on x86-64 and ARM64. It assembles binary, static frontend, licenses, examples, and documentation, then prepares a GitHub Release with the SHA-256 checksums. The workflow also calls the complete `check.yml` suite on the same tag; failure prohibits publication. Tests use `cargo test --release`, with the same profile as the distributed binary. This profile also avoids [gemm-f16's debug ARM64 compilation issue](https://github.com/sarah-quinones/gemm/issues/31). The main CI also checks the multilingual engine on an ARM64 runner. The exact sources are accessible from the release tag. Reports, trained models, keys and server-specific configurations remain outside Git, with the exception of explicitly versioned aggregated research reports.
 
@@ -34,16 +34,18 @@ git push origin v0.29.4
 
 For a transient infrastructure failure, re-run the failed jobs in Actions, or run
 `gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.4`.
-Manual dispatch requires a tag matching the manifests. When repairing only build
-infrastructure, dispatch the current workflow with an existing immutable source tag:
+Manual dispatch must run on the version tag itself. Running it on a branch is
+refused before checkout. There is no alternate source-tag input: the workflow,
+validation, build and publication all use the immutable event commit. Preflight
+requires complete Git history and proves that the tag and checkout match that
+commit and that it belongs to the protected default branch. These checks apply
+to tags containing this workflow. Older tags retain their historical workflow;
+inspect it before rerunning an old release.
 
-```sh
-gh workflow run release.yml --repo crdffrance/NoiseFence --ref master -f release_tag=v0.29.4
-```
+A build-infrastructure change requires a new reviewed commit and version tag.
+Do not run a newer workflow on an older source tag to work around this boundary.
 
-Preflight resolves the tag once; every validation, build and publication job checks
-out that exact commit. This can repair runner configuration without moving a tag
-or changing its sources. Bookworm test containers explicitly map `localhost.` to
+Bookworm test containers explicitly map `localhost.` to
 loopback so the rooted-MX regression test never depends on external DNS. Rust
 CI runs test cases serially to keep independent timing-sensitive network fixtures
 from competing for runner resources; concurrency within each fixture is retained. Drafts can be resumed;
@@ -60,6 +62,11 @@ StepSecurity Harden-Runner monitors dependency-heavy build jobs in audit mode.
 The publish job blocks connections outside its GitHub/artifact allowlist. Review
 network findings in each Actions job summary; see [build security](../SECURITY.md).
 Third-party Actions are pinned by full commit SHA and updated through Dependabot.
+Release artifact builds do not restore or save a shared Actions dependency cache.
+The reusable validation suite can use caches for tests; its outputs are not
+packaged as release artifacts. The repository protects version tags from updates
+and deletion, and newly published releases are immutable. Upload and verify all
+assets while a release is still a draft; publish only after verification.
 
 Never move a published tag or replace its archives with a different build. A correction requires a new version. Before the first opening of the repository, also check branches, tags and objects of history to avoid publishing deleted secrets from the only current tree.
 
