@@ -1,0 +1,13 @@
+# Route review of security-sensitive changes to the maintainer.
+# This requests review; required approvals are controlled by the repository ruleset.
+/.github/ @crdffrance
+/scripts/check_release_source.py @crdffrance
+/scripts/package_release.py @crdffrance
+/scripts/publish_release.py @crdffrance
+/scripts/release_notes.py @crdffrance
+/scripts/version.py @crdffrance
+/Dockerfile @crdffrance
+/deploy/ @crdffrance
+/SECURITY.md @crdffrance
+/docs/security.md @crdffrance
+/docs/releasing.md @crdffrance
