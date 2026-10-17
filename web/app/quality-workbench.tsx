@@ -4,12 +4,13 @@ import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, type SaveResult } from './activation';
 import {Button} from '@/components/ui/button';
 import {api,type User} from './client';
+import {AnnotationNextSteps,type AnnotationPlan} from './annotation-plan';
 import {PairedErrorDetails,type PairedDiagnostics} from './quality-results';
 import {MetricTable,FullSampleResults,PolicyResults,TrainingResults,ExposureNotice,QualificationStatus,TrainingReadiness,TrainingFailure,ScoreTradeoffs,type ScoreTradeoffsReport,type FoldReadiness,type ExportExposure,type Metrics,type RecordedPolicy} from './quality-results';
 export type DatasetPurpose='development'|'regression'|'holdout';
 type Readiness=FoldReadiness;
 type ProfileMetrics={population:number;labelled:number;paired:number;excluded_from_pair:number;baseline:Metrics;rspamd:Metrics};
-type Report={exposure?:ExportExposure;risk?:{test?:Metrics};evaluation_scope?:string;recorded_policy?:RecordedPolicy;status?:string;error_code?:string;coverage?:Record<string,number>;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics;
+type Report={annotation_plan?:AnnotationPlan;exposure?:ExportExposure;risk?:{test?:Metrics};evaluation_scope?:string;recorded_policy?:RecordedPolicy;status?:string;error_code?:string;coverage?:Record<string,number>;baseline?:Metrics;rspamd?:Metrics;candidate?:Metrics;
   operating_profiles?:Record<string,Record<string,ProfileMetrics>>;
   score_tradeoffs?:ScoreTradeoffsReport;
   slices?:Record<string,{baseline:Metrics;rspamd?:Metrics;candidate?:Metrics}>;
@@ -79,6 +80,7 @@ export function QualityWorkbench({user,batch,purpose,refresh}:{user:User;batch:s
       {(j.report.paired?.campaigns??j.report.campaigns)&&<details><summary>Campaign-level comparison</summary><MetricTable report={(j.report.paired?.campaigns??j.report.campaigns)!} caption="One paired representative per campaign when paired results are available"/><p className="muted small">Conflicting labels are excluded before pairing. Missing campaign identities cannot establish independent samples.</p></details>}
       {j.report.mail_kind?.publicity&&<details><summary>Mail type: newsletter / promotion</summary><MetricTable report={{candidate:j.report.mail_kind.publicity}}/><p className="muted small">These are mail-type errors, separate from malicious-message errors.</p></details>}
       {!!j.report.legacy_score_calibration?.reliability.length&&<details><summary>Historical score reliability</summary><p className="muted small">The historical index is not a calibrated probability. Compare each score band with its human-labelled spam fraction.</p><div className="quality-table-scroll"><table className="quality-metrics"><thead><tr><th>Index band</th><th>Messages</th><th>Mean index</th><th>Human-labelled spam</th></tr></thead><tbody>{j.report.legacy_score_calibration.reliability.map(b=><tr key={b.bin}><th>{b.bin*10}–{b.bin*10+10}</th><td>{b.count}</td><td>{(b.mean_prediction*100).toFixed(1)}</td><td>{percent(b.spam_fraction)}</td></tr>)}</tbody></table></div></details>}
+      {j.report.annotation_plan&&<AnnotationNextSteps value={j.report.annotation_plan}/>}
       {j.report.readiness&&<><TrainingReadiness value={j.report.readiness.risk} caption="Risk model"/><TrainingReadiness value={j.report.readiness.kind} caption="Mail-type model"/></>} {j.report.cohorts&&Object.entries(j.report.cohorts).map(([id,c])=><div key={id}><p>Detector cohort {id.slice(0,12)} · {c.messages} messages</p><TrainingReadiness value={c.readiness} caption="Risk model"/></div>)}
       {j.report.pipeline_latency&&<p>Recorded total analysis p95: {j.report.pipeline_latency.p95_ms??'not measured'} ms · {j.report.pipeline_latency.samples} messages. Includes external services; native latency needs a separate benchmark.</p>}
       {j.report.acceptance&&<QualificationStatus acceptance={j.report.acceptance} exposure={j.report.exposure}/>}

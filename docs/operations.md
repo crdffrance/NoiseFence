@@ -137,3 +137,7 @@ Compare the candidate on a recently retained corpus for validation. A model that
 ## Storage compatibility
 
 Quarantine originally introduced schema 2; later features and paired replication use newer schemas, up to schema 5. Back up the current database, spool and configuration consistently. Do not run an incompatible older binary or restore an old database over accepted mail. Observation and routes are preserved during installation. Monitor `quarantined_deliveries`, queue age and free disk space; see [recovery](high-availability.md).
+
+## Independent availability checks
+
+Install the [external SMTP/TLS/HTTPS probe](../deploy/external-monitor/README.md) on an independent host. It checks admission without submitting mail and reports stale/unavailable checks explicitly. A host and an independent alert destination must be supplied by the operator; neither is created automatically.

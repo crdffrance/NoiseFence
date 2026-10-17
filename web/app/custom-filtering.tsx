@@ -12,6 +12,7 @@ import type { SensitivityLevel } from './filter-sensitivity';
 import { orderingDescription, type PolicyOrdering, type PolicyTrace } from './policy-trace';
 import { PolicyTraceDetails } from './policy-trace-view';
 import { PolicySample } from './policy-sample';
+import { PolicyDraftChanges } from './policy-draft-changes';
 type Category = 'spam' | 'publicity' | 'legitimate' | 'undetermined';
 type Field =
   | 'envelope_from'
@@ -180,6 +181,7 @@ function ActionSelect({
 }
 export function CustomFiltering({
   policy,
+  savedPolicy,
   onChange,
   domains,
   locked,
@@ -187,6 +189,7 @@ export function CustomFiltering({
   csrf,
 }: {
   policy: CustomPolicy | null | undefined;
+  savedPolicy: CustomPolicy | null;
   onChange: (p: CustomPolicy | null) => void;
   domains: string[];
   locked: boolean;
@@ -763,6 +766,7 @@ export function CustomFiltering({
         )}
         {result && <FilteringDetails value={result} />}
       </form>
+      <PolicyDraftChanges saved={savedPolicy} draft={p} />
       <PolicySample policy={p} csrf={csrf} />
     </div>
   );

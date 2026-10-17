@@ -60,3 +60,11 @@ The binary 0.4.8 can deliver the standard variants already in file. If a custom 
 ### Historical compatibility note
 
 The JSON format of policies and evaluations remains the same. However, 0.9 refuses the explicit thresholds of profiles with the active multilingual model. Before a return to 0.9, put these thresholds on Heritage and apply a new revision with 0.10; check the actual configuration with the old binary. The legacy of thresholds between ranges does not exist in 0.9. Keep history and current queue, without restoring an old database.
+
+## Check known false positives before saving
+
+The fixed-sample preview compares the draft against each original recipient decision using retained detector facts. It also consults **the requesting administrator's own risk annotations**. A wanted HAM/PUB becoming SPAM is a new known false positive; an existing SPAM classification that remains SPAM and one corrected by the draft are counted separately. Observation may still deliver all three: classification and delivery action are separate.
+
+The comparison excludes incomplete simulations and missing/uncertain labels. No wanted labels means unknown false-positive impact, not zero errors. Other users' annotations, Rspamd and model opinions are not substituted as reference truth. The sample fingerprint includes the reference risk, so changing a label changes the comparison binding. Editing the draft or sample inputs marks the displayed result stale.
+
+Inspect the threshold source and per-message policy trace to see the selected profile, inherited settings and matching rules. The preview uses saved global settings and personal preferences; it does not re-run DNS, providers or content analysis. Configuration history can restore a compatible prior saved revision through the normal validation path. It cannot recall previously delivered mail or undo database migrations.

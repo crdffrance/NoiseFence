@@ -377,13 +377,14 @@ async fn sample(
             .await?
     } else {
         app.store.read(move|db| {
-        let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[actor.username],|r|r.get(0))?;
+        // Store::read already holds one bounded read-only WAL transaction.
+        let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&actor.username],|r|r.get(0))?;
         ensure!(active,"Administrator rights revoked.");
-        let mut query=db.prepare("SELECT m.sender,m.scan FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.id=?1 AND d.address=?2 AND (m.created>=?3 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1))")?;
+        let mut query=db.prepare("SELECT m.sender,m.scan,l.risk FROM messages m JOIN deliveries d ON d.message_id=m.id LEFT JOIN quality_labels l ON l.message_id=m.id AND l.username=?4 AND l.created>=m.created AND l.created<=?5 AND l.risk IN ('legitimate','spam') WHERE m.id=?1 AND d.address=?2 AND (m.created>=?3 OR m.raw_present=1 OR EXISTS(SELECT 1 FROM cluster_origin o WHERE o.message_id=m.id AND o.raw_present=1))")?;
         let mut snapshots=Vec::new(); let mut bytes=0usize;
         for id in ids {
-            let row=query.query_row(params![id,address,now()-30*86400],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).optional()?;
-            if let Some((_,scan))=&row { bytes=bytes.saturating_add(scan.len()); }
+            let row=query.query_row(params![id,address,now()-30*86400,actor.username,now()],|r|Ok(crate::central::preview::Snapshot{sender:r.get(0)?,scan:r.get(1)?,risk:r.get(2)?})).optional()?;
+            if let Some(snapshot)=&row { bytes=bytes.saturating_add(snapshot.scan.len()); }
             ensure!(bytes<=16*1024*1024,"The selected sample exceeds the metadata budget; choose fewer messages.");
             snapshots.push((id,row));
         }
@@ -395,13 +396,15 @@ async fn sample(
         let mut action_transitions=std::collections::BTreeMap::<String,usize>::new();
         let mut exclusions=std::collections::BTreeMap::<&str,usize>::new();
         let draft_sha256=message::digest(&serde_json::to_vec(&body.policy)?);
+        let mut labelled_comparisons=0usize;let mut wanted_comparisons=0usize;
+        let mut new_false_positives=0usize;let mut remaining_false_positives=0usize;let mut resolved_false_positives=0usize;
         for (id,row) in snapshots {
-            let Some((sender,json))=row else {
+            let Some(crate::central::preview::Snapshot{sender,scan:json,risk})=row else {
                 *exclusions.entry("not_available_for_recipient").or_default()+=1;
                 rows.push(json!({"id":id,"status":"not_available","exclusion_reasons":["not_available_for_recipient"]}));continue;
             };
             let scan:crate::engine::Scan=serde_json::from_str(&json)?;
-            sample_binding.push(json!({"id":id,"scan_sha256":message::digest(json.as_bytes())}));
+            sample_binding.push(json!({"id":id,"scan_sha256":message::digest(json.as_bytes()),"reference_risk":risk}));
             let before=crate::assessment::historical(&scan);
             let assessment=crate::custom_filtering::simulate(&body.policy,&cfg,&scan,&sender,&recipient,at);
             let before_action=before.action.as_ref().map(|a|a.effective);
@@ -414,17 +417,27 @@ async fn sample(
             for reason in &reasons { *exclusions.entry(*reason).or_default()+=1; }
             changed+=usize::from(comparable && different);
             complete_comparisons+=usize::from(comparable);
+            let wanted=risk.as_deref()==Some("legitimate");
+            let was_spam=before.category==crate::mailing::Category::Spam;
+            let would_spam=assessment.category==crate::mailing::Category::Spam;
+            let new_false_positive=(comparable && wanted).then_some(!was_spam && would_spam);
             if comparable {
+                labelled_comparisons+=usize::from(risk.is_some());
+                wanted_comparisons+=usize::from(wanted);
+                new_false_positives+=usize::from(wanted && !was_spam && would_spam);
+                remaining_false_positives+=usize::from(wanted && was_spam && would_spam);
+                resolved_false_positives+=usize::from(wanted && was_spam && !would_spam);
                 *matrix.entry(format!("{} -> {}",before.category.as_str(),assessment.category.as_str())).or_default()+=1;
                 *action_transitions.entry(format!("{} -> {}",serde_json::to_value(before_action.unwrap())?.as_str().unwrap_or("unknown"),serde_json::to_value(assessment.action.effective)?.as_str().unwrap_or("unknown"))).or_default()+=1;
             }
             rows.push(json!({"id":id,"status":"simulated","historical_policy_recorded":scan.recipient_decision.is_some(),"before_category":before.category,"before_action":before_action,
-                "changed":comparable.then_some(different),"comparable":comparable,"exclusion_reasons":reasons,"assessment":assessment}));
+                "reference_risk":risk,"new_false_positive":new_false_positive,"changed":comparable.then_some(different),"comparable":comparable,"exclusion_reasons":reasons,"assessment":assessment}));
         }
         sample_binding.sort_by(|a,b|a["id"].as_str().cmp(&b["id"].as_str()));
         let sample_sha256=message::digest(&serde_json::to_vec(&json!({"recipient":recipient.address,"messages":sample_binding}))?);
         Ok(json!({"simulation":true,"at":at,"configuration_revision":revision,"sample_sha256":sample_sha256,
             "recipient":recipient.address,"draft_sha256":draft_sha256,"action_transitions":action_transitions,"exclusions":exclusions,"not_comparable":rows.len()-complete_comparisons,
+            "reference_comparison":{"source":"requesting_account_quality_annotations","labelled_comparisons":labelled_comparisons,"wanted_comparisons":wanted_comparisons,"new_false_positives":new_false_positives,"remaining_false_positives":remaining_false_positives,"resolved_false_positives":resolved_false_positives},
             "evaluated":sample_binding.len(),"changed":changed,"complete_comparisons":complete_comparisons,"matrix":matrix,"rows":rows,
             "note":"Policy-only simulation on frozen detector results and retained metadata. Uses saved global settings and personal preferences; bodies and unrecorded facts remain unknown. No messages are reanalysed, sent or changed; this is not an accuracy evaluation."}))
     }).await.map_err(anyhow::Error::from)??;

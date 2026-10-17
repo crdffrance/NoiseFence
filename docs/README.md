@@ -9,6 +9,7 @@
 - [Console and access control](console.md)
 - [Multiple MX servers](multi-mx.md)
 - [Two-copy durability and console recovery](high-availability.md)
+- [Independent SMTP/TLS/HTTPS probe](../deploy/external-monitor/README.md)
 - [Linux hardening and backups](../deploy/hardening/README.md)
 - [Security boundaries](security.md)
 
@@ -49,7 +50,7 @@
 - [Coverage and contextual signals](capture-coverage.md)
 - [Feedback training](feedback-training.md)
 - [Performance measurement](performance.md)
-- [Recorded validation results](validation-results.md)
+- [Validation status and reproducible checks](validation-results.md)
 - [Research protocols](../research/README.md)
 - [Contributing](../CONTRIBUTING.md)
 

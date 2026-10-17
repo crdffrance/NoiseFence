@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Qualification guidance and operational verification
+
+- Explain missing campaign counts and classes per chronological partition, with separate risk and mail-type readiness. Insufficient data still produces no candidate.
+- Compare custom policy drafts with saved settings and flag newly introduced, remaining and resolved false positives using only the requesting account's annotations on fully comparable messages. Keep the reference labels bound to the sample fingerprint and scoped to the selected recipient.
+- Provide a content-free external DNS/STARTTLS/SMTP-admission/HTTPS probe with bounded checks and a hardened systemd timer, ready for a separately supplied monitoring host.
+- Add a disposable, network-free native release lifecycle rehearsal. Refresh English validation and removal documentation; archive the September bootstrap results instead of presenting them as current performance.
+- No model promotion, threshold change, external-provider activation or delivery-policy change.
+
 ## 0.31.8 — Preserve partial SMTP evidence for research
 
 - Fix the statistical encoder rejecting the collector's `helo_dns_unavailable`, `ptr_dns_unavailable` and `sender_dns_unavailable` observations. Partial DNS checks retain their completed facts and unavailable state without inventing a pass or a detection.

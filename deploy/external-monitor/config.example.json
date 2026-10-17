@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "nodes": [
+    {"host": "mx1.example.org", "expected_addresses": [], "console_redirect_hosts": []},
+    {"host": "mx2.example.org", "expected_addresses": [], "console_redirect_hosts": ["mx1.example.org"]}
+  ]
+}

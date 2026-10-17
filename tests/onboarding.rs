@@ -112,6 +112,14 @@ async fn fixed_sample_is_scoped_bounded_read_only_and_marks_unknown_comparisons(
         })
         .await
         .unwrap();
+    let reference_id = known.clone();
+    let hidden_id = private.clone();
+    store.run(move |db| {
+        for (user, id, risk) in [("admin", &reference_id, "legitimate"), ("alice", &reference_id, "spam"), ("admin", &hidden_id, "legitimate")] {
+            db.execute("INSERT INTO quality_labels(username,message_id,risk,created) VALUES(?1,?2,?3,?4)",params![user,id,risk,noisefence::now()])?;
+        }
+        Ok(())
+    }).await.unwrap();
     let at = noisefence::now();
     let mut body = json!({"policy":{"ordering":"scoped","profiles":[],"bindings":[],"rules":[]},"recipient":"alice@example.test","message_ids":[known,legacy,private,absent],"at":at});
     let (status, result) =
@@ -131,6 +139,11 @@ async fn fixed_sample_is_scoped_bounded_read_only_and_marks_unknown_comparisons(
         result["rows"][1]["exclusion_reasons"],
         json!(["receipt_not_recorded_or_unsupported"])
     );
+    assert_eq!(result["reference_comparison"]["wanted_comparisons"], 1);
+    assert_eq!(result["reference_comparison"]["new_false_positives"], 0);
+    assert_eq!(result["rows"][0]["reference_risk"], "legitimate");
+    assert_eq!(result["rows"][1]["reference_risk"], Value::Null);
+    assert_eq!(result["rows"][2]["reference_risk"], Value::Null);
     let first_draft = result["draft_sha256"].clone();
     assert_eq!(result["rows"][0]["changed"], false);
     assert_eq!(result["rows"][1]["changed"], Value::Null);
@@ -160,11 +173,24 @@ async fn fixed_sample_is_scoped_bounded_read_only_and_marks_unknown_comparisons(
         app.clone().oneshot(no_csrf).await.unwrap().status(),
         StatusCode::FORBIDDEN
     );
+    body["policy"]["rules"] = json!([{"id":"all-spam","name":"Synthetic bad rule","enabled":true,"priority":0,"scope":"*","expires":null,"any":false,"conditions":[{"field":"recipient","op":"equals","value":"alice@example.test"}],"category":"spam","action":"quarantine","stop":false}]);
+    let (status, impact) =
+        request(&app, &admin, "/admin/filtering/sample", Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{impact}");
+    assert_eq!(impact["reference_comparison"]["new_false_positives"], 1);
+    assert_eq!(
+        impact["reference_comparison"]["remaining_false_positives"],
+        0
+    );
+    assert_eq!(impact["rows"][0]["new_false_positive"], true);
+    assert_eq!(impact["rows"][1]["new_false_positive"], Value::Null);
     body["policy"]["rules"] = json!([{"id":"missing-body","name":"Missing body", "enabled":true,"priority":0,"scope":"*","expires":null,"any":false,"conditions":[{"field":"body","op":"absent","value":""}],"category":"spam","action":"quarantine","stop":false}]);
     let (status, result) =
         request(&app, &admin, "/admin/filtering/sample", Some(body.clone())).await;
     assert_eq!(status, StatusCode::OK, "{result}");
     assert_eq!(result["complete_comparisons"], 0);
+    assert_eq!(result["reference_comparison"]["wanted_comparisons"], 0);
+    assert_eq!(result["reference_comparison"]["new_false_positives"], 0);
     assert_eq!(result["matrix"], json!({}));
     assert_eq!(result["action_transitions"], json!({}));
     assert_ne!(result["draft_sha256"], first_draft);
