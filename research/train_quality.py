@@ -152,11 +152,17 @@ def chronological_cuts(rows):
 
 
 def partition(rows, target='risk', cuts=None):
-    """Independent labels, shared fixed time cuts and whole-campaign exclusion."""
+    parts, counts, _ = partition_inventory(rows, target, cuts)
+    return parts, counts
+
+
+def partition_inventory(rows, target='risk', cuts=None):
+    """Independent labels and pending campaigns, using the same exclusion rules."""
     require(target in ('risk', 'kind'), 'Invalid training target')
     cuts = chronological_cuts(rows) if cuts is None else cuts
     if len(cuts) != 4:
-        return {s: [] for s in SPLITS}, {'insufficient_times': len(rows)}
+        return {s: [] for s in SPLITS}, {'insufficient_times': len(rows)}, None
+    pending = {s: 0 for s in SPLITS}
     result, counts = {s: [] for s in SPLITS}, Counter()
     for group in components(rows):
         candidates = [rows[i] for i in group]
@@ -170,12 +176,13 @@ def partition(rows, target='risk', cuts=None):
             continue
         if not labelled:
             counts['unlabelled_or_uncertain_campaigns'] += 1
+            pending[SPLITS[next(iter(splits))]] += 1
             continue
         selected = dict(min(labelled, key=lambda r: r['id']))
         selected['split'] = SPLITS[next(iter(splits))]
         result[selected['split']].append(selected)
         counts['duplicates_removed'] += len(candidates) - 1
-    return result, dict(counts)
+    return result, dict(counts), pending
 
 
 def readiness(parts, target):
@@ -188,6 +195,29 @@ def readiness(parts, target):
             for name, rows in parts.items()}
 
 
+
+def annotation_plan(availability, pending):
+    """Counts are lower bounds, never suggested labels or permission to train."""
+    partitions = []
+    for target in ('risk', 'kind'):
+        for name in SPLITS:
+            fold = availability[target][name]
+            deficit = max(0, fold['minimum_campaigns'] - fold['campaigns'],
+                          len(fold['missing_classes']))
+            opportunities = None if pending[target] is None else pending[target][name]
+            partitions.append({'target': target, 'partition': name,
+                'ready': fold['ready'],
+                'minimum_additional_labelled_campaigns': deficit,
+                'unlabelled_or_uncertain_campaigns': opportunities,
+                'missing_classes': fold['missing_classes'],
+                # Class membership of unlabelled mail is deliberately unknown.
+                'minimum_new_campaigns_by_count': None if opportunities is None
+                    else max(0, deficit - opportunities)})
+    return {'schema': 'noisefence-annotation-plan-1',
+            'scope': 'development_only', 'may_activate': False,
+            'risk_ready': all(f['ready'] for f in availability['risk'].values()),
+            'mail_kind_ready': all(f['ready'] for f in availability['kind'].values()),
+            'risk_requires_mail_kind': False, 'partitions': partitions}
 
 
 def matrix(rows):
@@ -306,8 +336,8 @@ def train(dataset, destination, version, base_history=None):
                     'Restore verified identities from original messages or obtain a fully auditable dataset. Do not drop protected references or fabricate missing hashes.',
                     'Labelling can continue. Existing labels and production decisions are unchanged.']}
 
-    parts, grouping = partition(rows, 'risk', header['partition_cuts'])
-    kind_parts, kind_grouping = partition(rows, 'kind', header['partition_cuts'])
+    parts, grouping, risk_pending = partition_inventory(rows, 'risk', header['partition_cuts'])
+    kind_parts, kind_grouping, kind_pending = partition_inventory(rows, 'kind', header['partition_cuts'])
     availability = {'risk': readiness(parts, 'risk'), 'kind': readiness(kind_parts, 'kind')}
     counts={s:{'campaigns':len(v),'risk':dict(Counter(r['risk'] for r in v)),
                'kind':dict(Counter(r['kind'] for r in v))} for s,v in parts.items()}
@@ -315,7 +345,8 @@ def train(dataset, destination, version, base_history=None):
             'sampling':header,'coverage':dict(coverage),'grouping':grouping,'splits':counts,
             'dataset_sha256':digest,'test_unit':'one_representative_per_campaign',
             'limitations':['No automatic activation; independent population review is still required.'],
-            'readiness':availability,'kind_grouping':kind_grouping}
+            'readiness':availability,'kind_grouping':kind_grouping,
+            'annotation_plan':annotation_plan(availability, {'risk':risk_pending, 'kind':kind_pending})}
     if not all(v['ready'] for v in availability['risk'].values()):
         report['status']='insufficient_labels'
         return report

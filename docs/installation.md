@@ -131,3 +131,37 @@ After sign-in, the sidebar shows the running API version, serving node and abbre
 Administrators can open **Software updates** and choose **Check for updates**. Optionally enable automatic checks in this browser while the console is open and visible. The preference is local to that browser and account; no unattended server scheduler is installed. The Rust API contacts the fixed public [GitHub latest-release endpoint](https://docs.github.com/en/rest/releases/releases#get-the-latest-release), without credentials or message content. Checks have a five-second deadline, a 128 KiB response limit, no redirects, and a six-hour cache including failures. Only stable published `vX.Y.Z` releases are compared. Failure or absence of a release means unknown, never "up to date". Matching version numbers do not prove that a custom build matches the published artifact.
 
 There is no install or restart endpoint. Installation stays with the server operator. A future unattended updater must first provide authenticated release artifacts, version/schema compatibility checks, a backup and tested rollback policy, and a cluster-wide deployment lock. Drain and update one MX at a time; verify SMTP readiness and replication before moving to the other. With two required durable copies, SMTP may temporarily defer new mail while either MX restarts. Never reduce this guarantee to make an update appear uninterrupted. Database migrations require their own recovery procedure; swapping the binary does not undo them.
+
+## Remove the native service while preserving data
+
+First resolve or deliberately retain every accepted delivery. On a paired deployment, retire the node through the HA procedure; simply stopping one member makes the other defer mail while two copies remain mandatory. Keep consistent backups and the exact installed version available.
+
+For a standalone native installation, disable the service and any optional NoiseFence timers you installed. Inspect `systemctl list-unit-files 'noisefence*'` and `systemctl list-timers --all` first. Stop associated workers before removing their binaries.
+
+```sh
+sudo systemctl disable --now noisefence.service
+sudo systemctl is-active noisefence.service
+sudo rm /etc/systemd/system/noisefence.service
+sudo systemctl daemon-reload
+```
+
+`is-active` must report `inactive` (a nonzero exit code is expected). Confirm no NoiseFence process or SMTP listener remains. Preserve `/var/lib/noisefence`, `/etc/noisefence`, `/opt/noisefence/releases`, the service account and any PostgreSQL database until the retention and recovery requirements are resolved. Removing a unit does not delete queued mail or disable separately installed OCR, training, monitoring or checkpoint units. The installer can reinstall the same verified release against retained state; it does not reset configuration or accepted messages. Do not run `userdel --remove`, purge the database, or delete the data volume as an uninstall shortcut.
+
+For Docker, `docker compose down` removes the running service while retaining its named volume. Inspect and retain all volumes before removing images. Do not use `down -v` until no accepted mail, credentials or research data must be recovered.
+
+## Rehearse an upgrade without production data
+
+The release lifecycle fixture installs two compatible published archives in order, accepts a synthetic message, upgrades, repeats the install, removes the service unit and verifies that the accepted body, queue identity and configuration remain intact. The test container has no network and no host data mounts. Build and run it on a disposable Linux/Docker test host; systemd requires a privileged container. Use the host's native architecture so emulation does not conflict with service memory-execution protections. Do not remove those protections to make an emulated test pass.
+
+From a source checkout, verify downloaded release artifacts first, then run (replace the archive paths and architecture):
+
+```sh
+docker build --platform linux/arm64 -f tests/fixtures/lifecycle.Dockerfile -t noisefence-lifecycle:local .
+python3 tests/release_lifecycle.py \
+  --old-archive /path/to/noisefence-0.31.6-linux-arm64.tar.gz \
+  --new-archive /path/to/noisefence-0.31.8-linux-arm64.tar.gz \
+  --image noisefence-lifecycle:local --platform linux/arm64 \
+  --output /private/new-lifecycle-report-directory
+```
+
+Keep each archive's adjacent `.sha256` file. The output directory must not exist. The fixture uses only its own generated container name and removes that container on completion. Its report records the tested archive hashes, image identity and duration. It does not certify a PostgreSQL migration, HA promotion, external delivery or untested source changes.

@@ -6,6 +6,8 @@ import { api } from './client';
 import type { CustomPolicy, FilteringAssessment } from './custom-filtering';
 import { PolicyTraceDetails } from './policy-trace-view';
 import { sampleChange, sampleExclusion } from './policy-trace';
+import { PolicyReferenceImpact, type ReferenceImpact } from './policy-reference-impact';
+import { thresholdSource } from './policy-trace';
 import { actionReason } from './action-coverage';
 
 type Result = {
@@ -21,6 +23,7 @@ type Result = {
   action_transitions?: Record<string, number>;
   exclusions?: Record<string, number>;
   note: string;
+  reference_comparison?: ReferenceImpact;
   rows: {
     id: string;
     status: string;
@@ -30,6 +33,8 @@ type Result = {
     before_category?: string;
     before_action?: string | null;
     assessment?: FilteringAssessment;
+    reference_risk?: string | null;
+    new_false_positive?: boolean | null;
   }[];
 };
 export function PolicySample({
@@ -90,7 +95,10 @@ export function PolicySample({
         Use 1–50 message IDs delivered to one recipient. This compares policy
         effects on retained detector results, using saved global settings and
         personal preferences. Bodies and unrecorded facts stay unknown. No
-        messages are rescanned, sent or changed.
+        messages are rescanned, sent or changed. Results compare against the
+        original recorded policy, not a fresh run of the saved policy. After a
+        change is saved, use Settings History to inspect or restore a
+        compatible prior revision; rollback does not recall delivered messages.
       </p>
       <div className="custom-grid">
         <label htmlFor="policy-sample-recipient">
@@ -159,10 +167,11 @@ export function PolicySample({
             {result.value.note} Unknown historical actions or missing rule facts
             are excluded from the complete comparison count.
           </p>
+          <PolicyReferenceImpact value={result.value.reference_comparison} />
           {result.value.rows.map((row) => (
             <details key={row.id} className="panel">
               <summary>
-                <code>{row.id}</code> · {sampleChange(row)}
+                <code>{row.id}</code> · {sampleChange(row)}{row.new_false_positive === true ? " · New known false positive" : ""}
               </summary>
               {!!row.exclusion_reasons?.length && <ul>{row.exclusion_reasons.map(reason => <li key={reason}>{sampleExclusion(reason)}</li>)}</ul>}
               {row.assessment && (
@@ -181,6 +190,8 @@ export function PolicySample({
                     Content threshold: {row.assessment.threshold} · unavailable
                     conditions: {row.assessment.unavailable_conditions}
                   </p>
+                  {row.reference_risk && <p>Your reference label: {row.reference_risk === 'legitimate' ? 'Wanted (HAM/PUB)' : 'SPAM'}.</p>}
+                  {row.assessment.trace && <p>Threshold source: <strong>{thresholdSource(row.assessment.trace)}</strong>.</p>}
                   <PolicyTraceDetails trace={row.assessment.trace} />
                 </>
               )}

@@ -848,3 +848,15 @@ details.management-card summary {
 .shell .rail-footer .software-status button { color: #f5f7fc; background: #2b3749; border: 1px solid #75859b; padding: 6px 10px; width: 100%; }
 .shell .rail-footer .software-status button:hover { background: #39475b; }
 .shell .rail-footer .software-status output { display: block; }
+
+/* Keep the actionable guidance visible without sideways scrolling on phones. */
+@media (max-width: 640px) {
+  .annotation-plan .quality-table-scroll { overflow: visible; }
+  .annotation-plan .quality-metrics { display: block; min-width: 0; width: 100%; }
+  .annotation-plan caption { display: block; white-space: normal; text-align: left; }
+  .annotation-plan thead { display: none; }
+  .annotation-plan tbody { display: grid; gap: 12px; }
+  .annotation-plan tr { display: block; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .annotation-plan th, .annotation-plan td { display: block; min-width: 0; width: auto; white-space: normal; }
+  .annotation-plan td::before { content: attr(data-label); display: block; font-size: .72rem; font-weight: 600; color: var(--muted-foreground); margin-bottom: 4px; }
+}

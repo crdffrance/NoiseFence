@@ -41,6 +41,9 @@ async fn recipient_preview_uses_central_snapshots_and_rechecks_administrator() {
     pg.batch_execute("INSERT INTO noisefence.users(username,password,admin) VALUES('admin','unused',true),('reader','unused',false)").await.unwrap();
     let token = "a".repeat(64);
     pg.execute("INSERT INTO noisefence.sessions(token_hash,username,csrf,expires) VALUES($1,'admin','test-csrf',$2)",&[&noisefence::message::digest(token.as_bytes()),&(noisefence::now()+3600)]).await.unwrap();
+    for (user, risk) in [("admin", "legitimate"), ("reader", "spam")] {
+        pg.execute("INSERT INTO noisefence.quality_labels(username,message_id,risk,created) VALUES($1,$2,$3,$4)", &[&user,&ids[0],&risk,&noisefence::now()]).await.unwrap();
+    }
     let selected = vec![
         ids[3].clone(),
         ids[1].clone(),
@@ -58,12 +61,17 @@ async fn recipient_preview_uses_central_snapshots_and_rechecks_administrator() {
         selected
     );
     for n in [0, 3] {
-        assert_eq!(rows[n].1.as_ref().unwrap().0, "sender@example.org");
+        assert_eq!(rows[n].1.as_ref().unwrap().sender, "sender@example.org");
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&rows[n].1.as_ref().unwrap().1).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&rows[n].1.as_ref().unwrap().scan).unwrap(),
             expected_scan
         );
     }
+    assert_eq!(
+        rows[3].1.as_ref().unwrap().risk.as_deref(),
+        Some("legitimate")
+    );
+    assert!(rows[0].1.as_ref().unwrap().risk.is_none());
     for n in [1, 2, 4] {
         assert!(rows[n].1.is_none());
     }
@@ -156,6 +164,8 @@ async fn recipient_preview_uses_central_snapshots_and_rechecks_administrator() {
     assert_eq!(status, axum::http::StatusCode::OK, "{report}");
     assert_eq!(report["rows"][0]["status"], "simulated");
     assert_eq!(report["rows"][1]["status"], "not_available");
+    assert_eq!(report["rows"][3]["reference_risk"], "legitimate");
+    assert_eq!(report["rows"][1]["reference_risk"], serde_json::Value::Null);
     pg.execute(
         "UPDATE noisefence.users SET disabled=true WHERE username='admin'",
         &[],

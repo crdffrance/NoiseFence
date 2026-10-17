@@ -1101,6 +1101,7 @@ export function AdminConsole({
           >
             <CustomFiltering
               policy={draft.custom_filtering}
+              savedPolicy={config.settings.custom_filtering ?? null}
               onChange={(custom_filtering) =>
                 setDraft({ ...draft, custom_filtering })
               }

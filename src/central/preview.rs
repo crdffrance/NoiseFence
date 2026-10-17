@@ -1,7 +1,12 @@
 //! Bounded input snapshots for administrator-requested recipient policy previews.
 use super::{Central, database_error};
 use anyhow::{Context, Result, ensure};
-pub type Snapshots = Vec<(String, Option<(String, String)>)>;
+pub struct Snapshot {
+    pub sender: String,
+    pub scan: String,
+    pub risk: Option<String>,
+}
+pub type Snapshots = Vec<(String, Option<Snapshot>)>;
 impl Central {
     pub async fn preview_snapshots(
         &self,
@@ -30,12 +35,24 @@ impl Central {
             .map_err(database_error)?;
         let active:bool = tx.query_one("SELECT EXISTS(SELECT 1 FROM noisefence.users WHERE username=$1 AND admin AND NOT disabled)", &[&actor]).await.map_err(database_error)?.get(0);
         ensure!(active, "Administrator rights revoked");
-        let query = tx.prepare("SELECT requested.id,m.sender,m.scan::text FROM unnest($1::text[]) WITH ORDINALITY AS requested(id,position)
+        let query = tx.prepare("SELECT requested.id,m.sender,m.scan::text,l.risk FROM unnest($1::text[]) WITH ORDINALITY AS requested(id,position)
             LEFT JOIN noisefence.messages m ON m.id=requested.id AND (m.created>=$3 OR m.raw_present)
               AND EXISTS(SELECT 1 FROM noisefence.deliveries d WHERE d.message_id=m.id AND d.address=$2)
+            LEFT JOIN noisefence.quality_labels l ON l.message_id=m.id AND l.username=$4
+              AND l.created>=m.created AND l.created<=$5
+              AND l.risk IN ('legitimate','spam')
             ORDER BY requested.position").await.map_err(database_error)?;
         let portal = tx
-            .bind(&query, &[&ids, &address, &(crate::now() - 30 * 86400)])
+            .bind(
+                &query,
+                &[
+                    &ids,
+                    &address,
+                    &(crate::now() - 30 * 86400),
+                    &actor,
+                    &crate::now(),
+                ],
+            )
             .await
             .map_err(database_error)?;
         let mut snapshots = Vec::new();
@@ -55,7 +72,14 @@ impl Central {
                     bytes <= 16 * 1024 * 1024,
                     "The selected sample exceeds the metadata budget; choose fewer messages"
                 );
-                snapshots.push((row.get(0), sender.zip(scan)));
+                snapshots.push((
+                    row.get(0),
+                    sender.zip(scan).map(|(sender, scan)| Snapshot {
+                        sender,
+                        scan,
+                        risk: row.get(3),
+                    }),
+                ));
             }
         }
         tx.commit().await.map_err(database_error)?;

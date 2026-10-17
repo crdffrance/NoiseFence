@@ -1,0 +1,28 @@
+[Unit]
+Description=NoiseFence external SMTP and console probe
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+StateDirectory=noisefence-external
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/libexec/noisefence-external/probe.py --config /etc/noisefence-external.json --output /var/lib/noisefence-external/latest.json
+TimeoutStartSec=65
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+LimitCORE=0
+MemoryMax=256M
+TasksMax=32

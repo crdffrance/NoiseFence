@@ -1,60 +1,67 @@
+# Validation status and reproducible checks
+
+NoiseFence separates software verification, filter qualification and deployment validation. Passing the build does not establish a spam capture rate. A high internal index is not a calibrated probability.
+
+## Filter quality
+
+The targets remain **at least 95% spam recall** and **at most 0.1% false positives on wanted mail**, measured on a recent, independent population with confidence intervals. These are qualification targets, not established product guarantees.
+
+Use [Filter quality](calibration-workbench.md) to freeze a representative sample, record recipient confirmations and compare NoiseFence with the separate Rspamd observer on the same messages. Keep wanted promotions distinct from spam: HAM/PUB describe wanted message categories; both belong to the wanted denominator for false-positive measurement. Rspamd and LLM opinions are predictions, never human labels.
+
+A development report must retain:
+
+- Message and campaign counts, label coverage, detector cohort and operating availability.
+- Paired recall, false-positive rate, precision and confidence intervals, plus excluded or non-final verdicts.
+- Five chronological, campaign-separated partitions for fitting, selection, calibration, threshold selection and development testing.
+- Missing classes and additional campaign counts. More annotations of the same campaign do not provide independent examples.
+- Base-model data provenance and a future, untouched qualification population.
+- Frozen ablations that remove lexical, semantic, LLM, identity and reputation families. These expose dependence on correlated evidence or unavailable providers.
+
+Risk fitting can proceed without complete mail-type labels when its own gates pass. An insufficient sample generates a readiness report and no candidate. A fitted shadow candidate does not authorize production enforcement. Raising a threshold, importing old public spam, or adding broad sender exceptions does not substitute for independent qualification.
+
+Private traffic, subjects, addresses, raw messages, features and annotation evidence stay outside the public repository. Publish only an appropriately scoped aggregate report when its evaluation protocol and limitations can be stated. Never report a small development sample as a population guarantee.
+
+## Software verification
+
+The [checks workflow](../.github/workflows/check.yml) is the current list of automated gates. It covers Rust formatting/lint/tests, frontend types/lint/rendering tests, Python research/deployment tests, isolated PostgreSQL persistence, proxy limits and Linux container smoke tests. The container matrix includes amd64 and arm64. Release jobs validate the exact source revision and package checksums.
+
+Useful local commands from the repository root:
+
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+python3 -m unittest discover -s tests_python -v
+cd web
+npm ci
+npx tsc --noEmit --incremental false
+npm run lint
+npm test
+npm run build
+```
+
+Python research tests require the locked dependencies in `research/requirements.txt`. Tests marked for disposable PostgreSQL, Linux systemd, OCR or container services need their documented fixtures; a skipped test is not a successful integration test. Inspect the exact commit's CI results, including deployment and architecture jobs, before releasing.
+
+## Recovery and availability
+
+An archive checksum or successful `pg_dump` is not a restored service. A recovery rehearsal must verify database identity, original MFA material, restored users and policy, revoked stale sessions, durable queued bodies, per-recipient delivery states and reconciliation receipts. Verify authenticated console login and SMTP fencing before allowing a worker to resume. Preserve the two-copy requirement and account for uncertain upstream acknowledgements. See [high availability](high-availability.md) and [PostgreSQL recovery](postgresql-development.md).
+
+The [external probe](../deploy/external-monitor/README.md) checks DNS, verified STARTTLS, SMTP admission and HTTPS without submitting mail. It requires an independent host and a separate alert destination for off-host monitoring. It does not prove end-to-end delivery or authenticated console/database health.
+
+Record the start/end times and exact tested source, dataset size, image/platform, failures and manual steps for every rehearsal. A synthetic local restore duration is not a production recovery-time guarantee. Test installation, upgrades and removal separately from disaster recovery; never overwrite an active queue to rehearse them.
+
+## Delivery and performance
+
+[Proton compatibility](proton-validation.md) must be verified for the actual domain and routing. Upstream SMTP acceptance does not prove inbox placement or ARC trust. Subject tagging remains a separate deployment gate from observation.
+
+[Performance measurements](performance.md) must state hardware, message sizes, concurrency, cache state, provider availability and which stages are included. A MIME microbenchmark does not establish full SMTP throughput or the end-to-end p95 analysis target.
+
+## Historical experiments
+
+The [6 September 2026 development report](archive/validation-2026-09-06.md) is retained for traceability. Its old-corpus metrics, early test counts, infrastructure state and incomplete delivery experiments must not be quoted as current release results.
+
 <a id="résultats-locaux--6-septembre-2026"></a>
-# Local results — 6 September 2026
-
-## Code and protocols
-
-The release 0.10 has 28 automated Rust tests: SMTP and PIPELING, alias and refusal of the open relay, DATA interrupted, disk pressure, CRLF ambiguities, recovery, multiple recipients, failed notifications, cancelled transaction, actual TLS and unreliable certificate, rights per user and BCC, sessions and CSRF, preservation, falsification of results, encoded objects and limits of signatures.
-
-The cryptographic test uses a public test key and a local DNS cache: DKIM valid on the original and the observed version; DKIM invalid after modifying the object; ARC valid on the modified version; ARC invalid after altering the body. It verifies the cryptography, not the confidence given to the seal by Proton.
-
-The tests go to macOS ARM64 and Linux. The Linux build uses the official image Rust 1.98 Bookworm, imprint `sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922`. The IC reproduces formatting, Clippy, tests and compilation. The binary must be used on the corresponding architecture with glibc 2.36 or later.
-
-The console passes TypeScript and the lint. Static export is compiled, served by Axum with HTTP 200 response; the sessionless API returns 401. The npm audit indicates zero known vulnerability on that date. No automated visual validation or WebMCP compliance is claimed.
-
 <a id="connecteurs-de-la-version-de-développement"></a>
-## Development version connectors
-
-The development branch `0.2.0-dev.1` adds 10 Rust tests, i.e. 38 automatic tests out of real ClamAV tests: INSTREAM exchanges bounded, scanner failure, persistent verdicts, separation of consultative signatures, Bayes calculation, competing and persistent LLM budget, exclusion of recipient fields and attachments, and valid or hostile HTTPS/JSON responses. Six Python Linux tests cover certificates and download of pind sources.
-
-The real ClamAV test, ignored by default in `cargo test`, was executed separately in a Linux ARM64 container: ClamAV 1.4.3, daily 28115, hand 63 and bytecode 339. The healthy message passes; EICAR is detected in a base-encoded MIME attachment64. This checks the transport and decoding, not the detection rate of recent threats. FreshClam recommends 1.4.6: check packages maintained before deployment.
-
-The same harness executed clamav-unofficial-sigs 8.0.0 as a user `clamav`. He separately checked GPG signatures and installed copy of the `sanesecurity.ftm`, `sigwhitelist.ign2`, `phish.ndb` and `junk.ndb` bases with the pin key, then loaded the additional scanner and scanned a healthy file. The official and complementary sockets were distinct. These tests do not measure the recall or false positives of the signatures on the real traffic.
-
-The development console passes lint, TypeScript and static export. Scaleway exchanges are simulated by a local HTTPS server; no real cloud call, IAM right or delivability effect is validated by these tests.
-
 <a id="modèle-candidat--objectifs-non-atteints"></a>
-## Candidate model: objectives not achieved
-
-Source: public corpus Apache SpamHistoric Assassin. 5,874 examples after import and standardized deduplication, of which 4,659 for training, 609 for validation, 606 for testing. Remote variants of a campaign can escape consolidation. This result is exploratory on old data, without guarantee of temporal independence.
-
-| Measurement on the test | Result |
-|---|---:|
-| Spams detected | 117 / 192 |
-| Recall | 60.94 % |
-| 95% CI of recall | 53.89–67.56 % |
-| Legitimate messages marked | 0 / 414 |
-| False positives observed | 0 % |
-| 95% CI of false positives | 0–0,919 % |
-| Accuracy observed | 100 % |
-| Activation of the candidate | Denied |
-
-The machine-readable ratio is [model-bootstrap.report.json](model-bootstrap.report.json). The small number does not show ≤ 0.1% false positives. The recall remains under 95%. The activation control therefore refuses this candidate. This measure concerns the local classifier; the rules, authentication and reputation of the complete pipeline must be evaluated separately on a recent and representative corpus. No candidate model is activated in the delivered configuration.
-
-Candidate Bernoulli Bayes of the development branch uses exactly the same separation. He detects 1 spam out of 192 (recall 0.52%, IC 95% 0.092–2.891 %), with 0 false positive on 414 legitimate messages. The conservative threshold is calibrated only on validation. It is refused and does not replace logistics. His [full report](model-bayes.report.json) makes this comparison reproducible.
-
 <a id="rapidité-et-robustesse"></a>
-## Rapidity and robustness
-
-Local extraction on a synthetic message of 1,048,521 bytes, 1,000 repeats on the development Mac: p50 3,954 ms, p95 7,491 ms. This test excludes DNS, classification with loaded model, TLS and persistence. This is not a measure of the full incremental cost on the reference machine 4 vCPU / 8GB.
-
-The reception limits four competing analyses. Network checks of a message are limited to five seconds and an incomplete analysis keeps the object unfixed.
-
-The libfuzzer SMTP/MIME targets were compiled and executed on 10,000 inputs each, as well as 5,000 deterministic mutations in the tests. These first stable executions did not have cover instrumentation/sanitizer: they constitute a control of the harness operation, not a guided fuzzing campaign. Long-run instruments and real full disk/crash hardware tests remain to be performed.
-
-## Pending Proton validation
-
-A first transport test was performed from the Linux server to a controlled Proton box: a direct message, a message via the NoiseFence file, and a message via the already prefixed and international file with object. Direct sending received `250` under TLS 1.3; both relays were accepted by Proton, marked delivered, and then their bodies were deleted from the spool. The user confirmed the three messages in the spam folder. The correct display of international characters has not yet been confirmed.
-
-These synthetic messages did not have a DKIM signature and the sender domain FPS did not allow the server IP. As the direct cookie also arrives in spam, the trial does not allow to assign this ranking to the prefix. The server reputation and authentication must be isolated in the next trials. The third message had an already prefixed object: it was not a real modification trial followed by a published ARC seal. The deployment-specific proofs and test addresses remain outside the public repository.
-
-No MX has been modified. The switch remains suspended. The eight full cases of the [proton-validation.md](proton-validation.md) protocol remain to be executed. The observation mode remains the starting configuration and the marking requires a recent report provided with proof of delivery. The server details and the actual addresses belong to the local configuration of each deployment.
+Legacy section links now refer to the historical report above.

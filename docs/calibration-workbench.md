@@ -89,6 +89,25 @@ Quality annotations are stored separately from operational Spam/Legitimate corre
 
 Previously reviewed regression messages must remain reserved. They are useful for detecting regressions, but cannot serve as an independent final test.
 
+## Next useful annotations
+
+New training reports include an annotation plan for risk and mail type separately.
+For each fixed chronological partition, it shows a lower bound on additional
+labelled campaigns, the number of still-unlabelled or uncertain eligible campaigns,
+and the missing classes. Conflicting, protected and cross-period campaigns do not
+count as annotation opportunities. Missing chronology is shown as not measurable.
+
+Use this as a collection and review guide, never as a label quota. The risk of an
+unlabelled message is unknown; annotating all available messages may still leave a
+class missing. Keep genuine uncertainty. New mail cannot fill an old fixed time
+partition: collect a broader development window and freeze a new sample, preserving
+protected campaigns and the future holdout. Existing samples remain unchanged.
+
+Risk fitting already works without a mail-type model. The plan makes that independence
+explicit; it does not change minimum counts, provenance checks, qualification bounds
+or activation policy. A candidate prepared from development data is not a qualified
+production filter. Older reports must be regenerated to obtain the plan.
+
 ## Compare and train
 
 Select a sample, then **Compare this sample**. NoiseFence and Rspamd are evaluated against the same human labels. Rspamd is an independent prediction, never an automatic label or training target. Reports include recall, false-positive rate, precision, confidence intervals, review counts, campaign-level metrics and mail-type slices. Timeouts, soft rejections and missing results remain review outcomes. Unlabelled messages are counted separately. PUB is a mail type, not a maliciousness label.

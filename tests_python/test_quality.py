@@ -175,6 +175,44 @@ class QualityTests(unittest.TestCase):
         self.assertEqual(report['status'],'insufficient_labels')
         self.assertFalse((self.root/'no-model').exists())
 
+    def test_annotation_inventory_preserves_exclusions_and_counts_campaigns_not_messages(self):
+        _, rows, _, _, _ = self.q.load_dataset(self.path)
+        rows = copy.deepcopy(rows)
+        for row in rows:
+            row['risk'] = None
+            row['kind'] = None
+        cuts = self.q.chronological_cuts(rows)
+        # Two copies of one unlabelled campaign represent one opportunity.
+        rows[1]['fingerprint'] = rows[0]['fingerprint']
+        rows[1]['simhash'] = rows[0]['simhash']
+        # Cross-period copies cannot be used to plug a partition's shortage.
+        rows[-1]['fingerprint'] = rows[2]['fingerprint']
+        rows[-1]['simhash'] = rows[2]['simhash']
+        parts, grouping, pending = self.q.partition_inventory(rows, 'risk', cuts)
+        self.assertEqual(sum(len(p) for p in parts.values()), 0)
+        self.assertEqual(grouping['cross_period_campaigns'], 1)
+        self.assertEqual(sum(pending.values()), len(rows) - 3)
+        availability = {'risk': self.q.readiness(parts, 'risk'),
+                        'kind': self.q.readiness(parts, 'kind')}
+        plan = self.q.annotation_plan(availability, {'risk': pending, 'kind': pending})
+        self.assertFalse(plan['risk_ready'])
+        self.assertFalse(plan['may_activate'])
+        self.assertFalse(plan['risk_requires_mail_kind'])
+        for fold in plan['partitions']:
+            self.assertEqual(fold['minimum_additional_labelled_campaigns'], 12)
+            self.assertEqual(fold['minimum_new_campaigns_by_count'], 0)
+            self.assertFalse(fold['ready'])  # opportunities never become inferred labels
+
+    def test_annotation_plan_without_time_separation_does_not_invent_opportunities(self):
+        parts, _, pending = self.q.partition_inventory([], cuts=[])
+        availability = {'risk': self.q.readiness(parts, 'risk'),
+                        'kind': self.q.readiness(parts, 'kind')}
+        plan = self.q.annotation_plan(availability, {'risk': pending, 'kind': pending})
+        self.assertIsNone(pending)
+        self.assertTrue(all(p['unlabelled_or_uncertain_campaigns'] is None
+                            and p['minimum_new_campaigns_by_count'] is None
+                            for p in plan['partitions']))
+
     def test_unseen_profiles_count_as_abstentions_instead_of_correct_predictions(self):
         q=self.q
         report=q.metrics(np.array([1,0]),np.array([.99,.01]),.2,.8,np.array([False,False]))
@@ -208,6 +246,8 @@ class QualityTests(unittest.TestCase):
         report=self.q.train(path,candidate,'SOFTWARE-RISK-ONLY')
         self.assertEqual(report['status'],'candidate_prepared')
         self.assertEqual(report['mail_kind']['status'],'insufficient_labels')
+        self.assertTrue(report['annotation_plan']['risk_ready'])
+        self.assertFalse(report['annotation_plan']['mail_kind_ready'])
         model=json.loads((candidate/'model.json').read_text())
         self.assertEqual(model['schema'],'noisefence-quality-model-2')
         self.assertEqual(model['kind_models'],[])
