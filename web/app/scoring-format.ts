@@ -22,3 +22,21 @@ export type FusionAccounting = {
   version:string;model_sha256?:string|null;policy_sha256:string;bias:number;total_logit:number;
   families:Record<string,{raw:number;retained:number;minimum:number;maximum:number}>;
 };
+
+// Arithmetic sensitivity of the recorded content index, not a new verdict or
+// a calibrated alternative model. Never substitute current policy for history.
+export function lexicalSensitivity(report: ScoringReport, threshold?: number | null) {
+  const {lexical, semantic, rules_total: rules, total_logit: total, score} = report;
+  if (threshold == null || !Number.isFinite(threshold) || threshold <= 0 || threshold >= 100
+    || lexical == null || rules == null || total == null || score == null
+    || ![lexical, rules, total, score].every(Number.isFinite)
+    || (semantic != null && !Number.isFinite(semantic)) || report.invalid_inputs !== 0
+    || score < 0 || score > 100 || report.baseline != null
+    || Math.abs(lexical + (semantic ?? 0) + rules - total) > 1e-6) return null;
+  const index = (value: number) => 100 / (1 + Math.exp(-value));
+  // Legacy indices may be rounded; inconsistent ledgers cannot explain them.
+  if (Math.abs(index(total) - score) > 0.051) return null;
+  return {lexicalOnly: index(lexical), withoutLexical: index((semantic ?? 0) + rules),
+    lexicalReachesThreshold: index(lexical) >= threshold,
+    totalReachesThreshold: score >= threshold};
+}

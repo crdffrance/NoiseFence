@@ -1,7 +1,8 @@
-import { scoreAdjustment, scoreValue, type ScoringReport, type FusionAccounting } from './scoring-format';
+import { lexicalSensitivity, scoreAdjustment, scoreValue, type ScoringReport, type FusionAccounting } from './scoring-format';
 
-export function ScoreAccounting({report}:{report?:ScoringReport|null}) {
+export function ScoreAccounting({report,threshold}:{report?:ScoringReport|null;threshold?:number|null}) {
   if (!report) return <p className="diagnostic-muted">Exact score accounting was not recorded for this message.</p>;
+  const sensitivity = lexicalSensitivity(report, threshold);
   return <details className="diagnostic-section">
     <summary>How the content index was calculated</summary>
     <p className="diagnostic-muted">Recorded policy: <code>{report.version}</code>. Contributions below are log-odds inputs to an advisory index, not probabilities. Rspamd points and comparison engines are not added. This is the content calculation; a qualified fusion model or an explicit rule may determine the final classification.</p>
@@ -13,6 +14,15 @@ export function ScoreAccounting({report}:{report?:ScoringReport|null}) {
       <div><dt>Total log-odds input</dt><dd>{scoreValue(report.total_logit)}</dd></div>
       <div><dt>Content risk index · 0–100</dt><dd>{scoreValue(report.score)}</dd></div>
     </dl>
+    {sensitivity && <div className="diagnostic-callout">
+      <strong>Content index sensitivity</strong>
+      <p>{sensitivity.lexicalReachesThreshold
+        ? 'The lexical input alone reaches the recorded content threshold. This is not independent confirmation from several detectors.'
+        : 'The lexical input alone stays below the recorded content threshold.'}
+        {sensitivity.lexicalReachesThreshold && !sensitivity.totalReachesThreshold && ' Other retained inputs bring the combined index below that threshold.'}</p>
+      <p>Lexical input alone: {scoreValue(sensitivity.lexicalOnly)} / 100 · Without the lexical input: {scoreValue(sensitivity.withoutLexical)} / 100.</p>
+      <p>Arithmetic diagnostic only: other inputs are held fixed. Removing or reweighting a model requires new calibration; these values are not probabilities or replacement decisions. Missing checks provide no clean vote.</p>
+    </div>}
     {report.score == null && <p className="diagnostic-callout">No usable content index. Invalid or inconsistent inputs are not interpreted as zero risk.</p>}
     {report.invalid_inputs > 0 && <p className="diagnostic-callout">{report.invalid_inputs} unrecognized weighted inputs prevented this calculation.</p>}
     <div className="table-scroll"><table><thead><tr><th>Signal</th><th>Occurrences</th><th>Proposed</th><th>Retained</th><th>Treatment</th></tr></thead>

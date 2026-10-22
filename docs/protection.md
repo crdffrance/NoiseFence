@@ -60,7 +60,7 @@ VirusTotal uses existing domain and SHA-256 file reports through `GET /api/v3/do
 
 Use provider contracts that authorize organizational filtering. A free key does not by itself establish authorization for every product or business use. See [VirusTotal’s public and premium API terms](https://docs.virustotal.com/reference/public-vs-premium-api). Provider data is not redistributed with the GPL software.
 
-Requests use fixed APIs and certificate-verified TLS, without following API redirects. Responses are limited to 256 KiB. Extraction considers up to eight domains and eight attachment hashes, with at most 12 queries per provider/message. Active URL following can add visited domains and prioritize final destinations. A common deadline is not renewed per indicator. Caches last at most 30 minutes, or five minutes for unknown/stale results. Authorization/quota errors impose a five-minute cooldown. Reports expose omissions and failures without copying raw provider replies.
+Requests use fixed APIs and certificate-verified TLS, without following API redirects. Responses are limited to 256 KiB. Extraction considers up to eight domains and eight attachment hashes, with at most 12 queries per provider/message. Final redirect destinations have priority, followed by ranked content hosts, then remaining domains and attachment hashes. Content-host ranking is retained even when HTTP following is disabled. This uses the existing extraction limits; form submission stays disabled. A common deadline is not renewed per indicator. Caches last at most 30 minutes, or five minutes for unknown results. A stale VirusTotal report is cached for 30 minutes to avoid repeatedly spending quota on the same old analysis; it remains stale, with no usable analysis age or clean vote. Authorization/quota errors impose a five-minute cooldown unless the provider supplies a valid Retry-After value (bounded to seven days). Reports expose omissions and failures without copying raw provider replies.
 
 Spamhaus DQS has a separate IP/domain connector, return-code validation and DNS cache. Configure an authorized key under **Advanced settings** or through the allowed host environment; see [RBL admission](early-rbl.md).
 
@@ -135,3 +135,23 @@ missing targets, duplicate targets, count mismatch, provider errors and invalid
 schema. These counters contain no response body, URL or credential. Target
 validation and per-entry error handling remain strict; diagnostics do not grant
 extra quotas or relax cooldowns.
+
+## Diagnosing CRDF responses
+
+The parser accepts only explicit binary blacklist states: JSON booleans, integer
+0/1, or strings "0"/"1". Missing, null and other values remain invalid. Every
+batch entry must match the requested synthetic root, and a malicious record must
+match its host; a page-specific record remains suspicious rather than a host-wide
+malicious verdict. Valid siblings survive a malformed entry.
+
+Message diagnostics distinguish an invalid blacklist state, missing lookup state,
+target mismatch and unsupported schema. For HTTP 401/403/429 responses, a separate
+diagnostic reader accepts only documented CRDF machine codes, at most 8 KiB and
+100 ms within the existing analysis deadline. Provider messages and key metadata
+are never saved. Failure, cooldown and retry behavior do not depend on receiving
+that optional diagnostic. A non-JSON 403 remains an authorization/access failure;
+it is not proof that the key lacks a scope.
+
+`MissingPermission` requires checking the provider's authorized lookup access;
+unlimited local budgets do not grant permissions or bypass upstream limits. See
+the [CRDF API contract](https://threatcenter.crdf.fr/api/doc/).

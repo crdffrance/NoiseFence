@@ -76,6 +76,51 @@ fn commercial_distribution_requires_concordant_content() {
     assert!(!inspect("[PUB] Bonjour", "X-NoiseFence-Status: pub\r\n", "Bonjour.").is_publicity());
 }
 #[test]
+fn currency_discounts_and_cheaper_offers_require_distribution() {
+    for (subject, body) in [
+        (
+            "Votre forfait peut coûter moins cher",
+            "Découvrez notre offre. Se désabonner.",
+        ),
+        (
+            "Une jolie attention, avec 10 € de réduction !",
+            "Nos fleurs de saison. Se désabonner.",
+        ),
+        (
+            "Save £10 on your next visit",
+            "Our seasonal collection. Unsubscribe.",
+        ),
+        ("Save $15.50 today", "Our collection. Unsubscribe."),
+        ("Special offer: £10 off", "Our collection. Unsubscribe."),
+        ("Économisez 12,50 euros", "Shop now. Se désabonner."),
+    ] {
+        let report = inspect(subject, "", body);
+        assert_eq!(report.verdict, Verdict::Promotion, "{subject}: {report:?}");
+    }
+    for (subject, headers, body) in [
+        ("Save £10", "", "Our seasonal collection."),
+        (
+            "Votre facture",
+            LIST,
+            "Votre facture est disponible. 10 € de réduction ont été appliqués.",
+        ),
+        (
+            "Your verification code",
+            LIST,
+            "Your verification code is 123456. Save $10. Unsubscribe.",
+        ),
+        (
+            "Re: Votre forfait moins cher",
+            "In-Reply-To: <thread@example.org>\r\n",
+            "Découvrez notre offre. Se désabonner.",
+        ),
+        ("Budget", LIST, "The cost is $10. Your balance is 10 €."),
+    ] {
+        assert!(!inspect(subject, headers, body).is_publicity(), "{subject}");
+    }
+}
+
+#[test]
 fn newsletters_are_configurable_and_discussions_are_excluded() {
     let raw = mail(
         "La lettre d'information hebdomadaire",

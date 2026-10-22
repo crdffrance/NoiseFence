@@ -275,6 +275,8 @@ pub struct Targets {
     pub context: Vec<context::Hint>,
     pub domains: BTreeSet<String>,
     pub destination_domains: BTreeSet<String>,
+    /// Ranked content hosts, independent of whether HTTP navigation is enabled.
+    pub priority_domains: Vec<String>,
     pub hashes: BTreeSet<String>,
     pub urls: Vec<String>,
     pub urls_truncated: bool,

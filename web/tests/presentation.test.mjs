@@ -254,3 +254,14 @@ test('qualification separates unassessed ham from guarded ham and never weakens 
   assert.equal(classificationQualification(guarded), null);
   assert.equal(classificationQualification({decision: {outcome: 'legitimate'}}), null);
 });
+
+test('CRDF diagnostics separate schema, authorization and provider quota failures', () => {
+  assert.match(checkFailure('crdf_invalid_blacklist_state'), /invalid blacklist state/);
+  assert.match(checkFailure('crdf_missing_lookup_state'), /lookup state/);
+  assert.match(checkFailure('crdf_missing_permission'), /permission/);
+  assert.match(checkFailure('crdf_invalid_token'), /credential/);
+  assert.match(checkFailure('crdf_endpoint_quota'), /endpoint quota/);
+  assert.match(checkFailure('crdf_key_quota'), /credential quota/);
+  assert.match(checkFailure('crdf_ip_blocked'), /server IP/);
+  assert.match(checkFailure('crdf_key_blocked'), /API credential/);
+});

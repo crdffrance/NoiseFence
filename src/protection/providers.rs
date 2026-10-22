@@ -219,6 +219,8 @@ impl TransportMetrics {
             "CRDF target missing" => "crdf_target_missing",
             "CRDF duplicate target" => "crdf_duplicate_target",
             "CRDF count mismatch" => "crdf_count_mismatch",
+            "CRDF invalid blacklist state" => "crdf_invalid_blacklist_state",
+            "CRDF missing lookup state" => "crdf_missing_lookup_state",
             "CRDF error" | "CRDF entry error" => "crdf_provider_error",
             _ => "crdf_invalid_schema",
         };
@@ -241,6 +243,33 @@ struct TransportError {
     cooldown: Option<u64>,
     retryable: bool,
 }
+async fn crdf_error_detail(response: &mut reqwest::Response) -> Option<&'static str> {
+    if response.content_length().is_some_and(|n| n > 8192) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.ok()? {
+        if bytes.len() + chunk.len() > 8192 {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    if body["error"].as_bool() != Some(true) {
+        return None;
+    }
+    // Only documented machine codes; do not store provider text or key metadata.
+    match (response.status().as_u16(), body["error_code"].as_str()?) {
+        (401, "InvalidToken") => Some("crdf_invalid_token"),
+        (403, "MissingPermission") => Some("crdf_missing_permission"),
+        (429, "RequestExceed") => Some("crdf_key_quota"),
+        (429, "EndpointRateLimitExceeded") => Some("crdf_endpoint_quota"),
+        (429, "IPBlacklisted") => Some("crdf_ip_blocked"),
+        (429, "KeyBlacklisted") => Some("crdf_key_blocked"),
+        _ => None,
+    }
+}
+
 fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
     if headers.get_all(reqwest::header::RETRY_AFTER).iter().count() != 1 {
         return None;
@@ -481,7 +510,7 @@ impl Client {
             }
             if let Some(verdict)=verdict {
                 db.execute("DELETE FROM cache WHERE key IN (SELECT key FROM cache ORDER BY expires LIMIT MAX(0,(SELECT COUNT(*) FROM cache)-9999))",[])?;
-                db.execute("INSERT OR REPLACE INTO cache VALUES(?1,?2,?3)",params![key,now+if matches!(verdict,Verdict::Unknown|Verdict::Stale){300}else{1800},serde_json::to_string(&verdict)?])?;
+                db.execute("INSERT OR REPLACE INTO cache VALUES(?1,?2,?3)",params![key,now+cache_ttl(verdict),serde_json::to_string(&verdict)?])?;
             }db.commit()?;Ok(())
         }).await?
     }
@@ -496,7 +525,7 @@ impl Client {
             let now = crate::now();
             tx.execute("DELETE FROM cache WHERE expires<=?1", [now])?;
             for (key, verdict) in values {
-                let ttl = if matches!(verdict, Verdict::Unknown | Verdict::Stale) {300} else {1800};
+                let ttl = cache_ttl(verdict);
                 tx.execute("INSERT OR REPLACE INTO cache VALUES(?1,?2,?3)",
                     params![key, now + ttl, serde_json::to_string(&verdict)?])?;
             }
@@ -581,6 +610,25 @@ impl Client {
             if let Some(seconds) = delay {
                 let mut saved = metrics.retry_after.lock().unwrap();
                 *saved = Some(saved.unwrap_or(0).max(seconds));
+            }
+            if provider == Provider::Crdf && matches!(code, 401 | 403 | 429) {
+                // Diagnostic only: preserve the HTTP failure and cooldown even
+                // when the body is missing, oversized, delayed or unrecognized.
+                let span = metrics.timings.start(Phase::ResponseBody);
+                let detail = tokio::time::timeout(
+                    Duration::from_millis(100),
+                    crdf_error_detail(&mut response),
+                )
+                .await;
+                span.finish();
+                if let Ok(Some(detail)) = detail {
+                    *metrics
+                        .failures
+                        .lock()
+                        .unwrap()
+                        .entry(detail.into())
+                        .or_default() += 1;
+                }
             }
             return Err(TransportError {
                 failure: match code {
@@ -868,6 +916,7 @@ impl Client {
         let indicators: Vec<(String, bool)> = targets
             .destination_domains
             .iter()
+            .chain(targets.priority_domains.iter())
             .chain(targets.domains.iter())
             .filter(|s| super::local::public_domain(s))
             .filter(|s| seen.insert(s.as_str()))
@@ -1059,6 +1108,17 @@ fn failed(status: Status, failure: Option<Failure>) -> Lookup {
         failure,
     }
 }
+// A stale remote analysis is not refreshed by repeating the same GET every
+// five minutes. Cache its unavailable verdict for 30 minutes, without granting
+// it a usable analysis age or a clean vote. Unknown targets retain a short TTL.
+fn cache_ttl(verdict: Verdict) -> i64 {
+    if verdict == Verdict::Unknown {
+        300
+    } else {
+        1800
+    }
+}
+
 fn apply_lookup(
     report: &mut ProviderReport,
     hits: &mut Vec<(String, bool)>,
@@ -1090,11 +1150,7 @@ fn apply_lookup(
         return;
     };
     let cache_age = if result.cached {
-        if matches!(verdict, Verdict::Unknown | Verdict::Stale) {
-            300
-        } else {
-            1800
-        }
+        cache_ttl(verdict) as u32
     } else {
         0
     };
@@ -1198,14 +1254,13 @@ fn parse_crdf_entry(entry: &serde_json::Value, indicator: &str) -> Result<Verdic
         Some(false) => Ok(Verdict::Unknown),
         Some(true) => {
             let record = &entry["data"];
-            let blacklisted = match record["isBlacklisted"]
-                .as_str()
-                .map(str::to_owned)
-                .or_else(|| record["isBlacklisted"].as_u64().map(|n| n.to_string()))
-                .as_deref()
-            {
-                Some("1") => true,
-                Some("0") => false,
+            // Accept only explicit binary states, never general truthiness.
+            let blacklisted = match &record["isBlacklisted"] {
+                serde_json::Value::Bool(value) => *value,
+                serde_json::Value::String(value) if value == "1" => true,
+                serde_json::Value::String(value) if value == "0" => false,
+                serde_json::Value::Number(value) if value.as_u64() == Some(1) => true,
+                serde_json::Value::Number(value) if value.as_u64() == Some(0) => false,
                 _ => anyhow::bail!("CRDF invalid blacklist state"),
             };
             let category = record["category"]
@@ -1728,6 +1783,136 @@ mod transport_tests {
         assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE"));
     }
 
+    #[tokio::test]
+    async fn crdf_http_failure_detail_is_bounded_private_and_never_a_verdict() {
+        for (status, body, expected) in [
+            ("403 Forbidden", serde_json::json!({"error":true,"error_code":"MissingPermission","message":"PRIVATE KEY"}).to_string(), Some("crdf_missing_permission")),
+            ("429 Too Many Requests", serde_json::json!({"error":true,"error_code":"IPBlacklisted"}).to_string(), Some("crdf_ip_blocked")),
+            ("403 Forbidden", serde_json::json!({"error":true,"error_code":"PRIVATE KEY"}).to_string(), None),
+            ("403 Forbidden", "x".repeat(9000), None),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            save_key(root.path(), Provider::Crdf, "synthetic-key-for-transport").unwrap();
+            let mut client = Client::new(&Settings {timeout_ms: FUNCTIONAL_TIMEOUT_MS, ..Default::default()}, root.path()).unwrap();
+            let (url, task) = server(status, body, 0).await;
+            client.endpoint_override = Some(url);
+            let mut targets = Targets::default();
+            targets.domains.insert("example.com".into());
+            let (report, hits) = client.inspect(Provider::Crdf, true, &targets, &Policy::default()).await;
+            assert_eq!(report.status, Status::Unavailable);
+            assert!(report.observations.is_empty());
+            assert!(hits.is_empty());
+            assert_eq!(report.request_count, 1);
+            assert!(quota_usage(root.path(), Provider::Crdf).unwrap().cooldown_until.is_some());
+            if let Some(code) = expected { assert_eq!(report.failure_counts[code], 1); }
+            let serialized = serde_json::to_string(&report).unwrap();
+            assert!(!serialized.contains("PRIVATE"));
+            assert!(!serialized.contains("example.com"));
+            task.await.unwrap();
+        }
+    }
+
+    #[test]
+    fn crdf_binary_states_are_strict_and_target_bound() {
+        use serde_json::json;
+        let mut entry = json!({"url":"https://example.com/","error":false,"in_database":true,
+            "data":{"isBlacklisted":true,"category":"Malicious:Phishing","url":"https://example.com/"}});
+        for state in [json!(true), json!(1), json!("1")] {
+            entry["data"]["isBlacklisted"] = state;
+            assert_eq!(
+                parse_crdf_entry(&entry, "example.com").unwrap(),
+                Verdict::Malicious
+            );
+            assert!(parse_crdf_entry(&entry, "other.example").is_err());
+        }
+        for state in [json!(false), json!(0), json!("0")] {
+            entry["data"]["isBlacklisted"] = state;
+            assert_eq!(
+                parse_crdf_entry(&entry, "example.com").unwrap(),
+                Verdict::NoHit
+            );
+        }
+        for state in [
+            json!(null),
+            json!(2),
+            json!(-1),
+            json!(1.0),
+            json!("true"),
+            json!(""),
+            json!([]),
+        ] {
+            entry["data"]["isBlacklisted"] = state;
+            let error = parse_crdf_entry(&entry, "example.com").unwrap_err();
+            let metrics = TransportMetrics::default();
+            metrics.invalid_crdf_response(&error);
+            let mut report = ProviderReport::default();
+            metrics.copy_to(&mut report);
+            assert_eq!(report.failure_counts["crdf_invalid_blacklist_state"], 1);
+        }
+        entry["data"]["isBlacklisted"] = json!(true);
+        entry["data"]["url"] = json!("https://example.com/shared/path");
+        assert_eq!(
+            parse_crdf_entry(&entry, "example.com").unwrap(),
+            Verdict::Suspicious
+        );
+        entry["in_database"] = json!(null);
+        assert!(parse_crdf_entry(&entry, "example.com").is_err());
+    }
+
+    #[tokio::test]
+    async fn stale_cache_avoids_repeated_queries_without_becoming_clean() {
+        let root = tempfile::tempdir().unwrap();
+        let client = Client::new(&Settings::default(), root.path()).unwrap();
+        client
+            .remember("single".into(), "key".into(), Some(Verdict::Stale), false)
+            .await
+            .unwrap();
+        client
+            .remember_batch(vec![
+                ("batch".into(), Verdict::Stale),
+                ("unknown".into(), Verdict::Unknown),
+            ])
+            .await
+            .unwrap();
+        let now = crate::now();
+        {
+            let db = client.db.lock().unwrap();
+            for key in ["single", "batch"] {
+                let expires: i64 = db
+                    .query_row("SELECT expires FROM cache WHERE key=?1", [key], |r| {
+                        r.get(0)
+                    })
+                    .unwrap();
+                assert!((1790..=1800).contains(&(expires - now)));
+            }
+            let expires: i64 = db
+                .query_row("SELECT expires FROM cache WHERE key='unknown'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert!((290..=300).contains(&(expires - now)));
+        }
+        let mut report = ProviderReport {
+            status: Status::Complete,
+            ..Default::default()
+        };
+        let mut hits = vec![];
+        apply_lookup(
+            &mut report,
+            &mut hits,
+            Provider::Virustotal,
+            "example.com",
+            false,
+            cached(Verdict::Stale),
+        );
+        assert_eq!(report.status, Status::Stale);
+        assert_eq!(report.unknown, 1);
+        assert_eq!(report.malicious, 0);
+        assert!(hits.is_empty());
+        assert_eq!(report.observations[0].cache_max_age_seconds, 1800);
+        assert_eq!(report.observations[0].analysis_max_age_seconds, None);
+    }
+
     #[test]
     fn crdf_partial_batch_keeps_valid_results_and_a_fixed_failure_reason() {
         let metrics = TransportMetrics::default();
@@ -2008,10 +2193,13 @@ mod transport_tests {
         )
         .unwrap();
         let mut client = Client::new(&settings, root.path()).unwrap();
-        let mut expected = vec!["z-final.example.com".to_string()];
+        let mut expected = vec![
+            "z-final.example.com".to_string(),
+            "y-action.example.com".into(),
+        ];
         let mut originals: Vec<_> = (0..13).map(|i| format!("a{i}.example.com")).collect();
         originals.sort();
-        expected.extend(originals.into_iter().take(11));
+        expected.extend(originals.into_iter().take(10));
         let entries: Vec<_> = expected
             .iter()
             .map(|s| serde_json::json!({"url":crdf_url(s),"error":false,"in_database":false}))
@@ -2028,6 +2216,12 @@ mod transport_tests {
             targets.domains.insert(format!("a{i}.example.com"));
         }
         targets.domains.insert("z-final.example.com".into());
+        targets.domains.insert("y-action.example.com".into());
+        targets.priority_domains = vec![
+            "y-action.example.com".into(),
+            "z-final.example.com".into(),
+            "private.local".into(),
+        ];
         targets
             .destination_domains
             .insert("z-final.example.com".into());
@@ -2040,7 +2234,7 @@ mod transport_tests {
         assert!(evidence.targets.iter().all(|t| t.usable()));
         assert!(evidence.targets.iter().all(|t| !t.malicious()));
         assert_eq!(report.checked, 12, "{report:?}");
-        assert_eq!(report.omitted, 2);
+        assert_eq!(report.omitted, 3);
         assert_eq!(report.status, Status::Limited);
         assert_eq!(report.request_count, 1);
         assert_eq!(

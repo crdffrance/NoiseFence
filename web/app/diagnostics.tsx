@@ -171,7 +171,7 @@ function AnalysisDetails({
       </dl>
       <p className="diagnostic-callout">{policySummary(analysis.policy)}</p>
       <ReceiptActivation epoch={analysis.activation_epoch} />
-      <ScoreAccounting report={analysis.scoring} />
+      <ScoreAccounting report={analysis.scoring} threshold={analysis.policy?.threshold} />
       <FusionAccountingView report={analysis.fusion_combination} decisionSource={analysis.assessment?.decision.source} />
       <DetectorObservations report={analysis.observations} />
       {analysis.policy && (
