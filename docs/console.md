@@ -23,6 +23,10 @@ One navigation entry contains three keyboard-accessible tabs:
 | Engine comparison | Inspect the separate Rspamd opinion and scoped disagreements. | `/?view=quality&tab=comparison` |
 | Rule reliability | Review errors on available labels, check coverage and rule contributions. | `/?view=quality&tab=reliability` |
 
+![Quality and research comparison with synthetic messages](images/console-quality.png)
+
+*The screenshot uses synthetic messages and illustrative scores; it contains no private mail and is not an accuracy benchmark.*
+
 Left/Right and Home/End move between tabs. Links survive sign-in, but never grant access. Existing `/?view=quality&sample=<UUID>` links continue to open the annotation sample. Switching away from the samples tab removes its identifier from the URL. Comparison resets keep the comparison scope; they do not switch silently to all mail. The message list shows the NoiseFence category/index and the Rspamd action/points side by side. Their units remain separate; a Rspamd deferral is not a spam verdict.
 
 Annotation samples appear first. Create another sample or inspect **Data readiness and release qualification** in the expandable panels below. Risk (wanted/unwanted) is separate from mail type. Wanted marketing belongs to the wanted denominator when measuring false positives. Rspamd agreement, software tests and successful deployment are not evidence of calibrated filtering quality.

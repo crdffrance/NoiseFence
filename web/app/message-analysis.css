@@ -707,3 +707,12 @@
 }
 
 .shell .detail-grid > :not(.message-actions-panel) { grid-column: 1; }
+
+.shell .messages-comparison table { table-layout: fixed; }
+.shell .messages-comparison th:first-child { width: 34%; }
+.shell .messages-comparison th:nth-child(2) { width: 18%; }
+.shell .messages-comparison th:nth-child(3) { width: 27%; }
+.shell .messages-comparison td, .shell .messages-comparison th { white-space: normal; overflow-wrap: anywhere; }
+.shell .messages-comparison .message-link { min-width: 0; }
+.shell .messages-comparison .message-score { display: flex; margin-top: 8px; min-width: 0; }
+.shell .messages-comparison .message-copy time { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 11px; }

@@ -1552,7 +1552,7 @@ function Home() {
                   </div>
                 )}
                 <section
-                  className={`messages ${compact ? 'messages-compact' : ''}`}
+                  className={`messages ${compact ? 'messages-compact' : ''} ${researchTab === 'comparison' ? 'messages-comparison' : ''}`}
                   aria-busy={loading}
                 >
                   <div className="journal-heading">
@@ -1784,12 +1784,12 @@ function Home() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Message</TableHead>
-                          <TableHead>Recipients</TableHead>
+                          {researchTab !== 'comparison' && <TableHead>Recipients</TableHead>}
                           <TableHead>{researchTab === 'comparison' ? 'NoiseFence' : 'Classification'}</TableHead>
                           {researchTab === 'comparison' && <TableHead>Rspamd · second opinion</TableHead>}
                           <TableHead>Delivery</TableHead>
                           {researchTab !== 'comparison' && <TableHead>Score / 100</TableHead>}
-                          <TableHead>Received on</TableHead>
+                          {researchTab !== 'comparison' && <TableHead>Received on</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1827,14 +1827,18 @@ function Home() {
                                   <span>
                                     {m.sender || "Delivery notification"}
                                   </span>
+                                  {researchTab === 'comparison' && <>
+                                    <span>To: {m.recipients.map(r => r.address).join(', ')}</span>
+                                    <time dateTime={new Date(m.created * 1000).toISOString()}>{new Date(m.created * 1000).toLocaleString('en-GB')}</time>
+                                  </>}
                                 </span>
                               </button>
                             </TableCell>
-                            <TableCell>
+                            {researchTab !== 'comparison' && <TableCell>
                               <span className="small recipient-list">
                                 {m.recipients.map((r) => r.address).join(', ')}
                               </span>
-                            </TableCell>
+                            </TableCell>}
                             <TableCell>
                               <span
                                 title={classificationDetail(m)}
@@ -1882,7 +1886,7 @@ function Home() {
                                 }
                               />
                             </TableCell>}
-                            <TableCell className="muted">
+                            {researchTab !== 'comparison' && <TableCell className="muted">
                               <time
                                 className="message-date"
                                 dateTime={new Date(
@@ -1906,7 +1910,7 @@ function Home() {
                                   })}
                                 </span>
                               </time>
-                            </TableCell>
+                            </TableCell>}
                           </TableRow>
                         ))}
                       </TableBody>
