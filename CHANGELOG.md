@@ -2,6 +2,8 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Preserve receipt-time engine, recipient-policy and requested/effective-action snapshots in full-population exports. Offline evaluation reports these baselines separately, retains unknowns and reads both population generations without changing candidate predictions.
+
 - Add **Filters → Providers & budgets** with loaded credential/configuration state, revision-bound navigation, reserved quotas, read-only LLM accounting and recent provider incidents. Distinguish coordinator-issued credits from worker allowances and provider invoices; an unreadable ledger remains unknown.
 - Report effective provider capacity rather than bootstrap settings. Compute CRDF/VirusTotal p95 from recorded elapsed times with timing metadata, keeping failed attempts, historical gaps and concurrent phase totals explicit. Preserve all activation controls and clear stale status after refresh failures.
 

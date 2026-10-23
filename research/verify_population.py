@@ -53,6 +53,27 @@ def verify(experiment, binary, output):
         if i == 20:
             row.update(fingerprint=rows[0]['fingerprint'], simhash=rows[0]['simhash'])
             annotation['campaign'] = annotations[0]['campaign']
+        # Fabricated receipt contract exercises policy/engine separation. These
+        # labels and perfect-looking synthetic results are not mailbox evidence.
+        receipt = {
+            'schema':'noisefence-quality-decisions-1', 'provenance':'recipient_receipt',
+            'engine':{'source':'legacy', 'outcome':'unwanted' if original['spam'] else 'legitimate',
+                      'complete':row['complete'], 'raw_score':99. if original['spam'] else 1.},
+            'final':{'category':'spam' if original['spam'] else 'legitimate',
+                     'classification':'spam' if original['spam'] else 'legitimate',
+                     'classification_source':'recorded_decision', 'complete':row['complete'],
+                     'score':99. if original['spam'] else 1.},
+            'action':{'requested':'quarantine' if original['spam'] else 'deliver', 'effective':'deliver'},
+        }
+        if i == 1:
+            receipt['engine']['outcome'] = 'unwanted'
+            receipt['final'].update(category='legitimate', classification='legitimate', classification_source='recipient_policy')
+        if i == 2:
+            receipt.update(provenance='invalid', engine=None, final=None, action=None)
+        if i == 3:
+            receipt['engine'].update(outcome='undetermined', raw_score=None)
+            receipt['final'].update(category='legitimate', classification='unassessed', score=None)
+        row['decision_snapshot'] = receipt
         rows.append(row)
         annotations.append(annotation)
     count = Counter(r['evidence_status'] for r in rows)
@@ -63,9 +84,9 @@ def verify(experiment, binary, output):
               'incomplete':sum(not r['complete'] for r in rows), 'invalid_scan':0,
               'missing_raw_hash':1, 'missing_campaign':1, 'missing_evidence':count['missing'],
               'non_smtp_evidence':count['non_smtp'], 'invalid_evidence':count['invalid'], 'smtp_evidence':count['smtp']}
-    data = [{'type':'header','schema':'noisefence-population-1','since':1788739200,'until':1788739600,
+    data = [{'type':'header','schema':'noisefence-population-2','since':1788739200,'until':1788739600,
              'captured_at':1788740000,'scope':'retained_accepted_messages','sampling':'unreviewed','contains_bodies':False}]
-    data += rows + [{'type':'footer','schema':'noisefence-population-1','report':counts}]
+    data += rows + [{'type':'footer','schema':'noisefence-population-2','report':counts}]
     for name, records in (('population.jsonl',data), ('annotations.jsonl',annotations)):
         path = output/name
         # All fixtures, still private because the production contract is private.
@@ -84,6 +105,12 @@ def verify(experiment, binary, output):
     path = output/'manifest.json'
     f.private_json(path, manifest)
     report = population.evaluate(path, output/'evaluation')
+    saved = report['recorded_baseline']
+    f.require(saved['recipient_policy']['unassessable'] == 2
+              and saved['engine']['unassessable'] == 2
+              and saved['provenance'] == {'recipient_receipt':399, 'invalid':1}
+              and saved['delivery_completion_measured'] is False,
+              'Recorded receipt coverage was changed or confused with delivery')
     checked = 0
     for variant in f.VARIANTS:
         result = report['variants'][variant]
@@ -94,6 +121,7 @@ def verify(experiment, binary, output):
         previous = {r['id']:r['prediction'] for r in f.lines(experiment/(variant+'-native.jsonl')) if r['type'] == 'row'}
         current = [r for r in f.lines(output/'evaluation'/(variant+'.predictions.jsonl')) if r['type'] == 'row']
         for i, row in enumerate(current):
+            f.require(row['decision_snapshot'] == rows[i]['decision_snapshot'], 'Population receipt changed during prediction')
             if i in (2,3,4,5):
                 f.require(row['prediction'] is None, 'Missing evidence became a negative prediction')
             elif i == 6:

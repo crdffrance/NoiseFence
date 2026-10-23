@@ -37,12 +37,14 @@ fn snapshot(path: &Path, rows: &[Value]) {
         }
     }
     let mut records = vec![
-        json!({"type":"header","schema":noisefence::population::SCHEMA,
+        json!({"type":"header","schema":noisefence::population::LEGACY_SCHEMA,
         "since":100,"until":200,"captured_at":200,"scope":"retained_accepted_messages",
         "sampling":"unreviewed","contains_bodies":false}),
     ];
     records.extend_from_slice(rows);
-    records.push(json!({"type":"footer","schema":noisefence::population::SCHEMA,"report":counts}));
+    records.push(
+        json!({"type":"footer","schema":noisefence::population::LEGACY_SCHEMA,"report":counts}),
+    );
     fs::write(
         path,
         records.iter().map(|r| format!("{r}\n")).collect::<String>(),
@@ -152,5 +154,83 @@ fn malformed_or_partial_populations_never_publish_a_result() {
         assert!(fusion::population::predict(&input, &model_path, &output).is_err());
         assert!(!output.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+}
+
+#[test]
+fn receipt_population_preserves_policy_without_changing_candidate_predictions() {
+    let dir = tempfile::tempdir().unwrap();
+    let config: Config = toml::from_str(include_str!("../config/development.toml")).unwrap();
+    let (model, evidence) = fixture::fixture(&config);
+    let model_path = dir.path().join("model.json");
+    fs::write(&model_path, serde_json::to_vec(&model).unwrap()).unwrap();
+    let input = dir.path().join("population.jsonl");
+    let output = dir.path().join("prediction.jsonl");
+    snapshot(&input, &[row(0, Some(evidence))]);
+    let legacy = fs::read_to_string(&input).unwrap();
+    let receipt: Value =
+        serde_json::from_str(include_str!("fixtures/recorded-decisions.json")).unwrap();
+    let mut records: Vec<Value> = legacy
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    records[0]["schema"] = json!(noisefence::population::SCHEMA);
+    records[2]["schema"] = json!(noisefence::population::SCHEMA);
+    records[1]["decision_snapshot"] = receipt.clone();
+    let valid = records.iter().map(|r| format!("{r}\n")).collect::<String>();
+    fs::write(&input, &valid).unwrap();
+    fusion::population::predict(&input, &model_path, &output).unwrap();
+    let data: Vec<Value> = fs::read_to_string(&output)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        data[0]["schema"],
+        noisefence::fusion::population::PREDICTIONS_SCHEMA
+    );
+    assert_eq!(data[1]["decision_snapshot"], receipt);
+    assert_eq!(data[1]["prediction"]["would_tag"], true);
+    assert_eq!(
+        data[1]["decision_snapshot"]["final"]["category"],
+        "legitimate"
+    );
+    assert_eq!(
+        data[1]["decision_snapshot"]["action"]["effective"],
+        "deliver"
+    );
+    fs::remove_file(&output).unwrap();
+    fs::write(&input, legacy).unwrap();
+    fusion::population::predict(&input, &model_path, &output).unwrap();
+    let legacy_result: Vec<Value> = fs::read_to_string(&output)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(data[1]["prediction"], legacy_result[1]["prediction"]);
+    assert!(legacy_result[1]["decision_snapshot"].is_null());
+    fs::remove_file(&output).unwrap();
+    // Fail closed before publishing output: no schema downgrade, hidden fields,
+    // fabricated results, duplicate keys or silently missing nullable fields.
+    for invalid in [
+        valid.replace(&format!("\"decision_snapshot\":{receipt},"), ""),
+        valid.replace(
+            "\"provenance\":\"recipient_receipt\"",
+            "\"provenance\":\"invalid\"",
+        ),
+        valid.replace("\"raw_score\":99.0", "\"raw_score\":101.0"),
+        valid.replace("\"category\":\"legitimate\"", "\"category\":\"spam\""),
+        valid.replace("\"engine\":{", "\"body\":\"private\",\"engine\":{"),
+        valid.replace("\"raw_score\":99.0,", ""),
+        valid.replace("\"raw_score\":99.0", "\"raw_score\":99.0,\"raw_score\":0.0"),
+        valid.replace(
+            noisefence::population::SCHEMA,
+            noisefence::population::LEGACY_SCHEMA,
+        ),
+    ] {
+        assert_ne!(valid, invalid);
+        fs::write(&input, invalid).unwrap();
+        assert!(fusion::population::predict(&input, &model_path, &output).is_err());
+        assert!(!output.exists());
     }
 }

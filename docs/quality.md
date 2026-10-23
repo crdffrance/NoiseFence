@@ -1,5 +1,8 @@
 <a id="qualité-du-filtrage--observations-annotations-et-candidats"></a>
 
+See [recorded decision exports](decision-exports.md) for engine-versus-policy baselines,
+action counts and population format compatibility.
+
 The [calibration workbench](calibration-workbench.md) provides the supported Web workflow, offline worker installation, dataset isolation, comparison and shadow rollback. Evaluation annotations never become ordinary training feedback or sender trust.
 # Quality of filtering: observations, annotations and candidates
 

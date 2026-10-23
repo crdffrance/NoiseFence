@@ -3,7 +3,7 @@
 use super::{Model, availability_profile, runtime::Decision, valid_hash};
 use crate::{
     evidence::{Evidence, Source},
-    population::{Report, SCHEMA},
+    population::{LEGACY_SCHEMA, Report, SCHEMA},
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const PREDICTIONS_SCHEMA: &str = "noisefence-population-predictions-1";
+pub const PREDICTIONS_SCHEMA: &str = "noisefence-population-predictions-2";
 const MAX_LINE: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -66,6 +66,8 @@ struct Row {
     complete: bool,
     features_complete: Option<bool>,
     decision: Option<Decision>,
+    #[serde(default)]
+    decision_snapshot: Option<crate::quality::recorded::contract::Snapshot>,
     tagged: bool,
     label: Label,
     evidence_status: EvidenceStatus,
@@ -100,6 +102,13 @@ fn write(writer: &mut impl Write, value: impl Serialize) -> Result<()> {
     Ok(())
 }
 fn validate(row: &Row, header: &Header, count: &mut Report) -> Result<()> {
+    ensure!(
+        row.decision_snapshot.is_some() == (header.schema == SCHEMA),
+        "Population receipt contract does not match its schema"
+    );
+    if let Some(snapshot) = &row.decision_snapshot {
+        snapshot.validate()?;
+    }
     ensure!(
         valid_hash(&row.id) && row.observed_at >= header.since && row.observed_at < header.until,
         "invalid population identity or timestamp"
@@ -228,7 +237,7 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
             Record::Header(h) => {
                 ensure!(
                     header.is_none()
-                        && h.schema == SCHEMA
+                        && (h.schema == SCHEMA || h.schema == LEGACY_SCHEMA)
                         && h.scope == "retained_accepted_messages"
                         && h.sampling == "unreviewed"
                         && !h.contains_bodies
@@ -279,6 +288,7 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
                     serde_json::json!({"type":"row","id":row.id,"observed_at":row.observed_at,
                     "raw_sha256":row.raw_sha256,"fingerprint":row.fingerprint,"simhash":row.simhash,
                     "complete":row.complete,"features_complete":row.features_complete,"decision":row.decision,
+                    "decision_snapshot":row.decision_snapshot,
                     "tagged":row.tagged,"label":row.label,"evidence_status":row.evidence_status,
                     "availability_profile":row.evidence.as_ref().map(availability_profile),
                     "assessment":status,"prediction":prediction}),
@@ -290,7 +300,7 @@ pub fn predict(input: &Path, model_path: &Path, output: &Path) -> Result<Predict
             } => {
                 ensure!(
                     header.is_some()
-                        && schema == SCHEMA
+                        && header.as_ref().is_some_and(|h| schema == h.schema)
                         && source.considered <= 50_000
                         && source.considered.checked_sub(source.automatic_dsn)
                             == Some(counts.exported)
