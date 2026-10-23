@@ -748,7 +748,7 @@ impl Store {
             .await?;
         self.run(|db| {
             let tx = db.transaction()?;
-            tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire',CAST(d.id AS TEXT) FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=d.message_id)",[now()])?;
+            tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire','quarantine-v1:'||d.message_id||':'||d.address FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=d.message_id)",[now()])?;
             tx.execute("UPDATE deliveries SET status='expired' WHERE status='quarantined' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id) AND id IN (SELECT delivery_id FROM delivery_policy WHERE held_until<=?1)",[now()])?;
             tx.commit()?; Ok(())
         }).await?;

@@ -127,7 +127,9 @@ npm run dev -- --host 127.0.0.1 --port 3011
 
 Open `http://127.0.0.1:3011/demo.html?case=ham&role=user` for a synthetic user account, or omit `role=user` for the administrator layout. Other message cases are `spam`, `pub`, `quarantine`, `encrypted` and `error`. Use `open=list` to start in the message log. Add `view=quality&tab=comparison` or `view=quality&tab=reliability` for the research tabs. The example sample ID is `00000000-0000-4000-8000-000000000002`.
 
-The demo intercepts every API request. Message corrections and individual/bulk annotations only change browser-memory fixtures; reloading resets them. Other writes are refused and unsupported API views display an explicit fixture error. No mailbox, provider key or running Rust service is required. This is a UI demonstration, not a filtering benchmark or an authentication test. The production Vite build includes only the normal console entry, not `demo.html` or its fixtures. Do not expose the development server publicly.
+The demo intercepts every API request. Message corrections, individual/bulk annotations and quarantine commands only change browser-memory fixtures; reloading resets them. Other writes are refused and unsupported API views display an explicit fixture error. No mailbox, provider key or running Rust service is required. This is a UI demonstration, not a filtering benchmark or an authentication test. The production Vite build includes only the normal console entry, not `demo.html` or its fixtures. Do not expose the development server publicly.
+
+For `case=quarantine`, add `quarantine=expired`, `unavailable` (one failed history read), `remote` (queued command), `unconfirmed` (expired request without a receipt) or `late` (late confirmation with an older delivery snapshot). The default case permits local release/discard in memory. Reloading restores the held fixture.
 
 Correction scenarios accept `correction=failure` (one failed save), `labels=unavailable` (domain-label read failure), `annotations=refresh-failure` (one failed refresh after a saved annotation) and `purpose=holdout` (protected-sample presentation). All use synthetic data and make no production writes.
 

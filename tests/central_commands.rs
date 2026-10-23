@@ -329,3 +329,266 @@ async fn queue_commands_recheck_authority_execute_once_and_recover_lost_receipts
     drop(db);
     fixture.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL on 127.0.0.1:15432 and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn quarantine_history_separates_late_receipts_from_current_state_and_rechecks_recipient_access()
+ {
+    let fixture = postgres::Fixture::new().await;
+    let db = fixture.connect().await;
+    let root = tempfile::tempdir().unwrap();
+    let config = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    let insert_id = id.clone();
+    let scan = serde_json::to_string(
+        &Engine::new(config.clone())
+            .unwrap()
+            .offline(common::MESSAGE),
+    )
+    .unwrap();
+    store.run(move |db| {
+        let tx=db.transaction()?;
+        tx.execute("INSERT INTO messages(id,created,sender,scan) VALUES(?1,?2,'sender@example.org',?3)", rusqlite::params![insert_id,noisefence::now(),scan])?;
+        for recipient in ["alice@example.test","bob@example.test"] {
+            tx.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt,status) VALUES(?1,?2,?2,'[]',0,'quarantined')",rusqlite::params![insert_id,recipient])?;
+            tx.execute("INSERT INTO delivery_policy(delivery_id,action,held_until) VALUES(?1,'quarantine',?2)",rusqlite::params![tx.last_insert_rowid(),noisefence::now()+3600])?;
+        }
+        tx.commit()?;Ok(())
+    }).await.unwrap();
+    let identity = store.run(|db| outbox::initialize(db, "mx1")).await.unwrap();
+    fixture.central.register_source(&identity).await.unwrap();
+    while fixture.central.synchronize_once(&store).await.unwrap() > 0 {}
+    let csrf = uuid::Uuid::new_v4().simple().to_string().repeat(2);
+    let alice_token = uuid::Uuid::new_v4().simple().to_string().repeat(2);
+    let bob_token = uuid::Uuid::new_v4().simple().to_string().repeat(2);
+    for (name, token) in [("alice", &alice_token), ("bob", &bob_token)] {
+        let unusable_password = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO noisefence.users(username,password,admin) VALUES($1,$2,false)",
+            &[&name, &unusable_password],
+        )
+        .await
+        .unwrap();
+        db.execute(
+            "INSERT INTO noisefence.sessions(token_hash,username,csrf,expires) VALUES($1,$2,$3,$4)",
+            &[
+                &noisefence::message::digest(token.as_bytes()),
+                &name,
+                &csrf,
+                &(noisefence::now() + 3600),
+            ],
+        )
+        .await
+        .unwrap();
+        db.execute(
+            "INSERT INTO noisefence.grants VALUES($1,$2)",
+            &[&name, &format!("{name}@example.test")],
+        )
+        .await
+        .unwrap();
+    }
+    let app = noisefence::api::router(
+        config.clone(),
+        store
+            .clone()
+            .with_management(fixture.central.clone())
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let alice_cookie = format!("noisefence_session={alice_token}");
+    let bob_cookie = format!("noisefence_session={bob_token}");
+    let path = format!("/messages/{id}/quarantine?recipient=alice%40example.test");
+    let (code, view, _) = call(
+        &app,
+        &config.web.public_origin,
+        &path,
+        &alice_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{view}");
+    assert_eq!(view["source"], "central");
+    assert_eq!(view["node"], "mx1");
+    assert_eq!(view["status"], "quarantined");
+    assert!(view["snapshot_at"].as_i64().is_some());
+    assert_eq!(view["requests"], json!([]));
+    assert_eq!(
+        call(
+            &app,
+            &config.web.public_origin,
+            &path,
+            &bob_cookie,
+            &csrf,
+            None
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            &config.web.public_origin,
+            &format!("/messages/{id}/quarantine"),
+            &alice_cookie,
+            &csrf,
+            Some(json!({"recipient":"alice@example.test","action":"release"}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, pending, _) = call(
+        &app,
+        &config.web.public_origin,
+        &path,
+        &alice_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    let commands = fixture.central.pending_commands(&identity).await.unwrap();
+    assert_eq!(commands.len(), 1);
+    let command_id = commands[0].id.clone();
+    assert_eq!(pending["pending_command"], command_id);
+    assert_eq!(pending["requests"][0]["result"], "pending");
+    assert_eq!(pending["requests"][0]["execution_result"], json!(null));
+    let receipts = commands::execute(&store, identity.clone(), commands.clone())
+        .await
+        .unwrap();
+    assert_eq!(receipts[0].result, "done");
+    assert_eq!(
+        commands::execute(&store, identity.clone(), commands)
+            .await
+            .unwrap()[0]
+            .result,
+        "done"
+    );
+    assert_eq!(
+        store
+            .read(|db| Ok(db.query_row(
+                "SELECT COUNT(*) FROM audit WHERE action='quarantine_release'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?))
+            .await
+            .unwrap(),
+        1
+    );
+    db.execute(
+        "UPDATE noisefence.queue_commands SET result='expired',finished=$2 WHERE id=$1",
+        &[&command_id, &noisefence::now()],
+    )
+    .await
+    .unwrap();
+    let (_, expired, _) = call(
+        &app,
+        &config.web.public_origin,
+        &path,
+        &alice_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    assert_eq!(expired["pending_command"], json!(null));
+    assert_eq!(expired["requests"][0]["result"], "expired");
+    assert_eq!(expired["requests"][0]["execution_result"], json!(null));
+    fixture
+        .central
+        .acknowledge_commands(&identity, &receipts)
+        .await
+        .unwrap();
+    let (_, late, _) = call(
+        &app,
+        &config.web.public_origin,
+        &path,
+        &alice_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    assert_eq!(
+        late["status"], "quarantined",
+        "a receipt does not fabricate a new catalog snapshot"
+    );
+    assert_eq!(late["requests"][0]["result"], "expired");
+    assert_eq!(late["requests"][0]["execution_result"], "done");
+    assert!(late["requests"][0]["acknowledged_at"].as_i64().is_some());
+    assert_eq!(
+        late["events"],
+        json!([]),
+        "local audit entries are not replicated"
+    );
+    assert!(!late.to_string().contains("bob@example.test"));
+    while fixture.central.synchronize_once(&store).await.unwrap() > 0 {}
+    let (_, current, _) = call(
+        &app,
+        &config.web.public_origin,
+        &path,
+        &alice_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    assert_eq!(current["status"], "pending");
+    assert!(current["released_at"].as_i64().is_some());
+    // More than the bounded response: only this recipient, newest first.
+    db.execute("INSERT INTO noisefence.queue_commands(id,node,node_epoch,message_id,recipient,command,username,session_hash,actor_version,created,expires,result,finished) SELECT 'fixture-'||n,node,node_epoch,message_id,recipient,command,username,session_hash,actor_version,created-n,expires-n,'revoked',finished FROM noisefence.queue_commands CROSS JOIN generate_series(1,55) AS n WHERE id=$1",&[&command_id]).await.unwrap();
+    db.execute("UPDATE noisefence.queue_commands SET created=$1,username='retained-out-owner' WHERE id='fixture-55'",&[&(noisefence::now()-31*86400)]).await.unwrap();
+    let (_, bounded, _) = call(
+        &app,
+        &config.web.public_origin,
+        &path,
+        &alice_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    assert_eq!(bounded["requests"].as_array().unwrap().len(), 50);
+    assert_eq!(bounded["requests_truncated"], true);
+    assert!(!bounded.to_string().contains("retained-out-owner"));
+    assert_eq!(bounded["requests"][0]["id"], command_id);
+    assert!(!bounded.to_string().contains(&alice_token));
+    db.execute("DELETE FROM noisefence.grants WHERE username='alice'", &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        call(
+            &app,
+            &config.web.public_origin,
+            &path,
+            &alice_cookie,
+            &csrf,
+            None
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    db.execute(
+        "UPDATE noisefence.users SET disabled=true WHERE username='bob'",
+        &[],
+    )
+    .await
+    .unwrap();
+    let bob_path = format!("/messages/{id}/quarantine?recipient=bob%40example.test");
+    assert_eq!(
+        call(
+            &app,
+            &config.web.public_origin,
+            &bob_path,
+            &bob_cookie,
+            &csrf,
+            None
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    drop(app);
+    drop(db);
+    fixture.finish().await;
+}

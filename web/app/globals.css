@@ -934,3 +934,11 @@ details.management-card summary {
 .preference-preview li { overflow-wrap:anywhere; margin:.4rem 0; }
 .preference-preview { scroll-margin-top:1rem; }
 @media(max-width:640px) { .preference-comparison tr { display:grid; grid-template-columns:minmax(0,1fr); border-bottom:1px solid var(--border); padding:.5rem 0; } .preference-comparison th,.preference-comparison td { width:auto; padding:.35rem .5rem; border:0; } .preference-comparison thead { display:none; } .preference-mobile-label { display:block; color:var(--muted-foreground); } }
+
+.quarantine-lifecycle { margin-top:.75rem; min-width:0; }
+.quarantine-lifecycle details { margin-top:1rem; }
+.quarantine-lifecycle summary { cursor:pointer; overflow-wrap:anywhere; }
+.quarantine-lifecycle ol { list-style:none; padding:0; }
+.quarantine-lifecycle li { border-left:2px solid var(--border); margin:.8rem 0; padding:.3rem .8rem; overflow-wrap:anywhere; }
+.quarantine-lifecycle li p { margin:.35rem 0; }
+.quarantine-lifecycle code { overflow-wrap:anywhere; word-break:break-word; }

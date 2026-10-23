@@ -1,4 +1,5 @@
 import { preferenceFixture } from './demo-preferences.mjs';
+import { quarantineFixture } from './demo-quarantine.mjs';
 // Local development demo. Synthetic data only; API requests never reach the server.
 // This HTML entry is not included in the production build.
 const params = new URLSearchParams(location.search);
@@ -144,7 +145,7 @@ const mail = {
       address: 'alex@example.test',
       status: held ? 'quarantined' : 'delivered',
       delivery_id: 1,
-      held_until: created + 7 * 86400,
+      held_until: held ? Math.floor(Date.now()/1000) + (params.get('quarantine')==='expired' ? -1 : 7*86400) : null,
     },
   ],
   node_id: 'mx1',
@@ -439,6 +440,8 @@ if (score != null) {
   diagnostics.analysis.rule_weight_total = rulesTotal;
   reasons[0].weight = scoring.lexical;
 }
+if(held) {recipient.attempts=0;recipient.logs=[];recipient.logs_available=0;}
+const quarantine = quarantineFixture(params, mail, recipient);
 const fetchOriginal = window.fetch;
 window.fetch = async (input, options) => {
   const url = new URL(
@@ -453,6 +456,8 @@ window.fetch = async (input, options) => {
     throw new Error('External requests are disabled in the synthetic demo.');
   if (!url.pathname.startsWith('/api/')) return fetchOriginal(input, options);
   const path = url.pathname.replace('/api/v1', '');
+  const quarantineResponse=quarantine(path,options,url);
+  if(quarantineResponse)return quarantineResponse;
   const preferenceResponse=preferences(path,options);
   if(preferenceResponse)return preferenceResponse;
   let data;

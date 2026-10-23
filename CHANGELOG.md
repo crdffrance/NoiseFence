@@ -2,6 +2,9 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Add recipient-scoped quarantine history with bounded local audit events, remote requests and independent execution receipts. Preserve late confirmations after request expiry; never equate an MX receipt with destination delivery. Bind new audit entries to message UUID and recipient to avoid historical row-ID reuse.
+- Disable expired/pending quarantine actions, expose snapshot age and unavailable history, and return keyboard focus after confirmed actions. Clarify discard, release retry periods and shared-payload retention in the console and English guide.
+
 - Review personal filter inheritance and requested policy mappings before saving, including aliases, administrator precedence, dormant settings and fusion-managed sensitivity. Reuse SMTP profile/rule ordering; keep previews read-only, grant-scoped and revision-bound.
 - Confirm personal draft abandonment and inherited-setting restoration. Preserve drafts after conflicts and distinguish a successful save from a failed settings refresh.
 

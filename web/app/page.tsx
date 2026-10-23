@@ -4,6 +4,8 @@ import { RspamdComparison, RspamdOverview, RspamdResult } from './rspamd-compari
 import type { RspamdReport, ComparisonSummary } from './rspamd-format';
 import type { Assessment, RecipientDecision } from './assessment';
 import { MyFilters } from './preferences';
+import { QuarantineLifecycle } from './quarantine-history-view';
+import type { QuarantineHistory } from './quarantine-history';
 import { ClusterConsole } from './cluster';
 import { OnboardingGate } from './onboarding';
 import { MessageCorrection } from './message-correction';
@@ -284,6 +286,11 @@ function Home() {
     action: 'release' | 'delete';
   } | null>(null);
   const [confirmationError, setConfirmationError] = useState('');
+  const [quarantineFocus, setQuarantineFocus] = useState<{
+    messageId: string;
+    recipient: string;
+    generation: number;
+  } | null>(null);
   const [domain, setDomain] = useState('');
   const [domains, setDomains] = useState<string[]>([]);
   const [adminDirty, setAdminDirty] = useState(false);
@@ -392,6 +399,16 @@ function Home() {
     },
     [user],
   );
+  const quarantineLoaded = useCallback((data: QuarantineHistory) => {
+    if (!user || user !== activeUser.current) return;
+    setSelected(previous => previous?.id === data.message_id ? {
+      ...previous,
+      recipients: previous.recipients.map(r => r.address === data.recipient ? {
+        ...r, status: data.status, held_until: data.held_until,
+        released_at: data.released_at, pending_command: data.pending_command,
+      } : r),
+    } : previous);
+  }, [user]);
   const recipientLoaded = useCallback(
     (messageId: string, recipient: DiagnosticRecipient) => {
       if (!user || user !== activeUser.current) return;
@@ -572,10 +589,13 @@ function Home() {
           : previous,
       );
       setConfirmation(null);
+      setQuarantineFocus(previous => ({
+        messageId: id, recipient, generation: (previous?.generation ?? 0) + 1,
+      }));
       setDiagnosticsRevision((value) => value + 1);
       setNotice(
         result.status === 'queued'
-          ? "Command transmitted to the owner server: execution pending."
+          ? "Command queued for the owning MX: execution pending."
           : action === 'release'
             ? "Released message: delivery pending for this recipient."
             : "Delivery discarded for this recipient.",
@@ -1069,48 +1089,16 @@ function Home() {
                         {r.filtering && (
                           <FilteringDetails value={r.filtering} />
                         )}
-                        {r.pending_command && (
-                          <p className="notice">
-                            Command sent; waiting for confirmation from the MX server.
-                          </p>
-                        )}
-                        {r.status === 'quarantined' && (
-                          <>
-                            <p className="small muted">
-                              {r.held_until
-                                ? `Deletion scheduled on ${new Date(r.held_until * 1000).toLocaleString("en-GB")}.`
-                                : "Message held on the gateway."}
-                            </p>
-                            <div className="feedback-actions">
-                              <Button
-                                disabled={busy || !!r.pending_command}
-                                onClick={() => (
-                                  setConfirmationError(''),
-                                  setConfirmation({
-                                    recipient: r.address,
-                                    action: 'release',
-                                  })
-                                )}
-                              >
-                                Release and transmit
-                              </Button>
-                              <Button
-                                variant="outline"
-                                className="danger"
-                                disabled={busy || !!r.pending_command}
-                                onClick={() => (
-                                  setConfirmationError(''),
-                                  setConfirmation({
-                                    recipient: r.address,
-                                    action: 'delete',
-                                  })
-                                )}
-                              >
-                                Delete
-                              </Button>
-                            </div>
-                          </>
-                        )}
+                        <QuarantineLifecycle
+                          messageId={selected.id} recipient={r}
+                          revision={diagnosticsRevision} busy={busy}
+                          focusRequest={quarantineFocus?.messageId === selected.id && quarantineFocus.recipient === r.address ? quarantineFocus.generation : 0}
+                          onCurrent={quarantineLoaded}
+                          onRequest={(recipient, action) => {
+                            setConfirmationError('');
+                            setConfirmation({ recipient, action });
+                          }}
+                        />
                       </div>
                     ))}
                     <p className="small muted">
@@ -1998,12 +1986,12 @@ function Home() {
           title={
             confirmation.action === 'release'
               ? "Release this message?"
-              : "Delete this delivery?"
+              : "Discard this delivery?"
           }
           confirmLabel={
             confirmation.action === 'release'
               ? "Release and transmit"
-              : "Delete permanently"
+              : "Discard delivery"
           }
           danger={confirmation.action === 'delete'}
           busy={busy}
@@ -2024,7 +2012,7 @@ function Home() {
           <p>
             {confirmation.action === 'release'
               ? "Request delivery without a tag for this recipient. Wait for MX confirmation and check the delivery status. The saved classification and other recipients remain unchanged."
-              : "This delivery will be deleted without sending. This action is final for this recipient."}
+              : "Permanently discard this delivery without sending it. Other recipients remain unchanged. Payload cleanup follows resolution of all recipients and required replica acknowledgements; backups have separate retention."}
           </p>
           {confirmationError && (
             <p className="error" role="alert">

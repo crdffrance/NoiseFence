@@ -2830,3 +2830,163 @@ async fn preference_preview_is_scoped_revision_bound_and_read_only() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn quarantine_history_is_recipient_scoped_read_only_and_retains_expiry_and_actions() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let bob = account(&store, "bob", false, vec!["bob@example.test"]).await;
+    let id = held_message(&store, &cfg).await;
+    let app = api::router(cfg, store.clone()).unwrap();
+    let path = format!("/messages/{id}/quarantine?recipient=alice%40example.test");
+    // Historical integer row IDs are not safe links: SQLite may reuse them.
+    // Also exclude recipient-bound events for a different message or recipient.
+    store.run(|db| {
+        db.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'previous-owner','quarantine_delete',CAST(id AS TEXT) FROM deliveries WHERE address='alice@example.test'", [noisefence::now()])?;
+        db.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'hidden-owner','quarantine_delete','quarantine-v1:'||message_id||':bob@example.test' FROM deliveries WHERE address='alice@example.test'", [noisefence::now()])?;
+        Ok(())
+    }).await.unwrap();
+    let (code, held) = request(&app, &alice, &path, None).await;
+    assert_eq!(code, StatusCode::OK, "{held}");
+    assert_eq!(held["schema"], "quarantine-history-1");
+    assert_eq!(held["status"], "quarantined");
+    assert!(held["held_until"].as_i64().unwrap() > noisefence::now());
+    assert_eq!(held["raw_available"], true);
+    assert_eq!(held["events"], json!([]));
+    assert_eq!(held["requests"], json!([]));
+    assert!(!held.to_string().contains("bob@example.test"));
+    assert_eq!(
+        request(&app, &bob, &path, None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&app, "invalid", &path, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let action_path = format!("/messages/{id}/quarantine");
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &action_path,
+            Some(json!({"recipient":"alice@example.test","action":"release"}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, released) = request(&app, &alice, &path, None).await;
+    assert_eq!(released["status"], "pending");
+    assert!(released["released_at"].as_i64().is_some());
+    assert_eq!(released["events"].as_array().unwrap().len(), 1);
+    assert_eq!(released["events"][0]["action"], "quarantine_release");
+    assert_eq!(released["events"][0]["actor"], "alice");
+    store.run(|db|{db.execute("UPDATE delivery_policy SET held_until=?1 WHERE delivery_id IN (SELECT id FROM deliveries WHERE address='bob@example.test')",[noisefence::now()-1])?;Ok(())}).await.unwrap();
+    let bob_path = format!("/messages/{id}/quarantine?recipient=bob%40example.test");
+    let (_, elapsed) = request(&app, &bob, &bob_path, None).await;
+    assert_eq!(elapsed["status"], "quarantined");
+    assert!(elapsed["held_until"].as_i64().unwrap() <= elapsed["checked_at"].as_i64().unwrap());
+    store.cleanup().await.unwrap();
+    let (_, expired) = request(&app, &bob, &bob_path, None).await;
+    assert_eq!(expired["status"], "expired");
+    assert_eq!(expired["events"][0]["action"], "quarantine_expire");
+    assert_eq!(
+        expired["raw_available"], true,
+        "Alice is still pending; expiry is not physical deletion"
+    );
+    let before = store
+        .read(|db| Ok(db.query_row("SELECT COUNT(*) FROM audit", [], |r| r.get::<_, i64>(0))?))
+        .await
+        .unwrap();
+    request(&app, &alice, &path, None).await;
+    request(&app, &bob, &bob_path, None).await;
+    assert_eq!(
+        store
+            .read(|db| Ok(db.query_row("SELECT COUNT(*) FROM audit", [], |r| r.get::<_, i64>(0))?))
+            .await
+            .unwrap(),
+        before
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, &path, None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='bob'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &bob, &bob_path, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn quarantine_history_bounds_actions_and_keeps_legacy_remote_expiry_unconfirmed() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let id = held_message(&store, &cfg).await;
+    let binding = id.clone();
+    store.run(move|db|{
+        let tx=db.transaction()?;
+        for n in 0..55 {
+            tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'alice','quarantine_release',?2)",rusqlite::params![noisefence::now()-n,format!("quarantine-v1:{binding}:alice@example.test")])?;
+        }
+        tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'retained-out-owner','quarantine_delete',?2)",rusqlite::params![noisefence::now()-31*86400,format!("quarantine-v1:{binding}:alice@example.test")])?;
+        tx.commit()?;Ok(())
+    }).await.unwrap();
+    let app = api::router(cfg, store.clone()).unwrap();
+    let path = format!("/messages/{id}/quarantine?recipient=alice%40example.test");
+    let (code, view) = request(&app, &alice, &path, None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(view["events"].as_array().unwrap().len(), 50);
+    assert_eq!(view["events_truncated"], true);
+    assert!(!view.to_string().contains("retained-out-owner"));
+    let binding = id.clone();
+    store.run(move|db|{
+        let at=noisefence::now();
+        db.execute("INSERT INTO cluster_origin VALUES(?1,'mx2',?1,?2,1,1)",rusqlite::params![binding,at-100])?;
+        for (index,result) in ["done","expired","conflict","unrecognized"].iter().enumerate() {
+            db.execute("INSERT INTO cluster_commands(id,node_id,message_id,recipient,command,username,created,expires,result,finished) VALUES(?1,'mx2',?2,'alice@example.test','\"release\"','alice',?3,?4,?5,?4)",rusqlite::params![format!("request-{index}"),binding,at-1000-index as i64,at-500,result])?;
+        }
+        db.execute("INSERT INTO cluster_commands(id,node_id,message_id,recipient,command,username,created,expires) VALUES('pending-expired','mx2',?1,'alice@example.test','\"delete\"','alice',?2,?3)",rusqlite::params![binding,at-600,at-1])?;
+        Ok(())
+    }).await.unwrap();
+    let (code, remote) = request(&app, &alice, &path, None).await;
+    assert_eq!(code, StatusCode::OK, "{remote}");
+    assert_eq!(remote["source"], "replicated");
+    assert_eq!(remote["node"], "mx2");
+    assert_eq!(
+        remote["events"],
+        json!([]),
+        "do not show another node's local audit as owning-MX history"
+    );
+    assert_eq!(remote["pending_command"], json!(null));
+    let requests = remote["requests"].as_array().unwrap();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(requests[0]["result"], "expired");
+    assert_eq!(requests[0]["execution_result"], json!(null));
+    let done = requests.iter().find(|v| v["result"] == "done").unwrap();
+    assert_eq!(done["execution_result"], "done");
+    assert!(done["acknowledged_at"].as_i64().is_some());
+    for request in requests.iter().filter(|v| v["result"] != "done") {
+        assert_eq!(request["execution_result"], json!(null));
+        assert_eq!(request["acknowledged_at"], json!(null));
+    }
+    assert!(requests.iter().any(|v| v["result"] == "unknown"));
+    assert!(store.read(|db|Ok(db.query_row("SELECT result IS NULL AND finished IS NULL FROM cluster_commands WHERE id='pending-expired'",[],|r|r.get::<_,bool>(0))?)).await.unwrap(),"history is read-only even when a deadline has passed");
+}
