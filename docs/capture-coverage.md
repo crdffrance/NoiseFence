@@ -15,7 +15,7 @@ The redirect channels use the shared capabilities available within a global time
 <a id="exploiter-les-diagnostics"></a>
 ## Applying diagnostics
 
-The Reliability page shows requests, HTTP responses, recovered or unretrieved incidents, pauses and indicators omitted. The reasons for redirection distinguish security constraints, transport, readability and remote responses. The current group is separated from the last 24 hours all versions combined. Older messages do not have all new meters; zero history does not prove zero query.
+The **Quality & research → Rule reliability** tab shows requests, HTTP responses, recovered or unretrieved incidents, pauses and indicators omitted. The reasons for redirection distinguish security constraints, transport, readability and remote responses. The current group is separated from the last 24 hours all versions combined. Older messages do not have all new meters; zero history does not prove zero query.
 
 The context of missed spam and omissions is exclusively about spam annotated cases by the authorized account. Targeted corrections remain separate from quality annotations. Several incidents may concern the same message; they are diagnostic tracks, not causal demonstration. Synthetic regression games cover in particular quotas with malicious cache result, recoveries, poorly associated targets, slow links and corresponding changes. They do not measure the recall on the actual traffic.
 

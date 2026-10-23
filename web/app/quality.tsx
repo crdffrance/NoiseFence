@@ -2,7 +2,7 @@
 import {ReleaseReadiness} from './release-readiness';
 import {ReadinessExclusions} from './release-readiness-view';
 import { useEffect, useRef, useState } from 'react';
-import { qualityDestination, qualityLink } from './quality-link';
+import { qualityDestination, qualityLink, researchSearch } from './quality-link';
 import {QualityWorkbench,type DatasetPurpose} from './quality-workbench';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { candidateLabel, mailKindLabel, type SampleReadiness, type QualityReport
 type Batch = {purpose:DatasetPurpose;sampling:string;id:string;created:number;since:number;until:number;domain:string;population:number;selected:number;available:number;labelled:number};
 import {AnnotationList,type Member} from './quality-annotations';
 export function QualityDetails({report}:{report:QualityReport}) {
-  return <section className="panel message-diagnostics">
+  return <section className="panel message-quality-panel">
     <h2>Risk and type of mail</h2>
     <p>{candidateLabel(report.candidate_status)}</p>
     {report.prediction && <>
@@ -72,28 +72,18 @@ export function QualityConsole({user}:{user:User}) {
     finally{setBusy(false);}
   }
   useEffect(()=>{
-    if(selected) window.history.replaceState(null, '', qualityLink(selected));
+    if (!selected) return;
+    const url = new URL(window.location.href);
+    url.search = researchSearch(url.search, 'samples');
+    url.searchParams.set('sample', selected);
+    window.history.replaceState(null, '', url);
   },[selected]);
   const current=batches.find(b=>b.id===selected);
   const loading=!!selected && (loaded.id!==selected || loaded.revision!==revision || loaded.offset!==offset);
   const members=selected && !loading ? loaded.members : [];
   return <div className="quality-console">
-    <ReleaseReadiness revision={revision} />
-    <section className="panel"><p className="eyebrow">QUALITY OF THE FILTER</p><h1>Learning with verified decisions</h1>
-      <p>Evaluate a random sample among your accessible messages. The selection ignores the filter score and remains frozen.</p>
-      <p className="muted">{configured?"A candidate model is configured for observation.":"The engine is collecting observations. No candidate model is configured yet."}</p>
-      <p className="muted small">{observationStart ? `The period begins as soon as possible on ${new Date(observationStart*1000).toLocaleString("en-GB")}, for the current engine build. Older cohorts remain available for explicit comparison.` : "Waiting for the first message analyzed with the current engine. Refresh after arrival."}</p>
-      <div className="quality-controls">
-        <label>Dataset purpose<select value={purpose} onChange={e=>{setPurpose(e.target.value as DatasetPurpose);setCohort('');}}><option value="development">Development · may train candidates</option><option value="regression">Regression · evaluation only</option><option value="holdout">Independent holdout · never train</option></select></label>
-        {purpose==='development'&&<label>Detector cohort<select value={cohort} onChange={e=>setCohort(e.target.value)}><option value="">All versions · comparison first</option>{cohorts.map(c=><option key={c.id} value={c.id}>{c.id.slice(0,12)} · {c.messages} messages · {new Date(c.until*1000).toLocaleDateString('en-GB')}</option>)}</select></label>}
-        <label>Period<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={29}>Last 29 days</option></select></label>
-        <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option>{user.admin&&<><option value={1000}>1,000</option><option value={5000}>5,000</option></>}</select></label>
-        <label htmlFor="quality-domain">Domain (optional)<Input id="quality-domain" value={domain} onChange={e=>setDomain(e.target.value)} placeholder="All my accessible domains" /></label>
-        <Button disabled={busy||annotating} onClick={create}>{busy?"Drawing in progress...":"Create a sample"}</Button>
-        <Button variant="outline" disabled={busy||annotating} onClick={()=>setRevision(x=>x+1)}>Refresh</Button>
-      </div>{error && <p className="error" role="alert">{error}</p>}
-    </section>
-    <section className="panel"><h2>Samples retained</h2>
+    {error && <p className="error" role="alert">{error}</p>}
+    <section className="panel"><h2>Annotation samples</h2>
       {selected && <p><a href={qualityLink(selected)}>Direct link to this annotation sample</a></p>}
       {!batches.length?<p>No sample. Create one to start validation.</p>:<label>Sample<select value={selected} disabled={annotating} onChange={e=>{setSelected(e.target.value);setOffset(0);setAnnotationNotice('');}}><option value="">Select a sample</option>{batches.map(b=><option key={b.id} value={b.id}>{new Date(b.created*1000).toLocaleString("en-GB")} · {b.purpose} · {b.labelled}/{b.selected} annotated{b.domain?` · ${b.domain}`:''}</option>)}</select></label>}
       {current && <><p>{current.sampling==='confirmed_regression'?`${current.selected} confirmed regression references · Not a representative traffic sample`:`${current.selected} messages drawn from ${current.population}`} · {current.available} still accessible · {current.labelled} annotated.</p>
@@ -116,6 +106,21 @@ export function QualityConsole({user}:{user:User}) {
       {annotationNotice&&<output className="notice">{annotationNotice}</output>}
       {current&&!loading&&<AnnotationList key={`${selected}:${offset}:${revision}`} members={members} user={user} batch={selected} onBusy={setAnnotating} onSaved={notice=>{setAnnotationNotice(notice);setRevision(x=>x+1);}} />}
     </section>
+    <details className="panel"><summary>Create a new evaluation sample</summary>
+      <p>Evaluate a random sample among your accessible messages. The selection ignores the filter score and remains frozen.</p>
+      <p className="muted">{configured?"A candidate model is configured for observation.":"The engine is collecting observations. No candidate model is configured yet."}</p>
+      <p className="muted small">{observationStart ? `Current engine observations start on ${new Date(observationStart*1000).toLocaleString("en-GB")}, for the current engine build. Older cohorts remain available for explicit comparison.` : "Waiting for the first message analyzed with the current engine. Refresh after arrival."}</p>
+      <div className="quality-controls">
+        <label>Dataset purpose<select value={purpose} onChange={e=>{setPurpose(e.target.value as DatasetPurpose);setCohort('');}}><option value="development">Development · may train candidates</option><option value="regression">Regression · evaluation only</option><option value="holdout">Independent holdout · never train</option></select></label>
+        {purpose==='development'&&<label>Detector cohort<select value={cohort} onChange={e=>setCohort(e.target.value)}><option value="">All versions · comparison first</option>{cohorts.map(c=><option key={c.id} value={c.id}>{c.id.slice(0,12)} · {c.messages} messages · {new Date(c.until*1000).toLocaleDateString('en-GB')}</option>)}</select></label>}
+        <label>Period<select value={days} onChange={e=>setDays(Number(e.target.value))}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={29}>Last 29 days</option></select></label>
+        <label>Messages<select value={count} onChange={e=>setCount(Number(e.target.value))}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option>{user.admin&&<><option value={1000}>1,000</option><option value={5000}>5,000</option></>}</select></label>
+        <label htmlFor="quality-domain">Domain (optional)<Input id="quality-domain" value={domain} onChange={e=>setDomain(e.target.value)} placeholder="All my accessible domains" /></label>
+        <Button disabled={busy||annotating} onClick={create}>{busy?"Selecting sample…":"Create a sample"}</Button>
+        <Button variant="outline" disabled={busy||annotating} onClick={()=>setRevision(x=>x+1)}>Refresh</Button>
+      </div>
+    </details>
+    <details className="panel research-readiness"><summary>Data readiness and release qualification</summary><ReleaseReadiness revision={revision} /></details>
     {user.admin&&<QualityWorkbench user={user} batch={selected} purpose={current?.purpose??'regression'} refresh={revision}/>}
   </div>;
 }

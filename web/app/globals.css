@@ -860,3 +860,16 @@ details.management-card summary {
   .annotation-plan th, .annotation-plan td { display: block; min-width: 0; width: auto; white-space: normal; }
   .annotation-plan td::before { content: attr(data-label); display: block; font-size: .72rem; font-weight: 600; color: var(--muted-foreground); margin-bottom: 4px; }
 }
+
+/* Research tabs share the existing scoped data views and accessible tab controls. */
+.quality-research > [role="tabpanel"] { margin-top: 1.25rem; min-width: 0; }
+.quality-research > [role="tabpanel"]:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+.quality-research .section-tabs { flex-wrap: wrap; }
+
+@media (max-width: 600px) {
+  .quality-research .section-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quality-research .section-tabs > button { min-height: 48px; font-size: .8125rem; padding: 8px; white-space: normal; }
+}
+
+.rspamd-result { display: flex; flex-direction: column; gap: 6px; font-size: .8rem; overflow-wrap: anywhere; }
+.rspamd-result small { color: var(--muted-foreground); }

@@ -6,7 +6,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import ts from 'typescript';
 const source = await readFile(new URL('../app/rspamd-comparison.tsx', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, {compilerOptions: {jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext}}).outputText.replace(/from ["']([^"']+)["']/g, (_, name) => `from ${JSON.stringify(name.startsWith('./') ? new URL(`../app/${name.slice(2)}.ts`, import.meta.url).href : import.meta.resolve(name))}`);
-const {RspamdComparison} = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const {RspamdComparison,RspamdResult} = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const mail = {complete: true, score: 89.1, model: 'fixture', decision: {source: 'legacy', outcome: 'legitimate', score: 89.1}};
 const base = {status: 'complete', comparison: 'inconclusive', score: 4.8, required_score: 15, action: 'greylist', symbols: [{name: 'TEST_SYMBOL', score: 4.8}], elapsed_ms: 717, profile: 'fixture', settings_sha256: 'a'.repeat(64), server: 'fixture', noisefence_outcome: 'legitimate'};
 
@@ -25,4 +25,15 @@ test('failed or disagreeing observer never asks the user to decide delivery', ()
     assert.match(html, /never changes the NoiseFence verdict or delivery/);
     assert.doesNotMatch(html, /class="status review"|Needs review/);
   }
+});
+
+test('comparison rows retain native Rspamd points, deferral and unavailable states', () => {
+  const render = report => renderToStaticMarkup(createElement(RspamdResult, {report}));
+  assert.match(render(base), /Rspamd proposes deferral/);
+  assert.match(render(base), /4.80 points/);
+  assert.doesNotMatch(render({...base,status:'timeout'}), /4.80 points|Engines agree/);
+  assert.match(render(null), /Not compared/);
+  assert.match(render({...base,score:-2.5,action:'no action',comparison:'agreement'}), /-2.50 points/);
+  assert.doesNotMatch(render({...base,score:NaN}), /NaN|points/);
+  assert.doesNotMatch(render({...base,action:'<script>bad</script>'}), /<script>/);
 });

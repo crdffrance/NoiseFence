@@ -15,7 +15,7 @@ asynchronous observer and verify that its result cannot change that decision.
 
 ## 2. Build a labelled development sample
 
-Use **Filter quality** to freeze a development sample from one installed detector
+Use **Quality & research → Samples & evaluation** to freeze a development sample from one installed detector
 cohort. Label wanted/unwanted risk and mail type independently, without using
 NoiseFence or Rspamd predictions as truth. Include recurring wanted reports,
 transactions, notifications and newsletters, as well as scams and phishing.

@@ -44,3 +44,12 @@ export function RspamdOverview({ summary }: { summary: ComparisonSummary }) {
     <p className="muted">Counts respect your access, domain and search criteria, across all comparison outcomes. Delivery variants sharing a comparison job count once. Historical rows without an original transaction ID are counted separately; skipped analyses remain in the coverage denominator. Use “Engines disagree” to select research examples; this creates no manual delivery task. Agreement is not a detection-quality metric.</p>
   </section>;
 }
+
+export function RspamdResult({ report }: { report?: RspamdReport | null }) {
+  const hasPoints = report && (report.status === 'complete' || report.status === 'skipped')
+    && typeof report.score === 'number' && Number.isFinite(report.score);
+  return <span className="rspamd-result" title={comparisonExplanation(report)}>
+    <strong>{comparisonLabel(report) ?? 'Unrecognized comparison state'}</strong>
+    {hasPoints && <small>{comparisonPoints(report.score)} points · {report.action ?? 'No action recorded'}</small>}
+  </span>;
+}

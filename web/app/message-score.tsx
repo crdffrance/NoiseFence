@@ -7,7 +7,7 @@ import { actionReason } from './action-coverage';
 import { ActionCoverageDetails } from './action-coverage-view';
 import { PolicyTraceDetails } from './policy-trace-view';
 import { ScoreMeter } from './brand';
-import { scorePresentation, type ScoreInput } from './presentation';
+import { deliverySummary, scorePresentation, type ScoreInput } from './presentation';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -39,9 +39,11 @@ export function MessageScore({
 
 export function MessageScoreDetails({
   mail,
+  recipients,
   verdict,
 }: {
   mail: ScoreInput;
+  recipients?: { status: string }[];
   verdict?: { label: string; tone: string };
 }) {
   const score = scorePresentation(mail);
@@ -66,6 +68,7 @@ export function MessageScoreDetails({
           ? { label: 'Ham', tone: 'good' }
           : { label: 'Not recorded', tone: 'neutral' });
   const action = assessment?.action;
+  const delivery = recipients ? deliverySummary(recipients) : null;
   const actions: Record<string, string> = {
     deliver: 'Deliver',
     tag: 'Tag and deliver',
@@ -129,7 +132,7 @@ export function MessageScoreDetails({
               : 'Recorded analysis'}
         </span>
       </div>
-      <dl className="analysis-overview" aria-label="NoiseFence receipt summary">
+      <dl className={`analysis-overview ${delivery ? 'with-delivery' : ''}`} aria-label="NoiseFence verdict and delivery summary">
         <div className="analysis-stat">
           <dt className="analysis-stat-label">{score.label}</dt>
           <dd className="score-large">
@@ -179,6 +182,11 @@ export function MessageScoreDetails({
             · not delivery confirmation
           </dd>
         </div>
+        {delivery && <div className="analysis-stat">
+          <dt className="analysis-stat-label">Last recorded delivery</dt>
+          <dd className={`status ${delivery.tone}`}>{delivery.label}</dd>
+          <dd className="analysis-stat-note">Authorized recipients only · not an inbox guarantee</dd>
+        </div>}
       </dl>
       <p className="analysis-summary-note">
         {action ? actionReason(action.reason) + '. ' : ''}

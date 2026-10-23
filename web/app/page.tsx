@@ -1,6 +1,6 @@
 'use client';
 import {groundingSummary, responseIssueLabel, type LlmGrounding} from './llm-evidence';
-import { RspamdComparison, RspamdOverview } from './rspamd-comparison';
+import { RspamdComparison, RspamdOverview, RspamdResult } from './rspamd-comparison';
 import type { RspamdReport, ComparisonSummary } from './rspamd-format';
 import type { Assessment, RecipientDecision } from './assessment';
 import { MyFilters } from './preferences';
@@ -91,7 +91,8 @@ import {
 import { api, type User } from './client';
 import { AdminConsole, navigation, type Section } from './admin';
 import { QualityConsole, QualityDetails } from './quality';
-import { qualityDestination } from './quality-link';
+import { researchDestination, researchSearch, researchTabFor } from './quality-link';
+import { QualityNavigation } from './quality-navigation';
 import { SoftwareStatus } from './software';
 import { ReliabilityConsole } from './reliability';
 import type { QualityReport } from './quality-types';
@@ -344,9 +345,10 @@ function Home() {
     setSearchTotal(null);
     setComparisonSummary(null);
     setHasMore(false);
-    setFilter('all');
+    const destination = next ? researchDestination(window.location.search) : null;
+    setFilter(destination === 'comparison' ? 'rspamd_all' : 'all');
     setOffset(0);
-    setSection(next && qualityDestination(window.location.search).quality ? 'quality' : 'messages');
+    setSection(destination === 'samples' ? 'quality' : destination === 'reliability' ? 'reliability' : 'messages');
     setDomain('');
     setDomains([]);
     setAdminDirty(false);
@@ -473,6 +475,14 @@ function Home() {
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
   }, [user, section, selected, confirmation]);
+  const researchTab = researchTabFor(section, filter);
+  const MessagesHeading = researchTab === 'comparison' ? 'h2' : 'h1';
+  useEffect(() => {
+    if (!user) return;
+    const url = new URL(window.location.href);
+    url.search = researchSearch(url.search, researchTab);
+    window.history.replaceState(null, '', url);
+  }, [user, researchTab]);
   function navigate(
     next: Section | 'account' | 'quality' | 'reliability' | 'preferences',
     nextFilter = 'all',
@@ -486,10 +496,6 @@ function Home() {
     setClusterDirty(false);
     setPreferenceDirty(false);
     setSection(next);
-    const url = new URL(window.location.href);
-    if (next === 'quality') url.searchParams.set('view', 'quality');
-    else { url.searchParams.delete('view'); url.searchParams.delete('sample'); }
-    window.history.replaceState(null, '', url);
     setFilter(nextFilter);
     setOffset(0);
     setSelected(null);
@@ -779,11 +785,6 @@ function Home() {
               {user.admin ? "All messages" : "My messages"}
             </button>
             <button
-              className={`nav-item ${section === 'messages' && filter.startsWith('rspamd_') ? 'nav-active' : ''}`}
-              aria-current={section === 'messages' && filter.startsWith('rspamd_') ? 'page' : undefined}
-              onClick={() => navigate('messages', 'rspamd_all')}
-            ><SlidersHorizontal size={18} /> Engine comparison</button>
-            <button
               className={`nav-item ${section === 'messages' && filter === 'quarantined' ? 'nav-active' : ''}`}
               aria-current={
                 section === 'messages' && filter === 'quarantined'
@@ -844,19 +845,11 @@ function Home() {
             </Button>
             <Button
               variant="ghost"
-              className={`nav-item ${section === 'reliability' ? 'nav-active' : ''}`}
-              aria-current={section === 'reliability' ? 'page' : undefined}
-              onClick={() => navigate('reliability')}
-            >
-              <ShieldCheck size={18} /> Reliability
-            </Button>
-            <Button
-              variant="ghost"
-              className={`nav-item ${section === 'quality' ? 'nav-active' : ''}`}
-              aria-current={section === 'quality' ? 'page' : undefined}
+              className={`nav-item ${researchTab ? 'nav-active' : ''}`}
+              aria-current={researchTab ? 'page' : undefined}
               onClick={() => navigate('quality')}
             >
-              <ShieldCheck size={18} /> Filter quality
+              <SlidersHorizontal size={18} /> Quality & research
             </Button>
             <button
               className={`nav-item ${section === 'account' ? 'nav-active' : ''}`}
@@ -917,10 +910,8 @@ function Home() {
                 ? "Filter decision"
                 : section === 'preferences'
                   ? "My filters"
-                  : section === 'reliability'
-                    ? "Reliability"
-                    : section === 'quality'
-                      ? "Filter quality"
+                  : researchTab
+                    ? "Quality & research"
                       : section === 'account'
                         ? "My account"
                         : section === 'messages' && filter === 'quarantined'
@@ -988,6 +979,10 @@ function Home() {
         {section === 'preferences' && (
           <MyFilters user={user} onDirty={setPreferenceDirty} />
         )}
+        <QualityNavigation
+          tab={selected ? null : researchTab}
+          onChange={tab => navigate(tab === 'samples' ? 'quality' : tab === 'reliability' ? 'reliability' : 'messages', tab === 'comparison' ? 'rspamd_all' : 'all')}
+        >
         {section === 'quality' && <QualityConsole user={user} />}
         {section === 'reliability' && (
           <ReliabilityConsole key={user.username} />
@@ -1014,7 +1009,7 @@ function Home() {
                     setNotice('');
                   }}
                 >
-                  <ArrowLeft size={17} /> Back to Messages
+                  <ArrowLeft size={17} /> {researchTab === 'comparison' ? 'Back to comparison' : 'Back to messages'}
                 </Button>
                 <div className="detail-heading">
                   <p className="eyebrow">MESSAGE DETAILS</p>
@@ -1056,11 +1051,12 @@ function Home() {
                       <h2>Message analysis</h2>
                     </div>
                     <span className="small muted">
-                      Verdict · score · coverage · action
+                      Verdict · action · delivery · evidence
                     </span>
                   </div>
                   <MessageScoreDetails
                     mail={selected}
+                    recipients={selected.recipients}
                     verdict={classification(
                       selected,
                       historicalThreshold?.messageId === selected.id
@@ -1070,6 +1066,129 @@ function Home() {
                   />
                 </section>
                 <div className="detail-grid">
+                  <section className="panel message-actions-panel">
+                    <p className="eyebrow">DELIVERY</p>
+                    <h2>Recipient status</h2>
+                    {selected.action && (
+                      <p className="small muted">
+                        Recorded action:{' '}
+                        {actionLabel[selected.action.effective]}.
+                        {' '}{actionReason(selected.action.reason)}. Planned action: {actionLabel[selected.action.requested]}.
+                      </p>
+                    )}
+                    {selected.recipients.map((r) => (
+                      <div className="quarantine-recipient" key={r.address}>
+                        <p className="recipient">
+                          {r.address}
+                          <span>{deliveryStatus(r.status)}</span>
+                        </p>
+                        {r.filtering && (
+                          <FilteringDetails value={r.filtering} />
+                        )}
+                        {r.pending_command && (
+                          <p className="notice">
+                            Command sent; waiting for confirmation from the MX server.
+                          </p>
+                        )}
+                        {r.status === 'quarantined' && (
+                          <>
+                            <p className="small muted">
+                              {r.held_until
+                                ? `Deletion scheduled on ${new Date(r.held_until * 1000).toLocaleString("en-GB")}.`
+                                : "Message held on the gateway."}
+                            </p>
+                            <div className="feedback-actions">
+                              <Button
+                                disabled={busy || !!r.pending_command}
+                                onClick={() => (
+                                  setConfirmationError(''),
+                                  setConfirmation({
+                                    recipient: r.address,
+                                    action: 'release',
+                                  })
+                                )}
+                              >
+                                Release and transmit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="danger"
+                                disabled={busy || !!r.pending_command}
+                                onClick={() => (
+                                  setConfirmationError(''),
+                                  setConfirmation({
+                                    recipient: r.address,
+                                    action: 'delete',
+                                  })
+                                )}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                    <p className="small muted">
+                      Acceptance by the recipient server does not guarantee arrival in the inbox.
+                    </p>
+                    <p className="small muted">
+                      The body and attachments remain on the gateway while any delivery is pending or quarantined. Deletion follows resolution of all recipients and required replica acknowledgements.
+                    </p>
+                    <p className="eyebrow">YOUR FEEDBACK</p>
+                    <h2>Correct classification</h2>
+                    <p className="muted">
+                      Record a correction for your authorized recipients. This does not change the saved verdict or messages already delivered.
+                    </p>
+                    <div className="feedback-actions">
+                      <Button
+                        disabled={busy}
+                        variant={
+                          selected.feedback_category === 'legitimate'
+                            ? 'default'
+                            : 'outline'
+                        }
+                        onClick={() => feedback('legitimate')}
+                      >
+                        <Check size={17} /> Ham
+                      </Button>
+                      <Button
+                        disabled={busy}
+                        variant={
+                          selected.feedback === true ? 'default' : 'outline'
+                        }
+                        onClick={() => feedback('spam')}
+                      >
+                        <Flag size={17} /> Spam
+                      </Button>
+                      <Button
+                        disabled={busy}
+                        variant={
+                          selected.feedback_category === 'publicity'
+                            ? 'default'
+                            : 'outline'
+                        }
+                        onClick={() => feedback('publicity')}
+                      >
+                        Pub
+                      </Button>
+                    </div>
+                    <p className="muted small">
+                      Pub means wanted marketing. Choose Spam for unwanted or fraudulent offers. Evaluation samples keep their own labels and provenance.
+                    </p>
+                    <details className="feedback-learning"><summary>Detailed learning labels</summary>
+                    <AdaptiveDetails
+                      key={`${user.username}-${selected.id}`}
+                      id={selected.id}
+                      csrf={user.csrf}
+                      report={selected.adaptive}
+                      feedbackRevision={feedbackRevision}
+                      onCorrect={(value) => adaptiveCorrect(selected.id, value)}
+                      blocked={busy}
+                      onBusy={setBusy}
+                    />
+                    </details>
+                  </section>
                   <Suspense
                     fallback={
                       <section className="panel message-diagnostics">
@@ -1291,128 +1410,7 @@ function Home() {
                   {selected.protection && (
                     <ProtectionDetails report={selected.protection} />
                   )}
-                  <section className="panel message-actions-panel">
-                    <p className="eyebrow">YOUR FEEDBACK</p>
-                    <h2>Correct classification</h2>
-                    <p className="muted">
-                      Correct the classification to support future evaluation and training.
-                    </p>
-                    <div className="feedback-actions">
-                      <Button
-                        disabled={busy}
-                        variant={
-                          selected.feedback_category === 'legitimate'
-                            ? 'default'
-                            : 'outline'
-                        }
-                        onClick={() => feedback('legitimate')}
-                      >
-                        <Check size={17} /> Ham
-                      </Button>
-                      <Button
-                        disabled={busy}
-                        variant={
-                          selected.feedback === true ? 'default' : 'outline'
-                        }
-                        onClick={() => feedback('spam')}
-                      >
-                        <Flag size={17} /> Spam
-                      </Button>
-                      <Button
-                        disabled={busy}
-                        variant={
-                          selected.feedback_category === 'publicity'
-                            ? 'default'
-                            : 'outline'
-                        }
-                        onClick={() => feedback('publicity')}
-                      >
-                        Pub
-                      </Button>
-                    </div>
-                    <p className="muted small">
-                      PUB is legitimate marketing. Report fraudulent offers as Spam.
-                    </p>
-                    <details className="feedback-learning"><summary>Detailed learning labels</summary>
-                    <AdaptiveDetails
-                      key={`${user.username}-${selected.id}`}
-                      id={selected.id}
-                      csrf={user.csrf}
-                      report={selected.adaptive}
-                      feedbackRevision={feedbackRevision}
-                      onCorrect={(value) => adaptiveCorrect(selected.id, value)}
-                      blocked={busy}
-                      onBusy={setBusy}
-                    />
-                    </details>
-                    <h2 className="subheading">Delivery</h2>
-                    {selected.action && (
-                      <p className="small muted">
-                        Action at reception:{' '}
-                        {actionLabel[selected.action.effective]}.
-                        {' '}{actionReason(selected.action.reason)}. Planned action: {actionLabel[selected.action.requested]}.
-                      </p>
-                    )}
-                    {selected.recipients.map((r) => (
-                      <div className="quarantine-recipient" key={r.address}>
-                        <p className="recipient">
-                          {r.address}
-                          <span>{deliveryStatus(r.status)}</span>
-                        </p>
-                        {r.filtering && (
-                          <FilteringDetails value={r.filtering} />
-                        )}
-                        {r.pending_command && (
-                          <p className="notice">
-                            Order pending confirmation of the MX server.
-                          </p>
-                        )}
-                        {r.status === 'quarantined' && (
-                          <>
-                            <p className="small muted">
-                              {r.held_until
-                                ? `Deletion scheduled on ${new Date(r.held_until * 1000).toLocaleString("en-GB")}.`
-                                : "Message held on the gateway."}
-                            </p>
-                            <div className="feedback-actions">
-                              <Button
-                                disabled={busy || !!r.pending_command}
-                                onClick={() => (
-                                  setConfirmationError(''),
-                                  setConfirmation({
-                                    recipient: r.address,
-                                    action: 'release',
-                                  })
-                                )}
-                              >
-                                Release and transmit
-                              </Button>
-                              <Button
-                                variant="outline"
-                                className="danger"
-                                disabled={busy || !!r.pending_command}
-                                onClick={() => (
-                                  setConfirmationError(''),
-                                  setConfirmation({
-                                    recipient: r.address,
-                                    action: 'delete',
-                                  })
-                                )}
-                              >
-                                Delete
-                              </Button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                    <p className="small muted">
-                      Acceptance by the recipient server does not guarantee arrival in the inbox.
-                    </p>
-                    <p className="small muted">
-                      The body and attachments remain on the gateway while any delivery is pending or quarantined. Deletion follows resolution of all recipients and required replica acknowledgements.
-                    </p>
-                  </section>
+
                 </div>
                 <RspamdComparison report={selected.rspamd} mail={selected} onRefresh={() => setDiagnosticsRevision(value => value + 1)} />
               </>
@@ -1425,17 +1423,19 @@ function Home() {
                         ? "ORGANIZATION VIEW"
                         : "YOUR MAIL"}
                     </p>
-                    <h1>
+                    <MessagesHeading>
                       {filter.startsWith('rspamd_') ? 'Engine comparison' : filter === 'quarantined'
                         ? "Quarantined"
                         : user.admin
                           ? "All messages"
                           : "My messages"}
-                    </h1>
+                    </MessagesHeading>
                     <p className="muted">
                       {filter === 'quarantined'
                         ? "Review the selected messages and choose their processing."
-                        : "Follow each message, from analysis to delivery."}
+                        : researchTab === 'comparison'
+                          ? 'Rspamd provides an independent recorded opinion. Agreement and disagreement are not ground truth.'
+                          : "Follow each message, from analysis to delivery."}
                     </p>
                   </div>
                   <Button
@@ -1478,7 +1478,7 @@ function Home() {
                       : "Authorized recipients only"}
                   </span>
                 </div>
-                <div className="message-stat stats">
+                {researchTab !== 'comparison' && <div className="message-stat stats">
                   {[
                     {
                       id: 'all',
@@ -1533,8 +1533,8 @@ function Home() {
                       <ArrowUpRight className="stat-arrow" size={16} />
                     </button>
                   ))}
-                </div>
-                {stats?.mode === 'observe' && (
+                </div>}
+                {researchTab !== 'comparison' && stats?.mode === 'observe' && (
                   <div className="observation-banner">
                     <ShieldCheck size={18} />
                     <p>
@@ -1579,7 +1579,12 @@ function Home() {
                       className="tabs"
                       aria-label="Filter Messages"
                     >
-                      {[
+                      {(researchTab === 'comparison' ? [
+                        ['rspamd_all', 'All comparisons'],
+                        ['rspamd_disagreement', 'Disagreements'],
+                        ['rspamd_inconclusive', 'Deferral / inconclusive'],
+                        ['rspamd_unavailable', 'Unavailable'],
+                      ] : [
                         ['all', "All"],
                         ['spam', "Spam detected"],
                         ['publicity', "Pub"],
@@ -1588,7 +1593,7 @@ function Home() {
                           'quarantined',
                           `Quarantine (${stats?.quarantined ?? 0})`,
                         ],
-                      ].map(([value, label]) => (
+                      ]).map(([value, label]) => (
                         <Button
                           key={value}
                           variant={filter === value ? 'default' : 'ghost'}
@@ -1601,7 +1606,7 @@ function Home() {
                           {label}
                         </Button>
                       ))}
-                      <label
+                      {researchTab !== 'comparison' && <label
                         className={`more-filters ${['pending', 'review', 'publicity_signal', 'incomplete', 'rspamd_all', 'rspamd_disagreement', 'rspamd_inconclusive', 'rspamd_unavailable'].includes(filter) ? 'has-filter' : ''}`}
                       >
                         <SlidersHorizontal size={14} />
@@ -1640,7 +1645,7 @@ function Home() {
                             <option value="rspamd_unavailable">Comparison not completed</option>
                           </optgroup>
                         </select>
-                      </label>
+                      </label>}
                     </fieldset>
                     <div className="search message-search">
                       <Search size={18} />
@@ -1734,7 +1739,7 @@ function Home() {
                         onClick={() => {
                           setSearchFilters(emptySearch);
                           setSearch('');
-                          setFilter('all');
+                          setFilter(researchTab === 'comparison' ? 'rspamd_all' : 'all');
                           setDomain('');
                           setOffset(0);
                         }}
@@ -1780,9 +1785,10 @@ function Home() {
                         <TableRow>
                           <TableHead>Message</TableHead>
                           <TableHead>Recipients</TableHead>
-                          <TableHead>Classification</TableHead>
+                          <TableHead>{researchTab === 'comparison' ? 'NoiseFence' : 'Classification'}</TableHead>
+                          {researchTab === 'comparison' && <TableHead>Rspamd · second opinion</TableHead>}
                           <TableHead>Delivery</TableHead>
-                          <TableHead>Score / 100</TableHead>
+                          {researchTab !== 'comparison' && <TableHead>Score / 100</TableHead>}
                           <TableHead>Received on</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1858,7 +1864,9 @@ function Home() {
                                   Recorded correction
                                 </small>
                               )}
+                              {researchTab === 'comparison' && <MessageScore mail={m} tone={classification(m).tone} />}
                             </TableCell>
+                            {researchTab === 'comparison' && <TableCell><RspamdResult report={m.rspamd} /></TableCell>}
                             <TableCell>
                               <span
                                 className={`status delivery-status ${deliverySummary(m.recipients).tone}`}
@@ -1866,14 +1874,14 @@ function Home() {
                                 {deliverySummary(m.recipients).label}
                               </span>
                             </TableCell>
-                            <TableCell>
+                            {researchTab !== 'comparison' && <TableCell>
                               <MessageScore
                                 mail={m}
                                 tone={
                                   classification(m, stats?.threshold ?? 95).tone
                                 }
                               />
-                            </TableCell>
+                            </TableCell>}
                             <TableCell className="muted">
                               <time
                                 className="message-date"
@@ -1959,6 +1967,7 @@ function Home() {
                           mail={m}
                           tone={classification(m, stats?.threshold ?? 95).tone}
                         />
+                        {researchTab === 'comparison' && <RspamdResult report={m.rspamd} />}
                         <span className="delivery-line">
                           <span
                             className={`status ${deliverySummary(m.recipients).tone}`}
@@ -2005,12 +2014,12 @@ function Home() {
                           onClick={() => {
                             setSearch('');
                             setSearchFilters(emptySearch);
-                            setFilter('all');
+                            setFilter(researchTab === 'comparison' ? 'rspamd_all' : 'all');
                             setDomain('');
                             setOffset(0);
                           }}
                         >
-                          Show all messages
+                          {researchTab === 'comparison' ? 'Show all comparisons' : 'Show all messages'}
                         </Button>
                       )}
                     </div>
@@ -2037,6 +2046,7 @@ function Home() {
             )}
           </>
         )}
+        </QualityNavigation>
       </main>
       {confirmation && selected && (
         <ConfirmDialog
@@ -2068,7 +2078,7 @@ function Home() {
           </p>
           <p>
             {confirmation.action === 'release'
-              ? "The message will be delivered without a tag. Its classification and other recipients remain unchanged."
+              ? "Request delivery without a tag for this recipient. Wait for MX confirmation and check the delivery status. The saved classification and other recipients remain unchanged."
               : "This delivery will be deleted without sending. This action is final for this recipient."}
           </p>
           {confirmationError && (

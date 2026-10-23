@@ -13,7 +13,7 @@ promoting an arbitration or score change, use the following staged protocol.
 3. Fit calibration only on development campaigns, with the existing
    `research/train_quality.py` workflow. Regression and holdout campaigns remain
    excluded. Freeze the candidate and its policy before prospective sampling.
-4. Collect a future **independent holdout** using Filter quality. Evaluate the
+4. Collect a future **independent holdout** using **Quality & research → Samples & evaluation**. Evaluate the
    frozen candidate once under the existing exposure journal. Include incomplete
    observations in coverage denominators and compare engines on the same eligible
    labelled messages. Report spam recall, ham false positives, precision,

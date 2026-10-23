@@ -1,12 +1,16 @@
 # Changelog
 
-## Unreleased — Filtering diagnostics and reputation reliability
+## Unreleased — Filtering diagnostics and console clarity
 
 - Recognize currency discounts and cheaper offers in distributed commercial mail, retaining transactional/security/conversation exclusions and independent risk decisions (`mailing-6`).
 - Preserve ranked content hosts in reputation lookups, including when HTTP following is disabled. Keep final redirect destinations first, deduplicate targets, and preserve budgets, private-address exclusions and request caps.
 - Accept explicit boolean CRDF blacklist states alongside integer/string 0/1, with strict target binding. Distinguish schema failures and bounded, allowlisted HTTP error details without retaining provider text.
 - Cache stale VirusTotal observations for 30 minutes instead of five, without converting stale evidence into a clean vote or a usable analysis age.
 - Explain when the lexical input alone crosses the recorded content threshold. This arithmetic diagnostic does not change decisions or claim calibrated probabilities.
+- Unify sample annotation, independent engine comparison and rule reliability under **Quality & research**, preserving old sample links and adding keyboard-accessible tab links.
+- Separate the saved verdict/action from the last recorded delivery state. Put per-recipient delivery before corrections in reading order, preserve authorization and confirmation checks, and prevent research detail panels from overlapping diagnostics.
+- Keep sample annotation first and move creation/qualification guidance into expandable panels. Correct the precision label and clarify feedback provenance. Add a synthetic localhost demo, excluded from production builds.
+- Update Vite to 8.3.5 and align the SMTP load fixture with `mailing-6`.
 - No model promotion, threshold change, LLM reactivation or change to delivery mode. Source changes remain separate calibration cohorts; filtering effectiveness still requires independent labelled data.
 
 ## 0.31.9 — Qualification guidance and operational verification

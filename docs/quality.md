@@ -21,7 +21,7 @@ The console shows separately the number of risk and type annotations associated 
 
 ### Bulk annotation
 
-Open **Filter quality**, select a retained sample, then use **Select visible**
+Open **Quality & research → Samples & evaluation**, select a retained sample, then use **Select visible**
 or the checkbox beside each message. Search matches subjects and senders on the
 current page; **Unannotated only** hides existing labels. Each page contains at
 most 200 messages, so a 235-message sample is annotated over two pages. Selection
@@ -127,7 +127,7 @@ Each CRDF/VT observation retains a digest of the indicator, its scope, status, d
 
 This feature’s original migration was additive. Current paired installations require storage schema 5 and a compatible release. Do not downgrade the database, remove its HA marker or restore an older backup over accepted mail. See [installation](installation.md) and [HA recovery](high-availability.md) for current upgrade and rollback procedures.
 
-Since 0.5.0, native entries and their availability complete the candidate. The table **Reliability** describes the collection groups and comparisons. See [procedure and migration](reliability.md).
+Since 0.5.0, native entries and their availability complete the candidate. The **Quality & research → Rule reliability** tab describes the collection groups and comparisons. See [procedure and migration](reliability.md).
 
 
 Since 0.6.0, the thresholds use the exact numbers of the reserved period: `floor(legitimate_count × 0,001)` false positives and `floor(spam_count × 0.01)` false negatives maximum over this period. The upper threshold is the lowest permissible starting from 0.5, with a digital guard of 10−9 for the Python/Rust parity; the lower threshold extends the legitimate coverage up to 0.5 with the same guard. Inclusive and tied values comparisons are counted. A saturation at 0 or 1 that makes these constraints impossible interrupt the preparation; a removal cannot be indicated separately. This empirical choice does not validate a rate in the traffic: independent testing, coverage, intervals and activation rules remain necessary. See [coverage and behavioral memory](capture-coverage.md).
@@ -144,4 +144,4 @@ automatic. See [shared eligibility](unified-decisions.md#shared-provider-eligibi
 
 ## Direct annotation links
 
-Open `/?view=quality` on your console host to go straight to Filter quality after sign-in. Each selected sample exposes a **Direct link to this annotation sample**, using `/?view=quality&sample=<batch UUID>`. The link grants no access: the API still checks the session, sample ownership and recipient permissions.
+Open `/?view=quality` on your console host to open the Samples & evaluation tab after sign-in. Each selected sample exposes a **Direct link to this annotation sample**, using `/?view=quality&sample=<batch UUID>`. The link grants no access: the API still checks the session, sample ownership and recipient permissions.

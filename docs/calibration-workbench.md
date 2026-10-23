@@ -69,7 +69,7 @@ before this extension display an explicit request to run a new comparison.
 
 The table includes spam and legitimate denominators, class-specific review counts and confidence intervals. The small-sample notice below 20 paired labelled spams is a warning, not an activation or accuracy qualification threshold. All results remain descriptive until an independent, representative evaluation establishes the required confidence bounds. Rspamd predictions never supply training labels.
 
-NoiseFence 0.25 adds a reproducible research workflow under **Filter quality**. It does not claim perfect filtering or Rspamd-equivalent accuracy. A regression fix, agreement with Rspamd and a passing software test are different from measured performance on future mail.
+NoiseFence 0.25 adds a reproducible research workflow under **Quality & research → Samples & evaluation**. It does not claim perfect filtering or Rspamd-equivalent accuracy. A regression fix, agreement with Rspamd and a passing software test are different from measured performance on future mail.
 
 ## Prepare the data
 

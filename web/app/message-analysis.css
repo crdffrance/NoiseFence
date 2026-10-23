@@ -690,3 +690,20 @@
 .software-identities dt { font-weight: 600; margin-top: .65rem; }
 .software-identities dd { margin: .15rem 0; overflow-wrap: anywhere; }
 .software-identities code { display: block; font-size: .72rem; }
+
+.analysis-overview.with-delivery { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.message-actions-panel .feedback-learning { margin-bottom: 0; }
+.message-actions-panel > .eyebrow:not(:first-child) { margin-top: 28px; }
+@media (max-width: 1200px) and (min-width: 601px) {
+  .analysis-overview.with-delivery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analysis-overview.with-delivery .analysis-stat:nth-child(3) { border-left: 0; }
+  .analysis-overview.with-delivery .analysis-stat:nth-child(n + 3) { border-top: 1px solid var(--border); }
+}
+@media (max-width: 1000px) {
+  .shell .detail-grid .message-diagnostics { grid-row: auto; }
+}
+@media (max-width: 600px) {
+  .analysis-overview.with-delivery { grid-template-columns: minmax(0, 1fr); }
+}
+
+.shell .detail-grid > :not(.message-actions-panel) { grid-column: 1; }
