@@ -873,3 +873,24 @@ details.management-card summary {
 
 .rspamd-result { display: flex; flex-direction: column; gap: 6px; font-size: .8rem; overflow-wrap: anywhere; }
 .rspamd-result small { color: var(--muted-foreground); }
+
+/* Guided domain setup stays inside the reviewed configuration draft. */
+.domain-setup { margin-block: 1.25rem; }
+.domain-setup-heading, .domain-setup-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.domain-setup-heading h2:focus { outline: 2px solid var(--color-ring); outline-offset: .3rem; }
+.domain-setup-steps { display: flex; flex-wrap: wrap; gap: .6rem 1.4rem; padding: 1rem 0; list-style: none; }
+.domain-setup-steps li { display: flex; align-items: center; gap: .5rem; color: var(--color-muted-foreground); }
+.domain-setup-steps li span { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border: 1px solid var(--color-border); border-radius: 50%; font-size: .8rem; }
+.domain-setup-steps li[aria-current] { color: var(--color-foreground); font-weight: 650; }
+.domain-setup-steps li[aria-current] span { background: var(--color-primary); color: var(--color-primary-foreground); border-color: transparent; }
+.domain-setup-fields { min-width: 0; margin: 1rem 0; padding: 0; border: 0; }
+.domain-setup-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; margin-block: 1rem; }
+.domain-setup-facts dt { color: var(--color-muted-foreground); font-size: .8rem; }
+.domain-setup-facts dd { margin: .25rem 0; overflow-wrap: anywhere; }
+.domain-setup-checks { display: grid; gap: 1rem; }
+.domain-setup-checks > div { padding: 1rem; border: 1px solid var(--color-border); border-radius: .7rem; }
+.domain-setup-checks p, .domain-setup-checks .field { margin-block: .6rem; }
+.domain-check-result { border-left: 3px solid var(--color-border); padding: .2rem .8rem; margin-top: 1rem; overflow-wrap: anywhere; }
+.domain-check-result ul { padding-left: 1.2rem; }
+.domain-setup-actions { justify-content: flex-end; }
+@media(max-width: 640px) { .domain-setup-heading { align-items: flex-start; flex-direction: column; } .domain-setup-facts { grid-template-columns: 1fr; } .domain-setup-checks button { max-width: 100%; white-space: normal; height: auto; min-height: 2.5rem; } }

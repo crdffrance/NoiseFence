@@ -35,5 +35,10 @@ test('comparison rows retain native Rspamd points, deferral and unavailable stat
   assert.match(render(null), /Not compared/);
   assert.match(render({...base,score:-2.5,action:'no action',comparison:'agreement'}), /-2.50 points/);
   assert.doesNotMatch(render({...base,score:NaN}), /NaN|points/);
-  assert.doesNotMatch(render({...base,action:'<script>bad</script>'}), /<script>/);
+  for (const tag of ['script', 'SCRIPT', 'ScRiPt']) {
+    const action = `<${tag}>bad</${tag}>`;
+    const html = render({...base, action});
+    assert.equal(html.includes(action), false);
+    assert.ok(html.includes(`&lt;${tag}&gt;bad&lt;/${tag}&gt;`));
+  }
 });

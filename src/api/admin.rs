@@ -1,3 +1,4 @@
+mod domain_setup;
 use super::*;
 use crate::control::{Controller, Settings};
 
@@ -6,6 +7,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
         .route("/admin/rbl/test", post(test_rbl))
+        .route("/admin/domains/check", post(domain_setup::check))
         .route("/admin/admission", get(admission_status))
         .route("/admin/research-archive", get(research_archive_status))
         .route("/admin/config/validate", post(validate_configuration))

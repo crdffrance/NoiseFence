@@ -3,6 +3,8 @@
 const params = new URLSearchParams(location.search);
 const readonlyUser = params.get('role') === 'user';
 const writes = [];
+const setupFilters = {mode: 'observe', rule_weights: {}, threshold: 95, require_corroboration: true, authentication: true, antivirus: false, signatures: false, semantic: false, vision: false, llm: false, smtp_policy: true, smtp_policy_scoring: false, vision_scoring: false, reputation: false};
+const setupSettings = {domains: [{name: 'example.test', gateway: 'provider', enabled: true, accept_all_recipients: false, recipients: ['alex@example.test'], aliases: {}}], gateways: [{id: 'provider', name: 'Synthetic mail provider', hosts: ['inbound.provider.test'], port: 25}], filters: setupFilters, actions: {spam:'quarantine',malware:'quarantine',publicity:'deliver',quarantine_days:14}, protection:null, mailing:null, smtp_admission:{enabled:false}, rbl:{providers:[]}, detection:{modules:{}}, preferences:{enabled:false, mailboxes:{}}, custom_filtering:null};
 const sampleId = '00000000-0000-4000-8000-000000000002';
 const cohort = 'a'.repeat(64);
 const variant = new URLSearchParams(location.search).get('case') ?? 'spam';
@@ -454,6 +456,12 @@ window.fetch = async (input, options) => {
   if (options?.method === 'POST') {
     const body = JSON.parse(options.body || '{}');
     writes.push({ path, body });
+    if (path === '/admin/domains/check' && !readonlyUser) {
+      const result = body.check === 'configuration' ? {check:'configuration', status:'valid'}
+        : body.check === 'dns' ? {check:'dns',status:'available',local_mx_present:false,records:[{priority:10,host:'old.provider.test.'}],truncated:false}
+        : {check:'recipient',status:body.recipient.startsWith('missing@') ? 'unknown' : body.recipient.startsWith('busy@') ? 'unavailable' : 'accepted',destination:body.recipient,routes:['inbound.provider.test'],data_sent:false,loopback_test_allowed:false};
+      return Response.json({revision:body.revision,domain:body.domain,hostname:'mx.example.test',checked_at:Math.floor(Date.now()/1000),draft:true,result});
+    }
     if (path === `/quality/samples/${sampleId}/labels`) {
       let applied = 0,
         skipped = 0;
@@ -480,6 +488,10 @@ window.fetch = async (input, options) => {
       csrf: 'synthetic',
       addresses: ['alex@example.test'],
     };
+  else if (path === '/admin/config' && !readonlyUser)
+    data = {revision:25,settings:setupSettings,actions:setupSettings.actions,rules:[],native_rules:[],available:setupFilters,hostname:'mx.example.test',version:__NOISEFENCE_CONSOLE__.version,sensitivity_levels:[],threshold_locked:false,sensitivity_locked:false,tag_ready:false,pub_tag_ready:false,mailing_available:false,max_connections:100,processing:4,relay_workers:4,max_message_bytes:26214400};
+  else if (path === '/admin/cluster/activation/view' && !readonlyUser)
+    data = {coordinator:true,coordinated:false,pending:false,installed_revision:25,committed_revision:null,smtp_ready:true,phase:null,epoch:null,participants:null,abortable:false,recoverable:false,personal_change:null,incident:null};
   else if (path === '/system/version')
     data = {
       version: __NOISEFENCE_CONSOLE__.version,

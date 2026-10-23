@@ -98,6 +98,7 @@ import { ReliabilityConsole } from './reliability';
 import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
+type ConsoleDestination = {section: Section | 'account' | 'quality' | 'reliability' | 'preferences'; filter: string; domain?: string};
 type Mail = {
   recipient_decision?: RecipientDecision | null;
   rspamd?: RspamdReport | null;
@@ -287,6 +288,8 @@ function Home() {
   const [domain, setDomain] = useState('');
   const [domains, setDomains] = useState<string[]>([]);
   const [adminDirty, setAdminDirty] = useState(false);
+  const [adminDraftEpoch, setAdminDraftEpoch] = useState(0);
+  const [pendingNavigation, setPendingNavigation] = useState<ConsoleDestination | null>(null);
   const [clusterDirty, setClusterDirty] = useState(false);
   const [preferenceDirty, setPreferenceDirty] = useState(false);
   const configDirty = adminDirty || clusterDirty || preferenceDirty;
@@ -354,6 +357,7 @@ function Home() {
     setAdminDirty(false);
     setClusterDirty(false);
     setPreferenceDirty(false);
+    setPendingNavigation(null);
   }, []);
   const diagnosticsLoaded = useCallback(
     (data: MessageDiagnostics) => {
@@ -451,13 +455,13 @@ function Home() {
     return () => clearTimeout(timer);
   }, [refresh, user]);
   useEffect(() => {
-    if (!user || section !== 'messages' || selected || confirmation || busy)
+    if (!user || section !== 'messages' || selected || confirmation || pendingNavigation || busy)
       return;
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') void refresh();
     }, 30000);
     return () => clearInterval(timer);
-  }, [user, section, selected, confirmation, busy, refresh]);
+  }, [user, section, selected, confirmation, pendingNavigation, busy, refresh]);
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (
@@ -465,6 +469,7 @@ function Home() {
         section === 'messages' &&
         !selected &&
         !confirmation &&
+        !pendingNavigation &&
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === 'k'
       ) {
@@ -474,7 +479,7 @@ function Home() {
     };
     window.addEventListener('keydown', focusSearch);
     return () => window.removeEventListener('keydown', focusSearch);
-  }, [user, section, selected, confirmation]);
+  }, [user, section, selected, confirmation, pendingNavigation]);
   const researchTab = researchTabFor(section, filter);
   const MessagesHeading = researchTab === 'comparison' ? 'h2' : 'h1';
   useEffect(() => {
@@ -483,20 +488,20 @@ function Home() {
     url.search = researchSearch(url.search, researchTab);
     window.history.replaceState(null, '', url);
   }, [user, researchTab]);
-  function navigate(
-    next: Section | 'account' | 'quality' | 'reliability' | 'preferences',
-    nextFilter = 'all',
-  ) {
-    if (
-      configDirty &&
-      !window.confirm("Drop the unrecorded settings?")
-    )
-      return;
+  function navigate(next: ConsoleDestination['section'], nextFilter = 'all', nextDomain?: string) {
+    const destination = {section: next, filter: nextFilter, domain: nextDomain};
+    if (configDirty) { setPendingNavigation(destination); return; }
+    completeNavigation(destination);
+  }
+  function completeNavigation(destination: ConsoleDestination) {
+    if (adminDirty) setAdminDraftEpoch(epoch => epoch + 1);
     setAdminDirty(false);
     setClusterDirty(false);
     setPreferenceDirty(false);
-    setSection(next);
-    setFilter(nextFilter);
+    setPendingNavigation(null);
+    setSection(destination.section);
+    setFilter(destination.filter);
+    if (destination.domain !== undefined) setDomain(destination.domain);
     setOffset(0);
     setSelected(null);
     setNotice('');
@@ -948,6 +953,7 @@ function Home() {
             }
           >
             <AdminConsole
+              key={`${user.username}:${adminDraftEpoch}`}
               user={user}
               section={
                 section === 'cluster' ||
@@ -961,10 +967,7 @@ function Home() {
               onDirty={setAdminDirty}
               onApplied={refresh}
               onDomain={(name) => {
-                setDomain(name);
-                setOffset(0);
-                setSection('messages');
-                setSelected(null);
+                navigate('messages', 'all', name);
               }}
             />
           </div>
@@ -2052,6 +2055,10 @@ function Home() {
         )}
         </QualityNavigation>
       </main>
+      {pendingNavigation && <ConfirmDialog title="Discard unsaved settings?" confirmLabel="Discard and leave" danger busy={false}
+        onCancel={() => setPendingNavigation(null)} onConfirm={() => completeNavigation(pendingNavigation)}>
+        <p>The configuration draft and any unfinished domain setup will be discarded. Installed settings and accepted messages will remain unchanged.</p>
+      </ConfirmDialog>}
       {confirmation && selected && (
         <ConfirmDialog
           title={

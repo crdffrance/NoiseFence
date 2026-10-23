@@ -1,4 +1,5 @@
 'use client';
+import { DomainSetup } from './domain-setup-view';
 import { LlmPricingNotice } from './llm-pricing-notice';
 import { ResearchArchiveSettings, type ArchiveSettings } from './research-archive';
 import { AdmissionEditor, type AdmissionSettings } from './smtp-admission';
@@ -32,7 +33,7 @@ import {
 import { MailingSettings, type MailingPolicy } from './mailing';
 import { ProtectionSettings, type ProtectionPolicy } from './protection';
 import { quotaLabel } from './provider-quotas';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   Globe2,
@@ -68,7 +69,7 @@ export const navigation = [
   { id: 'server', label: "Server status", icon: Server },
 ] as const;
 export type Section = (typeof navigation)[number]['id'];
-type Gateway = { id: string; name: string; hosts: string[]; port: number };
+export type Gateway = { id: string; name: string; hosts: string[]; port: number };
 type Domain = {
   name: string;
   gateway: string | null;
@@ -97,7 +98,7 @@ type Filters = {
   vision_scoring: boolean;
   reputation: boolean;
 };
-type Settings = {
+export type Settings = {
   quality_candidate?: {job:string|null;sha256:string|null}|null;
   research_archive?: ArchiveSettings | null;
   smtp_admission: AdmissionSettings;
@@ -463,6 +464,9 @@ export function AdminConsole({
   const [epoch, setEpoch] = useState(0);
   const [filterSection, setFilterSection] = useState<FilterSection>('policy');
   const [filterQuery, setFilterQuery] = useState('');
+  const [setupOpen, setSetupOpen] = useState(false);
+  const addDomainButton = useRef<HTMLButtonElement>(null);
+  function closeSetup() { setSetupOpen(false); requestAnimationFrame(() => addDomainButton.current?.focus()); }
   const [accountQuery, setAccountQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const modelDraft = draft ? JSON.stringify(normalize(draft)) : '';
@@ -473,13 +477,13 @@ export function AdminConsole({
     !!draft &&
     (JSON.stringify(config.settings) !== JSON.stringify(draft) || modelSelection !== null);
   useEffect(() => {
-    onDirty(dirty);
+    onDirty(dirty || setupOpen);
     const leave = (e: BeforeUnloadEvent) => {
-      if (dirty) e.preventDefault();
+      if (dirty || setupOpen) e.preventDefault();
     };
     window.addEventListener('beforeunload', leave);
     return () => window.removeEventListener('beforeunload', leave);
-  }, [dirty, onDirty]);
+  }, [dirty, setupOpen, onDirty]);
   useEffect(() => {
     let active = true;
     api<Configuration>('/admin/config')
@@ -670,34 +674,18 @@ export function AdminConsole({
               <strong>
                 {draft.domains.filter((d) => d.enabled).length}
               </strong>{' '}
-              active domains
+              {dirty ? "domains enabled in draft" : "active domains"}
             </span>
             <span>
               <Network size={19} />
               <strong>{draft.gateways.length}</strong> Available gateways
             </span>
-            <Button
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  domains: [
-                    ...draft.domains,
-                    {
-                      name: '',
-                      gateway: draft.gateways[0]?.id ?? null,
-                      enabled: true,
-                      accept_all_recipients: true,
-                      recipients: [],
-                      aliases: {},
-                    },
-                  ],
-                })
-              }
-            >
-              <Plus size={16} />
-              Add Domain
+            <Button ref={addDomainButton} disabled={setupOpen} onClick={() => setSetupOpen(true)}>
+              <Plus size={16} /> Add domain
             </Button>
           </div>
+          {setupOpen && <DomainSetup settings={normalize(draft)} revision={config.revision} hostname={config.hostname} user={user}
+            onClose={closeSetup} onPrepared={next => { setDraft(next); setReview(true); closeSetup(); }} />}
           <div className="notice">
             To receive emails, the domain must also be configured at your email host. After validation of the delivery, its DNS will point to {config.hostname}.
           </div>
@@ -1114,8 +1102,8 @@ export function AdminConsole({
             />
           </div>
           <div id="filters-panel-models" role="tabpanel" aria-labelledby="filters-tab-models" hidden={filterSection !== 'models'} className="filter-section">
-            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
-            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
+            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked || setupOpen} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
+            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked || setupOpen} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
               if (!choice) {setModelChoice(null);return;}
               setModelChoice({digest:choice.digest,catalogId:choice.id,quality:choice.quality_candidate,draft:modelDraft,revision:config.revision});
             }} />
@@ -1879,7 +1867,7 @@ export function AdminConsole({
                   <li>
                     Customized rules:{' '}
                     {draft.custom_filtering?.rules.length || 0} rules,{' '}
-                    {draft.custom_filtering?.profiles.length || 0} profils,{' '}
+                    {draft.custom_filtering?.profiles.length || 0} profiles,{' '}
                     {draft.custom_filtering?.bindings.length || 0} New messages will be evaluated according to this draft.
                   </li>
                 )}
@@ -1889,11 +1877,13 @@ export function AdminConsole({
                     {d.enabled ? "Enabled" : "Disabled"},{' '}
                     {d.accept_all_recipients
                       ? "all addresses"
-                      : `${d.recipients.filter(Boolean).length} adresses`}
+                      : `${d.recipients.filter(Boolean).length} addresses`}
                     , gateway{' '}
                     {draft.gateways.find((g) => g.id === d.gateway)?.name ||
                       "aliases only"}
                     , {Object.keys(d.aliases).length} alias.
+                    {d.recipient_verification ? ' Destination recipient verification enabled; unknown mailboxes are refused and unavailable checks defer SMTP acceptance.' : ' No destination verification during SMTP acceptance.'}
+                    {d.unknown_recipient_fallback ? ` Unknown-recipient fallback: ${d.unknown_recipient_fallback}.` : ' No unknown-recipient fallback.'}
                   </li>
                 ))}
                 {removed.map((d) => (
@@ -1978,8 +1968,8 @@ export function AdminConsole({
                       <p>
                         Newsletters:{' '}
                         {draft.mailing.include_newsletters
-                          ? 'incluses'
-                          : 'exclues'}{' '}
+                          ? 'included'
+                          : 'excluded'}{' '}
                         · Prefix [PUB] in marking mode:{' '}
                         {(draft.actions?.publicity ??
                           (draft.mailing.tag_subject ? 'tag' : 'deliver')) ===
@@ -2023,8 +2013,8 @@ export function AdminConsole({
                           threshold: "Classification threshold",
                           require_corroboration:
                             "Confirmation before Spam classification",
-                          smtp_policy_scoring: 'Contribution SMTP',
-                          vision_scoring: 'Contribution OCR',
+                          smtp_policy_scoring: 'SMTP contribution',
+                          vision_scoring: 'OCR contribution',
                         } as Record<string, string>
                       )[k] ||
                         modules.find((m) => m.key === k)?.title ||
@@ -2039,7 +2029,7 @@ export function AdminConsole({
                               )
                               .join(' · ') || "default values"
                           : v === 'enforce'
-                            ? 'actions actives'
+                            ? 'actions enabled'
                             : typeof v === 'boolean'
                               ? v
                                 ? "Enabled"
@@ -2061,7 +2051,7 @@ export function AdminConsole({
           )}
           <div className="save-bar">
             <span>
-              <strong>Changes not implemented</strong>
+              <strong>Unsaved changes</strong>
               <small>Initial revision: {config.revision}</small>
             </span>
             <div>
@@ -2081,7 +2071,7 @@ export function AdminConsole({
                 Cancel
               </Button>
               <Button
-                disabled={busy || blocked}
+                disabled={busy || blocked || setupOpen}
                 onClick={() => {
                   if (review) void action(save);
                   else setReview(true);

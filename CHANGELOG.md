@@ -2,6 +2,9 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Confirming navigation away from unsaved administration settings now discards the actual draft, including unfinished domain setup.
+- Guided domain setup prepares a reviewed draft with explicit upstream routes and destination-recipient verification by default. Bounded administrator-only DNS and envelope-only SMTP checks do not send or enqueue mail; public MX and inbox validation remain explicit operator steps.
+- Fix the Rspamd rendering regression test to assert escaped mixed-case HTML directly, resolving the CodeQL test annotation without suppressing scanning.
 - Recognize currency discounts and cheaper offers in distributed commercial mail, retaining transactional/security/conversation exclusions and independent risk decisions (`mailing-6`).
 - Preserve ranked content hosts in reputation lookups, including when HTTP following is disabled. Keep final redirect destinations first, deduplicate targets, and preserve budgets, private-address exclusions and request caps.
 - Accept explicit boolean CRDF blacklist states alongside integer/string 0/1, with strict target binding. Distinguish schema failures and bounded, allowlisted HTTP error details without retaining provider text.

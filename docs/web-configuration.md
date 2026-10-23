@@ -6,7 +6,7 @@ The console manages **messaging and filter policies**. Installation settings sta
 
 | Area | Controls | Who can change it |
 | --- | --- | --- |
-| Domains | Accepted domains, enabled state, recipients, catch-all and aliases | Administrator |
+| Domains | Guided setup, draft/DNS/recipient checks, enabled state, recipients, catch-all and aliases | Administrator |
 | Gateways | Explicit upstream hosts, route assignment and destination port | Administrator |
 | Filters → Policy & actions | Observation/enforcement, reference threshold, sensitivity, spam/marketing/malware actions and quarantine retention | Administrator |
 | Filters → Rules & profiles | Profiles, domain/address assignments, conditions, rule priority, expiry and actions | Administrator |

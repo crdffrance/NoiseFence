@@ -2472,3 +2472,152 @@ async fn software_identity_requires_session_and_release_checks_require_admin_csr
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn domain_setup_checks_are_admin_only_revision_bound_and_do_not_send_data_or_apply() {
+    use noisefence::smtp::{self, Wire};
+    use tokio::{io::BufReader, net::TcpListener};
+    let dir = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let captured = seen.clone();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.domains[0].next_hops = vec![listener.local_addr().unwrap().to_string()];
+    cfg.domains[0].recipients = vec![
+        "alice@example.test".into(),
+        "missing@example.test".into(),
+        "busy@example.test".into(),
+    ];
+    cfg.domains[0].recipient_verification = None;
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "reader", false, vec!["*@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg, store.clone(), Some(control.clone())).unwrap();
+    let settings = serde_json::to_value(&control.snapshot().settings).unwrap();
+    let body =
+        json!({"revision":0,"domain":"example.test","settings":settings,"check":"configuration"});
+    let path = "/admin/domains/check";
+    assert_eq!(
+        request(&app, &reader, path, Some(body.clone())).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let missing_csrf = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1{path}"))
+        .header("content-type", "application/json")
+        .header("origin", "http://127.0.0.1:3000")
+        .header("cookie", format!("noisefence_session={admin}"))
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(missing_csrf).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let (status, report) = request(&app, &admin, path, Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["result"]["status"], "valid");
+    assert_eq!(report["draft"], true);
+    let mut stale = body.clone();
+    stale["revision"] = json!(1);
+    assert_eq!(
+        request(&app, &admin, path, Some(stale)).await.0,
+        StatusCode::CONFLICT
+    );
+    let mut unknown = body.clone();
+    unknown["domain"] = json!("unconfigured.test");
+    assert_eq!(
+        request(&app, &admin, path, Some(unknown)).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut looping = body.clone();
+    looping["settings"]["gateways"][0]["hosts"] = json!([control.base.hostname]);
+    assert_eq!(
+        request(&app, &admin, path, Some(looping)).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut payload = body;
+    payload["check"] = json!("recipient");
+    for invalid in [
+        "alice@other.test",
+        "undeclared@example.test",
+        "alice@example.test\r\nDATA",
+    ] {
+        payload["recipient"] = json!(invalid);
+        assert_eq!(
+            request(&app, &admin, path, Some(payload.clone())).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+    let task = tokio::spawn(async move {
+        for _ in 0..3 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut io: Wire = BufReader::new(Box::new(stream));
+            smtp::reply(&mut io, "220 sink.test\r\n").await.unwrap();
+            while let Ok(Some(bytes)) = smtp::line(&mut io, 512, 5).await {
+                let command = String::from_utf8(bytes).unwrap();
+                captured.lock().unwrap().push(command.clone());
+                let reply = if command.starts_with("EHLO ") {
+                    "250 sink.test\r\n"
+                } else if command == "MAIL FROM:<>\r\n" || command == "RSET\r\n" {
+                    "250 OK\r\n"
+                } else if command == "RCPT TO:<alice@example.test>\r\n" {
+                    "250 2.1.5 OK\r\n"
+                } else if command == "RCPT TO:<missing@example.test>\r\n" {
+                    "550 5.1.1 Unknown\r\n"
+                } else if command == "RCPT TO:<busy@example.test>\r\n" {
+                    "451 4.3.0 Retry\r\n"
+                } else if command == "QUIT\r\n" {
+                    break;
+                } else {
+                    panic!("Unexpected SMTP command: {command}")
+                };
+                smtp::reply(&mut io, reply).await.unwrap();
+            }
+        }
+    });
+    for (address, expected) in [
+        ("alice", "accepted"),
+        ("missing", "unknown"),
+        ("busy", "unavailable"),
+    ] {
+        payload["recipient"] = json!(format!("{address}@example.test"));
+        let (status, report) = request(&app, &admin, path, Some(payload.clone())).await;
+        assert_eq!(status, StatusCode::OK, "{report}");
+        assert_eq!(report["result"]["status"], expected);
+        assert_eq!(report["result"]["data_sent"], false);
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.starts_with("RCPT TO:"))
+            .count(),
+        3
+    );
+    assert!(seen.lock().unwrap().iter().all(|s| !s.starts_with("DATA")));
+    assert_eq!(control.snapshot().revision, 0);
+    assert!(
+        control.snapshot().config.domains[0]
+            .recipient_verification
+            .is_none()
+    );
+    store
+        .read(|db| {
+            for table in ["messages", "console_revisions"] {
+                let count: i64 =
+                    db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+                assert_eq!(count, 0, "setup check must not write {table}");
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
