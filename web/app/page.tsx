@@ -293,6 +293,7 @@ function Home() {
   const [preferenceDirty, setPreferenceDirty] = useState(false);
   const [correctionDirty, setCorrectionDirty] = useState(false);
   const [qualityDirty, setQualityDirty] = useState(false);
+  const [qualityDraftEpoch, setQualityDraftEpoch] = useState(0);
   const configDirty = adminDirty || clusterDirty || preferenceDirty || correctionDirty || qualityDirty;
   const [user, setUser] = useState<User | null>(null),
     [ready, setReady] = useState(false),
@@ -500,6 +501,7 @@ function Home() {
   }
   function completeNavigation(destination: ConsoleDestination) {
     if (adminDirty) setAdminDraftEpoch(epoch => epoch + 1);
+    if (qualityDirty) setQualityDraftEpoch(epoch => epoch + 1);
     setAdminDirty(false);
     setClusterDirty(false);
     setPreferenceDirty(false);
@@ -960,7 +962,7 @@ function Home() {
           tab={selected ? null : researchTab}
           onChange={tab => navigate(tab === 'samples' ? 'quality' : tab === 'reliability' ? 'reliability' : 'messages', tab === 'comparison' ? 'rspamd_all' : 'all')}
         >
-        {section === 'quality' && <QualityConsole user={user} onDirty={setQualityDirty} onBusy={setBusy} />}
+        {section === 'quality' && <QualityConsole key={`${user.username}:${qualityDraftEpoch}`} user={user} onDirty={setQualityDirty} onBusy={setBusy} />}
         {section === 'reliability' && (
           <ReliabilityConsole key={user.username} />
         )}

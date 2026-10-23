@@ -32,6 +32,7 @@ export function QualityDetails({report}:{report:QualityReport}) {
 }
 export function QualityConsole({user,onDirty,onBusy}:{user:User;onDirty?:(dirty:boolean)=>void;onBusy?:(busy:boolean)=>void}) {
   const [dirty,setDirty]=useState(false),[pendingChange,setPendingChange]=useState<(()=>void)|null>(null);
+  const [draftEpoch,setDraftEpoch]=useState(0);
   const linkedSampleLoaded = useRef(false);
   const [batches,setBatches]=useState<Batch[]>([]),[selected,setSelected]=useState('');
   const [loaded,setLoaded]=useState<{id:string;revision:number;offset:number;members:Member[];readiness?:SampleReadiness;error?:string}>({id:'',revision:0,offset:0,members:[]});
@@ -93,7 +94,7 @@ export function QualityConsole({user,onDirty,onBusy}:{user:User;onDirty?:(dirty:
   const samePage=!!selected&&loaded.id===selected&&loaded.offset===offset;
   const members=samePage?loaded.members:[];
   return <div className="quality-console">
-    {pendingChange&&<ConfirmDialog title="Discard unsaved annotations?" confirmLabel="Discard and continue" danger busy={false} onCancel={()=>setPendingChange(null)} onConfirm={()=>{pendingChange();setPendingChange(null);setDirty(false);}}><p>Unsaved annotation drafts will be discarded. Saved labels, message verdicts and delivery remain unchanged.</p></ConfirmDialog>}
+    {pendingChange&&<ConfirmDialog title="Discard unsaved annotations?" confirmLabel="Discard and continue" danger busy={false} onCancel={()=>setPendingChange(null)} onConfirm={()=>{setDraftEpoch(epoch=>epoch+1);pendingChange();setPendingChange(null);setDirty(false);}}><p>Unsaved annotation drafts will be discarded. Saved labels, message verdicts and delivery remain unchanged.</p></ConfirmDialog>}
     {error && <p className="error" role="alert">{error}</p>}
     <section className="panel"><h2>Annotation samples</h2>
       {selected && <p><a href={qualityLink(selected)}>Direct link to this annotation sample</a></p>}
@@ -117,7 +118,7 @@ export function QualityConsole({user,onDirty,onBusy}:{user:User;onDirty?:(dirty:
       {loading && <output>Refreshing messages… Saved labels are being checked.</output>}
       {samePage&&loaded.error&&<p role="alert">Labels could not be refreshed. Last loaded data and unsaved drafts are retained; saving is disabled. <Button variant="outline" onClick={()=>setRevision(r=>r+1)}>Retry annotations</Button></p>}
       {annotationNotice&&<output className="notice">{annotationNotice}</output>}
-      {current&&samePage&&<AnnotationList key={`${selected}:${offset}`} refreshing={loading||!!loaded.error} members={members} user={user} batch={selected} purpose={current.purpose} onBusy={setAnnotating} onDirty={setDirty} onSaved={notice=>{setAnnotationNotice(notice);setRevision(x=>x+1);}} />}
+      {current&&samePage&&<AnnotationList key={`${selected}:${offset}:${draftEpoch}`} refreshing={loading||!!loaded.error} members={members} user={user} batch={selected} purpose={current.purpose} onBusy={setAnnotating} onDirty={setDirty} onSaved={notice=>{setAnnotationNotice(notice);setRevision(x=>x+1);}} />}
     </section>
     <details className="panel"><summary>Create a new evaluation sample</summary>
       <p>Evaluate a random sample among your accessible messages. The selection ignores the filter score and remains frozen.</p>
