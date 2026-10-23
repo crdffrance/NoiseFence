@@ -51,7 +51,17 @@ Under **Filters & evidence**, expand a family in **Checks at a glance** to inspe
 
 Expand the accounting, authentication or SMTP sections for technical details. If diagnostics fail to load, the page retains available signals and offers a retry without claiming the missing checks passed. Rspamd remains a separate comparison and never determines the NoiseFence verdict or action.
 
-Use **Correct classification** for verified mistakes: Ham, Spam or Pub. Additional learning labels are available in their own disclosure. Feedback never changes an already delivered Proton message and does not release quarantine. Operational corrections and evaluation-sample labels remain separate records with separate provenance; correcting a message does not silently label a protected evaluation sample.
+Use **Correct classification** for verified mistakes. The form shows the saved correction separately from your unsaved choice. Choose **Ham** for wanted mail, **Pub** for wanted marketing or **Spam** for unwanted/fraudulent mail, then select **Save correction**. Choosing an option alone does not write anything. If unsure, leave it unlabelled. A failed save keeps the draft and displays the error.
+
+**Correction detail** controls the scope of that save:
+
+- **General correction** updates your feedback and removes earlier detailed learning labels for this message.
+- **Add a domain learning label** updates feedback and the authorized domain label in one transaction. Spam can be refined to phishing or scam. Other detailed labels for that message are replaced; the form explains this before saving.
+- **Withdraw a domain learning label** removes only the selected detail. The general correction stays recorded.
+
+These actions never rewrite the saved verdict, change an already delivered message, release quarantine or create evaluation annotations. The Bayes and neural opinions remain read-only. A failed domain-label read leaves general feedback available with an explicit replacement warning; domain-specific writes require a successful authorized-domain read.
+
+The same form layout is used for individual and bulk sample annotations, with their purpose visible: development, regression or independent holdout. Protected evaluation messages and related campaigns remain excluded from training and sender trust. Saving one annotation retains drafts on other messages; filtering the current page also preserves those drafts. A failed refresh preserves the last loaded data and drafts, disables further saves and offers **Retry annotations**. Leaving an unfinished correction or sample asks for confirmation. Browser reload/close uses the browser’s native unsaved-change warning.
 
 Quarantine actions apply to one authorized delivery at a time and require a concrete confirmation. Use the [actions guide](actions.md) before releasing or discarding mail.
 
@@ -107,7 +117,9 @@ npm run dev -- --host 127.0.0.1 --port 3011
 
 Open `http://127.0.0.1:3011/demo.html?case=ham&role=user` for a synthetic user account, or omit `role=user` for the administrator layout. Other message cases are `spam`, `pub`, `quarantine`, `encrypted` and `error`. Use `open=list` to start in the message log. Add `view=quality&tab=comparison` or `view=quality&tab=reliability` for the research tabs. The example sample ID is `00000000-0000-4000-8000-000000000002`.
 
-The demo intercepts every API request. Bulk annotations only change browser-memory fixtures; reloading resets them. Other writes are refused and unsupported API views display an explicit fixture error. No mailbox, provider key or running Rust service is required. This is a UI demonstration, not a filtering benchmark or an authentication test. The production Vite build includes only the normal console entry, not `demo.html` or its fixtures. Do not expose the development server publicly.
+The demo intercepts every API request. Message corrections and individual/bulk annotations only change browser-memory fixtures; reloading resets them. Other writes are refused and unsupported API views display an explicit fixture error. No mailbox, provider key or running Rust service is required. This is a UI demonstration, not a filtering benchmark or an authentication test. The production Vite build includes only the normal console entry, not `demo.html` or its fixtures. Do not expose the development server publicly.
+
+Correction scenarios accept `correction=failure` (one failed save), `labels=unavailable` (domain-label read failure), `annotations=refresh-failure` (one failed refresh after a saved annotation) and `purpose=holdout` (protected-sample presentation). All use synthetic data and make no production writes.
 
 The synthetic demo also includes **Domains → Add domain**. Its validation, DNS and SMTP results are simulated in the browser: no lookup, SMTP connection or policy save occurs. Use `mail@new.example.test`, `missing@new.example.test` or `busy@new.example.test` to inspect the three recipient outcomes. Real SMTP behavior is covered separately by isolated Rust integration tests.
 

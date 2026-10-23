@@ -6,8 +6,8 @@ import type { Assessment, RecipientDecision } from './assessment';
 import { MyFilters } from './preferences';
 import { ClusterConsole } from './cluster';
 import { OnboardingGate } from './onboarding';
-import { AdaptiveDetails } from './adaptive';
-import type { AdaptiveReport, AdaptiveClass } from './adaptive-types';
+import { MessageCorrection } from './message-correction';
+import type { AdaptiveReport } from './adaptive-types';
 import { EarlyRblDetails } from './rbl';
 import {TrafficDetails,type TrafficReport} from './traffic';
 import { AdmissionDetails, type AdmissionDecision } from './smtp-admission';
@@ -60,7 +60,6 @@ import {
   Search,
   LogOut,
   ArrowLeft,
-  Check,
   Flag,
   Inbox,
   Archive,
@@ -292,7 +291,9 @@ function Home() {
   const [pendingNavigation, setPendingNavigation] = useState<ConsoleDestination | null>(null);
   const [clusterDirty, setClusterDirty] = useState(false);
   const [preferenceDirty, setPreferenceDirty] = useState(false);
-  const configDirty = adminDirty || clusterDirty || preferenceDirty;
+  const [correctionDirty, setCorrectionDirty] = useState(false);
+  const [qualityDirty, setQualityDirty] = useState(false);
+  const configDirty = adminDirty || clusterDirty || preferenceDirty || correctionDirty || qualityDirty;
   const [user, setUser] = useState<User | null>(null),
     [ready, setReady] = useState(false),
     [error, setError] = useState(''),
@@ -333,6 +334,7 @@ function Home() {
     setMails([]);
     setStats(null);
     setSelected(null);
+    setFeedbackFocusId(null);
     setHistoricalThreshold(null);
     setNotice('');
     setPassword('');
@@ -357,6 +359,8 @@ function Home() {
     setAdminDirty(false);
     setClusterDirty(false);
     setPreferenceDirty(false);
+    setCorrectionDirty(false);
+    setQualityDirty(false);
     setPendingNavigation(null);
   }, []);
   const diagnosticsLoaded = useCallback(
@@ -489,6 +493,7 @@ function Home() {
     window.history.replaceState(null, '', url);
   }, [user, researchTab]);
   function navigate(next: ConsoleDestination['section'], nextFilter = 'all', nextDomain?: string) {
+    if (busy) return;
     const destination = {section: next, filter: nextFilter, domain: nextDomain};
     if (configDirty) { setPendingNavigation(destination); return; }
     completeNavigation(destination);
@@ -498,69 +503,36 @@ function Home() {
     setAdminDirty(false);
     setClusterDirty(false);
     setPreferenceDirty(false);
+    setCorrectionDirty(false);
+    setQualityDirty(false);
     setPendingNavigation(null);
     setSection(destination.section);
     setFilter(destination.filter);
     if (destination.domain !== undefined) setDomain(destination.domain);
     setOffset(0);
     setSelected(null);
+    setFeedbackFocusId(null);
     setNotice('');
     setMobileMenu(false);
   }
   const [feedbackRevision, setFeedbackRevision] = useState(0);
-  function adaptiveCorrect(id: string, value: AdaptiveClass | null) {
-    if (value) {
-      const category =
-        value === 'phishing' || value === 'scam' ? 'spam' : value;
-      setSelected((previous) =>
-        previous?.id === id
-          ? {
-              ...previous,
-              feedback: category === 'spam',
-              feedback_category: category,
-            }
-          : previous,
-      );
-    }
+  const [feedbackFocusId,setFeedbackFocusId] = useState<string|null>(null);
+  const correctionSaved = useCallback((id: string, category: FeedbackCategory | undefined, notice: string) => {
+    if (!user || user !== activeUser.current) return;
+    setFeedbackRevision(r => r + 1);
+    setFeedbackFocusId(id);
+    if (category) setSelected(previous => previous?.id === id ? {...previous,
+      feedback: category === 'spam', feedback_category: category} : previous);
+    setCorrectionDirty(false);
+    setNotice(notice);
     void refresh();
-  }
-  const recordFeedback = useCallback(
-    async (id: string, category: FeedbackCategory) => {
-      if (!user) throw new Error('Sign in required.');
-      await api(`/messages/${id}/feedback`, { category }, user.csrf);
-      setFeedbackRevision((r) => r + 1);
-      if (user !== activeUser.current) return;
-      setSelected((previous) =>
-        previous?.id === id
-          ? {
-              ...previous,
-              feedback: category === 'spam',
-              feedback_category: category,
-            }
-          : previous,
-      );
-      setNotice(
-        "Feedback saved. Messages already delivered to Proton remain unchanged.",
-      );
-      await refresh();
-    },
-    [user, refresh],
-  );
-  useEffect(
-    () => (user ? registerFeedbackTool(recordFeedback) : undefined),
-    [user, recordFeedback],
-  );
-  async function feedback(category: FeedbackCategory) {
-    if (!selected || !user) return;
-    setBusy(true);
-    try {
-      await recordFeedback(selected.id, category);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  }, [user, refresh]);
+  const recordFeedback = useCallback(async (id: string, category: FeedbackCategory) => {
+    if (!user) throw new Error('Sign in required.');
+    await api(`/messages/${id}/feedback`, {category}, user.csrf);
+    correctionSaved(id, category, 'Correction saved. The recorded verdict, delivery and evaluation annotations remain unchanged.');
+  }, [user, correctionSaved]);
+  useEffect(() => (user ? registerFeedbackTool(recordFeedback) : undefined), [user, recordFeedback]);
   async function quarantineAction(
     recipient: string,
     action: 'release' | 'delete',
@@ -883,11 +855,12 @@ function Home() {
           </div>
           <Button
             variant="ghost"
+            disabled={busy}
             onClick={async () => {
               if (
                 configDirty &&
                 !window.confirm(
-                  "No adjustments are applied. Leave and abandon them?",
+                  (correctionDirty || qualityDirty) ? "Discard your unsaved annotations and sign out?" : "No adjustments are applied. Leave and abandon them?",
                 )
               )
                 return;
@@ -895,6 +868,7 @@ function Home() {
                 await api('/logout', {}, user.csrf);
                 changeSession(null);
                 setSelected(null);
+                setFeedbackFocusId(null);
                 setMails([]);
               } catch (e) {
                 setError((e as Error).message);
@@ -986,7 +960,7 @@ function Home() {
           tab={selected ? null : researchTab}
           onChange={tab => navigate(tab === 'samples' ? 'quality' : tab === 'reliability' ? 'reliability' : 'messages', tab === 'comparison' ? 'rspamd_all' : 'all')}
         >
-        {section === 'quality' && <QualityConsole user={user} />}
+        {section === 'quality' && <QualityConsole user={user} onDirty={setQualityDirty} onBusy={setBusy} />}
         {section === 'reliability' && (
           <ReliabilityConsole key={user.username} />
         )}
@@ -1007,8 +981,11 @@ function Home() {
               <>
                 <Button
                   variant="ghost"
+                  disabled={busy}
                   onClick={() => {
+                    if (correctionDirty) { setPendingNavigation({section: 'messages', filter, domain}); return; }
                     setSelected(null);
+                    setFeedbackFocusId(null);
                     setNotice('');
                   }}
                 >
@@ -1138,59 +1115,12 @@ function Home() {
                     <p className="small muted">
                       The body and attachments remain on the gateway while any delivery is pending or quarantined. Deletion follows resolution of all recipients and required replica acknowledgements.
                     </p>
-                    <p className="eyebrow">YOUR FEEDBACK</p>
-                    <h2>Correct classification</h2>
-                    <p className="muted">
-                      Record a correction for your authorized recipients. This does not change the saved verdict or messages already delivered.
-                    </p>
-                    <div className="feedback-actions">
-                      <Button
-                        disabled={busy}
-                        variant={
-                          selected.feedback_category === 'legitimate'
-                            ? 'default'
-                            : 'outline'
-                        }
-                        onClick={() => feedback('legitimate')}
-                      >
-                        <Check size={17} /> Ham
-                      </Button>
-                      <Button
-                        disabled={busy}
-                        variant={
-                          selected.feedback === true ? 'default' : 'outline'
-                        }
-                        onClick={() => feedback('spam')}
-                      >
-                        <Flag size={17} /> Spam
-                      </Button>
-                      <Button
-                        disabled={busy}
-                        variant={
-                          selected.feedback_category === 'publicity'
-                            ? 'default'
-                            : 'outline'
-                        }
-                        onClick={() => feedback('publicity')}
-                      >
-                        Pub
-                      </Button>
-                    </div>
-                    <p className="muted small">
-                      Pub means wanted marketing. Choose Spam for unwanted or fraudulent offers. Evaluation samples keep their own labels and provenance.
-                    </p>
-                    <details className="feedback-learning"><summary>Detailed learning labels</summary>
-                    <AdaptiveDetails
-                      key={`${user.username}-${selected.id}`}
-                      id={selected.id}
-                      csrf={user.csrf}
-                      report={selected.adaptive}
-                      feedbackRevision={feedbackRevision}
-                      onCorrect={(value) => adaptiveCorrect(selected.id, value)}
-                      blocked={busy}
-                      onBusy={setBusy}
+                    <MessageCorrection
+                      key={`${user.username}:${selected.id}:${feedbackRevision}`}
+                      id={selected.id} csrf={user.csrf} saved={selected.feedback_category ?? (selected.feedback === true ? 'spam' : null)}
+                      report={selected.adaptive} focusAfterSave={feedbackFocusId===selected.id} blocked={busy} onBusy={setBusy} onDirty={setCorrectionDirty}
+                      onSaved={(category, notice) => correctionSaved(selected.id, category, notice)}
                     />
-                    </details>
                   </section>
                   <Suspense
                     fallback={
@@ -2055,9 +1985,9 @@ function Home() {
         )}
         </QualityNavigation>
       </main>
-      {pendingNavigation && <ConfirmDialog title="Discard unsaved settings?" confirmLabel="Discard and leave" danger busy={false}
+      {pendingNavigation && <ConfirmDialog title={correctionDirty || qualityDirty ? "Discard unsaved annotations?" : "Discard unsaved settings?"} confirmLabel="Discard and leave" danger busy={false}
         onCancel={() => setPendingNavigation(null)} onConfirm={() => completeNavigation(pendingNavigation)}>
-        <p>The configuration draft and any unfinished domain setup will be discarded. Installed settings and accepted messages will remain unchanged.</p>
+        <p>{correctionDirty || qualityDirty ? "Your unsaved annotations will be discarded. Saved feedback, evaluation annotations and message delivery remain unchanged." : "The configuration draft and any unfinished domain setup will be discarded. Installed settings and accepted messages will remain unchanged."}</p>
       </ConfirmDialog>}
       {confirmation && selected && (
         <ConfirmDialog

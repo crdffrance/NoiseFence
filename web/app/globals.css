@@ -906,3 +906,19 @@ details.management-card summary {
 .provider-facts dd { margin:0; overflow-wrap:anywhere; }
 @media (max-width:800px) { .provider-cards { grid-template-columns:1fr; } }
 @media (max-width:440px) { .provider-facts > div { grid-template-columns:1fr; gap:.2rem; } }
+
+/* Shared correction workflow: saved state, usage scope, draft and explicit save. */
+.message-correction { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+.correction-form { min-width: 0; display: grid; gap: .85rem; }
+.correction-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.correction-heading h3 { margin: 0; }
+.correction-scope { color: var(--muted-foreground); font-size: .75rem; border: 1px solid var(--border); border-radius: 999px; padding: .2rem .6rem; }
+.correction-saved { padding: .65rem .8rem; background: var(--muted); border-radius: .5rem; overflow-wrap: anywhere; }
+.correction-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: .85rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.correction-fields label { display: grid; gap: .35rem; min-width: 0; font-size: .9rem; }
+.correction-fields select { width: 100%; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: .5rem; padding: .6rem; background: var(--background); }
+.message-correction .correction-fields { grid-template-columns: minmax(0, 1fr); }
+.correction-wide { grid-column: 1 / -1; }
+.correction-labels { margin: .75rem 0 1rem; overflow-wrap: anywhere; }
+.quality-member .correction-form { margin-top: .75rem; }
+@media (max-width: 640px) { .correction-fields { grid-template-columns: minmax(0, 1fr); } }

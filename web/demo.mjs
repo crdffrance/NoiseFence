@@ -3,6 +3,9 @@
 const params = new URLSearchParams(location.search);
 const readonlyUser = params.get('role') === 'user';
 const writes = [];
+let detailedLabels = [{domain:'example.test', class:null}];
+let correctionFailures = params.get('correction') === 'failure' ? 1 : 0;
+let annotationWritten=false, failQualityRefresh=params.get('annotations')==='refresh-failure';
 const setupFilters = {mode: 'observe', rule_weights: {}, threshold: 95, require_corroboration: true, authentication: true, antivirus: false, signatures: false, semantic: false, vision: false, llm: true, smtp_policy: true, smtp_policy_scoring: false, vision_scoring: false, reputation: false};
 const setupLlm = {model:'synthetic-model',monthly_budget_micro_eur:20000000,pricing_checked_at:Math.floor(Date.now()/1000)-40*86400,max_text_bytes:12000,timeout_ms:2500,max_parallel:2,score_low:0,score_high:100,review_unconfirmed_high:false};
 const setupSettings = {domains: [{name: 'example.test', gateway: 'provider', enabled: true, accept_all_recipients: false, recipients: ['alex@example.test'], aliases: {}}], gateways: [{id: 'provider', name: 'Synthetic mail provider', hosts: ['inbound.provider.test'], port: 25}], filters: setupFilters, actions: {spam:'quarantine',malware:'quarantine',publicity:'deliver',quarantine_days:14}, protection:{identity:true,links:true,campaigns:true,crdf:true,virustotal:false,crdf_quota:{minute:0,day:0},virustotal_quota:null,follow_urls:false,protected_names:[],reply_exceptions:[],link_exceptions:[]}, mailing:null, smtp_admission:{enabled:false,mode:'observe',greylisting:true,minimum_providers:2,allow_networks:[],rate_per_minute:60,rate_burst:120,retry_delay_seconds:120,retry_max_age_seconds:86400,retention_seconds:604800,max_entries:100000,tarpit_delay_ms:250,tarpit_max_concurrent:4,tarpit_session_budget_ms:1000}, rbl:{lists:[],action:'observe',minimum_providers:2,timeout_ms:1000,max_parallel:4,cache_entries:1000,cache_ttl_seconds:300}, detection:{modules:{llm:setupLlm, rspamd:{enabled:true,sample_percent:100,timeout_ms:5000,max_parallel:2,queue_capacity:4,max_bytes:4194304}}}, preferences:{enabled:false,mailboxes:{},minimum_threshold:50,maximum_threshold:99,max_rules:20,allowed_actions:['deliver','tag','quarantine']}, custom_filtering:null};
@@ -463,6 +466,24 @@ window.fetch = async (input, options) => {
         : {check:'recipient',status:body.recipient.startsWith('missing@') ? 'unknown' : body.recipient.startsWith('busy@') ? 'unavailable' : 'accepted',destination:body.recipient,routes:['inbound.provider.test'],data_sent:false,loopback_test_allowed:false};
       return Response.json({revision:body.revision,domain:body.domain,hostname:'mx.example.test',checked_at:Math.floor(Date.now()/1000),draft:true,result});
     }
+    if (path === `/messages/${mail.id}/feedback` || path === `/messages/${mail.id}/adaptive-label`) {
+      if(correctionFailures-- > 0) return Response.json({error:'Synthetic save failure. No correction was stored.'},{status:503});
+      if(path.endsWith('/feedback')) {
+        mail.feedback_category=body.category; mail.feedback=body.category==='spam';
+        detailedLabels=detailedLabels.map(d=>({...d,class:null}));
+      } else if(body.class) {
+        mail.feedback_category=['phishing','scam'].includes(body.class)?'spam':body.class;
+        mail.feedback=mail.feedback_category==='spam';
+        detailedLabels=detailedLabels.map(d=>({...d,class:d.domain===body.domain?body.class:null}));
+      } else detailedLabels=detailedLabels.map(d=>({...d,class:d.domain===body.domain?null:d.class}));
+      return Response.json({ok:true});
+    }
+    if (path.endsWith('/quality-label')) {
+      const member=members.find(m=>path===`/messages/${m.id}/quality-label`);
+      if(!member)return Response.json({error:'Synthetic member unavailable'},{status:404});
+      member.risk=body.risk;member.kind=body.kind;annotationWritten=true;
+      return Response.json({ok:true});
+    }
     if (path === `/quality/samples/${sampleId}/labels`) {
       let applied = 0,
         skipped = 0;
@@ -475,6 +496,7 @@ window.fetch = async (input, options) => {
         if (body.kind) member.kind = body.kind;
         applied++;
       }
+      annotationWritten=true;
       return Response.json({ applied, skipped });
     }
     return Response.json(
@@ -533,7 +555,7 @@ window.fetch = async (input, options) => {
       batches: [
         {
           id: sampleId,
-          purpose: 'development',
+          purpose: params.get('purpose')==='holdout'?'holdout':'development',
           sampling: 'random',
           created,
           since: created,
@@ -548,7 +570,10 @@ window.fetch = async (input, options) => {
       candidate_configured: false,
       observation_start: created,
     };
-  else if (path === `/quality/samples/${sampleId}`) data = members;
+  else if (path === `/quality/samples/${sampleId}`) {
+    if(annotationWritten&&failQualityRefresh){failQualityRefresh=false;return Response.json({error:'Synthetic refresh failure'},{status:503});}
+    data = members;
+  }
   else if (path === `/quality/samples/${sampleId}/readiness`)
     data = {
       selected: 2,
@@ -610,7 +635,10 @@ window.fetch = async (input, options) => {
         { status: 503 },
       );
     data = diagnostics;
-  } else if (path.endsWith('/adaptive-label')) data = { domains: [] };
+  } else if (path.endsWith('/adaptive-label')) {
+    if(params.get('labels')==='unavailable')return Response.json({error:'Synthetic label lookup unavailable'},{status:503});
+    data = {domains:detailedLabels};
+  }
   else
     return Response.json(
       { error: `No synthetic fixture for ${path}` },

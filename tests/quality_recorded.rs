@@ -135,7 +135,7 @@ async fn population_export_preserves_receipts_and_quarantining_is_not_delivery_c
     api::create_user(
         &store,
         "alice".into(),
-        "test-password-123456".into(),
+        uuid::Uuid::new_v4().to_string(),
         vec!["alice@example.test".into()],
         false,
     )

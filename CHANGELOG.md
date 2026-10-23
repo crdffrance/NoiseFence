@@ -2,6 +2,10 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Unify message corrections and sample annotations around explicit saves, saved-state summaries and visible purpose. Explain how general feedback replaces detailed domain labels; keep protected evaluation labels separate from operational feedback.
+- Retain annotation drafts across other-row saves, page filtering and refresh failures. Confirm before abandoning drafts, preserve keyboard focus after saves and disable additional writes while refreshed labels are unavailable.
+- Generate an ephemeral password for the receipt-export test account instead of a fixed fixture credential; keep CodeQL security checks enabled.
+
 - Preserve receipt-time engine, recipient-policy and requested/effective-action snapshots in full-population exports. Offline evaluation reports these baselines separately, retains unknowns and reads both population generations without changing candidate predictions.
 
 - Add **Filters → Providers & budgets** with loaded credential/configuration state, revision-bound navigation, reserved quotas, read-only LLM accounting and recent provider incidents. Distinguish coordinator-issued credits from worker allowances and provider invoices; an unreadable ledger remains unknown.

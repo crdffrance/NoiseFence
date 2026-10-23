@@ -13,22 +13,32 @@ async function moduleURL(file,bindings={}) {
 const utils=await moduleURL('../lib/utils.ts');
 const button=await moduleURL('../components/ui/button.tsx',{'@/lib/utils':utils});
 const input=await moduleURL('../components/ui/input.tsx',{'@/lib/utils':utils});
+const correction=await moduleURL('../app/correction-form.tsx',{'@/components/ui/button':button,'./correction':new URL('../app/correction.ts',import.meta.url).href});
 const {AnnotationList}=await import(await moduleURL('../app/quality-annotations.tsx',{
   '@/components/ui/button':button,'@/components/ui/input':input,
-  './client':new URL('../app/client.ts',import.meta.url).href,
+  './client':new URL('../app/client.ts',import.meta.url).href,'./correction-form':correction,
   './quality-types':new URL('../app/quality-types.ts',import.meta.url).href,
 }));
 test('bulk annotations start without inferred labels or selection and preserve existing annotations by default',()=>{
-  const html=renderToStaticMarkup(createElement(AnnotationList,{members:[{id:'one',created:1,sender:'sender@example.test',subject:'<script>unsafe</script>',risk:null,kind:null,joint_observations:true}],user:{username:'alice',csrf:'fixture',admin:false,addresses:[]},batch:'sample',onSaved:()=>{},onBusy:()=>{}}));
+  const html=renderToStaticMarkup(createElement(AnnotationList,{members:[{id:'one',created:1,sender:'sender@example.test',subject:'<script>unsafe</script>',risk:null,kind:null,joint_observations:true}],user:{username:'alice',csrf:'fixture',admin:false,addresses:[]},batch:'sample',purpose:'holdout',onSaved:()=>{},onBusy:()=>{}}));
   assert.match(html,/Apply to 0 selected/);
   assert.match(html,/Choose a human verdict/);
   assert.match(html,/Keep existing type/);
+  assert.match(html,/Holdout annotation/);
+  assert.match(html,/excluded from training and sender trust/);
   assert.match(html,/PUB · Newsletter/);
   assert.match(html,/Replace my existing annotations/);
   assert.doesNotMatch(html,/checked=""/);
   assert.doesNotMatch(html,/<script>unsafe/);
   assert.match(html,/&lt;script&gt;unsafe/);
   assert.match(html,/newsletter may be wanted or unwanted/);
+});
+
+test('refreshing annotations disables saves without claiming that a write is running',()=>{
+  const html=renderToStaticMarkup(createElement(AnnotationList,{members:[],user:{username:'alice',csrf:'fixture',admin:false,addresses:[]},batch:'sample',purpose:'development',refreshing:true,onSaved:()=>{},onBusy:()=>{}}));
+  assert.doesNotMatch(html,/Saving…/);
+  assert.match(html,/Apply to 0 selected/);
+  assert.match(html,/does not create operational feedback/);
 });
 
 const {SoftwareStatus} = await import(await moduleURL('../app/software.tsx', {
