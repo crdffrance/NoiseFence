@@ -9,7 +9,7 @@ test('missing or invalid quality estimates never display zero errors',()=>{
 });
 test('availability is explicit and unknown provider content is never echoed',()=>{
   assert.equal(stateLabel('quota'),"Quota reached");assert.equal(stateLabel('unavailable'),"Unavailable");
-  assert.equal(stateLabel('<script>private</script>'),"Undetermined State");
+  assert.equal(stateLabel('<script>private</script>'),"Unknown status");
   assert.notEqual(stateLabel('clean'),stateLabel('disabled'));
 });
 

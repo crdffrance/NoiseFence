@@ -1,4 +1,5 @@
 'use client';
+import { ProvidersOverview } from './providers-view';
 import { DomainSetup } from './domain-setup-view';
 import { LlmPricingNotice } from './llm-pricing-notice';
 import { ResearchArchiveSettings, type ArchiveSettings } from './research-archive';
@@ -176,6 +177,7 @@ type Metrics = {
   };
 };
 const filterSections = [
+  { id: 'providers', label: 'Providers & budgets', description: 'Loaded keys, quotas, costs, coverage and incidents', icon: <Activity size={19} /> },
   { id: 'models', label: 'Model files', description: 'Installed artifacts and explicit updates', icon: <Server size={19} /> },
   {
     id: 'admission',
@@ -1009,6 +1011,9 @@ export function AdminConsole({
             value={filterSection}
             onChange={setFilterSection}
           />
+          <div id="filters-panel-providers" role="tabpanel" aria-labelledby="filters-tab-providers" hidden={filterSection !== 'providers'} className="filter-section">
+            {section === 'filters' && filterSection === 'providers' && <ProvidersOverview revision={config.revision} hasDraft={dirty} onSettings={target => {setFilterQuery(''); setFilterSection(target); requestAnimationFrame(() => document.getElementById(`filters-tab-${target}`)?.focus());}}/>}
+          </div>
           <div
             id="filters-panel-admission"
             role="tabpanel"
@@ -1283,7 +1288,7 @@ export function AdminConsole({
             className="filter-section"
           >
             <ProtectionSettings
-              key={epoch}
+              key={`${user.username}:${config.revision}:${epoch}`}
               revision={config.revision}
               policy={draft.protection}
               user={user}

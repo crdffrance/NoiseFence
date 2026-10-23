@@ -471,7 +471,7 @@ function CheckResult({ report }: { report?: DomainCheckReport }) {
         </p>
       )}
       <small>
-        Checked {new Date(report.checked_at * 1000).toLocaleString()} on{' '}
+        Checked {new Date(report.checked_at * 1000).toLocaleString('en-GB')} on{' '}
         {report.hostname}. Draft revision {report.revision}.
       </small>
     </div>

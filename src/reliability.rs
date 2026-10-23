@@ -174,6 +174,7 @@ impl Window {
         }
     }
     fn finish(&mut self) {
+        self.coverage.finish();
         self.latencies.sort_unstable();
         self.p95_ms = self
             .latencies

@@ -12,6 +12,7 @@ The console manages **messaging and filter policies**. Installation settings sta
 | Filters → Rules & profiles | Profiles, domain/address assignments, conditions, rule priority, expiry and actions | Administrator |
 | Filters → Rule weights | Bounded contributions of supported content signals | Administrator |
 | Filters → Detection engines | Installed checks and optional score contributions | Administrator |
+| Filters → Providers & budgets | Read-only loaded configuration, credential state, reserved quotas, LLM accounting, recent coverage and incidents | Administrator |
 | Filters → IP reputation · RBL | DNSBL providers, exact return codes, IPv6, independent-provider threshold, timeout, cache, concurrency and admission action | Administrator |
 | Filters → SMTP admission | Greylisting, rate limits and bounded delays | Administrator |
 | Filters → Advanced settings | Analysis limits; LLM model/project, selection, budget and pricing date; OCR limits; DNS checks; URL following; native patterns, composites and family caps | Administrator |

@@ -17,6 +17,9 @@ pub struct Provider {
     failures: BTreeMap<String, usize>,
     retry_after_max_seconds: u64,
     timed_messages: usize,
+    p95_ms: Option<u64>,
+    #[serde(skip)]
+    latencies: Vec<u64>,
     deadline_exceeded: usize,
     phase_ms: BTreeMap<crate::protection::providers::TimingPhase, u64>,
     cancelled_phases: BTreeMap<crate::protection::providers::TimingPhase, usize>,
@@ -30,6 +33,7 @@ impl Provider {
         self.requests += p.request_count.min(24);
         if let Some(timing) = &p.timing {
             self.timed_messages += 1;
+            self.latencies.push(p.elapsed_ms);
             self.deadline_exceeded += usize::from(timing.deadline_exceeded);
             for (&phase, &ms) in &timing.phase_ms {
                 *self.phase_ms.entry(phase).or_default() += ms.min(120_000);
@@ -90,6 +94,15 @@ pub struct Coverage {
     redirects_omitted: usize,
 }
 impl Coverage {
+    pub fn finish(&mut self) {
+        for p in self.providers.values_mut() {
+            p.latencies.sort_unstable();
+            p.p95_ms = p
+                .latencies
+                .get((p.latencies.len() * 95).div_ceil(100).saturating_sub(1))
+                .copied();
+        }
+    }
     pub fn add(&mut self, scan: &Scan) {
         let Some(p) = &scan.protection else {
             return;
@@ -208,6 +221,39 @@ impl Misses {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn provider_percentile_uses_measured_elapsed_times_including_failures() {
+        let mut coverage = Coverage::default();
+        let mut scan = Scan {
+            protection: Some(crate::protection::Report::default()),
+            ..Default::default()
+        };
+        for i in 1..=20 {
+            scan.protection.as_mut().unwrap().crdf = ProviderReport {
+                status: if i == 20 {
+                    Status::Unavailable
+                } else {
+                    Status::Complete
+                },
+                elapsed_ms: i * 10,
+                timing: Some(crate::protection::providers::TimingReport::default()),
+                ..Default::default()
+            };
+            coverage.add(&scan);
+        }
+        let provider = &mut scan.protection.as_mut().unwrap().crdf;
+        provider.elapsed_ms = 9999;
+        provider.timing = None;
+        coverage.add(&scan); // Old default timings must not distort a percentile.
+        scan.protection.as_mut().unwrap().crdf.status = Status::Disabled;
+        coverage.add(&scan);
+        coverage.finish();
+        let report = serde_json::to_value(coverage).unwrap();
+        assert_eq!(report["providers"]["crdf"]["messages"], 21);
+        assert_eq!(report["providers"]["crdf"]["timed_messages"], 20);
+        assert_eq!(report["providers"]["crdf"]["p95_ms"], 190);
+        assert!(report["providers"]["crdf"].get("latencies").is_none());
+    }
     #[test]
     fn recovered_transport_is_counted_without_exposing_provider_text_or_claiming_a_miss() {
         let mut scan = Scan {

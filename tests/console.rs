@@ -2621,3 +2621,56 @@ async fn domain_setup_checks_are_admin_only_revision_bound_and_do_not_send_data_
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn provider_overview_is_admin_only_read_only_and_uses_loaded_capacity() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.protection = Some(Default::default());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "reader", false, vec!["alice@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg, store, Some(control.clone())).unwrap();
+    assert_eq!(
+        request(&app, &reader, "/admin/providers", None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "invalid", "/admin/providers", None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let mut settings = serde_json::to_value(control.snapshot().settings.clone()).unwrap();
+    settings["detection"]["modules"]["protection"]["timeout_ms"] = json!(1500);
+    settings["detection"]["modules"]["protection"]["max_parallel"] = json!(3);
+    control
+        .apply(0, serde_json::from_value(settings).unwrap(), "admin".into())
+        .await
+        .unwrap();
+    let (status, value) = request(&app, &admin, "/admin/providers", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["revision"], 1);
+    assert_eq!(value["capacity"]["timeout_ms"], 1500);
+    assert_eq!(value["capacity"]["max_parallel"], 3);
+    assert_eq!(value["services"]["llm"]["installed"], false);
+    assert_eq!(value["services"]["llm"]["enabled"], false);
+    assert_eq!(value["services"]["llm"]["budget"]["status"], "not_started");
+    assert!(!dir.path().join("llm-budget.sqlite3").exists());
+    assert_eq!(control.snapshot().revision, 1);
+    let mut settings = control.snapshot().settings.clone();
+    settings.protection = None;
+    control.apply(1, settings, "admin".into()).await.unwrap();
+    let (_, disabled) = request(&app, &admin, "/admin/providers", None).await;
+    assert_eq!(disabled["available"], true);
+    assert_eq!(disabled["enabled"], false);
+    assert!(disabled["capacity"].is_null());
+    assert!(disabled["policy"].is_null());
+    // A corrupt ledger is unknown, not zero and not an outage of other cards.
+    std::fs::write(dir.path().join("llm-budget.sqlite3"), b"invalid ledger").unwrap();
+    let (status, bad) = request(&app, &admin, "/admin/providers", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(bad["services"]["llm"]["budget"].is_null());
+    assert_eq!(bad["revision"], 2);
+    assert!(!bad.to_string().contains(&dir.path().display().to_string()));
+}

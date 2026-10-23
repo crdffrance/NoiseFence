@@ -110,3 +110,13 @@ Open `http://127.0.0.1:3011/demo.html?case=ham&role=user` for a synthetic user a
 The demo intercepts every API request. Bulk annotations only change browser-memory fixtures; reloading resets them. Other writes are refused and unsupported API views display an explicit fixture error. No mailbox, provider key or running Rust service is required. This is a UI demonstration, not a filtering benchmark or an authentication test. The production Vite build includes only the normal console entry, not `demo.html` or its fixtures. Do not expose the development server publicly.
 
 The synthetic demo also includes **Domains → Add domain**. Its validation, DNS and SMTP results are simulated in the browser: no lookup, SMTP connection or policy save occurs. Use `mail@new.example.test`, `missing@new.example.test` or `busy@new.example.test` to inspect the three recipient outcomes. Real SMTP behavior is covered separately by isolated Rust integration tests.
+
+## Provider operations
+
+Open **Filters → Providers & budgets** for the configuration loaded on the console host, the active revision and a capture timestamp. The overview keeps unapplied drafts separate and links to the existing keys, quotas, LLM, RBL and comparison editors. It does not probe external providers, send message content, renew pricing verification or enable an engine.
+
+CRDF and VirusTotal distinguish saved credentials from credentials captured by the loaded configuration. A captured key does not certify upstream permissions or licensing. Limits use the effective Web configuration, not bootstrap values. Missing counters are unavailable rather than zero. Cooldown still applies with unlimited quotas.
+
+Request counters and LLM accounting belong to the responding node. A coordinator also reserves credits issued to other MXs: summing coordinator and worker counters double-counts those credits. LLM amounts include outstanding reservations and conservative charges, not provider invoices. Worker credit ceilings can be lower than the configured monthly ceiling. A missing ledger is shown as not started; an unreadable ledger is unknown. Reading this view never initializes or migrates that ledger.
+
+Recorded checks use accessible history from the last 24 hours, potentially across MXs. Select the current engine build or all builds explicitly. Historical failures are not a live health probe or evidence of spam. CRDF/VirusTotal p95 uses recorded elapsed times only when detailed timing metadata exists, including failed attempts and cache lookups. Phase totals may overlap and are never treated as percentiles. No observations means no availability or latency conclusion. Rspamd remains an independent comparison; Scaleway suspension and all activation controls remain unchanged.

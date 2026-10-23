@@ -2,6 +2,9 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Add **Filters → Providers & budgets** with loaded credential/configuration state, revision-bound navigation, reserved quotas, read-only LLM accounting and recent provider incidents. Distinguish coordinator-issued credits from worker allowances and provider invoices; an unreadable ledger remains unknown.
+- Report effective provider capacity rather than bootstrap settings. Compute CRDF/VirusTotal p95 from recorded elapsed times with timing metadata, keeping failed attempts, historical gaps and concurrent phase totals explicit. Preserve all activation controls and clear stale status after refresh failures.
+
 - Confirming navigation away from unsaved administration settings now discards the actual draft, including unfinished domain setup.
 - Guided domain setup prepares a reviewed draft with explicit upstream routes and destination-recipient verification by default. Bounded administrator-only DNS and envelope-only SMTP checks do not send or enqueue mail; public MX and inbox validation remain explicit operator steps.
 - Fix the Rspamd rendering regression test to assert escaped mixed-case HTML directly, resolving the CodeQL test annotation without suppressing scanning.

@@ -3,8 +3,9 @@
 const params = new URLSearchParams(location.search);
 const readonlyUser = params.get('role') === 'user';
 const writes = [];
-const setupFilters = {mode: 'observe', rule_weights: {}, threshold: 95, require_corroboration: true, authentication: true, antivirus: false, signatures: false, semantic: false, vision: false, llm: false, smtp_policy: true, smtp_policy_scoring: false, vision_scoring: false, reputation: false};
-const setupSettings = {domains: [{name: 'example.test', gateway: 'provider', enabled: true, accept_all_recipients: false, recipients: ['alex@example.test'], aliases: {}}], gateways: [{id: 'provider', name: 'Synthetic mail provider', hosts: ['inbound.provider.test'], port: 25}], filters: setupFilters, actions: {spam:'quarantine',malware:'quarantine',publicity:'deliver',quarantine_days:14}, protection:null, mailing:null, smtp_admission:{enabled:false}, rbl:{providers:[]}, detection:{modules:{}}, preferences:{enabled:false, mailboxes:{}}, custom_filtering:null};
+const setupFilters = {mode: 'observe', rule_weights: {}, threshold: 95, require_corroboration: true, authentication: true, antivirus: false, signatures: false, semantic: false, vision: false, llm: true, smtp_policy: true, smtp_policy_scoring: false, vision_scoring: false, reputation: false};
+const setupLlm = {model:'synthetic-model',monthly_budget_micro_eur:20000000,pricing_checked_at:Math.floor(Date.now()/1000)-40*86400,max_text_bytes:12000,timeout_ms:2500,max_parallel:2,score_low:0,score_high:100,review_unconfirmed_high:false};
+const setupSettings = {domains: [{name: 'example.test', gateway: 'provider', enabled: true, accept_all_recipients: false, recipients: ['alex@example.test'], aliases: {}}], gateways: [{id: 'provider', name: 'Synthetic mail provider', hosts: ['inbound.provider.test'], port: 25}], filters: setupFilters, actions: {spam:'quarantine',malware:'quarantine',publicity:'deliver',quarantine_days:14}, protection:{identity:true,links:true,campaigns:true,crdf:true,virustotal:false,crdf_quota:{minute:0,day:0},virustotal_quota:null,follow_urls:false,protected_names:[],reply_exceptions:[],link_exceptions:[]}, mailing:null, smtp_admission:{enabled:false,mode:'observe',greylisting:true,minimum_providers:2,allow_networks:[],rate_per_minute:60,rate_burst:120,retry_delay_seconds:120,retry_max_age_seconds:86400,retention_seconds:604800,max_entries:100000,tarpit_delay_ms:250,tarpit_max_concurrent:4,tarpit_session_budget_ms:1000}, rbl:{lists:[],action:'observe',minimum_providers:2,timeout_ms:1000,max_parallel:4,cache_entries:1000,cache_ttl_seconds:300}, detection:{modules:{llm:setupLlm, rspamd:{enabled:true,sample_percent:100,timeout_ms:5000,max_parallel:2,queue_capacity:4,max_bytes:4194304}}}, preferences:{enabled:false,mailboxes:{},minimum_threshold:50,maximum_threshold:99,max_rules:20,allowed_actions:['deliver','tag','quarantine']}, custom_filtering:null};
 const sampleId = '00000000-0000-4000-8000-000000000002';
 const cohort = 'a'.repeat(64);
 const variant = new URLSearchParams(location.search).get('case') ?? 'spam';
@@ -389,7 +390,7 @@ const windowData = {
   p95_ms: 485,
   detector_status: { llm: { disabled: 2 }, virustotal: { quota: 2 } },
   coverage: {
-    providers: {},
+    providers: {crdf:{messages:2,checked:5,cached:3,omitted:1,requests:3,http_status:{200:2,503:1},failures:{http:1},retry_after_max_seconds:0,timed_messages:2,p95_ms:425,deadline_exceeded:0,phase_ms:{http:800},cancelled_phases:{}}},
     redirect_details: {},
     redirect_categories: {},
     redirect_http_status: {},
@@ -488,6 +489,15 @@ window.fetch = async (input, options) => {
       csrf: 'synthetic',
       addresses: ['alex@example.test'],
     };
+  else if ((path === '/admin/providers' || path === '/admin/protection') && !readonlyUser) {
+    if (new URLSearchParams(location.search).get('providers') === 'unavailable')
+      return Response.json({error:'Synthetic status failure'}, {status:503});
+    data = {revision:25, checked_at:Math.floor(Date.now()/1000), hostname:'mx.example.test', node_id:'mx-demo',cluster_role:'coordinator', available:true,enabled:true,
+      keys:{crdf:true,virustotal:true},loaded_keys:{crdf:true,virustotal:false},pending_keys:{crdf:false,virustotal:true},policy:{crdf:true,virustotal:false,follow_urls:false},
+      quotas:{crdf:{minute:0,day:0},virustotal:{minute:4,day:500}},bootstrap_quotas:{crdf:{minute:2,day:200},virustotal:{minute:4,day:500}},
+      usage:{crdf:{minute_used:2,day_used:140,minute_resets_at:Math.floor(Date.now()/60000)*60+60,day_resets_at:Math.floor(Date.now()/86400000)*86400+86400,cooldown_until:null},virustotal:null},capacity:{timeout_ms:1200,max_parallel:2,max_indicators:12},
+      services:{llm:{installed:true,enabled:true,configuration:setupLlm,budget:{status:'available',month:'2026-10',accounted_micro_eur:2500000,issued_micro_eur:500000,requests:18,worker_wallet:false,ceiling_micro_eur:20000000,remaining_micro_eur:17500000}},rbl:{enabled_lists:0,action:'observe',timeout_ms:1000,max_parallel:4},rspamd:{enabled:true,sample_percent:100,timeout_ms:5000,max_parallel:2}}};
+  }
   else if (path === '/admin/config' && !readonlyUser)
     data = {revision:25,settings:setupSettings,actions:setupSettings.actions,rules:[],native_rules:[],available:setupFilters,hostname:'mx.example.test',version:__NOISEFENCE_CONSOLE__.version,sensitivity_levels:[],threshold_locked:false,sensitivity_locked:false,tag_ready:false,pub_tag_ready:false,mailing_available:false,max_connections:100,processing:4,relay_workers:4,max_message_bytes:26214400};
   else if (path === '/admin/cluster/activation/view' && !readonlyUser)
