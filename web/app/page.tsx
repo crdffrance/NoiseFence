@@ -291,6 +291,7 @@ function Home() {
   const [pendingNavigation, setPendingNavigation] = useState<ConsoleDestination | null>(null);
   const [clusterDirty, setClusterDirty] = useState(false);
   const [preferenceDirty, setPreferenceDirty] = useState(false);
+  const [preferenceDraftEpoch,setPreferenceDraftEpoch] = useState(0);
   const [correctionDirty, setCorrectionDirty] = useState(false);
   const [qualityDirty, setQualityDirty] = useState(false);
   const [qualityDraftEpoch, setQualityDraftEpoch] = useState(0);
@@ -502,6 +503,7 @@ function Home() {
   function completeNavigation(destination: ConsoleDestination) {
     if (adminDirty) setAdminDraftEpoch(epoch => epoch + 1);
     if (qualityDirty) setQualityDraftEpoch(epoch => epoch + 1);
+    if (preferenceDirty) setPreferenceDraftEpoch(epoch => epoch + 1);
     setAdminDirty(false);
     setClusterDirty(false);
     setPreferenceDirty(false);
@@ -956,7 +958,7 @@ function Home() {
           />
         )}
         {section === 'preferences' && (
-          <MyFilters user={user} onDirty={setPreferenceDirty} />
+          <MyFilters key={`${user.username}:${preferenceDraftEpoch}`} user={user} onDirty={setPreferenceDirty} onBusy={setBusy} />
         )}
         <QualityNavigation
           tab={selected ? null : researchTab}
@@ -1989,7 +1991,7 @@ function Home() {
       </main>
       {pendingNavigation && <ConfirmDialog title={correctionDirty || qualityDirty ? "Discard unsaved annotations?" : "Discard unsaved settings?"} confirmLabel="Discard and leave" danger busy={false}
         onCancel={() => setPendingNavigation(null)} onConfirm={() => completeNavigation(pendingNavigation)}>
-        <p>{correctionDirty || qualityDirty ? "Your unsaved annotations will be discarded. Saved feedback, evaluation annotations and message delivery remain unchanged." : "The configuration draft and any unfinished domain setup will be discarded. Installed settings and accepted messages will remain unchanged."}</p>
+        <p>{correctionDirty || qualityDirty ? "Your unsaved annotations will be discarded. Saved feedback, evaluation annotations and message delivery remain unchanged." : preferenceDirty ? "Your unsaved personal filter changes will be discarded. Installed preferences and accepted messages will remain unchanged." : "The configuration draft and any unfinished domain setup will be discarded. Installed settings and accepted messages will remain unchanged."}</p>
       </ConfirmDialog>}
       {confirmation && selected && (
         <ConfirmDialog

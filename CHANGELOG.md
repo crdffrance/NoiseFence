@@ -2,6 +2,9 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Review personal filter inheritance and requested policy mappings before saving, including aliases, administrator precedence, dormant settings and fusion-managed sensitivity. Reuse SMTP profile/rule ordering; keep previews read-only, grant-scoped and revision-bound.
+- Confirm personal draft abandonment and inherited-setting restoration. Preserve drafts after conflicts and distinguish a successful save from a failed settings refresh.
+
 - Unify message corrections and sample annotations around explicit saves, saved-state summaries and visible purpose. Explain how general feedback replaces detailed domain labels; keep protected evaluation labels separate from operational feedback.
 - Retain annotation drafts across other-row saves, page filtering and refresh failures. Confirm before abandoning drafts, preserve keyboard focus after saves and disable additional writes while refreshed labels are unavailable.
 - Generate an ephemeral password for the receipt-export test account instead of a fixed fixture credential; keep CodeQL security checks enabled.

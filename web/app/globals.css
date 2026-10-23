@@ -922,3 +922,15 @@ details.management-card summary {
 .correction-labels { margin: .75rem 0 1rem; overflow-wrap: anywhere; }
 .quality-member .correction-form { margin-top: .75rem; }
 @media (max-width: 640px) { .correction-fields { grid-template-columns: minmax(0, 1fr); } }
+
+.preference-comparison { width:100%; table-layout:fixed; border-collapse:collapse; margin:1rem 0; min-width:0; }
+.preference-comparison th, .preference-comparison td { padding:.8rem .5rem; text-align:left; vertical-align:top; overflow-wrap:anywhere; border-bottom:1px solid var(--border); }
+.preference-comparison th { width:28%; }
+.preference-comparison-heading { color:var(--muted-foreground); font-size:.8rem; }
+.preference-changed { background:var(--muted); }
+.preference-change-label { display:block; font-weight:600; }
+.preference-mobile-label { display:none; }
+.preference-preview details { margin:1rem 0; }
+.preference-preview li { overflow-wrap:anywhere; margin:.4rem 0; }
+.preference-preview { scroll-margin-top:1rem; }
+@media(max-width:640px) { .preference-comparison tr { display:grid; grid-template-columns:minmax(0,1fr); border-bottom:1px solid var(--border); padding:.5rem 0; } .preference-comparison th,.preference-comparison td { width:auto; padding:.35rem .5rem; border:0; } .preference-comparison thead { display:none; } .preference-mobile-label { display:block; color:var(--muted-foreground); } }

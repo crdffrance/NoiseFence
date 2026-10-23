@@ -2674,3 +2674,159 @@ async fn provider_overview_is_admin_only_read_only_and_uses_loaded_capacity() {
     assert_eq!(bad["revision"], 2);
     assert!(!bad.to_string().contains(&dir.path().display().to_string()));
 }
+
+#[tokio::test]
+async fn preference_preview_is_scoped_revision_bound_and_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.custom_filtering=Some(serde_json::from_value(json!({"ordering":"scoped","profiles":[
+        {"id":"domain","name":"Domain profile","threshold":98.0,"require_corroboration":true,"spam":"quarantine","publicity":"deliver","review":"deliver","quarantine_days":7},
+        {"id":"bob","name":"BOB PRIVATE PROFILE","threshold":90.0,"require_corroboration":true,"spam":"deliver","publicity":"deliver","review":"deliver","quarantine_days":14}],
+        "bindings":[{"scope":"*@example.test","profile":"domain"},{"scope":"bob@example.test","profile":"bob"}],
+        "rules":[{"id":"admin","name":"Organization safeguard","enabled":true,"priority":0,"scope":"*","expires":null,"any":false,"conditions":[{"field":"subject","op":"contains","value":"PRIVATE CONDITION VALUE"}],"category":"spam","action":null,"stop":true}]})).unwrap());
+    cfg.preferences.mailboxes.insert("alice@example.test".into(),serde_json::from_value(json!({"profile":{"id":"saved","name":"Saved personal profile","threshold":90.0,"require_corroboration":true,"spam":"quarantine","publicity":"deliver","review":"deliver","quarantine_days":3},"rules":[]})).unwrap());
+    cfg.validate().unwrap();
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let owner = account(&store, "owner", false, vec!["*@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let draft = json!({"profile":{"id":"personal","name":"My profile","threshold":null,"require_corroboration":true,"spam":"deliver","publicity":"deliver","review":"deliver","quarantine_days":3},"rules":[]});
+    let body = json!({"revision":0,"scope":"alice@example.test","recipient":"alice@example.test","preference":draft});
+    let (status, result) = request(&app, &alice, "/preferences/preview", Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(result["schema"], "preference-preview-1");
+    assert_eq!(result["installed"]["threshold"], 90.0);
+    assert_eq!(result["draft"]["threshold"], 98.0);
+    assert_eq!(
+        result["draft"]["threshold_source"]["origin"],
+        "administrator"
+    );
+    assert_eq!(result["draft"]["action_source"]["origin"], "personal");
+    assert_eq!(result["installed"]["spam"], "quarantine");
+    assert_eq!(result["draft"]["spam"], "deliver");
+    assert_eq!(result["draft"]["quarantine_days"], 3);
+    assert!(!result.to_string().contains("PRIVATE"));
+    assert!(!result.to_string().contains("bob@example.test"));
+    assert!(!result.to_string().contains("conditions"));
+    assert_eq!(control.snapshot().revision, 0);
+    assert_eq!(control.snapshot().settings.preferences.mailboxes.len(), 1);
+    let count = store
+        .read(|db| {
+            Ok(db.query_row(
+                "SELECT (SELECT count(*) FROM console_revisions)+(SELECT count(*) FROM audit)",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "preview must not write a revision or audit event");
+    let mut restore = body.clone();
+    restore["preference"] = Value::Null;
+    let (status, removed) = request(&app, &alice, "/preferences/preview", Some(restore)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(removed["removing"], true);
+    assert_eq!(removed["installed"]["threshold"], 90.0);
+    assert_eq!(removed["draft"]["threshold"], 98.0);
+    assert_eq!(removed["draft"]["action_source"]["origin"], "administrator");
+    assert_eq!(
+        control.snapshot().settings.preferences.mailboxes.len(),
+        1,
+        "removal preview must retain the saved override"
+    );
+    let mut bad = body.clone();
+    bad["revision"] = json!(1);
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(bad))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let mut bad = body.clone();
+    bad["preference"]["profile"]["threshold"] = json!(60);
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(bad))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    for (scope, recipient) in [
+        ("*@example.test", "alice@example.test"),
+        ("alice@example.test", "bob@example.test"),
+        ("bob@example.test", "bob@example.test"),
+        ("*", "alice@example.test"),
+    ] {
+        let mut bad = body.clone();
+        bad["scope"] = json!(scope);
+        bad["recipient"] = json!(recipient);
+        assert_eq!(
+            request(&app, &alice, "/preferences/preview", Some(bad))
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let mut domain = body.clone();
+    domain["scope"] = json!("*@example.test");
+    assert_eq!(
+        request(&app, &owner, "/preferences/preview", Some(domain.clone()))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let mut unknown = domain.clone();
+    unknown["recipient"] = json!("missing@example.test");
+    assert_eq!(
+        request(&app, &owner, "/preferences/preview", Some(unknown))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    domain["recipient"] = json!("*@example.test");
+    assert_eq!(
+        request(&app, &owner, "/preferences/preview", Some(domain))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let missing_csrf = Request::builder()
+        .uri("/api/v1/preferences/preview")
+        .method("POST")
+        .header("cookie", format!("noisefence_session={alice}"))
+        .header("origin", "http://127.0.0.1:3000")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(missing_csrf).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(body.clone()))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(body))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+}

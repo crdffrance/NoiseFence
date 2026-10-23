@@ -65,6 +65,16 @@ The same form layout is used for individual and bulk sample annotations, with th
 
 Quarantine actions apply to one authorized delivery at a time and require a concrete confirmation. Use the [actions guide](actions.md) before releasing or discarding mail.
 
+## Review personal filter settings
+
+**My filters** shows the installed ordering mode and offers a read-only comparison before saving. Select an authorized mailbox or domain; for a domain, also enter one original recipient accepted by its routing policy. Aliases and more-specific recipient settings can produce different results within the same domain.
+
+Use **Review my changes** to compare installed and proposed content thresholds, effective profile sources, requested Spam/Pub actions, retention, corroboration, applicable rule order and traffic limits. The Rust preview shares profile and rule ordering with SMTP. It does not read message content, query providers, test destination inboxes or change any configuration. Conditions are not evaluated, so these mappings are not final message decisions. In observation mode, filtering tags and quarantine remain inactive; separate traffic and protocol controls still apply.
+
+Only **Apply reviewed preferences** saves the draft. A change to the draft, chosen recipient or configuration revision invalidates the review. The server checks grants, allowed actions, threshold bounds, CSRF and the revision again at save time. Follow the activation panel until the change is installed; administrators can inspect configuration revisions and audit history. Already accepted messages keep their receipt-time settings.
+
+**Review inherited settings** previews removal of the selected personal override before applying it. When customization is disabled, saved preferences remain dormant. Leaving an unsaved draft asks for confirmation; failed saves retain it. If a save succeeds but refreshing installed settings fails, the console distinguishes those outcomes and blocks more edits until reload succeeds.
+
 <a id="ajouter-un-domaine"></a>
 ## Add a domain
 

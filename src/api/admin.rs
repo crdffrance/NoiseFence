@@ -1,4 +1,5 @@
 mod domain_setup;
+mod preference_preview;
 mod providers;
 use super::*;
 use crate::control::{Controller, Settings};
@@ -14,6 +15,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/config/validate", post(validate_configuration))
         .route("/admin/keys", get(managed_keys).post(save_managed_key))
         .route("/preferences", get(preferences).post(save_preferences))
+        .route("/preferences/preview", post(preference_preview::preview))
         .route("/preferences/activation", get(preference_activation))
         .route("/admin/revisions", get(revisions))
         .route("/admin/revisions/{id}", get(revision))
@@ -578,7 +580,7 @@ async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Val
         user.addresses
     };
     Ok(Json(
-        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"personal_traffic":crate::traffic::settings(&s.config).is_some_and(|s|s.allow_personal),"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
+        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"personal_traffic":crate::traffic::settings(&s.config).is_some_and(|s|s.allow_personal),"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config),"ordering":s.config.custom_filtering.as_ref().map(|p|p.ordering).unwrap_or_default()}),
     ))
 }
 async fn preference_activation(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {

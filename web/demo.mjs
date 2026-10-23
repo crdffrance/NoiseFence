@@ -1,6 +1,8 @@
+import { preferenceFixture } from './demo-preferences.mjs';
 // Local development demo. Synthetic data only; API requests never reach the server.
 // This HTML entry is not included in the production build.
 const params = new URLSearchParams(location.search);
+const preferences=preferenceFixture(params);
 const readonlyUser = params.get('role') === 'user';
 const writes = [];
 let detailedLabels = [{domain:'example.test', class:null}];
@@ -451,6 +453,8 @@ window.fetch = async (input, options) => {
     throw new Error('External requests are disabled in the synthetic demo.');
   if (!url.pathname.startsWith('/api/')) return fetchOriginal(input, options);
   const path = url.pathname.replace('/api/v1', '');
+  const preferenceResponse=preferences(path,options);
+  if(preferenceResponse)return preferenceResponse;
   let data;
   const wanted = members.filter((m) => m.risk === 'legitimate').length,
     unwanted = members.filter((m) => m.risk === 'spam').length,
