@@ -942,3 +942,27 @@ details.management-card summary {
 .quarantine-lifecycle li { border-left:2px solid var(--border); margin:.8rem 0; padding:.3rem .8rem; overflow-wrap:anywhere; }
 .quarantine-lifecycle li p { margin:.35rem 0; }
 .quarantine-lifecycle code { overflow-wrap:anywhere; word-break:break-word; }
+
+.admin-editors { min-width:0; border:0; padding:0; margin:0; }
+.admin-editors > .panel,.admin-editors > .module-grid,.admin-editors > .admin-two-columns { margin-bottom:22px; }
+.settings-history { margin:1.5rem 0; }
+.settings-history .revision-list > div { gap:.75rem; flex-wrap:wrap; }
+.settings-history .audit-list article { border-bottom:1px solid var(--border); padding:.75rem 0; }
+.settings-history code { overflow-wrap:anywhere; }
+.settings-history label { display:block; margin:.75rem 0; }
+.settings-history .revision-preview { margin-top:1rem; scroll-margin-top:1rem; }
+.settings-change-list { display:grid; gap:.75rem; margin:1rem 0; }
+.settings-change-list article { border:1px solid var(--border); border-radius:8px; padding:1rem; min-width:0; }
+.settings-change-list article > code { display:block; overflow-wrap:anywhere; margin-bottom:.75rem; }
+.settings-values { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem; }
+.settings-values > div { min-width:0; }
+.settings-values pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:18rem; overflow:auto; padding:.75rem; background:var(--muted); border-radius:6px; font-size:.8rem; }
+.settings-comparison .pagination { flex-wrap:wrap; }
+@media(max-width:640px) { .settings-values { grid-template-columns:minmax(0,1fr); } .settings-history .activation-heading { align-items:flex-start; flex-wrap:wrap; } }
+
+.admin-editors .change-review { max-height:min(70dvh,48rem); overscroll-behavior:contain; }
+.settings-field-name { font-weight:600; margin-top:.4rem; }
+
+.settings-comparison-scope { margin:.6rem 0; }
+.settings-comparison-scope summary { cursor:pointer; font-size:.85rem; }
+.settings-comparison-scope p { margin:.6rem 0; }

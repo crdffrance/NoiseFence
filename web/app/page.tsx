@@ -94,6 +94,7 @@ import { AdminConsole, navigation, type Section } from './admin';
 import { QualityConsole, QualityDetails } from './quality';
 import { researchDestination, researchSearch, researchTabFor } from './quality-link';
 import { QualityNavigation } from './quality-navigation';
+import { keepsConfigurationDraft } from './settings-review';
 import { SoftwareStatus } from './software';
 import { ReliabilityConsole } from './reliability';
 import type { QualityReport } from './quality-types';
@@ -294,6 +295,8 @@ function Home() {
   const [domain, setDomain] = useState('');
   const [domains, setDomains] = useState<string[]>([]);
   const [adminDirty, setAdminDirty] = useState(false);
+  const [adminSetupOpen, setAdminSetupOpen] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
   const [adminDraftEpoch, setAdminDraftEpoch] = useState(0);
   const [pendingNavigation, setPendingNavigation] = useState<ConsoleDestination | null>(null);
   const [clusterDirty, setClusterDirty] = useState(false);
@@ -512,8 +515,14 @@ function Home() {
     window.history.replaceState(null, '', url);
   }, [user, researchTab]);
   function navigate(next: ConsoleDestination['section'], nextFilter = 'all', nextDomain?: string) {
-    if (busy) return;
+    if (busy || adminBusy) return;
     const destination = {section: next, filter: nextFilter, domain: nextDomain};
+    if (keepsConfigurationDraft(section, next, adminSetupOpen) &&
+        !clusterDirty && !preferenceDirty && !correctionDirty && !qualityDirty) {
+      setSection(next);
+      setMobileMenu(false);
+      return;
+    }
     if (configDirty) { setPendingNavigation(destination); return; }
     completeNavigation(destination);
   }
@@ -963,6 +972,8 @@ function Home() {
                   : section
               }
               onDirty={setAdminDirty}
+              onSetupDirty={setAdminSetupOpen}
+              onBusy={setAdminBusy}
               onApplied={refresh}
               onDomain={(name) => {
                 navigate('messages', 'all', name);

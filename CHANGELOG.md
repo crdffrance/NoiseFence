@@ -2,6 +2,9 @@
 
 ## Unreleased — Filtering diagnostics and console clarity
 
+- Bind administrator review to the exact proposed settings, revision and model selection. Compare every changed value, preserve a draft between related configuration sections, and require explicit discard before leaving or restoring over unsaved work.
+- Separate acknowledged saves from failed refreshes, lock stale editors until recovery, and retain staged-versus-installed activation receipts. Load configuration history, audit and operations independently; unavailable queue data never appears empty. Add bounded audit search and read-only historical comparison with reviewed restoration.
+
 - Add recipient-scoped quarantine history with bounded local audit events, remote requests and independent execution receipts. Preserve late confirmations after request expiry; never equate an MX receipt with destination delivery. Bind new audit entries to message UUID and recipient to avoid historical row-ID reuse.
 - Disable expired/pending quarantine actions, expose snapshot age and unavailable history, and return keyboard focus after confirmed actions. Clarify discard, release retry periods and shared-payload retention in the console and English guide.
 

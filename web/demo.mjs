@@ -1,5 +1,6 @@
 import { preferenceFixture } from './demo-preferences.mjs';
 import { quarantineFixture } from './demo-quarantine.mjs';
+import { administrationFixture } from './demo-administration.mjs';
 // Local development demo. Synthetic data only; API requests never reach the server.
 // This HTML entry is not included in the production build.
 const params = new URLSearchParams(location.search);
@@ -12,6 +13,7 @@ let annotationWritten=false, failQualityRefresh=params.get('annotations')==='ref
 const setupFilters = {mode: 'observe', rule_weights: {}, threshold: 95, require_corroboration: true, authentication: true, antivirus: false, signatures: false, semantic: false, vision: false, llm: true, smtp_policy: true, smtp_policy_scoring: false, vision_scoring: false, reputation: false};
 const setupLlm = {model:'synthetic-model',monthly_budget_micro_eur:20000000,pricing_checked_at:Math.floor(Date.now()/1000)-40*86400,max_text_bytes:12000,timeout_ms:2500,max_parallel:2,score_low:0,score_high:100,review_unconfirmed_high:false};
 const setupSettings = {domains: [{name: 'example.test', gateway: 'provider', enabled: true, accept_all_recipients: false, recipients: ['alex@example.test'], aliases: {}}], gateways: [{id: 'provider', name: 'Synthetic mail provider', hosts: ['inbound.provider.test'], port: 25}], filters: setupFilters, actions: {spam:'quarantine',malware:'quarantine',publicity:'deliver',quarantine_days:14}, protection:{identity:true,links:true,campaigns:true,crdf:true,virustotal:false,crdf_quota:{minute:0,day:0},virustotal_quota:null,follow_urls:false,protected_names:[],reply_exceptions:[],link_exceptions:[]}, mailing:null, smtp_admission:{enabled:false,mode:'observe',greylisting:true,minimum_providers:2,allow_networks:[],rate_per_minute:60,rate_burst:120,retry_delay_seconds:120,retry_max_age_seconds:86400,retention_seconds:604800,max_entries:100000,tarpit_delay_ms:250,tarpit_max_concurrent:4,tarpit_session_budget_ms:1000}, rbl:{lists:[],action:'observe',minimum_providers:2,timeout_ms:1000,max_parallel:4,cache_entries:1000,cache_ttl_seconds:300}, detection:{modules:{llm:setupLlm, rspamd:{enabled:true,sample_percent:100,timeout_ms:5000,max_parallel:2,queue_capacity:4,max_bytes:4194304}}}, preferences:{enabled:false,mailboxes:{},minimum_threshold:50,maximum_threshold:99,max_rules:20,allowed_actions:['deliver','tag','quarantine']}, custom_filtering:null};
+const administration = administrationFixture(params,setupSettings,__NOISEFENCE_CONSOLE__.version);
 const sampleId = '00000000-0000-4000-8000-000000000002';
 const cohort = 'a'.repeat(64);
 const variant = new URLSearchParams(location.search).get('case') ?? 'spam';
@@ -456,6 +458,8 @@ window.fetch = async (input, options) => {
     throw new Error('External requests are disabled in the synthetic demo.');
   if (!url.pathname.startsWith('/api/')) return fetchOriginal(input, options);
   const path = url.pathname.replace('/api/v1', '');
+  const administrationResponse=administration(path,options);
+  if(administrationResponse)return administrationResponse;
   const quarantineResponse=quarantine(path,options,url);
   if(quarantineResponse)return quarantineResponse;
   const preferenceResponse=preferences(path,options);
