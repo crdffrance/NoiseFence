@@ -55,17 +55,26 @@ def service_properties(raw):
     return [key+'='+values[key] for key in sorted(SERVICE_CONTEXT)]
 
 
-def service_command(container, mode, profile, binary, properties):
+def service_unit(mode, profile, binary, properties):
     confined.require(mode in ('unconfined', 'confined'), 'Invalid diagnostic mode')
-    command = ['docker', 'exec', container, 'systemd-run', '--quiet', '--wait',
-               '--pipe', '--collect', '--unit=noisefence-socket-'+mode,
-               '--service-type=oneshot', '--property=TimeoutStartSec=8s',
-               '--property=RuntimeMaxSec=8s', '--property=Restart=no']
-    for item in properties:
-        command += ['--property='+item]
+    lines = ['[Service]', 'Type=oneshot', 'TimeoutStartSec=8s', 'Restart=no',
+             *properties, 'StandardOutput=journal', 'StandardError=journal',
+             'SyslogIdentifier=noisefence-socket-'+mode, 'ExecStart='+binary]
     if mode == 'confined':
-        command += ['--property=AppArmorProfile='+profile]
-    return command + ['--', binary]
+        lines.append('AppArmorProfile='+profile)
+    return '\n'.join(lines)+'\n'
+
+
+def service_query(container, mode):
+    # systemd-run --wait requires a system D-Bus daemon. The minimal lifecycle
+    # image deliberately has none; systemctl uses PID1's private manager socket.
+    unit='noisefence-socket-'+mode+'.service'
+    started=subprocess.run(['docker','exec',container,'systemctl','start',unit],
+        capture_output=True,timeout=15,env={'PATH':PATH,'LANG':'C'})
+    confined.command('docker','exec',container,'journalctl','--sync',timeout=5)
+    output=confined.command('docker','exec',container,'journalctl','--no-pager',
+        '-o','cat','-n','8','-u',unit,'-t','noisefence-socket-'+mode,timeout=5)
+    return classify(subprocess.CompletedProcess([],started.returncode,stdout=output))
 
 
 def run(args):
@@ -120,9 +129,12 @@ def run(args):
             result=subprocess.run(command,capture_output=True,timeout=12,env={'PATH':PATH,'LANG':'C'})
             proof[mode]=classify(result)
         for mode in ('unconfined','confined'):
-            command=service_command(name,mode,profile,directory+'/noisefence',properties)
-            result=subprocess.run(command,capture_output=True,timeout=15,env={'PATH':PATH,'LANG':'C'})
-            proof['service_context'][mode]=classify(result)
+            unit_file=root/('noisefence-socket-'+mode+'.service')
+            unit_file.write_text(service_unit(mode,profile,directory+'/noisefence',properties))
+            docker('cp',str(unit_file),name+':/etc/systemd/system/'+unit_file.name)
+        inside('systemctl','daemon-reload')
+        for mode in ('unconfined','confined'):
+            proof['service_context'][mode]=service_query(name,mode)
         proof['denial_diagnostics']=confined.collect_denials(root,profile)
         from importlib.util import spec_from_file_location,module_from_spec
         spec=spec_from_file_location('rehearsal_diagnostics',confined.SOURCE/'scripts/rehearsal_diagnostics.py')
