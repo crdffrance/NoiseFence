@@ -51,6 +51,21 @@ class PairedLifecycleTests(unittest.TestCase):
         member = tarfile.TarInfo(top+'/link'); member.type = tarfile.SYMTYPE; member.linkname = '/'
         with self.assertRaises(ValueError): paired.archive(self.archive(member), 'arm64')
 
+    def test_validation_candidate_requires_exact_binary_platform_and_source(self):
+        binary = self.root/'noisefence'
+        binary.write_bytes(b'\x7fELF\x02\x01'+b'\x00'*12+(183).to_bytes(2,'little'))
+        metadata = {'platform':'linux/arm64','version':'0.31.9','features':['semantic'],
+                    'profile':'release','commit':'a'*40,'binary_sha256':paired.digest(binary),
+                    'not_a_published_release':True}
+        path = self.root/'candidate.json'; path.write_text(json.dumps(metadata))
+        self.assertEqual(paired.validation_candidate(self.root,'arm64','0.31.9'),metadata)
+        for key,value in [('platform','linux/amd64'),('features',[]),('profile','dev'),
+                          ('commit','unknown'),('binary_sha256','0'*64),('not_a_published_release',False)]:
+            path.write_text(json.dumps({**metadata,key:value}))
+            with self.subTest(key=key),self.assertRaises(ValueError):paired.validation_candidate(self.root,'arm64','0.31.9')
+        path.write_text(json.dumps(metadata));binary.write_bytes(b'not an ELF')
+        with self.assertRaises(ValueError):paired.validation_candidate(self.root,'arm64','0.31.9')
+
     def test_accepted_mail_requires_matching_origin_and_replica_bytes(self):
         lab = object.__new__(paired.Lab)
         lab.accepted = [{'node':'mx1','id':'message','body_sha256':'a'*64}]

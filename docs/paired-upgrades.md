@@ -115,8 +115,10 @@ not make any other release pair compatible or protect against concurrent policy,
 recovery or deployment operations. Those reservations remain required.
 
 A [durable native reservation](maintenance-reservations.md) now implements the
-stopped-service hold and unchanged-installation cancellation primitive. It does
-not yet start a candidate under reservation or replace the coordinated controller.
+stopped-service hold and unchanged-installation cancellation primitive. The
+[validation host helper](maintenance-validation.md#supervised-host-procedure) can
+start a bounded candidate under that hold. Archive promotion, pair activation and
+rollback still require the complete coordinated controller.
 
 ## Reviewed maintenance sequence
 
@@ -247,11 +249,20 @@ when earlier events were positive. Inspect `cleanup.json` and the bounded logs;
 do not reuse an output directory or silently discard failure evidence. Removal
 is attempted for both test containers even after an earlier diagnostic fails.
 
-This fixture does **not** qualify an unattended updater, maintenance reservation,
+The base fixture also exercises durable root reservations and unchanged
+cancellation after the initiating helper exits. Its optional
+`--validation-candidate DIRECTORY` mode adds a separately compiled candidate,
+real supervised startup on both nodes, disabled mail/admin paths, peer loss,
+native authorization expiry and unchanged application data. See the
+[validation contract](maintenance-validation.md) for its metadata format and limits.
+
+This fixture does **not** qualify an unattended updater, complete paired
 controller-disconnect recovery, full-disk behavior, PostgreSQL disaster recovery,
 production models, external delivery, throughput or detection quality. A passing
 ARM64 run does not cover AMD64. A passing published archive pair does not qualify
-an unreleased candidate. Keep these distinct from the broader release gates.
+an unreleased candidate unless that optional mode was actually run; even then,
+it covers maintenance validation rather than normal candidate activation. Keep
+these distinct from the broader release gates.
 
 See [candidate runtime validation](maintenance-validation.md) for the explicit
 temporary mode that loads a reserved candidate without starting normal mail or

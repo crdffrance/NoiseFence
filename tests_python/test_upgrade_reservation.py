@@ -37,7 +37,7 @@ class ReservationTests(unittest.TestCase):
         # Root ownership/systemd startup are exercised separately in disposable Linux.
         for name, value in [('protected', lambda path, directory=False: Path(path).stat()),
                             ('installation', lambda: {'node': 'mx1', 'binary_sha256': 'a'*64}),
-                            ('unit_state', lambda unit: self.unit_states[unit]), ('execute', self.execute)]:
+                            ('unit_state', lambda unit: self.unit_states.get(unit, 'unknown')), ('execute', self.execute)]:
             p = patch.object(reservation, name, value); p.start(); self.addCleanup(p.stop)
         self.hold = reservation.Reservation(OPERATION)
 
@@ -98,6 +98,16 @@ class ReservationTests(unittest.TestCase):
         with patch.object(reservation, 'installation', return_value={'node': 'mx1', 'binary_sha256': 'b'*64}):
             with self.assertRaisesRegex(ValueError, 'installation changed'):self.hold.cancel()
         self.assertTrue(reservation.HOLD.exists()); self.assertFalse(self.events)
+
+    def test_candidate_marker_or_running_service_prevents_normal_resume(self):
+        self.hold.begin(); self.events.clear()
+        marker = reservation.STATE / 'validation.json'; marker.write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'Stop candidate validation'):self.hold.cancel()
+        marker.unlink(); self.unit_states['noisefence-validation.service'] = 'active'
+        with self.assertRaisesRegex(ValueError, 'still running'):self.hold.cancel()
+        self.assertTrue(reservation.HOLD.exists()); self.assertFalse(self.events)
+        self.unit_states['noisefence-validation.service'] = 'inactive'
+        self.hold.cancel()
 
     def test_start_failure_keeps_reservation_until_exact_retry_succeeds(self):
         self.hold.begin()

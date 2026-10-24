@@ -7,15 +7,94 @@ validation probes and a maintenance health response. It does not start SMTP,
 delivery, the normal console, retention, training, the policy activation driver,
 command consumption or quota allocation.
 
-This is a **controller building block**, not a complete paired updater. A root
-supervisor must keep both normal services and every scheduled writer stopped
-using [durable maintenance reservations](maintenance-reservations.md). This
+This is a **controller building block**, not a complete paired updater. The root
+host helper requires the local normal service and scheduled writers to remain
+stopped using [durable maintenance reservations](maintenance-reservations.md). This
 command does not reserve a host, change a release pointer, release a hold or
 restart the normal services. Do not use it as a replacement for `serve`.
 
+## Supervised host procedure
+
+Install `upgrade_validation.py`, `upgrade_validation.service` and all the other
+`deploy/postgresql/` helpers together in the protected directory specified by the
+[reservation guide](maintenance-reservations.md). The helper uses the same host
+operation lock. It supports the fixed native installation paths only.
+
+A separate candidate directory must already be staged under
+`/opt/noisefence/releases/`, with its original complete `SHA256SUMS` and
+`build.json`. Authenticate the archive's origin before staging it. The helper
+verifies every declared file and refuses unlisted files, writable paths and links;
+manifest consistency alone does not authenticate a publisher. It never changes
+`/opt/noisefence/current`.
+
+1. Reserve **both** hosts with the same operation UUID and verify their `held`
+   receipts before starting either candidate. Keep the original release installed.
+2. Choose one common Unix expiry, at most one hour ahead. On each host, obtain a
+   descriptor for the intended candidate:
+
+   ```text
+   sudo python3 /usr/local/libexec/noisefence-management/upgrade_validation.py \
+     describe --operation OPERATION_UUID \
+     --candidate /opt/noisefence/releases/CANDIDATE --expires-at UNIX_SECONDS
+   ```
+
+3. Transfer each descriptor to a private, root-owned file on the other host through
+   your verified SSH channel. It must be the counterpart's actual `describe`
+   output. Preserve root ownership after copying; an unprivileged file is refused.
+   The pair must have matching operation, expiry, database authority, policy,
+   application version and source commit, opposite roles and reciprocal peer IDs.
+   Per-architecture executable hashes may differ.
+4. Start each host with its counterpart's descriptor:
+
+   ```text
+   sudo python3 /usr/local/libexec/noisefence-management/upgrade_validation.py \
+     start --operation OPERATION_UUID \
+     --candidate /opt/noisefence/releases/CANDIDATE --expires-at UNIX_SECONDS \
+     --peer-report /root/PEER-DESCRIPTOR.json
+   sudo python3 /usr/local/libexec/noisefence-management/upgrade_validation.py \
+     status --operation OPERATION_UUID
+   ```
+
+The root receipt and persistent validation marker are written before service
+setup. The dedicated systemd service runs as `noisefence`, with bounded resources,
+no capabilities, no automatic restart and a one-hour maximum lifetime. It retains
+the normal service's environment-file path and mandatory AppArmor/SELinux profile
+when configured. The exact resulting service definition is hashed into the host
+descriptor. Unexpected drop-ins, changed definitions and changed authorizations
+are refused.
+
+`start` can initially report `validation_ready: false` while the counterpart is
+starting. `status` checks the real process executable, its hash, the still-valid
+root authorization and the bounded loopback health response. It never treats an
+active systemd unit alone as readiness. Neither response permits normal mail or
+administrative activity.
+
+A lost connection can resume `start` with the **same** candidate, peer descriptor,
+expiry and operation. A changed authorization cannot adopt that receipt. Expiry
+never lifts the normal service hold. To finish or abandon validation, stop it on
+both hosts:
+
+```text
+sudo python3 /usr/local/libexec/noisefence-management/upgrade_validation.py \
+  stop --operation OPERATION_UUID
+```
+
+`stop` records its intent, removes the authorization, stops the service and removes
+its separate candidate pointer before completing the receipt. Failed writes or
+stops retain the marker and normal hold; retry the same operation after resolving
+the cause. A completed stop can be retried after a lost response. A stopped or
+expired grant cannot be silently renewed.
+
+Reservation cancellation refuses an outstanding validation marker or running
+validation service. Once both are stopped, the unchanged-installation `cancel`
+procedure can restore the original releases, followed by normal policy/SMTP/replica
+checks. A successful validation does not authorize changing the installed pointer:
+archive promotion and coordinated activation/rollback still need the complete
+paired controller and their own receipts.
+
 ## Authorization contract
 
-The plan is root-authorized JSON with exactly these fields:
+The host helper creates root-authorized JSON with exactly these fields:
 
 | Field | Required binding |
 | --- | --- |
@@ -29,9 +108,8 @@ The plan is root-authorized JSON with exactly these fields:
 | `binary_sha256` | SHA-256 of this node's authorized candidate executable |
 | `expires_at` | Unix seconds, later than startup and no more than one hour ahead |
 
-There is deliberately no sample with invented identities. A supervisor must read
-and reconcile these values from the reserved installations and verified candidate
-archives, then write the plan atomically. Neither an email nor a browser request
+There is deliberately no sample with invented identities. The host helper reconciles these values from the reserved installation, candidate
+manifest and counterpart descriptor before writing the plan atomically. Neither an email nor a browser request
 can provide this authorization. The plan, configuration and executable must be
 regular root-owned files with one hard link, no group/other write access, and
 physical absolute paths whose ancestor directories are also protected by root.
@@ -108,11 +186,21 @@ replica receipts after both nodes start the authorized normal build.
 
 Unit tests exercise expiry, changed bindings, independent machine identity,
 credential failures, disabled application routes, body/capacity bounds, freshness,
-failed observations, lock contention and special-file refusal. The PostgreSQL
-suite verifies exact membership, changed/pending policy and token revocation,
+failed observations, lock contention and special-file refusal. Local HTTP tests reject stale nonces, oversized responses, redirects and replies
+that outlive their authorization. The PostgreSQL suite verifies exact membership, changed/pending policy and token revocation,
 comparing every application table before and after read-only probes.
 
-This does not qualify a production paired supervisor, unattended upgrade,
+The optional `--validation-candidate DIRECTORY` argument of
+`tests/paired_release_lifecycle.py` accepts a locally compiled Linux `release`
+binary with the `semantic` feature and a matching `candidate.json`. It verifies
+architecture and digest before Docker use, stages it separately from published
+archives, runs both candidates through the real root helper/systemd, checks closed
+SMTP and administrative routes, peer-loss readiness, native expiry, unchanged
+PostgreSQL rows and preserved queued-message copies, then stops validation and
+resumes the published archive lifecycle. This is a synthetic candidate fixture,
+not a way to publish or install an unsigned production archive.
+
+This does not qualify a production paired controller, unattended upgrade,
 current-candidate archive installation on both architectures, schema-changing
 rollback or detection accuracy. Keep those gates in the
 [paired upgrade procedure](paired-upgrades.md) and [release checklist](releasing.md).

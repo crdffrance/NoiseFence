@@ -1,0 +1,39 @@
+[Unit]
+Description=NoiseFence reserved candidate validation (no SMTP or delivery)
+After=network.target
+ConditionPathExists=/var/lib/noisefence-upgrade/active.json
+ConditionPathExists=/var/lib/noisefence-upgrade/hold.json
+ConditionPathExists=/var/lib/noisefence-upgrade/validation.json
+ConditionPathExists=/etc/noisefence/maintenance-validation.json
+
+[Service]
+Type=simple
+User=noisefence
+Group=noisefence
+EnvironmentFile=-/etc/noisefence/secrets.env
+WorkingDirectory=/opt/noisefence/validation
+ExecStart=/opt/noisefence/validation/noisefence --config /etc/noisefence/config.toml validate-runtime --plan /etc/noisefence/maintenance-validation.json
+Restart=no
+RuntimeMaxSec=1h
+TimeoutStopSec=10
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/noisefence
+LimitNOFILE=4096
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=128

@@ -57,6 +57,22 @@ def archive(path, architecture):
             'sha256': actual, 'commit': build['commit']}
 
 
+def validation_candidate(directory, architecture, version):
+    metadata = json.loads((directory/'candidate.json').read_text())
+    binary = directory/'noisefence'
+    with binary.open('rb') as source:
+        header = source.read(20)
+    if (len(header) != 20 or header[:4] != b'\x7fELF' or header[4:6] != b'\x02\x01'
+            or int.from_bytes(header[18:20], 'little') != {'arm64': 183, 'amd64': 62}[architecture]
+            or metadata.get('platform') != 'linux/'+architecture or metadata.get('version') != version
+            or metadata.get('features') != ['semantic'] or metadata.get('profile') != 'release'
+            or not re.fullmatch('[a-f0-9]{40}', metadata.get('commit', ''))
+            or metadata.get('binary_sha256') != digest(binary)
+            or metadata.get('not_a_published_release') is not True):
+        raise ValueError('Synthetic validation candidate identity or platform differs')
+    return metadata
+
+
 def policy_is_fresh(peers, expected_build, since, digest, now):
     return any(p.get('node') == 'mx2' and p.get('build') == expected_build
                and type(p.get('seen')) is int and since < p['seen'] <= now
@@ -72,6 +88,7 @@ class Lab:
         self.names = {node: 'nf-paired-'+self.operation[:8]+'-'+node for node in ('mx1', 'mx2')}
         self.created = []; self.checks = []; self.accepted = []
         self.binary_hashes = {}
+        self.validation_metadata = validation_candidate(args.validation_candidate, args.platform.split('/')[1], new['version']) if args.validation_candidate else None
         self.started = time.monotonic()
         (self.root/'operation.json').write_text(json.dumps({'operation': self.operation, 'containers': self.names, 'synthetic_only': True})+'\n')
 
@@ -123,11 +140,16 @@ class Lab:
             for source, target in [(SOURCE/'deploy/postgresql', '/root/source/deploy/postgresql'),
                                    (SOURCE/'deploy/noisefence.service', '/root/source/deploy/noisefence.service'),
                                    (SOURCE/'deploy/install.sh', '/root/source/deploy/install.sh'),
-                                   (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py')]:
+                                   (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py'),
+                                   (SOURCE/'tests/fixtures/validation_node.py', '/root/source/tests/fixtures/validation_node.py')]:
                 self.run('cp', str(source), self.names[node]+':'+target)
             for item in (self.old, self.new):
                 self.run('cp', str(item['path']), self.names[node]+':/root/'+item['path'].name)
                 self.command(node, 'tar', '-xzf', '/root/'+item['path'].name, '-C', '/root/releases')
+            if self.args.validation_candidate:
+                self.command(node, 'mkdir', '/root/validation-candidate')
+                for filename in ['noisefence', 'candidate.json']:
+                    self.run('cp', str(self.args.validation_candidate/filename), self.names[node]+':/root/validation-candidate/'+filename)
             state = self.node(node, 'bootstrap')
             machines.append(state['machine'])
             self.binary_hashes[node] = state['binary_sha256']
@@ -253,6 +275,8 @@ class Lab:
             results[node] = first
         self.invariant()
         self.record('durable_maintenance_reservations_and_restart_guards', nodes=results)
+        if self.validation_metadata:
+            self.validate_candidate()
         since = int(time.time())
         for node in ['mx1', 'mx2']:
             cancelled = json.loads(self.command(node, 'python3', helper, 'cancel', '--operation', self.operation))
@@ -263,6 +287,83 @@ class Lab:
             self.ready(node, self.old['version'])
         self.invariant()
         self.submit('after_unchanged_maintenance_cancellation')
+
+    def validation_node(self, node, action, value=None):
+        args = ['python3', '/root/source/tests/fixtures/validation_node.py', action]
+        if value is not None:
+            args += ['--value', value]
+        return json.loads(self.command(node, *args))
+
+    def validation(self, node, action, *extra):
+        return json.loads(self.command(node, 'python3', '/usr/local/libexec/noisefence-management/upgrade_validation.py',
+                                      action, '--operation', self.operation, *extra))
+
+    def validate_candidate(self):
+        before = self.inspect()
+        database = self.validation_node('mx1', 'database')
+        for node in self.names:
+            staged = self.validation_node(node, 'stage', self.new['version'])
+            if staged['binary_sha256'] != self.validation_metadata['binary_sha256']:
+                raise RuntimeError('Staged candidate differs from the reviewed binary')
+        expires = int(time.time())+90
+        descriptors = {}
+        for node in self.names:
+            descriptors[node] = self.validation(node, 'describe', '--candidate', '/opt/noisefence/releases/qualification-candidate', '--expires-at', str(expires))
+        for node in self.names:
+            peer = 'mx2' if node == 'mx1' else 'mx1'
+            report = self.root/(node+'-peer-descriptor.json')
+            report.write_text(json.dumps(descriptors[peer])+'\n')
+            self.run('cp', str(report), self.names[node]+':/root/paired-test/validation-peer.json')
+            self.command(node, 'chown', 'root:root', '/root/paired-test/validation-peer.json')
+            self.command(node, 'chmod', '0600', '/root/paired-test/validation-peer.json')
+            self.validation(node, 'start', '--candidate', '/opt/noisefence/releases/qualification-candidate',
+                            '--expires-at', str(expires), '--peer-report', '/root/paired-test/validation-peer.json')
+        deadline = time.monotonic()+40
+        states = {}
+        while time.monotonic() < deadline:
+            states = {node: self.validation(node, 'status') for node in self.names}
+            if all(state.get('validation_ready') is True for state in states.values()):
+                break
+            time.sleep(.5)
+        else:
+            raise RuntimeError('Native candidate pair did not become validation-ready')
+        self.record('native_candidate_pair_validation_ready', candidate=self.validation_metadata, nodes=states)
+        for node in self.names:
+            self.validation_node(node, 'disabled', node)
+            self.command(node, 'python3', '-c',
+                "import subprocess; p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_reservation.py','cancel','--operation',"+repr(self.operation)+"],capture_output=True); assert p.returncode!=0 and b'Stop candidate validation' in p.stderr")
+        self.record('candidate_cannot_open_smtp_admin_or_cancel_hold')
+        self.validation('mx2', 'stop')
+        deadline = time.monotonic()+20
+        while time.monotonic() < deadline:
+            if self.validation('mx1', 'status').get('validation_ready') is False:
+                break
+            time.sleep(.5)
+        else:
+            raise RuntimeError('Peer loss retained validation readiness')
+        self.record('candidate_peer_loss_invalidates_readiness')
+        # The remaining candidate must stop on its own authorization deadline.
+        while int(time.time()) <= expires+8:
+            state = self.command('mx1', 'systemctl', 'show', 'noisefence-validation.service', '--property=ActiveState', '--value').strip()
+            if state in (b'inactive', b'failed'):
+                break
+            time.sleep(.5)
+        else:
+            raise RuntimeError('Expired candidate kept running')
+        if int(time.time()) < expires:
+            raise RuntimeError('Candidate stopped before its authorization deadline')
+        self.validation('mx1', 'stop')
+        for node in self.names:
+            if self.validation(node, 'status').get('phase') != 'stopped':
+                raise RuntimeError('Candidate cleanup receipt missing')
+        after = self.inspect()
+        if database != self.validation_node('mx1', 'database'):
+            raise RuntimeError('Candidate probes changed PostgreSQL application rows')
+        for node in self.names:
+            for key in ['selection', 'policy_epoch', 'deliveries', 'replication_receipts', 'remote_receipts', 'bodies', 'replicas']:
+                if after[node][key] != before[node][key]:
+                    raise RuntimeError('Candidate altered queued messages or policy: '+key)
+        self.record('candidate_expired_stopped_and_preserved_selected_data', database=database)
 
     def failure_recovery(self):
         self.command('mx2', 'systemctl', 'stop', 'noisefence.service')
@@ -338,6 +439,7 @@ class Lab:
                   'operation': self.operation, 'checks': self.checks, 'accepted': self.accepted,
                   'final_state': snapshots, 'final_running': running,
                   'staged_binary_sha256': self.binary_hashes,
+                  'validation_candidate': self.validation_metadata,
                   'archive_sha256': {i['version']: i['sha256'] for i in (self.old, self.new)},
                   'archive_commits': {i['version']: i['commit'] for i in (self.old, self.new)},
                   'image_id': metadata['Id'], 'platform': self.args.platform,
@@ -354,6 +456,10 @@ class Lab:
             try:
                 journal = self.command(node, 'journalctl', '-u', 'noisefence.service', '--no-pager', '-n', '100', timeout=20)
                 (self.root/(node+'-journal.log')).write_bytes(journal)
+                validation_log = self.command(node, 'journalctl', '-u', 'noisefence-validation.service', '--no-pager', '-n', '100', timeout=20)
+                (self.root/(node+'-validation-journal.log')).write_bytes(validation_log)
+                validation_paths = self.command(node, 'python3', '-c', "import json,os; from pathlib import Path; roots=['/root/paired-test/validation-peer.json','/usr/local/libexec/noisefence-management/upgrade_validation.service','/var/lib/noisefence-upgrade/validation.json']; result=[]; seen=set();\nfor root in roots:\n for p in [Path(root),*Path(root).parents]:\n  if p in seen or not p.exists():continue\n  seen.add(p);s=p.lstat();result.append({'path':str(p),'uid':s.st_uid,'mode':oct(s.st_mode&0o7777),'link':p.is_symlink()})\nprint(json.dumps(result))", timeout=20)
+                (self.root/(node+'-validation-paths.json')).write_bytes(validation_paths)
                 errors = self.command(node, 'python3', '-c',
                     "from pathlib import Path; p=Path('/root/paired-test/command-error.log'); print(p.read_text() if p.exists() else '')", timeout=20)
                 (self.root/(node+'-command-error.log')).write_bytes(errors)
@@ -383,6 +489,7 @@ def main():
     parser.add_argument('--image', required=True)
     parser.add_argument('--platform', choices=['linux/amd64', 'linux/arm64'], required=True)
     parser.add_argument('--fixture', type=Path, required=True)
+    parser.add_argument('--validation-candidate', type=Path, help='Optional locally built release-profile semantic binary plus candidate.json; never a production archive')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(); os.umask(0o077)
     old, new = (archive(p, args.platform.split('/')[1]) for p in [args.old_archive, args.new_archive])

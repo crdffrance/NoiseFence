@@ -84,26 +84,11 @@ def file_digest(path, maximum):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
-def installation():
-    """Verify installed files without executing any release-provided program."""
-    import tomllib
-    protected(CONFIG)
-    with private_read(CONFIG, 1024 * 1024) as source:
-        raw = source.read()
-    config = tomllib.loads(raw.decode())
-    require(config.get('data_dir') == str(DATA), 'Only the native absolute data directory is supported')
-    cluster = config.get('cluster', {})
-    node, role = cluster.get('node_id'), cluster.get('role')
-    require(isinstance(node, str) and re.fullmatch('[a-z0-9_-]{1,40}', node)
-            and role in ('coordinator', 'worker') and 'replication' in config,
-            'An identified replicated native MX is required')
-    protected(CURRENT.parent, True)
-    info = CURRENT.lstat()
-    require(stat.S_ISLNK(info.st_mode) and info.st_uid == 0, 'Current release must be a root-owned symlink')
-    release = CURRENT.resolve(strict=True)
-    require(release.parent == CURRENT.parent / 'releases', 'Current release is outside the native release directory')
+def release_inventory(release):
+    """Root-protected native release inventory, shared by candidate validation."""
+    require(release.is_absolute() and release.resolve(strict=True) == release
+            and release.parent == CURRENT.parent / 'releases', 'Release outside the native directory')
     protected(release, True)
-    require(installed_service(CONFIG, 'noisefence') == release / 'noisefence', 'Installed startup command changed')
     manifest_path = release / 'SHA256SUMS'
     protected(manifest_path)
     with private_read(manifest_path, 4 * 1024 * 1024) as source:
@@ -131,6 +116,30 @@ def installation():
             actual.add(str(path.relative_to(release)))
         require(len(actual) <= 30000, 'Installed release exceeds bounds')
     require(actual == set(files), 'Unlisted installed release files')
+    return files, manifest
+
+
+def installation():
+    """Verify installed files without executing any release-provided program."""
+    import tomllib
+    protected(CONFIG)
+    with private_read(CONFIG, 1024 * 1024) as source:
+        raw = source.read()
+    config = tomllib.loads(raw.decode())
+    require(config.get('data_dir') == str(DATA), 'Only the native absolute data directory is supported')
+    cluster = config.get('cluster', {})
+    node, role = cluster.get('node_id'), cluster.get('role')
+    require(isinstance(node, str) and re.fullmatch('[a-z0-9_-]{1,40}', node)
+            and role in ('coordinator', 'worker') and 'replication' in config,
+            'An identified replicated native MX is required')
+    protected(CURRENT.parent, True)
+    info = CURRENT.lstat()
+    require(stat.S_ISLNK(info.st_mode) and info.st_uid == 0, 'Current release must be a root-owned symlink')
+    release = CURRENT.resolve(strict=True)
+    require(release.parent == CURRENT.parent / 'releases', 'Current release is outside the native release directory')
+    protected(release, True)
+    require(installed_service(CONFIG, 'noisefence') == release / 'noisefence', 'Installed startup command changed')
+    files, manifest = release_inventory(release)
     account = pwd.getpwnam('noisefence')
     require(account.pw_uid != 0, 'The service must use an unprivileged account')
     info = DATA.lstat()
@@ -234,6 +243,9 @@ class Reservation:
         return {'operation': self.operation, 'phase': state['phase'], 'node': state['installation']['node'], 'writers_stopped': True, 'reserved': True, 'service_hold': True}
 
     def cancel(self):
+        require(not exists(STATE / 'validation.json'), 'Stop candidate validation before cancellation')
+        require(unit_state('noisefence-validation.service') in ('inactive', 'failed', 'unknown'),
+                'Candidate validation still running; preserve the hold')
         state = self.state()
         require(state['phase'] in ('prepared', 'held', 'releasing', 'cancelled'), 'Invalid cancellation state')
         if state['phase'] == 'cancelled':

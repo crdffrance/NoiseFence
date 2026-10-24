@@ -4,7 +4,9 @@ A maintenance reservation stops one installed MX and prevents unrelated supporte
 host operations from changing it after the controller disconnects. It is a building
 block for the [paired upgrade procedure](paired-upgrades.md), **not an automatic
 updater**. It never changes the release pointer, configuration, models, policy or
-management backend. It cannot authorize a candidate or roll back a changed system.
+management backend. It cannot authorize a candidate or roll back a changed system. The separate
+[validation host helper](maintenance-validation.md#supervised-host-procedure) can
+start a bounded candidate while this normal-service hold remains in force.
 
 Use a reviewed maintenance window: reserving both MXs interrupts SMTP reception
 and the console. Mandatory two-copy admission means one remaining MX also defers
@@ -85,7 +87,8 @@ If a connection closes or a stop/receipt write fails, inspect `status` and retry
 A failed operation does not automatically restart services. Disk-full errors and
 unreadable state fail closed; repair storage before retrying.
 
-Cancellation is permitted only while the recorded installation is unchanged:
+Cancellation is permitted only while the recorded installation is unchanged and
+no candidate validation marker or running validation service remains:
 
 ```sh
 sudo python3 /usr/local/libexec/noisefence-management/upgrade_reservation.py \
@@ -118,11 +121,12 @@ process exits, cancels the unchanged holds, and verifies fresh synchronization a
 preserved accepted-message copies.
 
 That fixture uses synthetic data and exact supplied archives; it does not qualify
-an unattended production controller, starting new binaries under reservation,
-rollback after schema/policy changes, current production models or arbitrary
-release pairs. Those remain separate release gates.
+an unattended production controller, normal candidate activation, rollback after
+schema/policy changes, current production models or arbitrary release pairs. The
+optional candidate mode separately exercises startup behind the hold and native
+authorization expiry. Wider rollout claims remain separate release gates.
 
-The [candidate runtime validation mode](maintenance-validation.md) supplies a
-separate bounded, authenticated probe router for a future supervisor while these
-holds remain in force. It does not change this helper's cancellation contract or
-make candidate activation automatic.
+The [candidate runtime validation mode](maintenance-validation.md) and its root
+host helper supply a separate bounded, authenticated probe router while these
+holds remain in force. The unchanged-installation cancellation contract remains
+in place; candidate activation is a separate operation.
