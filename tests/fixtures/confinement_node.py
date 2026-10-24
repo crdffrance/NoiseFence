@@ -10,6 +10,7 @@ ENVIRONMENT = 'NOISEFENCE_TEST_APPARMOR_PROFILE'
 DROPIN_DIRECTORY = Path('/etc/systemd/system/noisefence.service.d')
 CANARY = Path('/etc/noisefence-blocked-fixture.toml')
 PROC = Path('/proc')
+DISCONNECTED_ROOT = Path('/att/noisefence')
 
 
 def expected_profile():
@@ -34,6 +35,8 @@ def install(binary, config):
         return None
     require(os.environ.get('NOISEFENCE_DISPOSABLE_PAIRED_TEST') == '1'
             and Path('/.dockerenv').is_file(), 'Disposable container required')
+    require(not DISCONNECTED_ROOT.exists() and not DISCONNECTED_ROOT.is_symlink(),
+            'Reserved AppArmor attachment prefix must not exist')
     directory = DROPIN_DIRECTORY
     directory.mkdir(exist_ok=True)
     dropin = directory/'95-fixture-confinement.conf'

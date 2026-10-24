@@ -50,10 +50,12 @@ class ConfinementTests(unittest.TestCase):
         isolation = importlib.util.module_from_spec(spec); spec.loader.exec_module(isolation)
         original = isolation.profiles('enforce')
         result = render_fixture.render(original, PROFILE)
-        original_body = original.split('profile noisefence {\n', 1)[1].split('\n}\n', 1)[0]
-        rendered_body = result.split('profile '+PROFILE+' {\n', 1)[1].split('\n}\n', 1)[0]
+        flag=' flags=(attach_disconnected.path=/att/noisefence/)'
+        original_body = original.split('profile noisefence'+flag+' {\n', 1)[1].split('\n}\n', 1)[0]
+        rendered_body = result.split('profile '+PROFILE+flag+' {\n', 1)[1].split('\n}\n', 1)[0]
         self.assertEqual(rendered_body.replace('peer='+PROFILE+',', 'peer=noisefence,'), original_body)
         self.assertNotIn('flags=(complain)', result)
+        self.assertNotIn('flags=(attach_disconnected)', result)
 
     def test_process_identity_and_enforcement_are_required(self):
         proc = self.root/'proc'; target = proc/'123'; (target/'attr').mkdir(parents=True)
@@ -123,6 +125,16 @@ class ConfinementTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):lab.ready('mx1','0.31.9')
         result['confinement']={'profile':PROFILE,'mode':'enforce','process_profile':PROFILE+' (enforce)','binary_sha256':'a'*64}
         self.assertEqual(lab.ready('mx1','0.31.9'),result)
+
+
+    def test_reserved_attachment_path_collision_stops_before_any_service_change(self):
+        prefix=self.root/'attachment';prefix.mkdir()
+        with patch.dict(os.environ,{confinement.ENVIRONMENT:PROFILE,'NOISEFENCE_DISPOSABLE_PAIRED_TEST':'1'}), \
+             patch.object(confinement.Path,'is_file',return_value=True), \
+             patch.object(confinement,'DISCONNECTED_ROOT',prefix),patch.object(confinement,'call') as call:
+            with self.assertRaisesRegex(RuntimeError,'prefix must not exist'):
+                confinement.install(self.root/'binary',self.root/'config')
+            call.assert_not_called()
 
 
 if __name__ == '__main__':unittest.main()

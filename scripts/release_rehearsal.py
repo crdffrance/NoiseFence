@@ -63,8 +63,9 @@ def read_report(path):
 def confinement_summary(directory, paired, files):
     name = paired.get('apparmor_profile')
     evidence = Path(directory)/'apparmor/confinement.json'
+    socket_evidence = Path(directory)/'socket-boundary/probe.json'
     if not name:
-        bundle.require(not evidence.exists() and paired.get('confinement_scope') in (None, 'not_exercised'),
+        bundle.require(not evidence.exists() and not socket_evidence.exists() and paired.get('confinement_scope') in (None, 'not_exercised'),
                        'Unexpected confinement evidence without an enforced pair')
         return {'status':'not_exercised'}
     bundle.require(isinstance(name,str) and re.fullmatch(r'noisefence-test-[a-f0-9]{12}',name)
@@ -80,6 +81,21 @@ def confinement_summary(directory, paired, files):
                        'Missing confinement source digest')
     bundle.require(proof['generator_sha256'] == files.get('deploy/hardening/isolation.py'),
                    'Test policy generator differs from the candidate archive')
+    socket=read_report(socket_evidence)
+    boundary=socket.get('scope_boundary_diagnostic') or {}
+    bundle.require(socket.get('schema')=='noisefence-postgres-confinement-probe-3'
+        and socket.get('container_removed') is True and socket.get('profile_removed') is True
+        and socket.get('generator_sha256')==proof['generator_sha256']
+        and socket.get('renderer_sha256')==proof['renderer_sha256']
+        and isinstance(socket.get('service_sha256'),str) and re.fullmatch('[0-9a-f]{64}',socket['service_sha256'])
+        and socket.get('service_sha256')==files.get('deploy/noisefence.service')
+        and isinstance(socket.get('binary_sha256'),str) and re.fullmatch('[0-9a-f]{64}',socket['binary_sha256'])
+        and socket.get('unconfined')==socket.get('confined')=='query_ok'
+        and socket.get('service_context')=={'unconfined':'query_ok','confined':'query_ok'}
+        and (socket.get('scoped_attachment_diagnostic') or {}).get('result')=='query_ok'
+        and boundary.get('scope')=='query5432_with_only_disconnected5433_allowed_must_be_denied'
+        and boundary.get('result')=='socket_permission_denied' and boundary.get('verified') is True,
+        'Scoped socket boundary is missing, inconsistent or not enforced')
     def runtime(row):
         return (row.get('profile') == name and row.get('process_profile') == name+' (enforce)'
                 and row.get('mode') == 'enforce' and row.get('binary_sha256') == files['noisefence'])
@@ -94,6 +110,7 @@ def confinement_summary(directory, paired, files):
         bundle.require(runtime(paired.get('final_running',{}).get(node,{}).get('confinement',{})),
                        'Both final daemons need runtime confinement')
     return {'status':'enforced', 'mode':'enforce', 'profile_removed':True,
+            'socket_boundary':{'status':'verified','probe_binary_sha256':socket['binary_sha256']},
             **{key:proof[key] for key in ('profile_sha256','generator_sha256','renderer_sha256')}}
 
 

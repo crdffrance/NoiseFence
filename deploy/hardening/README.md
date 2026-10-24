@@ -44,6 +44,28 @@ exact case separately; other denials remain actionable. The unsafe
 `attach_disconnected` workaround is deliberately avoided. OCR's inactive service
 with an active listening socket is a normal standby state.
 
+### Local sockets across service mount namespaces
+
+The main daemon uses `attach_disconnected.path=/att/noisefence/` to resolve local
+sockets across systemd mount namespaces without attaching disconnected paths at
+the filesystem root. Only the existing PostgreSQL, ClamAV, signature scanner and
+vision socket rules are mirrored under this virtual prefix. Ordinary file rules,
+other service profiles and systemd isolation remain unchanged.
+
+Keep `/att/noisefence` absent: do not create it, symlink it or use it as a mount
+point. If `/att` exists, it must be a real root-owned directory without group or
+other write access. The transaction checks these conditions before applying,
+revising, enforcing or committing a profile. A collision refuses the operation;
+automatic rollback remains available. Switching from complain to enforce preserves
+the scoped flag and every path permission.
+
+The installed AppArmor parser and kernel must support the scoped flag. Unsupported
+policy loading fails the transaction and triggers its existing rollback. Do not
+replace it with root-level attachment or disable namespace isolation. Native
+qualification checks a successful peer-authenticated query and a wrong-port denial,
+then exercises the full paired lifecycle with the generated profile. Validate all
+configured local scanners as part of the site's existing hardening acceptance test.
+
 ## Reports and backup pull
 
 ### Memory pressure and SMTP availability

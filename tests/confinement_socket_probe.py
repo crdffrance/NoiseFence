@@ -72,6 +72,7 @@ CONTEXT_VARIANTS = {
 
 DEBUG_ATTACHMENT = 'confined-debug-attachment'
 SCOPED_ATTACHMENT = 'confined-scoped-attachment'
+SCOPED_NEGATIVE = 'confined-scoped-negative'
 
 
 def attachment_diagnostic(raw, original, diagnostic):
@@ -84,28 +85,34 @@ def attachment_diagnostic(raw, original, diagnostic):
     for name in (original,diagnostic):
         confined.require(re.fullmatch(r'noisefence-test-[a-f0-9]{12}',name),
                          'Invalid diagnostic profile')
-    marker=('profile '+original+' {\n').encode()
+    flags=('', ' flags=(attach_disconnected.path=/att/noisefence/)')
+    markers=[('profile '+original+flag+' {\n').encode() for flag in flags]
+    present=[marker for marker in markers if marker in raw]
+    confined.require(len(present)==1,'Unexpected diagnostic profile structure')
+    marker=present[0]
     confined.require(original != diagnostic and raw.count(marker)==1,
                      'Unexpected diagnostic profile structure')
-    confined.require(b'flags=(' not in raw, 'Unexpected existing profile flags')
+    confined.require(raw.count(b'flags=(')==int(b'flags=(' in marker), 'Unexpected existing profile flags')
     return raw.replace(marker,('profile '+diagnostic+' flags=(attach_disconnected) {\n').encode()).replace(
         ('peer='+original+',').encode(),('peer='+diagnostic+',').encode())
 
 
-def scoped_attachment_diagnostic(raw, original, diagnostic):
+def scoped_attachment_diagnostic(raw, original, diagnostic, port=5432):
     """Test a separately named prefix with one disconnected socket permission.
 
-    AppArmor 4.0 and older do not support this syntax. Parser refusal is retained
-    as rejected diagnostic evidence, never as a reason to relax the real
-    profile. A successful query still does not qualify full daemon confinement.
+    Support depends on the installed parser, kernel and distribution backports.
+    Parser acceptance must be followed by positive and wrong-port socket tests.
+    Refusal never authorizes relaxing the real profile. A socket query alone
+    does not qualify full daemon confinement.
     """
+    confined.require(port in (5432,5433),'Unexpected diagnostic socket port')
     changed=attachment_diagnostic(raw,original,diagnostic)
     confined.require(changed.count(b'\n}\n')==1 and changed.endswith(b'\n}\n'),
                      'Unexpected scoped profile structure')
     prefix='/att/'+diagnostic+'/'
     changed=changed.replace(b'flags=(attach_disconnected)',
         ('flags=(attach_disconnected.path='+prefix+')').encode())
-    permission=('  '+prefix+'run/postgresql/.s.PGSQL.5432 rw,\n').encode()
+    permission=('  '+prefix+'run/postgresql/.s.PGSQL.'+str(port)+' rw,\n').encode()
     return changed[:-2]+permission+b'}\n'
 
 
@@ -131,7 +138,7 @@ def supported_profile(path):
 
 
 def service_unit(mode, profile, binary, properties):
-    confined.require(mode in ('unconfined', 'confined', DEBUG_ATTACHMENT, SCOPED_ATTACHMENT) or mode in CONTEXT_VARIANTS, 'Invalid diagnostic mode')
+    confined.require(mode in ('unconfined', 'confined', DEBUG_ATTACHMENT, SCOPED_ATTACHMENT, SCOPED_NEGATIVE) or mode in CONTEXT_VARIANTS, 'Invalid diagnostic mode')
     values=dict(item.split('=',1) for item in properties)
     values.update(CONTEXT_VARIANTS.get(mode,{}))
     properties=[key+'='+value for key,value in sorted(values.items())]
@@ -161,15 +168,19 @@ def run(args):
         and os.environ.get('RUNNER_OS') == 'Linux', 'Use only an ephemeral GitHub-hosted Linux runner')
     confined.require(Path('/sys/module/apparmor/parameters/enabled').read_text().strip() == 'Y',
                      'The runner kernel does not enable AppArmor')
+    confined.require(not Path('/att/noisefence').exists() and not Path('/att/noisefence').is_symlink(),
+                     'Reserved AppArmor prefix must not exist on the fixture host')
     service_raw=(confined.SOURCE/'deploy/noisefence.service').read_text()
     properties=service_properties(service_raw)
     root=args.output.resolve();root.mkdir(mode=0o700,parents=True,exist_ok=False)
     identity=uuid.uuid4().hex; name='nf-pg-probe-'+identity[:12]; profile='noisefence-test-'+identity[:12]
     raw=confined.policy(args.image,profile); policy=root/'profile';policy.write_bytes(raw);policy.chmod(0o600)
-    proof={'schema':'noisefence-postgres-confinement-probe-2','status':'running',
+    proof={'schema':'noisefence-postgres-confinement-probe-3','status':'running',
            'scope':'fixed_peer_authenticated_socket_query_only','production_affected':False,
            'binary_sha256':hashlib.sha256(args.binary.read_bytes()).hexdigest(),
            'profile_sha256':hashlib.sha256(raw).hexdigest(),'unconfined':None,'confined':None,
+           'generator_sha256':hashlib.sha256((confined.SOURCE/'deploy/hardening/isolation.py').read_bytes()).hexdigest(),
+           'renderer_sha256':hashlib.sha256((confined.SOURCE/'tests/render_apparmor_fixture.py').read_bytes()).hexdigest(),
            'container_removed':False,'profile_removed':False,
            'service_sha256':hashlib.sha256(service_raw.encode()).hexdigest(),
            'service_context':{'unconfined':None,'confined':None},
@@ -190,7 +201,14 @@ def run(args):
     confined.require(not any(x.split(' ',1)[0]==scoped_profile for x in confined.profiles()),'Scoped profile already exists')
     proof['scoped_attachment_diagnostic']={'result':None,'profile_sha256':hashlib.sha256(scoped_raw).hexdigest(),
         'scope':'one_disconnected_postgresql_socket_under_separate_prefix_diagnostic_only','parser':'not_checked','denials':[]}
-    loaded=False;attached_loaded=False;scoped_loaded=False;created=False
+    negative_profile='noisefence-test-'+identity[4:16]
+    confined.require(negative_profile not in (profile,attached_profile,scoped_profile), 'Negative identity collision')
+    negative_raw=scoped_attachment_diagnostic(raw,profile,negative_profile,port=5433)
+    negative_file=root/'attachment-negative-profile';negative_file.write_bytes(negative_raw);negative_file.chmod(0o600)
+    confined.require(not any(x.split(' ',1)[0]==negative_profile for x in confined.profiles()),'Negative profile already exists')
+    proof['scope_boundary_diagnostic']={'result':None,'profile_sha256':hashlib.sha256(negative_raw).hexdigest(),
+        'scope':'query5432_with_only_disconnected5433_allowed_must_be_denied','verified':False,'denials':[]}
+    loaded=False;attached_loaded=False;scoped_loaded=False;negative_loaded=False;created=False
     def docker(*cmd,timeout=30):return confined.command('docker',*cmd,timeout=timeout)
     def inside(*cmd,timeout=30):return docker('exec',name,*cmd,timeout=timeout)
     try:
@@ -202,6 +220,8 @@ def run(args):
             proof['scoped_attachment_diagnostic']['parser']='supported'
             confined.command('sudo','-n',confined.PARSER,'--add','--skip-cache',str(scoped_file));scoped_loaded=True
             confined.require(scoped_profile+' (enforce)' in confined.profiles(),'Scoped profile is not enforcing')
+            confined.command('sudo','-n',confined.PARSER,'--add','--skip-cache',str(negative_file));negative_loaded=True
+            confined.require(negative_profile+' (enforce)' in confined.profiles(),'Negative profile is not enforcing')
         else:
             proof['scoped_attachment_diagnostic']['parser']='rejected'
             proof['scoped_attachment_diagnostic']['result']='parser_rejected'
@@ -231,12 +251,14 @@ def run(args):
             command+=[directory+'/noisefence']
             result=subprocess.run(command,capture_output=True,timeout=12,env={'PATH':PATH,'LANG':'C'})
             proof[mode]=classify(result)
-        modes=('unconfined','confined',*CONTEXT_VARIANTS,DEBUG_ATTACHMENT,*((SCOPED_ATTACHMENT,) if scoped_loaded else ()))
+        modes=('unconfined','confined',*CONTEXT_VARIANTS,DEBUG_ATTACHMENT,*((SCOPED_ATTACHMENT,SCOPED_NEGATIVE) if scoped_loaded else ()))
         for mode in modes:
             unit_file=root/('noisefence-socket-'+mode+'.service')
-            unit_file.write_text(service_unit(mode,scoped_profile if mode==SCOPED_ATTACHMENT else attached_profile if mode==DEBUG_ATTACHMENT else profile,
+            unit_file.write_text(service_unit(mode,negative_profile if mode==SCOPED_NEGATIVE else scoped_profile if mode==SCOPED_ATTACHMENT else attached_profile if mode==DEBUG_ATTACHMENT else profile,
                 directory+'/noisefence',properties))
             docker('cp',str(unit_file),name+':/etc/systemd/system/'+unit_file.name)
+        inside('test','!','-e','/att/noisefence')
+        inside('test','!','-L','/att/noisefence')
         inside('systemctl','daemon-reload')
         for mode in ('unconfined','confined'):
             proof['service_context'][mode]=service_query(name,mode)
@@ -248,7 +270,16 @@ def run(args):
             inside('test','!','-e','/att/'+scoped_profile)
             inside('test','!','-L','/att/'+scoped_profile)
             proof['scoped_attachment_diagnostic']['result']=service_query(name,SCOPED_ATTACHMENT)
+            inside('test','!','-e','/att/'+negative_profile)
+            inside('test','!','-L','/att/'+negative_profile)
+            proof['scope_boundary_diagnostic']['result']=service_query(name,SCOPED_NEGATIVE)
+            proof['scope_boundary_diagnostic']['verified']=(
+                proof['scoped_attachment_diagnostic']['result']=='query_ok' and
+                proof['scope_boundary_diagnostic']['result']=='socket_permission_denied')
 
+        if negative_loaded:
+            negative_logs=root/'attachment-negative';negative_logs.mkdir(mode=0o700)
+            proof['scope_boundary_diagnostic']['collection']=confined.collect_denials(negative_logs,negative_profile)
         proof['denial_diagnostics']=confined.collect_denials(root,profile)
         attached_logs=root/'attachment-debug';attached_logs.mkdir(mode=0o700)
         proof['attachment_diagnostic']['collection']=confined.collect_denials(attached_logs,attached_profile)
@@ -263,8 +294,11 @@ def run(args):
             proof['scoped_attachment_diagnostic']['collection']=confined.collect_denials(scoped_logs,scoped_profile)
             proof['scoped_attachment_diagnostic']['denials']=module.denial_categories(
                 (scoped_logs/'denials.log').read_text() if (scoped_logs/'denials.log').exists() else '')
+        if negative_loaded:
+            proof['scope_boundary_diagnostic']['denials']=module.denial_categories(
+                (negative_logs/'denials.log').read_text() if (negative_logs/'denials.log').exists() else '')
         checks=[proof['unconfined'],proof['confined'],*proof['service_context'].values()]
-        proof['status']='passed' if all(value=='query_ok' for value in checks) else 'failed'
+        proof['status']='passed' if all(value=='query_ok' for value in checks) and proof['scope_boundary_diagnostic']['verified'] else 'failed'
     finally:
         if created:
             existing=set(docker('ps','-a','--format','{{.Names}}').decode().splitlines())
@@ -275,6 +309,11 @@ def run(args):
             existing=set(docker('ps','-a','--format','{{.Names}}').decode().splitlines())
             proof['container_removed']=name not in existing
         else:proof['container_removed']=True
+        negative_removed=not negative_loaded
+        if negative_loaded and proof['container_removed']:
+            confined.require(negative_file.read_bytes()==negative_raw,'Negative profile changed')
+            confined.command('sudo','-n',confined.PARSER,'--remove','--skip-cache',str(negative_file))
+            negative_removed=not any(x.split(' ',1)[0]==negative_profile for x in confined.profiles())
         scoped_removed=not scoped_loaded
         if scoped_loaded and proof['container_removed']:
             confined.require(scoped_file.read_bytes()==scoped_raw,'Scoped profile changed')
@@ -288,7 +327,7 @@ def run(args):
         if loaded and proof['container_removed']:
             confined.require(policy.read_bytes()==raw,'Generated policy changed')
             confined.command('sudo','-n',confined.PARSER,'--remove','--skip-cache',str(policy))
-            proof['profile_removed']=scoped_removed and attached_removed and not any(x.split(' ',1)[0]==profile for x in confined.profiles())
+            proof['profile_removed']=negative_removed and scoped_removed and attached_removed and not any(x.split(' ',1)[0]==profile for x in confined.profiles())
         if not proof['container_removed'] or not proof['profile_removed']:proof['status']='cleanup_failed'
         if proof['status']=='running':proof['status']='failed'
         (root/'probe.json').write_text(json.dumps(proof,sort_keys=True,indent=2)+'\n')

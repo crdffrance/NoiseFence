@@ -16,9 +16,13 @@ NAME = re.compile(r'noisefence-test-[a-f0-9]{12}')
 def render(source, name):
     if not NAME.fullmatch(name):
         raise ValueError('Use a unique disposable profile name')
-    marker = 'profile noisefence {\n'
-    if source.count(marker) != 1:
+    flags=['',' flags=(attach_disconnected.path=/att/noisefence/)']
+    matches=[flag for flag in flags if 'profile noisefence'+flag+' {\n' in source]
+    if len(matches)!=1:
         raise ValueError('Expected exactly one enforcing daemon profile')
+    flag=matches[0];marker='profile noisefence'+flag+' {\n'
+    if source.count(marker)!=1:
+        raise ValueError('Duplicate enforcing daemon profile')
     header, remaining = source.split(marker)
     body, separator, _ = remaining.partition('\n}\n')
     if not separator or any(line.strip().startswith('profile ') for line in body.splitlines()):
@@ -26,7 +30,7 @@ def render(source, name):
     if header != '# Managed by NoiseFence. No profile attaches to another product\'s binary.\n#include <tunables/global>\n':
         raise ValueError('Unexpected profile preamble')
     body = body.replace('peer=noisefence,', 'peer='+name+',')
-    return header+'profile '+name+' {\n'+body+'\n}\n'
+    return header+'profile '+name+flag+' {\n'+body+'\n}\n'
 
 
 def main():

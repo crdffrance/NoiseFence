@@ -69,7 +69,7 @@ class ConfinedRunnerTests(unittest.TestCase):
             return rendered
         with patch.object(runner, 'command', side_effect=execute_generator):
             result = runner.policy('fixture-image', NAME).decode()
-        self.assertIn('profile '+NAME+' {', result)
+        self.assertIn('profile '+NAME+' flags=(attach_disconnected.path=/att/noisefence/) {', result)
         self.assertEqual(sum(line.startswith('profile ') for line in result.splitlines()), 1)
         self.assertIn('/opt/noisefence/** mr,', result)
         self.assertIn('peer='+NAME+',', result)

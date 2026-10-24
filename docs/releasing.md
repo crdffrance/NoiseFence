@@ -250,10 +250,24 @@ service isolation remains enabled. Parsing is checked without loading the policy
 The result records a bounded public parser version when available, otherwise `null`.
 A parser rejection is recorded separately and never authorizes a fallback or a
 change to the shipped profile. The short workflow covers Ubuntu 24.04 and 26.04
-with separate result artifacts, because [upstream AppArmor documents the syntax
-as unsupported in 4.0 and older](https://gitlab.com/apparmor/apparmor/-/merge_requests/2171).
-Both attachment variants remain diagnostic only. A successful variant does not
-satisfy the required original-profile check or qualify a full daemon migration.
+with separate result artifacts. Distribution backports mean the reported parser
+version alone is not a capability check; [upstream compatibility notes](https://gitlab.com/apparmor/apparmor/-/merge_requests/2171)
+are not a substitute for executing the boundary tests.
+
+A third profile permits only port 5433 under its separate virtual prefix, while
+the fixed program still queries port 5432. It must report `socket_permission_denied`.
+The normal PostgreSQL path permission is retained, so ignoring the prefix cannot
+produce a passing negative control. Qualification requires both the successful
+scoped query and this denial, in addition to the original profile's direct and
+full-service queries. Root attachment and reduced namespaces never substitute
+for those results. All owned profiles are removed after their container.
+
+The required native archive lifecycle runs this probe before the paired rehearsal.
+Its summary checks the generator and service hashes against the candidate archive,
+requires the same renderer as the full pair, checks both socket outcomes and cleanup,
+and records the fixed probe binary digest. A missing or inconsistent boundary report
+prevents a confinement qualification. The full paired canary and runtime checks
+remain mandatory.
 
 This short diagnostic helps locate policy failures without rebuilding every
 optimized Rust integration test. It does not replace the required exact-archive

@@ -33,6 +33,14 @@ docker build --platform "$docker_platform" --file tests/fixtures/paired.Dockerfi
 phase=standalone-image
 printf 'Native lifecycle: %s\n' "$phase"
 docker build --platform "$docker_platform" --file tests/fixtures/lifecycle.Dockerfile --tag "$name-standalone" . > "$output/standalone-image.log" 2>&1
+if [ "$confinement" = 1 ]; then
+    phase=socket-boundary
+    printf 'Native lifecycle: %s\n' "$phase"
+    rustc --edition=2024 --test tests/fixtures/postgres_socket_probe.rs -o "$output/socket-probe-tests" > "$output/socket-boundary.log" 2>&1
+    "$output/socket-probe-tests" >> "$output/socket-boundary.log" 2>&1
+    rustc --edition=2024 tests/fixtures/postgres_socket_probe.rs -o "$output/socket-probe" >> "$output/socket-boundary.log" 2>&1
+    python3 tests/confinement_socket_probe.py --binary "$output/socket-probe" --image "$name-paired" --output "$output/socket-boundary" >> "$output/socket-boundary.log" 2>&1
+fi
 phase=standalone
 printf 'Native lifecycle: %s\n' "$phase"
 python3 tests/release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-standalone" --platform "$docker_platform" --output "$output/standalone" > "$output/standalone.log" 2>&1

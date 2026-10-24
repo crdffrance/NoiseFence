@@ -108,6 +108,8 @@ def run(args):
             'Use only an ephemeral GitHub-hosted Linux runner')
     require(Path('/sys/module/apparmor/parameters/enabled').read_text().strip() == 'Y',
             'The runner kernel does not enable AppArmor')
+    require(not Path('/att/noisefence').exists() and not Path('/att/noisefence').is_symlink(),
+            'Reserved AppArmor prefix must not exist on the fixture host')
     output = args.output.resolve(); evidence = args.evidence.resolve()
     require(not output.exists(), 'Use a fresh paired output directory')
     evidence.mkdir(mode=0o700, parents=True, exist_ok=False)

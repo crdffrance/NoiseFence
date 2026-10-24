@@ -14,10 +14,11 @@ import stat
 
 ROOT = Path(__file__).resolve().parents[1]
 LIMIT = 256 * 1024
-PHASES = {'baseline', 'paired-image', 'standalone-image', 'standalone', 'paired', 'summary'}
+PHASES = {'baseline', 'paired-image', 'standalone-image', 'standalone', 'paired', 'summary', 'socket-boundary'}
 SOURCES = (
     'tests/release_lifecycle.py', 'tests/paired_release_lifecycle.py',
     'tests/confined_paired_release.py', 'tests/render_apparmor_fixture.py',
+    'tests/confinement_socket_probe.py',
     'tests/fixtures/paired_node.py', 'tests/fixtures/confinement_node.py',
     'tests/fixtures/validation_node.py', 'tests/fixtures/exchange_node.py',
     'scripts/release_rehearsal.py', 'deploy/postgresql/upgrade_reservation.py',
@@ -27,7 +28,7 @@ SOURCES = (
     'deploy/postgresql/migration_protocol.py', 'deploy/postgresql/migration_snapshot.py',
 )
 LOGS = (
-    'paired.log', 'standalone.log', 'paired/failure-command.log',
+    'paired.log', 'standalone.log', 'paired/failure-command.log', 'socket-boundary.log',
     'paired/mx1-journal.log', 'paired/mx2-journal.log',
     'paired/mx1-validation-journal.log', 'paired/mx2-validation-journal.log',
     'paired/mx1-command-error.log', 'paired/mx2-command-error.log',

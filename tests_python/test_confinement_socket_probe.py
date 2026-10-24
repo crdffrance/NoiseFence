@@ -44,7 +44,7 @@ class SocketProbeTests(unittest.TestCase):
                     probe.run(SimpleNamespace())
                 command.assert_not_called()
 
-    def exercise(self, confined_result, service_confined=None, *, scoped_supported=True, scoped_result='query_ok'):
+    def exercise(self, confined_result, service_confined=None, *, scoped_supported=True, scoped_result='query_ok', negative_result='socket_permission_denied'):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);binary=root/'probe';binary.write_bytes(b'synthetic-never-executed')
             args=SimpleNamespace(binary=binary,image='synthetic',output=root/'result')
@@ -80,7 +80,7 @@ class SocketProbeTests(unittest.TestCase):
                  patch.object(probe,'supported_profile',return_value=scoped_supported), \
                  patch.object(probe,'parser_version',return_value='4.1.0'), \
                  patch.object(probe.subprocess,'run',side_effect=[SimpleNamespace(stdout=b'query_ok',returncode=0),confined_result]), \
-                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*(len(probe.CONTEXT_VARIANTS)+1)),*([scoped_result] if scoped_supported else [])]), \
+                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*(len(probe.CONTEXT_VARIANTS)+1)),*([scoped_result,negative_result] if scoped_supported else [])]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 code=probe.run(args)
             result=json.loads((args.output/'probe.json').read_text())
@@ -89,11 +89,11 @@ class SocketProbeTests(unittest.TestCase):
             self.assertEqual(run[run.index('--network')+1],'none')
             self.assertEqual(run[run.index('--memory')+1],'512m')
             self.assertTrue(result['container_removed']);self.assertTrue(result['profile_removed'])
-            self.assertEqual(sum('--add' in event for event in events),3 if scoped_supported else 2)
-            self.assertEqual(sum('--remove' in event for event in events),3 if scoped_supported else 2)
+            self.assertEqual(sum('--add' in event for event in events),4 if scoped_supported else 2)
+            self.assertEqual(sum('--remove' in event for event in events),4 if scoped_supported else 2)
             if scoped_supported:
                 checks=[event[-1] for event in events if event[:2]==('docker','exec') and 'test' in event]
-                self.assertEqual(checks,['/att/noisefence-test-23456789abcd']*2)
+                self.assertEqual(checks,['/att/noisefence']*2+['/att/noisefence-test-23456789abcd']*2+['/att/noisefence-test-456789ab4cde']*2)
             self.assertLess(next(i for i,e in enumerate(events) if e[:2]==('docker','rm')),
                             next(i for i,e in enumerate(events) if '--remove' in e))
             self.assertNotIn('PRIVATE',json.dumps(result))
@@ -188,7 +188,8 @@ class SocketProbeTests(unittest.TestCase):
         unit=probe.service_unit(probe.DEBUG_ATTACHMENT,diagnostic,'/opt/noisefence/probe',props)
         for item in props:self.assertIn(item+'\n',unit)
         self.assertIn('AppArmorProfile='+diagnostic,unit)
-        self.assertNotIn('attach_disconnected',(ROOT/'deploy/hardening/isolation.py').read_text())
+        self.assertNotIn('flags=(attach_disconnected)',(ROOT/'deploy/hardening/isolation.py').read_text())
+        self.assertIn('attach_disconnected.path=/att/noisefence/',(ROOT/'deploy/hardening/isolation.py').read_text())
 
 
     def test_scoped_attachment_adds_only_one_socket_under_a_distinct_prefix(self):
@@ -206,7 +207,8 @@ class SocketProbeTests(unittest.TestCase):
         unit=probe.service_unit(probe.SCOPED_ATTACHMENT,diagnostic,'/opt/noisefence/probe',properties)
         for item in properties:self.assertIn(item+'\n',unit)
         self.assertIn('AppArmorProfile='+diagnostic,unit)
-        self.assertNotIn('attach_disconnected',(ROOT/'deploy/hardening/isolation.py').read_text())
+        self.assertNotIn('flags=(attach_disconnected)',(ROOT/'deploy/hardening/isolation.py').read_text())
+        self.assertIn('attach_disconnected.path=/att/noisefence/',(ROOT/'deploy/hardening/isolation.py').read_text())
 
     def test_parser_capability_check_never_loads_policy_or_exposes_errors(self):
         for code in (0,1):
@@ -226,9 +228,10 @@ class SocketProbeTests(unittest.TestCase):
         self.assertEqual(result['attachment_diagnostic']['result'],'query_ok')
         self.assertEqual(result['service_context']['confined'],'socket_permission_denied')
 
-    def test_diagnostic_refusal_does_not_change_original_profile_result(self):
+    def test_scoped_refusal_cannot_qualify_a_successful_original_query(self):
         code,result=self.exercise(SimpleNamespace(stdout=b'query_ok',returncode=0),scoped_result='socket_permission_denied')
-        self.assertEqual(code,0);self.assertEqual(result['status'],'passed')
+        self.assertEqual(code,1);self.assertEqual(result['status'],'failed')
+        self.assertFalse(result['scope_boundary_diagnostic']['verified'])
         self.assertEqual(result['scoped_attachment_diagnostic']['result'],'socket_permission_denied')
 
     def test_old_and_new_runner_diagnostics_do_not_cancel_each_other(self):
@@ -255,3 +258,22 @@ class SocketProbeTests(unittest.TestCase):
                 self.assertIsNone(probe.parser_version())
         with patch.object(probe.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout=b'AppArmor parser version 4.1.0')):
             self.assertIsNone(probe.parser_version())
+
+
+    def test_wrong_port_success_exposes_ignored_prefix_and_fails_qualification(self):
+        code,result=self.exercise(SimpleNamespace(stdout=b'query_ok',returncode=0),negative_result='query_ok')
+        self.assertEqual(code,1);self.assertEqual(result['status'],'failed')
+        self.assertEqual(result['service_context']['confined'],'query_ok')
+        self.assertFalse(result['scope_boundary_diagnostic']['verified'])
+
+    def test_negative_control_preserves_normal_socket_rule_but_changes_only_scoped_port(self):
+        original='noisefence-test-0123456789ab';diagnostic='noisefence-test-abcdef012345'
+        raw=('profile '+original+' flags=(attach_disconnected.path=/att/noisefence/) {\n'
+             '  /run/postgresql/.s.PGSQL.[0-9]* rw,\n'
+             '  /att/noisefence/run/postgresql/.s.PGSQL.[0-9]* rw,\n}\n').encode()
+        positive=probe.scoped_attachment_diagnostic(raw,original,diagnostic)
+        negative=probe.scoped_attachment_diagnostic(raw,original,diagnostic,port=5433)
+        self.assertEqual(negative,positive.replace(b'.s.PGSQL.5432 rw,',b'.s.PGSQL.5433 rw,'))
+        self.assertIn(b'  /run/postgresql/.s.PGSQL.[0-9]* rw,',negative)
+        self.assertIn(b'flags=(attach_disconnected.path=/att/noisefence-test-abcdef012345/)',negative)
+        with self.assertRaises(RuntimeError):probe.scoped_attachment_diagnostic(raw,original,diagnostic,port=0)
