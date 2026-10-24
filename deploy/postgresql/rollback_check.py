@@ -34,6 +34,18 @@ def inspect(operation, previous_operation, peer):
             and reservation.unit_state(validation.SERVICE) in ('inactive', 'failed', 'unknown'),
             'Stop and reconcile candidate validation before rollback inspection')
 
+    return inspect_history(operation, previous_operation, peer)
+
+
+def inspect_history(operation, previous_operation, peer):
+    """Recheck immutable history while a separately owned validator is prepared.
+
+    Internal validation primitive: callers must separately exclude unrelated
+    candidate operations. It neither creates permission nor starts a process.
+    """
+    require(identity(operation) and identity(previous_operation) and operation != previous_operation,
+            'A new operation distinct from the completed upgrade is required')
+    held = validation.held(operation)
     previous = activation.Activation(previous_operation)
     state = previous.state()
     previous.match_peer(state, peer)

@@ -99,8 +99,11 @@ def held(operation):
 
 
 def describe(operation, directory, expires_at):
+    require(identity(operation), 'Canonical operation UUID required')
     require(type(expires_at) is int and int(time.time()) < expires_at <= int(time.time())+3600,
             'Validation authorization expired or exceeds one hour')
+    require(not reservation.exists(reservation.STATE / (operation+'-rollback-context.json')),
+            'This operation belongs to retained-release validation')
     hold = held(operation)
     target = candidate(directory)
     original = candidate(Path(hold.state()['installation']['release_directory']))
@@ -194,6 +197,14 @@ def health_url():
 
 
 class Validation:
+    protocol = PROTOCOL
+
+    def describe(self, directory, expires_at):
+        return describe(self.operation, directory, expires_at)
+
+    def authorize(self, own, peer):
+        return authorize(own, peer)
+
     def __init__(self, operation):
         require(identity(operation), 'Canonical operation UUID required')
         self.operation = operation
@@ -203,9 +214,9 @@ class Validation:
     def state(self):
         value = reservation.read_json(self.path)
         require(isinstance(value, dict) and set(value) == {'protocol', 'operation', 'phase', 'own', 'peer', 'plan'}
-                and value['protocol'] == PROTOCOL and value['operation'] == self.operation
+                and value['protocol'] == self.protocol and value['operation'] == self.operation
                 and value['phase'] in ('prepared', 'started', 'stopping', 'stopped')
-                and value['plan'] == authorize(value['own'], value['peer'])
+                and value['plan'] == self.authorize(value['own'], value['peer'])
                 and value['own']['operation'] == self.operation, 'Invalid candidate validation receipt')
         return value
 
@@ -213,7 +224,7 @@ class Validation:
         result = {**state, 'phase': phase}; atomic(self.path, canonical(result)); return result
 
     def owner(self):
-        require(reservation.read_json(self.marker) == {'protocol': PROTOCOL, 'operation': self.operation},
+        require(reservation.read_json(self.marker) == {'protocol': self.protocol, 'operation': self.operation},
                 'Another operation owns candidate validation')
 
     def start(self, directory, peer, expires_at):
@@ -221,8 +232,8 @@ class Validation:
         require(not reservation.exists(reservation.STATE / 'promotion.json')
                 and not reservation.exists(reservation.STATE / (self.operation+'-promotion.json')),
                 'Prepared promotion owns this operation; restore the pair before resuming')
-        own = describe(self.operation, directory, expires_at)
-        plan = authorize(own, peer)
+        own = self.describe(directory, expires_at)
+        plan = self.authorize(own, peer)
         if reservation.exists(self.marker):
             self.owner()
         if reservation.exists(self.path):
@@ -233,10 +244,10 @@ class Validation:
             require(not reservation.exists(self.marker) and not reservation.exists(PLAN)
                     and not reservation.exists(LINK) and reservation.unit_state(SERVICE) in ('inactive', 'failed', 'unknown'),
                     'Unowned candidate validation requires recovery')
-            state = self.save({'protocol': PROTOCOL, 'operation': self.operation, 'own': own, 'peer': peer, 'plan': plan}, 'prepared')
+            state = self.save({'protocol': self.protocol, 'operation': self.operation, 'own': own, 'peer': peer, 'plan': plan}, 'prepared')
         # Receipt and marker precede service setup/start. Cancellation cannot
         # remove the normal hold after a disconnect at any later step.
-        atomic(self.marker, canonical({'protocol': PROTOCOL, 'operation': self.operation}))
+        atomic(self.marker, canonical({'protocol': self.protocol, 'operation': self.operation}))
         require(hashlib.sha256(unit_template()).hexdigest() == own['service_sha256'], 'Validation service authorization changed')
         service_files(install=True)
         reservation.protected(PLAN.parent, True)

@@ -88,7 +88,7 @@ def archive_candidate(item, architecture, destination):
     required = ['deploy/noisefence.service', 'deploy/install.sh',
                 *('deploy/postgresql/'+name for name in ['upgrade_reservation.py',
                   'upgrade_validation.py', 'upgrade_validation.service', 'upgrade_promotion.py',
-                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py', 'rollback_check.py'])]
+                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py', 'rollback_check.py', 'rollback_validation.py'])]
     if any(name not in inspected['files'] for name in required):
         raise ValueError('Archive lacks the native candidate maintenance helpers')
     return {'origin': 'exact_archive', 'version': item['version'], 'commit': item['commit'],
@@ -841,6 +841,7 @@ class Lab:
             or reports['mx1']['previous_decision_sha256'] != reports['mx2']['previous_decision_sha256']
             or self.inspect() != before or self.validation_node('mx1','database') != database):
             raise RuntimeError('Rollback inspection changed accepted mail, authority or paired decision')
+        self.validate_retained_release(operation, previous, before, database)
         since = int(time.time())
         for node in ('mx1','mx2'):
             cancelled = json.loads(self.command(node,'python3',helper,'cancel','--operation',operation))
@@ -852,6 +853,68 @@ class Lab:
         self.record('rollback_identities_checked_without_downgrade_authority',nodes=reports,
                     source='exact_installed_archive_helpers' if self.args.archive_candidate else 'source_checkout_helpers',
                     foreign_peer_refused=True,downgrade_refused=True)
+
+    def validate_retained_release(self, operation, previous, before, database):
+        helper = '/usr/local/libexec/noisefence-management/rollback_validation.py'
+        expiry = int(time.time())+120
+        common = ['--operation',operation,'--previous-operation',previous,
+                  '--peer-completion','/root/paired-test/rollback-peer.json','--expires-at',str(expiry)]
+        descriptors = {node:json.loads(self.command(node,'python3',helper,'describe',*common))
+                       for node in self.names}
+        capability = {}
+        for node in self.names:
+            peer = 'mx2' if node == 'mx1' else 'mx1'
+            local = self.root/('retained-'+node+'-descriptor.json')
+            local.write_text(json.dumps(descriptors[peer])+'\n')
+            remote = '/root/paired-test/retained-peer.json'
+            self.run('cp',str(local),self.names[node]+':'+remote)
+            self.command(node,'chown','root:root',remote);self.command(node,'chmod','0600',remote)
+            usage = self.command(node,'/opt/noisefence/releases/'+self.old['version']+'/noisefence','--help')
+            capability[node] = b'validate-runtime' in usage
+            # Unsupported retained binaries must fail without releasing the hold.
+            result = json.loads(self.command(node,'python3','-c',
+                "import json,subprocess,sys; p=subprocess.run(sys.argv[1:],capture_output=True,timeout=40); "
+                "print(json.dumps({'exit_code':p.returncode}))", 'python3',helper,'start',*common,
+                '--peer-report',remote))
+            if capability[node] and result['exit_code'] != 0:
+                raise RuntimeError('Capable retained runtime failed to start')
+        if len(set(capability.values())) != 1:
+            raise RuntimeError('Retained pair disagrees about the maintenance command')
+        ready = False
+        deadline = time.monotonic()+(30 if all(capability.values()) else 2)
+        while True:
+            statuses = {node:json.loads(self.command(node,'python3',helper,'status','--operation',operation))
+                        for node in self.names}
+            if any(row.get('activation_authorized') is not False or row.get('rollback_qualified') is not False
+                   for row in statuses.values()):
+                raise RuntimeError('Retained validation incorrectly authorized activation')
+            ready = all(row.get('validation_ready') is True for row in statuses.values())
+            if ready or time.monotonic() >= deadline:break
+            time.sleep(.25)
+        if ready != all(capability.values()):
+            raise RuntimeError('Retained runtime readiness differs from supported validation capability')
+        for node in self.names:
+            self.command(node,'python3','-c',
+                "import json,socket,subprocess,sys; "
+                "s=socket.socket();s.settimeout(2);assert s.connect_ex(('127.0.0.1',int(sys.argv[1])))!=0;s.close(); "
+                "p=subprocess.run(['systemctl','is-active','noisefence.service'],capture_output=True); "
+                "assert p.stdout.strip() in (b'inactive',b'failed'); "
+                "r=json.loads(subprocess.check_output(['python3','/usr/local/libexec/noisefence-management/upgrade_reservation.py',"
+                "'status','--operation',sys.argv[2]])); "
+                "assert all(r[k] is True for k in ('reserved','service_hold','writers_stopped'));print('held')",
+                str(2525 if node=='mx1' else 2527),operation)
+            if ready:self.validation_node(node,'disabled',node)
+            stopped = json.loads(self.command(node,'python3',helper,'stop','--operation',operation))
+            if stopped.get('phase') != 'stopped':raise RuntimeError('Retained validation did not stop')
+            self.command(node,'python3','-c',
+                "import subprocess,sys; p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_promotion.py',"
+                "'prepare','--operation',sys.argv[1]],capture_output=True,timeout=20);assert p.returncode!=0;print('refused')",operation)
+        if self.inspect()!=before or self.validation_node('mx1','database')!=database:
+            raise RuntimeError('Retained validation changed accepted mail or the selected database')
+        self.record('retained_validation_keeps_normal_writers_held',validation_ready=ready,
+                    retained_command_supported=all(capability.values()),activation_authorized=False,
+                    ordinary_promotion_refused=True,accepted_mail_and_database_unchanged=True,
+                    rollback_qualified=False)
 
     def rollout(self):
         # Published selected-management releases require equal peer builds.

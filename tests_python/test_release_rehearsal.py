@@ -32,7 +32,7 @@ class RehearsalTests(unittest.TestCase):
         patcher = patch.object(rehearsal, 'BASELINE', pin_file); patcher.start(); self.addCleanup(patcher.stop)
         self.archive = self.root/('noisefence-'+self.version+'-'+self.platform+'.tar.gz')
         def helpers(files):
-            for name in ['upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py']:
+            for name in ['upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py','rollback_validation.py']:
                 files['deploy/postgresql/'+name] = b'synthetic helper; never executed'
         with patch.object(archives,'VERSION',self.version), patch.object(archives,'COMMIT',self.commit), patch.object(archives,'TOP',self.archive.name.removesuffix('.tar.gz')):
             archives.fixture(self.archive, change=helpers)
@@ -63,7 +63,7 @@ class RehearsalTests(unittest.TestCase):
                 'committed_start_failure_recovered_forward_and_auxiliary_jobs_held',
                 'actual_ssh_completion_reply_lost_after_durable_finish',
                 'native_pair_completed_over_pinned_ssh_after_proof_expiry',
-                'rollback_identities_checked_without_downgrade_authority',
+                'rollback_identities_checked_without_downgrade_authority','retained_validation_keeps_normal_writers_held',
                 'normal_candidates_verified_and_operation_completed']],
             'not_qualified':['detection_accuracy','archive_provenance'],
             'final_state':{'password':'never upload','message':'never upload'}}

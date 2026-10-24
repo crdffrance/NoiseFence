@@ -83,7 +83,7 @@ def summarize(platform, archive, directory, *, version, commit):
         'Exact paired candidate or cleanup is unverified')
     helpers = {str(Path(name).relative_to('deploy/postgresql')): digest
                for name, digest in inspected['files'].items() if name.startswith('deploy/postgresql/')}
-    bundle.require({'upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py'} <= set(helpers)
+    bundle.require({'upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py','rollback_validation.py'} <= set(helpers)
         and paired.get('installed_helper_sha256') == {'mx1':helpers, 'mx2':helpers},
         'Installed native helpers must match the candidate archive')
     candidate = paired.get('validation_candidate', {})
@@ -111,7 +111,8 @@ def summarize(platform, archive, directory, *, version, commit):
         'actual_ssh_completion_reply_lost_after_durable_finish',
         'native_pair_completed_over_pinned_ssh_after_proof_expiry',
         'normal_candidates_verified_and_operation_completed',
-        'rollback_identities_checked_without_downgrade_authority'}
+        'rollback_identities_checked_without_downgrade_authority',
+        'retained_validation_keeps_normal_writers_held'}
     bundle.require(required <= set(checks), 'Required native recovery coverage is missing')
     standalone_checks = {'fresh_install_'+pin['version'], 'synthetic_smtp_acceptance',
         'upgrade_'+version, 'idempotent_reinstall',

@@ -239,6 +239,57 @@ normal readiness and the two-copy requirement on both nodes. Never cancel the
 completed prior activation, manually remove fences or switch `current` to make a
 rollback proceed.
 
+## Validate a retained runtime without activating it
+
+The experimental [retained-release supervisor](../deploy/postgresql/rollback_validation.py)
+can test the exact original release of the completed upgrade under the **new**
+reservations described above. It preserves the current release pointer and the
+selected database. This is preparation for a rollback protocol, not that protocol.
+Use verified current tooling; do not execute old administrative helpers from the
+retained archive. An old binary without `validate-runtime` will fail safely and
+cannot be qualified by this procedure.
+
+On each held node, obtain a descriptor with an explicit common expiry (Unix time,
+at most one hour ahead):
+
+```sh
+sudo python3 /path/to/verified-tools/deploy/postgresql/rollback_validation.py describe \
+  --operation NEW-RESERVATION-UUID \
+  --previous-operation COMPLETED-UPGRADE-UUID \
+  --peer-completion /root/peer-completion.json \
+  --expires-at EXPIRY
+```
+
+Exchange the descriptors over the same authenticated administrator channel, save
+them as root-owned private files, then run `start` with those arguments plus
+`--peer-report /root/retained-peer-descriptor.json` on each node. Use `status` and
+`stop` with `--operation NEW-RESERVATION-UUID` to inspect or revoke the probe.
+Each retry rechecks the exact archives, prior completion, current policy,
+authority, configuration and service definition. A lost start reply can resume
+only the same authorization. Changed or expired authorization must be stopped;
+it cannot silently adopt a new peer, release or operation.
+
+The temporary service exposes only the restricted maintenance protocol. Normal
+SMTP, relay and administration remain held. Readiness proves only the retained
+runtime's maintenance checks against the current state. Every status retains
+`activation_authorized: false` and `rollback_qualified: false`; its distinct
+receipts cannot be passed to the ordinary upgrade promotion helper. No database
+snapshot is restored. Do not interpret a shared schema number, startup success or
+identity report as permission to switch releases.
+
+Stop the temporary service on **both** nodes before cancelling the unchanged new
+reservations. A failed or interrupted stop keeps the normal-service hold; retry
+`stop` even after expiry. Cancellation resumes the current installed version,
+not the retained binary. The historical context is kept as an audit receipt and
+its operation UUID cannot be reused for an ordinary upgrade.
+
+The native fixture tests that unsupported historical binaries remain unready,
+that normal writers and SMTP stay stopped, that ordinary promotion refuses these
+receipts and that revocation preserves accepted mail and the selected database.
+A supporting retained binary must pass the paired maintenance probes, but a full
+reverse activation, failure recovery and exact-archive rollback rehearsal remain
+required before any production rollback can be authorized.
+
 ## Required installed-system rehearsal
 
 Qualify the exact archive pair on two isolated Linux nodes before claiming a
