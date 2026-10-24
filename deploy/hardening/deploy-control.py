@@ -21,6 +21,25 @@ import urllib.request
 BASE=Path('/opt/noisefence')
 STATE=Path('/var/lib/noisefence-hardening/deploy')
 CONFIG=Path('/etc/noisefence/config.toml')
+UPGRADE_LOCK=Path('/run/noisefence-upgrade.lock')
+UPGRADE_RESERVATION=Path('/var/lib/noisefence-upgrade/active.json')
+
+def unreserved():
+    try:UPGRADE_RESERVATION.lstat()
+    except FileNotFoundError:return
+    raise ValueError('A durable upgrade reservation is active; resume its owning operation')
+
+@contextlib.contextmanager
+def upgrade_lock():
+    import stat
+    fd=os.open(UPGRADE_LOCK,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
+    with os.fdopen(fd,'r+b') as lock:
+        info=os.fstat(lock.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_nlink!=1 or info.st_mode&0o022:
+            raise ValueError('Unsafe host operation lock')
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        unreserved()
+        yield
 
 def local_activation_allowed(config, database):
     """A format number cannot authorize changing a selected cluster authority."""
@@ -99,7 +118,7 @@ def main():
     if os.geteuid()!=0:raise PermissionError('root required')
     if not args or (args[0] in ['status','check','restart'] and len(args)!=1) or (args[0]=='activate' and len(args)!=2) or args[0] not in ['status','check','restart','activate']:raise ValueError('Unsupported deployment operation')
     os.umask(0o077);STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
-    with (STATE/'lock').open('a') as lock:
+    with upgrade_lock(), (STATE/'lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         if args[0]=='status':
             print(json.dumps({'release':Path(os.readlink(BASE/'current')).name,'smtp_ready':ready(),'service':run('systemctl','is-active','noisefence').strip()}))

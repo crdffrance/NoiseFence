@@ -3,6 +3,14 @@
 set -eu
 umask 027
 if [ "$(id -u)" != 0 ]; then echo 'Run this installer as root.' >&2; exit 1; fi
+# Hold the shared host lock for the entire installer, including child checks and
+# failed-start recovery. An interrupted paired operation remains reserved on disk.
+exec 9>/run/noisefence-upgrade.lock
+flock -n 9 || { echo 'Another host operation is running.' >&2; exit 1; }
+if [ -e /var/lib/noisefence-upgrade/active.json ] || [ -L /var/lib/noisefence-upgrade/active.json ]; then
+    echo 'A durable upgrade reservation is active; resume its owning operation.' >&2
+    exit 1
+fi
 bundle=$(realpath "${1:?Usage: install.sh EXTRACTED_RELEASE [INITIAL_CONFIG]}")
 initial_config=${2:-}
 if [ -n "$initial_config" ]; then initial_config=$(realpath "$initial_config"); fi

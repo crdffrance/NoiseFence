@@ -23,7 +23,7 @@ import time
 import tomllib
 import urllib.parse
 import urllib.request
-from migration_protocol import AGENT, Channel, SourceSession, atomic, canonical, checked_selection, identity, private_read, require, sha
+from migration_protocol import require_no_upgrade_reservation, AGENT, Channel, SourceSession, atomic, canonical, checked_selection, identity, private_read, require, sha
 from migration_snapshot import management_config, source_files
 
 CONFIG = Path('/etc/noisefence-migration/agent.json')
@@ -399,6 +399,7 @@ def serve(config, channel):
             info = os.fstat(fd)
             require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1, 'Unsafe operation lock')
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require_no_upgrade_reservation()
         agent = Agent(config)
         try:
             channel.send({'protocol': AGENT, 'run_id': config['run_id'], 'node_id': config['node_id'], 'state': agent.inspect()})

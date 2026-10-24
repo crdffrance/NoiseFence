@@ -122,6 +122,7 @@ class Lab:
             self.run('cp', str(self.args.fixture.resolve()), self.names[node]+':/root/fixture')
             for source, target in [(SOURCE/'deploy/postgresql', '/root/source/deploy/postgresql'),
                                    (SOURCE/'deploy/noisefence.service', '/root/source/deploy/noisefence.service'),
+                                   (SOURCE/'deploy/install.sh', '/root/source/deploy/install.sh'),
                                    (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py')]:
                 self.run('cp', str(source), self.names[node]+':'+target)
             for item in (self.old, self.new):
@@ -227,6 +228,41 @@ class Lab:
                 return
             time.sleep(.25)
         raise RuntimeError('No fresh matching authenticated policy synchronization')
+
+    def maintenance_reservation(self):
+        helper = '/usr/local/libexec/noisefence-management/upgrade_reservation.py'
+        results = {}
+        for node in ['mx2', 'mx1']:
+            first = json.loads(self.command(node, 'python3', helper, 'begin', '--operation', self.operation))
+            # The first process has exited: the reservation must survive a lost
+            # controller connection without an open advisory-lock descriptor.
+            resumed = json.loads(self.command(node, 'python3', helper, 'begin', '--operation', self.operation))
+            if first != resumed or first.get('phase') != 'held' or any(first.get(key) is not True for key in ['writers_stopped', 'reserved', 'service_hold']):
+                raise RuntimeError('Maintenance reservation was not durable/idempotent')
+            self.command(node, 'systemctl', 'start', 'noisefence.service')
+            state = self.command(node, 'systemctl', 'show', '--property=ActiveState,ConditionResult', 'noisefence.service').decode()
+            if 'ActiveState=inactive' not in state or 'ConditionResult=no' not in state:
+                raise RuntimeError('Maintenance condition did not prevent an independent restart')
+            # The current root installer must reject before even looking for its
+            # release argument. Use a fixed nonexistent fixture path.
+            refused = self.command(node, 'python3', '-c',
+                "import subprocess; p=subprocess.run(['sh','/root/source/deploy/install.sh','/missing-fixture-release'],capture_output=True); "
+                "assert p.returncode!=0 and b'durable upgrade reservation' in p.stderr, (p.returncode,p.stderr); print('refused')")
+            if refused.strip() != b'refused':
+                raise RuntimeError('Installer did not enforce the durable reservation')
+            results[node] = first
+        self.invariant()
+        self.record('durable_maintenance_reservations_and_restart_guards', nodes=results)
+        since = int(time.time())
+        for node in ['mx1', 'mx2']:
+            cancelled = json.loads(self.command(node, 'python3', helper, 'cancel', '--operation', self.operation))
+            if cancelled.get('phase') != 'cancelled':
+                raise RuntimeError('Unchanged installation did not resume')
+        self.fresh_policy(self.old['version'], since)
+        for node in self.names:
+            self.ready(node, self.old['version'])
+        self.invariant()
+        self.submit('after_unchanged_maintenance_cancellation')
 
     def failure_recovery(self):
         self.command('mx2', 'systemctl', 'stop', 'noisefence.service')
@@ -364,7 +400,7 @@ def main():
     lab = Lab(args, old, new)
     try:
         lab.start(); lab.submit('before_migration'); lab.migrate(); lab.submit('selected_old_pair')
-        lab.failure_recovery(); lab.rollout(); lab.finish(metadata)
+        lab.maintenance_reservation(); lab.failure_recovery(); lab.rollout(); lab.finish(metadata)
     except BaseException as error:
         (lab.root/'failed.json').write_text(json.dumps({'status': 'failed', 'error': type(error).__name__,
             'checks': lab.checks, 'accepted': lab.accepted})+'\n')

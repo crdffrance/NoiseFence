@@ -80,3 +80,7 @@ A release does not change the server configuration, MX, or filtering mode. Proto
 Current archives declare `storage_schema: 7` in `build.json`, the maximum supported local format. Paired replication uses format 5, management transport uses format 6, and selecting a PostgreSQL authority activates format 7. A format number alone does not establish management-database compatibility: the native installer and restricted deployment helper refuse configured, selected or partially selected management installations, and automatic rollback remains disabled for them. Use the [coordinated migration procedure](../deploy/postgresql/MIGRATION-SUPERVISOR.md) and its recovery path. Never lower `user_version`, erase `ha_required` or restore a stale database over accepted mail. See [HA recovery](high-availability.md) and [paired upgrade preparation and rehearsal](paired-upgrades.md).
 
 For paired installations, follow the [selected-management archive rehearsal](paired-upgrades.md#run-the-disposable-archive-pair-fixture). Qualify each architecture and exact candidate; a cached healthy process or the legacy policy compatibility window does not prove a mixed-build PostgreSQL deployment works.
+
+The [native maintenance reservation](maintenance-reservations.md) is a stopped-host
+primitive. Its tests do not authorize a candidate upgrade or rollback; retain the
+exact paired archive and selected-authority lifecycle gates.

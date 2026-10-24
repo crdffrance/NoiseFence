@@ -4,6 +4,7 @@ The candidate only records whether it was invoked. These tests prove rejection
 ordering, not a successful systemd installation or a real release rehearsal.
 """
 import contextlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class InstallerPreflight(unittest.TestCase):
     def test_guard_runs_before_candidate_and_only_admits_known_local_state(self):
-        for scenario in ('configured', 'selected', 'transport', 'history', 'replication_removed', 'old_candidate', 'fresh_selected', 'fresh_local', 'legacy_local', 'lost_installed_state'):
+        for scenario in ('configured', 'selected', 'transport', 'history', 'replication_removed', 'old_candidate', 'fresh_selected', 'fresh_local', 'legacy_local', 'lost_installed_state', 'reserved', 'reserved_symlink', 'contended'):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 tools = root / 'tools'
@@ -57,12 +58,17 @@ class InstallerPreflight(unittest.TestCase):
                 candidate.chmod(0o700)
                 # Only the documented absolute installation roots are rebased.
                 source = (ROOT / 'deploy/install.sh').read_text()
-                for old, new in [('/etc/noisefence', root / 'etc'), ('/opt/noisefence', root / 'opt'), ('/var/lib/noisefence', data)]:
+                for old, new in [('/run/noisefence-upgrade.lock', root / 'upgrade.lock'), ('/var/lib/noisefence-upgrade', root / 'reservation'), ('/etc/noisefence', root / 'etc'), ('/opt/noisefence', root / 'opt'), ('/var/lib/noisefence', data)]:
                     source = source.replace(old, str(new))
                 installer = root / 'install.sh'
                 installer.write_text(source)
                 (tools / 'python3').symlink_to(sys.executable)
-                for name, body in {'id': '#!/bin/sh\necho 0\n', 'sha256sum': '#!/bin/sh\nexit 0\n',
+                marker = root/'reservation/active.json'
+                if scenario in ('reserved', 'reserved_symlink'):
+                    marker.parent.mkdir()
+                    if scenario == 'reserved':marker.write_text('deliberately unparsed reservation')
+                    else:marker.symlink_to(root/'missing')
+                for name, body in {'flock': f'#!{sys.executable}\nimport fcntl,sys\nfcntl.flock(int(sys.argv[2]),fcntl.LOCK_EX|fcntl.LOCK_NB)\n', 'id': '#!/bin/sh\necho 0\n', 'sha256sum': '#!/bin/sh\nexit 0\n',
                                    'realpath': f'#!{sys.executable}\nimport pathlib,sys\nprint(pathlib.Path(sys.argv[1]).resolve())\n'}.items():
                     path = tools / name
                     path.write_text(body)
@@ -70,7 +76,9 @@ class InstallerPreflight(unittest.TestCase):
                 args = ['/bin/sh', str(installer), str(bundle)]
                 if scenario in ('fresh_selected', 'fresh_local'):
                     args.append(config.name)
-                result = subprocess.run(args, cwd=root, env={'PATH': str(tools)}, capture_output=True, text=True, timeout=15)
+                with (root/'upgrade.lock').open('a') as lock:
+                    if scenario == 'contended':fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    result = subprocess.run(args, cwd=root, env={'PATH': str(tools)}, capture_output=True, text=True, timeout=15)
                 if scenario in ('fresh_local', 'legacy_local'):
                     # No privileged tools exist in PATH: a passing guard reaches
                     # only the synthetic --version invocation, then stops.
@@ -79,7 +87,9 @@ class InstallerPreflight(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                 else:
                     self.assertEqual(result.returncode, 1, result.stderr)
-                    self.assertIn('Local installation refused', result.stderr)
+                    expected = ('durable upgrade reservation' if scenario.startswith('reserved') else
+                                'Another host operation' if scenario == 'contended' else 'Local installation refused')
+                    self.assertIn(expected, result.stderr)
                     self.assertFalse((root / 'candidate-invoked').exists())
                 self.assertEqual(sorted((root / 'opt').glob('*')), previous_opt)
                 self.assertEqual(config.read_bytes(), before)

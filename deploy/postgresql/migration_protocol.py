@@ -24,6 +24,22 @@ def require(condition, message):
         raise ValueError(message)
 
 
+UPGRADE_RESERVATION = Path('/var/lib/noisefence-upgrade/active.json')
+
+
+def require_no_upgrade_reservation():
+    """Call under the host upgrade lock, including after a controller disconnect.
+
+    Any existing object blocks the operation, even a broken symlink or malformed
+    receipt. Only the owning maintenance controller can interpret/release it.
+    """
+    try:
+        UPGRADE_RESERVATION.lstat()
+    except FileNotFoundError:
+        return
+    raise ValueError('A durable upgrade reservation is active; resume its owning operation')
+
+
 def sha(value):
     return isinstance(value, str) and re.fullmatch('[a-f0-9]{64}', value) is not None
 

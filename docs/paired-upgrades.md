@@ -114,6 +114,10 @@ exchange** after that transition. SMTP senders retry during the outage. This doe
 not make any other release pair compatible or protect against concurrent policy,
 recovery or deployment operations. Those reservations remain required.
 
+A [durable native reservation](maintenance-reservations.md) now implements the
+stopped-service hold and unchanged-installation cancellation primitive. It does
+not yet start a candidate under reservation or replace the coordinated controller.
+
 ## Reviewed maintenance sequence
 
 1. Record both node identities, coordinator/worker roles, installed release

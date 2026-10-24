@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 import time
 
-from migration_protocol import atomic, canonical, identity, private_read, require, sha
+from migration_protocol import require_no_upgrade_reservation, atomic, canonical, identity, private_read, require, sha
 from recovery_install import protected
 
 STATE = Path('/var/lib/noisefence-recovery-database')
@@ -193,4 +193,5 @@ if __name__ == '__main__':
     require(os.geteuid() == 0, 'Root required')
     with open('/run/noisefence-upgrade.lock','a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require_no_upgrade_reservation()
         print(json.dumps(restore(args.authorization)))
