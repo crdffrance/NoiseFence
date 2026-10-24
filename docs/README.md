@@ -59,3 +59,5 @@
 - [Final release qualification](final-release-plan.md): evidence, calibration, coherence and release gates.
 
 - [Unified receipt decisions](unified-decisions.md): canonical records, policy variants and remaining qualification work.
+
+- [Model identity and provenance](model-provenance.md)

@@ -29,6 +29,8 @@ examined examples belong in development or regression, not a final holdout.
 
 ## 3. Calibrate without bypassing provenance
 
+Check the [application, detector, feature and model identity boundaries](model-provenance.md) before treating observations as compatible. Equal vector lengths or product version numbers are insufficient.
+
 Use the workbench readiness tables to fill missing risk/type classes in each
 chronological partition. Restore any missing protected campaign identities from
 verified originals before fitting. If restoration is impossible, design and audit
