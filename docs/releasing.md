@@ -111,3 +111,30 @@ it does not authorize an upgrade or prove rollback/storage compatibility. Keep
 all archive, authority, policy, replica, source and qualification checks. A public
 tag or released asset must never be moved or replaced to turn an RC into a final
 release. Publish a separately reviewed version instead.
+
+## 0.32.0-rc.1 qualification boundary
+
+This candidate adds the console and maintenance work described in the
+[changelog](../CHANGELOG.md#0320-rc1--consistent-decisions-reviewed-administration-and-paired-maintenance).
+It does not establish the filter's capture or false-positive targets. Keep the
+[human-label and independent-evaluation procedure](filter-qualification.md) as a
+separate gate; source changes create a distinct detector cohort unless verified
+equivalence proves otherwise.
+
+The audited policy shape can retain an unchanged, digest-verified 0.31.9 journal.
+This does not authorize a new old-build activation, an unknown future release,
+or mixed-build selected PostgreSQL synchronization. The two nodes must run the
+same application build for new policy exchange. Use coordinated maintenance,
+not a rolling upgrade. Post-start downgrade compatibility remains unqualified.
+
+Before calling the RC installation qualified, record successful validation of
+both exact Linux archives, their SHA-256 manifests, `build.json`, provenance and
+native staging. Run the standalone and selected-authority pair rehearsals on
+both architectures, using `--archive-candidate` for the paired runner to exercise
+the exact archive's native activation and recovery paths. Earlier locally built ARM64 results are supporting evidence, not substitutes
+for those archives. Keep the first positive attestation round trip explicit.
+
+The Web release checker follows public stable releases and identifies an installed
+RC as a development version. It never treats the RC as its future stable release
+or installs it automatically. Publishing the RC does not change server policies,
+models, provider consent or MX routing.

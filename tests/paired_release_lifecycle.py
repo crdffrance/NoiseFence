@@ -20,6 +20,7 @@ import uuid
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE/'deploy/postgresql'))
 from release_version import VERSION, valid as valid_version, precedence
+from release_bundle import inspect_archive
 sys.path.pop(0)
 
 
@@ -77,6 +78,29 @@ def validation_candidate(directory, architecture, version):
     return metadata
 
 
+
+def archive_candidate(item, architecture, destination):
+    """Inspect exact artifact bytes; never patch its binary, metadata or manifest."""
+    if digest(item['path']) != item['sha256']:
+        raise ValueError('Candidate archive changed after initial inspection')
+    inspected = inspect_archive(item['path'], item['version'], 'linux-'+architecture,
+                                item['commit'], destination=destination)
+    required = ['deploy/noisefence.service', 'deploy/install.sh',
+                *('deploy/postgresql/'+name for name in ['upgrade_reservation.py',
+                  'upgrade_validation.py', 'upgrade_validation.service', 'upgrade_promotion.py',
+                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py'])]
+    if any(name not in inspected['files'] for name in required):
+        raise ValueError('Archive lacks the native candidate maintenance helpers')
+    return {'origin': 'exact_archive', 'version': item['version'], 'commit': item['commit'],
+            'platform': 'linux/'+architecture, 'archive_sha256': item['sha256'],
+            'binary_sha256': inspected['files']['noisefence'],
+            'build_sha256': inspected['files']['build.json'],
+            'manifest_sha256': inspected['files']['SHA256SUMS'],
+            'helper_sha256': {str(Path(name).relative_to('deploy/postgresql')):sha
+                for name,sha in inspected['files'].items() if name.startswith('deploy/postgresql/')},
+            'provenance_verified': False}
+
+
 def policy_is_fresh(peers, expected_build, since, digest, now):
     return any(p.get('node') == 'mx2' and p.get('build') == expected_build
                and type(p.get('seen')) is int and since < p['seen'] <= now
@@ -94,7 +118,15 @@ class Lab:
         self.binary_hashes = {}
         self.helper_hashes = {}
         self.final_release = old['version']
-        self.validation_metadata = validation_candidate(args.validation_candidate, args.platform.split('/')[1], new['version']) if args.validation_candidate else None
+        self.candidate_release = new['version'] if args.archive_candidate else 'qualification-candidate'
+        self.candidate_directory = '/opt/noisefence/releases/'+self.candidate_release
+        self.deployment_source = SOURCE/'deploy'
+        if args.archive_candidate:
+            extracted = self.root/'candidate-archive'
+            self.validation_metadata = archive_candidate(new, args.platform.split('/')[1], extracted)
+            self.deployment_source = extracted/'deploy'
+        else:
+            self.validation_metadata = validation_candidate(args.validation_candidate, args.platform.split('/')[1], new['version']) if args.validation_candidate else None
         self.started = time.monotonic()
         (self.root/'operation.json').write_text(json.dumps({'operation': self.operation, 'containers': self.names, 'synthetic_only': True})+'\n')
 
@@ -143,14 +175,16 @@ class Lab:
                      '--env', 'FIXTURE_ARCH='+self.args.platform.split('/')[1], self.args.image)
             self.command(node, 'mkdir', '-p', '/root/releases', '/root/source/deploy', '/root/source/tests/fixtures')
             self.run('cp', str(self.args.fixture.resolve()), self.names[node]+':/root/fixture')
-            for source, target in [(SOURCE/'deploy/postgresql', '/root/source/deploy/postgresql'),
-                                   (SOURCE/'deploy/noisefence.service', '/root/source/deploy/noisefence.service'),
-                                   (SOURCE/'deploy/install.sh', '/root/source/deploy/install.sh'),
+            for source, target in [(self.deployment_source/'postgresql', '/root/source/deploy/postgresql'),
+                                   (self.deployment_source/'noisefence.service', '/root/source/deploy/noisefence.service'),
+                                   (self.deployment_source/'install.sh', '/root/source/deploy/install.sh'),
                                    (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py'),
                                    (SOURCE/'tests/fixtures/exchange_node.py', '/root/source/tests/fixtures/exchange_node.py'),
                                    (SOURCE/'tests/fixtures/validation_node.py', '/root/source/tests/fixtures/validation_node.py')]:
                 self.run('cp', str(source), self.names[node]+':'+target)
             for item in (self.old, self.new):
+                if digest(item['path']) != item['sha256']:
+                    raise RuntimeError('Archive changed before isolated copy')
                 self.run('cp', str(item['path']), self.names[node]+':/root/'+item['path'].name)
                 self.command(node, 'tar', '-xzf', '/root/'+item['path'].name, '-C', '/root/releases')
             if self.args.validation_candidate:
@@ -170,6 +204,10 @@ class Lab:
             self.helper_hashes[node] = json.loads(self.command(node, 'python3', '-c',
                 "import hashlib,json; from pathlib import Path; root=Path('/usr/local/libexec/noisefence-management'); "
                 "print(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.iterdir() if p.is_file()}))"))
+        if self.args.archive_candidate:
+            expected = self.validation_metadata['helper_sha256']
+            if any(files != expected for files in self.helper_hashes.values()):
+                raise RuntimeError('Installed native helpers differ from the candidate archive')
         if len(set(machines)) != 2:
             raise RuntimeError('Fixture nodes need distinct machine identities')
         for node in self.names:
@@ -319,13 +357,19 @@ class Lab:
         before = self.inspect()
         database = self.validation_node('mx1', 'database')
         for node in self.names:
-            staged = self.validation_node(node, 'stage', self.new['version'])
-            if staged['binary_sha256'] != self.validation_metadata['binary_sha256']:
-                raise RuntimeError('Staged candidate differs from the reviewed binary')
+            if self.args.archive_candidate:
+                staged = self.validation_node(node, 'archive', self.new['version'])
+                for key in ('binary_sha256', 'build_sha256', 'manifest_sha256', 'commit'):
+                    if staged[key] != self.validation_metadata[key]:
+                        raise RuntimeError('Installed candidate differs from its exact archive: '+key)
+            else:
+                staged = self.validation_node(node, 'stage', self.new['version'])
+                if staged['binary_sha256'] != self.validation_metadata['binary_sha256']:
+                    raise RuntimeError('Staged candidate differs from the reviewed binary')
         expires = int(time.time())+90
         descriptors = {}
         for node in self.names:
-            descriptors[node] = self.validation(node, 'describe', '--candidate', '/opt/noisefence/releases/qualification-candidate', '--expires-at', str(expires))
+            descriptors[node] = self.validation(node, 'describe', '--candidate', self.candidate_directory, '--expires-at', str(expires))
         for node in self.names:
             peer = 'mx2' if node == 'mx1' else 'mx1'
             report = self.root/(node+'-peer-descriptor.json')
@@ -333,7 +377,7 @@ class Lab:
             self.run('cp', str(report), self.names[node]+':/root/paired-test/validation-peer.json')
             self.command(node, 'chown', 'root:root', '/root/paired-test/validation-peer.json')
             self.command(node, 'chmod', '0600', '/root/paired-test/validation-peer.json')
-            self.validation(node, 'start', '--candidate', '/opt/noisefence/releases/qualification-candidate',
+            self.validation(node, 'start', '--candidate', self.candidate_directory,
                             '--expires-at', str(expires), '--peer-report', '/root/paired-test/validation-peer.json')
         deadline = time.monotonic()+40
         states = {}
@@ -407,7 +451,7 @@ class Lab:
         before = self.inspect(); database = self.validation_node('mx1', 'database')
         expires = int(time.time())+180
         descriptors = {node: self.validation(node, 'describe', '--candidate',
-            '/opt/noisefence/releases/qualification-candidate', '--expires-at', str(expires)) for node in self.names}
+            self.candidate_directory, '--expires-at', str(expires)) for node in self.names}
         for node in self.names:
             peer = 'mx2' if node == 'mx1' else 'mx1'
             report = self.root/(node+'-promotion-validation-peer.json')
@@ -415,7 +459,7 @@ class Lab:
             remote = '/root/paired-test/validation-peer.json'
             self.run('cp', str(report), self.names[node]+':'+remote)
             self.command(node, 'chown', 'root:root', remote); self.command(node, 'chmod', '0600', remote)
-            self.validation(node, 'start', '--candidate', '/opt/noisefence/releases/qualification-candidate',
+            self.validation(node, 'start', '--candidate', self.candidate_directory,
                             '--expires-at', str(expires), '--peer-report', remote)
         deadline = time.monotonic()+40
         while time.monotonic() < deadline:
@@ -450,7 +494,7 @@ class Lab:
             self.command(node, 'systemctl', 'start', 'noisefence.service')
             state = self.command(node, 'systemctl', 'show', 'noisefence.service', '--property=ActiveState', '--value').strip()
             pointer = self.command(node, 'readlink', '-f', '/opt/noisefence/current').decode().strip()
-            if state != b'inactive' or pointer != '/opt/noisefence/releases/qualification-candidate':
+            if state != b'inactive' or pointer != self.candidate_directory:
                 raise RuntimeError('Prepared release activated or changed target')
             self.command(node, 'python3', '-c',
                 "import subprocess; p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_reservation.py','cancel','--operation',"+repr(self.operation)+"],capture_output=True); assert p.returncode!=0 and b'Restore and release' in p.stderr")
@@ -570,8 +614,8 @@ class Lab:
         self.record('committed_start_failure_recovered_forward_and_auxiliary_jobs_held')
         self.record('both_committed_normal_candidates_started',nodes=started)
         for node in self.names:
-            self.binary_hashes[node]['qualification-candidate']=self.validation_metadata['binary_sha256']
-            self.ready(node,'qualification-candidate')
+            self.binary_hashes[node][self.candidate_release]=self.validation_metadata['binary_sha256']
+            self.ready(node,self.candidate_release)
         self.fresh_policy(self.new['version'],max(d['started_at'] for d in started.values()))
         deadline=time.monotonic()+60
         while time.monotonic()<deadline:
@@ -581,7 +625,7 @@ class Lab:
             except subprocess.CalledProcessError:time.sleep(.5)
         else:raise RuntimeError('Fresh normal policy/replica proof did not converge')
         completed = self.exchange_completion(started)
-        self.final_release='qualification-candidate'
+        self.final_release=self.candidate_release
         self.invariant();self.submit('after_committed_candidate_activation')
         self.record('normal_candidates_verified_and_operation_completed',proofs=proofs,nodes=completed)
 
@@ -645,7 +689,7 @@ class Lab:
             self.command(node,'python3','-c',
                 "from pathlib import Path; p=Path('/var/lib/noisefence-upgrade'); "
                 "assert not any((p/n).exists() for n in ['active.json','hold.json','activation.json','activation-jobs.json','promotion.json'])")
-            self.ready(node,'qualification-candidate')
+            self.ready(node,self.candidate_release)
         replay=json.loads(self.command('mx1',*command,timeout=300))
         if replay.get('status')!='complete':raise RuntimeError('Completed SSH retry was not idempotent')
         if completed!={node:self.activation(node,'status') for node in self.names}:
@@ -735,13 +779,14 @@ class Lab:
                   'final_state': snapshots, 'final_running': running,
                   'staged_binary_sha256': self.binary_hashes, 'installed_helper_sha256': self.helper_hashes,
                   'validation_candidate': self.validation_metadata,
+                  'candidate_mode': 'exact_archive' if self.args.archive_candidate else 'local_binary' if self.validation_metadata else 'none',
                   'archive_sha256': {i['version']: i['sha256'] for i in (self.old, self.new)},
                   'archive_commits': {i['version']: i['commit'] for i in (self.old, self.new)},
                   'image_id': metadata['Id'], 'platform': self.args.platform,
                   'network': 'shared_loopback_without_external_route', 'production_affected': False,
                   'scope': 'coordinated_stop_start_archive_pair_with_synthetic_selected_authority',
                   'sequence': 'both_stopped_before_switching_either_binary',
-                  'not_qualified': ['final_release_archives', 'production_updater', 'post_activation_rollback', 'external_delivery',
+                  'not_qualified': (['other_archive_pairs', 'archive_provenance'] if self.args.archive_candidate else ['final_release_archives']) + ['production_updater', 'post_activation_rollback', 'external_delivery',
                                     'rolling_mixed_build_upgrade', 'live_models', 'failover_after_loss', 'performance', 'detection_accuracy']}
         (self.root/'paired-lifecycle-report.json').write_text(json.dumps(report, indent=2)+'\n')
 
@@ -786,7 +831,9 @@ def main():
     parser.add_argument('--image', required=True)
     parser.add_argument('--platform', choices=['linux/amd64', 'linux/arm64'], required=True)
     parser.add_argument('--fixture', type=Path, required=True)
-    parser.add_argument('--validation-candidate', type=Path, help='Optional locally built release-profile semantic binary plus candidate.json; never a production archive')
+    candidate = parser.add_mutually_exclusive_group()
+    candidate.add_argument('--validation-candidate', type=Path, help='Optional locally built release-profile semantic binary plus candidate.json; never a production archive')
+    candidate.add_argument('--archive-candidate', action='store_true', help='Exercise candidate activation using the exact new archive and its native helpers, without rewriting artifacts')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(); os.umask(0o077)
     old, new = (archive(p, args.platform.split('/')[1]) for p in [args.old_archive, args.new_archive])

@@ -1,38 +1,52 @@
 # Changelog
 
-## Unreleased — Filtering diagnostics and console clarity
+## 0.32.0-rc.1 — Consistent decisions, reviewed administration and paired maintenance
 
-- Bind administrator review to the exact proposed settings, revision and model selection. Compare every changed value, preserve a draft between related configuration sections, and require explicit discard before leaving or restoring over unsaved work.
-- Separate acknowledged saves from failed refreshes, lock stale editors until recovery, and retain staged-versus-installed activation receipts. Load configuration history, audit and operations independently; unavailable queue data never appears empty. Add bounded audit search and read-only historical comparison with reviewed restoration.
+This prerelease is for qualification in observation mode. It does not establish
+capture or false-positive rates, enable providers, promote a model, change
+thresholds or activate delivery policies.
 
-- Add recipient-scoped quarantine history with bounded local audit events, remote requests and independent execution receipts. Preserve late confirmations after request expiry; never equate an MX receipt with destination delivery. Bind new audit entries to message UUID and recipient to avoid historical row-ID reuse.
-- Disable expired/pending quarantine actions, expose snapshot age and unavailable history, and return keyboard focus after confirmed actions. Clarify discard, release retry periods and shared-payload retention in the console and English guide.
+### Recorded decisions and filtering evidence
 
-- Review personal filter inheritance and requested policy mappings before saving, including aliases, administrator precedence, dormant settings and fusion-managed sensitivity. Reuse SMTP profile/rule ordering; keep previews read-only, grant-scoped and revision-bound.
-- Confirm personal draft abandonment and inherited-setting restoration. Preserve drafts after conflicts and distinguish a successful save from a failed settings refresh.
+- Preserve receipt-time engine verdicts, recipient-policy outcomes and requested/effective actions in full-population exports. Offline evaluation retains unavailable baselines, reads both population generations and separates recorded decisions from hypothetical candidates.
+- Explain when lexical evidence alone crosses the recorded content threshold without presenting the index as a calibrated probability. Keep human labels, AI suggestions, development samples and protected evaluation labels distinct.
+- Recognize distributed commercial discounts and cheaper offers while retaining transactional, security and conversation exclusions (`mailing-6`). Preserve ranked content hosts and final redirect destinations in reputation checks, including when HTTP following is disabled.
+- Accept explicit boolean CRDF blacklist states alongside integer/string 0/1 with strict target binding. Distinguish schema failures and bounded allowlisted HTTP errors without retaining provider text. Cache stale VirusTotal observations for 30 minutes without treating them as clean or current evidence.
 
-- Unify message corrections and sample annotations around explicit saves, saved-state summaries and visible purpose. Explain how general feedback replaces detailed domain labels; keep protected evaluation labels separate from operational feedback.
-- Retain annotation drafts across other-row saves, page filtering and refresh failures. Confirm before abandoning drafts, preserve keyboard focus after saves and disable additional writes while refreshed labels are unavailable.
-- Generate an ephemeral password for the receipt-export test account instead of a fixed fixture credential; keep CodeQL security checks enabled.
+### Console and administration
 
-- Preserve receipt-time engine, recipient-policy and requested/effective-action snapshots in full-population exports. Offline evaluation reports these baselines separately, retains unknowns and reads both population generations without changing candidate predictions.
+- Unify samples, independent engine comparisons and rule reliability under **Quality & research**, preserving old sample links and keyboard navigation. Keep Rspamd separate from NoiseFence decisions and distinguish detector disagreement from a confirmed error.
+- Present the saved verdict/action, latest delivery state, primary reasons, coverage and per-recipient controls separately. Fix overlapping research panels and clarify high-index Ham decisions, annotation provenance and precision labels.
+- Unify corrections and annotations around explicit saves, purpose and saved-state summaries. Preserve drafts across other-row saves, navigation and refresh failures; confirm abandonment and prevent further writes while refreshed labels are unavailable.
+- Review personal filter inheritance before saving, including aliases, administrator precedence, dormant values and fusion-managed sensitivity. Reuse SMTP rule ordering in read-only, recipient-scoped previews.
+- Bind administrator review to the exact settings, revision and model selection. Compare changed values, preserve related drafts, confirm discard and restoration, and distinguish acknowledged saves from failed refreshes. Load history, audit and operations independently; unavailable data never appears empty.
+- Preserve console and deployment identity for release candidates as well as stable versions. Share accepted/rejected artifact-version examples between Rust and Python; keep the stable-update checker separate.
+- Add **Filters → Providers & budgets** with loaded configuration/credential state, effective capacity, reserved quotas, read-only LLM accounting and recent incidents. Report measured CRDF/VirusTotal p95 with missing timing and failed attempts explicit; preserve activation controls.
+- Add guided domain setup with explicit upstream routes and destination-recipient verification. Bounded administrator DNS and envelope-only SMTP checks never send DATA. Public MX publication and actual inbox delivery remain operator validation steps.
+- Add recipient-scoped quarantine history with bounded audit events, remote requests and independent execution receipts. Preserve late confirmations, prevent historical row-ID reuse, disable expired/pending actions and expose snapshot age. A remote command receipt never proves destination delivery.
+- Improve keyboard focus, confirmed navigation, contrast and narrow-screen layouts. Add a synthetic localhost demonstration excluded from production builds; update Vite to 8.3.5 and align the SMTP load fixture with `mailing-6`.
 
-- Add **Filters → Providers & budgets** with loaded credential/configuration state, revision-bound navigation, reserved quotas, read-only LLM accounting and recent provider incidents. Distinguish coordinator-issued credits from worker allowances and provider invoices; an unreadable ledger remains unknown.
-- Report effective provider capacity rather than bootstrap settings. Compute CRDF/VirusTotal p95 from recorded elapsed times with timing metadata, keeping failed attempts, historical gaps and concurrent phase totals explicit. Preserve all activation controls and clear stale status after refresh failures.
+### Paired maintenance and release integrity
 
-- Confirming navigation away from unsaved administration settings now discards the actual draft, including unfinished domain setup.
-- Guided domain setup prepares a reviewed draft with explicit upstream routes and destination-recipient verification by default. Bounded administrator-only DNS and envelope-only SMTP checks do not send or enqueue mail; public MX and inbox validation remain explicit operator steps.
-- Fix the Rspamd rendering regression test to assert escaped mixed-case HTML directly, resolving the CodeQL test annotation without suppressing scanning.
-- Recognize currency discounts and cheaper offers in distributed commercial mail, retaining transactional/security/conversation exclusions and independent risk decisions (`mailing-6`).
-- Preserve ranked content hosts in reputation lookups, including when HTTP following is disabled. Keep final redirect destinations first, deduplicate targets, and preserve budgets, private-address exclusions and request caps.
-- Accept explicit boolean CRDF blacklist states alongside integer/string 0/1, with strict target binding. Distinguish schema failures and bounded, allowlisted HTTP error details without retaining provider text.
-- Cache stale VirusTotal observations for 30 minutes instead of five, without converting stale evidence into a clean vote or a usable analysis age.
-- Explain when the lexical input alone crosses the recorded content threshold. This arithmetic diagnostic does not change decisions or claim calibrated probabilities.
-- Unify sample annotation, independent engine comparison and rule reliability under **Quality & research**, preserving old sample links and adding keyboard-accessible tab links.
-- Separate the saved verdict/action from the last recorded delivery state. Put per-recipient delivery before corrections in reading order, preserve authorization and confirmation checks, and prevent research detail panels from overlapping diagnostics.
-- Keep sample annotation first and move creation/qualification guidance into expandable panels. Correct the precision label and clarify feedback provenance. Add a synthetic localhost demo, excluded from production builds.
-- Update Vite to 8.3.5 and align the SMTP load fixture with `mailing-6`.
-- No model promotion, threshold change, LLM reactivation or change to delivery mode. Source changes remain separate calibration cohorts; filtering effectiveness still requires independent labelled data.
+- Add read-only upgrade prerequisites and prevent native installers from changing selected, partially selected or unknown management authority. Persist service holds, then validate exact expiring candidates bound to configuration, policy, authority, binary and service identities.
+- Support held pointer promotion, unchanged cancellation and pre-commit restoration. Require mutual durable promises and one coordinator decision before ordinary startup; verify fresh policy and replica readiness before releasing auxiliary jobs. Retain forward recovery after committed startup failure.
+- Complete an already-started pair over restricted pinned SSH, with exact operation authorization, bounded nonce-bound replies and durable recovery after a lost completion response. Earlier reservation, preparation and startup stages remain operator-driven.
+- Authenticate bounded archive inspection and native staging against the exact GitHub repository, release workflow, tag and source commit. Verify signed provenance before publication; historical archives without attestations cannot use this staging path. Share bounded prerelease identities across manifests, archives and maintenance helpers.
+- Preserve unchanged, digest-verified 0.31.9 policies without authorizing new mixed-build credential-bound activations. Selected PostgreSQL synchronization requires equal application builds and coordinated maintenance. Semantic version ordering does not prove rollback compatibility.
+- Add isolated native ARM64/systemd and SSH failure rehearsals, standalone archive installation checks, and a paired mode that tests exact archive contents without synthetic replacement. Prepare independent monitoring and backup handoff. Use ephemeral export-test credentials and retain CodeQL checks without suppression.
+
+### Documentation and qualification limits
+
+The English guides describe decisions, label provenance, reviewed settings,
+quarantine history, maintenance trust boundaries and recovery. Source changes
+start a distinct detector cohort; historical vectors cannot establish current
+accuracy without verified equivalence and independent evaluation.
+
+Final RC archives on both architectures, the first positive attestation/staging
+round trip, production security profiles and post-start rollback still require
+qualification. Independent monitoring and backup activation need operator-supplied
+infrastructure. Observation, configured Scaleway suspension, Rspamd as a second
+opinion and the two-copy acceptance requirement remain unchanged.
 
 ## 0.31.9 — Qualification guidance and operational verification
 

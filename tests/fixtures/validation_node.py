@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import subprocess
 import urllib.error
 import urllib.request
 import paired_node as node
@@ -32,6 +33,20 @@ def stage(version):
             lines.append(node.digest(path)+'  '+str(path.relative_to(target)))
     (target/'SHA256SUMS').write_text('\n'.join(lines)+'\n')
     return {'directory':str(target),'binary_sha256':node.digest(target/'noisefence'),'commit':metadata['commit']}
+
+
+
+def archive_identity(version):
+    node.require(node.valid_version(version), 'Invalid candidate archive version')
+    target=node.BASE/'releases'/version
+    node.require(target.is_dir() and not target.is_symlink(), 'Missing exact archive directory')
+    subprocess.run(['sha256sum','-c','SHA256SUMS'],cwd=target,
+                   stdout=subprocess.DEVNULL,check=True)
+    build=json.loads((target/'build.json').read_text())
+    node.require(build['version']==version and build['project']=='NoiseFence', 'Candidate archive metadata differs')
+    return {'directory':str(target),'binary_sha256':node.digest(target/'noisefence'),
+            'build_sha256':node.digest(target/'build.json'),
+            'manifest_sha256':node.digest(target/'SHA256SUMS'),'commit':build['commit']}
 
 
 def database_snapshot():
@@ -67,9 +82,9 @@ def main():
     node.require(os.geteuid()==0 and Path('/.dockerenv').exists()
         and os.environ.get('NOISEFENCE_DISPOSABLE_PAIRED_TEST')=='1'
         and Path('/run/systemd/container').read_text().strip()=='docker','Disposable container required')
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['stage','database','disabled'])
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['stage','archive','database','disabled'])
     parser.add_argument('--value');args=parser.parse_args()
-    result=stage(args.value) if args.action=='stage' else database_snapshot() if args.action=='database' else disabled(args.value)
+    result=stage(args.value) if args.action=='stage' else archive_identity(args.value) if args.action=='archive' else database_snapshot() if args.action=='database' else disabled(args.value)
     print(json.dumps(result))
 
 if __name__=='__main__':main()

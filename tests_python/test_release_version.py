@@ -1,5 +1,6 @@
 """Release candidates share identity and ordering rules across artifact workflows."""
 import copy
+import json
 from pathlib import Path
 import re
 import sys
@@ -21,6 +22,12 @@ sys.path.pop(0)
 
 
 class ReleaseVersionTests(unittest.TestCase):
+    def test_examples_are_shared_with_the_console_identity_validator(self):
+        examples=json.loads((ROOT/'tests/fixtures/release_versions.json').read_text())
+        for group,expected in [('valid',True),('invalid',False)]:
+            for value in examples[group]:
+                with self.subTest(value=value):self.assertEqual(versions.valid(value),expected)
+
     def test_semver_order_includes_numeric_identifiers_and_final_release(self):
         ordered=['1.0.0-alpha','1.0.0-alpha.1','1.0.0-alpha.beta','1.0.0-beta',
                  '1.0.0-beta.2','1.0.0-beta.11','1.0.0-rc.1','1.0.0','1.0.1-rc.1','1.0.1','1.1.0']

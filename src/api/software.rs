@@ -64,7 +64,7 @@ fn bounded_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Optio
 fn installed_identity(web: &std::path::Path) -> Value {
     let console = bounded_json::<ConsoleIdentity>(&web.join("version.json")).filter(|c| {
         c.schema == "noisefence-console-1"
-            && stable_version(&c.version).is_some()
+            && artifact_version(&c.version)
             && crate::compatibility::valid_hash(&c.source_sha256)
     });
     // The sidecar is operator-written after a successful activation, outside the
@@ -110,6 +110,32 @@ struct Release {
     draft: bool,
     prerelease: bool,
 }
+// Installed identities also include reviewed release candidates. Keep the
+// bounded artifact grammar aligned with deploy/postgresql/release_version.py;
+// stable release discovery below intentionally uses its narrower contract.
+fn artifact_version(raw: &str) -> bool {
+    if raw.is_empty() || raw.len() > 64 || !raw.is_ascii() {
+        return false;
+    }
+    let (core, prerelease) = raw
+        .split_once('-')
+        .map_or((raw, None), |(core, pre)| (core, Some(pre)));
+    let numeric = |part: &str| {
+        !part.is_empty()
+            && part.bytes().all(|c| c.is_ascii_digit())
+            && (part.len() == 1 || !part.starts_with('0'))
+    };
+    core.split('.').count() == 3
+        && core.split('.').all(numeric)
+        && prerelease.is_none_or(|pre| {
+            pre.split('.').all(|part| {
+                !part.is_empty()
+                    && part.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                    && (!part.bytes().all(|c| c.is_ascii_digit()) || numeric(part))
+            })
+        })
+}
+
 // Only compare canonical stable release triplets. Development versions are not
 // silently treated as the corresponding published release or as "up to date".
 fn stable_version(raw: &str) -> Option<[u64; 3]> {
@@ -175,6 +201,20 @@ async fn fetch_latest() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn deployed_version_examples_match_the_packaging_contract() {
+        let examples: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/release_versions.json"))
+                .unwrap();
+        for (group, expected) in [("valid", true), ("invalid", false)] {
+            for example in examples[group].as_array().unwrap() {
+                let raw = example.as_str().unwrap();
+                assert_eq!(artifact_version(raw), expected, "{raw:?}");
+            }
+        }
+        assert!(!artifact_version(&format!("1.0.0-{}", "a".repeat(64))));
+    }
+
     #[test]
     fn deployment_receipts_are_bound_to_both_running_engine_and_installed_console() {
         let dir = tempfile::tempdir().unwrap();

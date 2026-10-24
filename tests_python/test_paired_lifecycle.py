@@ -1,11 +1,15 @@
 """Exercise fixture rejection/cleanup before any Docker process can be launched."""
 import importlib.util
 import io
+import hashlib
 import json
 from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+from tests_python import test_release_bundle as bundles
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('paired_fixture', ROOT/'tests/paired_release_lifecycle.py')
@@ -72,6 +76,54 @@ class PairedLifecycleTests(unittest.TestCase):
             with self.subTest(key=key),self.assertRaises(ValueError):paired.validation_candidate(self.root,'arm64','0.31.9')
         path.write_text(json.dumps(metadata));binary.write_bytes(b'not an ELF')
         with self.assertRaises(ValueError):paired.validation_candidate(self.root,'arm64','0.31.9')
+
+    def complete_candidate_archive(self, missing=None):
+        version='0.32.0-rc.1'; top='noisefence-'+version+'-linux-arm64'
+        path=self.root/(top+'.tar.gz')
+        def populate(files):
+            for source in (ROOT/'deploy/postgresql').iterdir():
+                if source.is_file():files['deploy/postgresql/'+source.name]=source.read_bytes()
+            for name in ['noisefence.service','install.sh']:
+                files['deploy/'+name]=(ROOT/'deploy'/name).read_bytes()
+            if missing:files.pop(missing)
+        with patch.object(bundles,'VERSION',version),patch.object(bundles,'TOP',top):
+            files=bundles.fixture(path,change=populate)
+        Path(str(path)+'.sha256').write_text(paired.digest(path)+'  '+path.name+'\n')
+        return paired.archive(path,'arm64'),files
+
+    def test_archive_candidate_keeps_exact_binary_metadata_manifest_and_helpers(self):
+        item,files=self.complete_candidate_archive();destination=self.root/'extracted'
+        metadata=paired.archive_candidate(item,'arm64',destination)
+        for name in ['noisefence','build.json','SHA256SUMS',*('deploy/postgresql/'+p for p in metadata['helper_sha256'])]:
+            self.assertEqual((destination/name).read_bytes(),files[name])
+        self.assertEqual(metadata['binary_sha256'],hashlib.sha256(files['noisefence']).hexdigest())
+        self.assertEqual(metadata['manifest_sha256'],hashlib.sha256(files['SHA256SUMS']).hexdigest())
+        self.assertEqual(metadata['commit'],item['commit'])
+        self.assertEqual(metadata['archive_sha256'],item['sha256'])
+        self.assertEqual(metadata['origin'],'exact_archive')
+        self.assertFalse(metadata['provenance_verified'])
+        self.assertNotIn('qualification_candidate',json.loads((destination/'build.json').read_text()))
+
+    def test_archive_candidate_rejects_missing_helpers_and_changed_input(self):
+        item,_=self.complete_candidate_archive(missing='deploy/postgresql/upgrade_exchange.py')
+        with self.assertRaisesRegex(ValueError,'lacks'):
+            paired.archive_candidate(item,'arm64',self.root/'missing')
+        item,_=self.complete_candidate_archive()
+        item['path'].write_bytes(item['path'].read_bytes()+b'changed')
+        with self.assertRaisesRegex(ValueError,'changed'):
+            paired.archive_candidate(item,'arm64',self.root/'changed')
+        self.assertFalse((self.root/'changed').exists())
+
+    def test_archive_lab_selects_deployment_files_from_archive_not_checkout(self):
+        item,files=self.complete_candidate_archive()
+        args=SimpleNamespace(output=self.root/'lab',platform='linux/arm64',
+                             archive_candidate=True,validation_candidate=None)
+        lab=paired.Lab(args,{'version':'0.31.9'},item)
+        self.assertEqual(lab.candidate_release,item['version'])
+        self.assertEqual(lab.candidate_directory,'/opt/noisefence/releases/'+item['version'])
+        self.assertEqual(lab.deployment_source,lab.root/'candidate-archive/deploy')
+        self.assertEqual((lab.deployment_source/'noisefence.service').read_bytes(),files['deploy/noisefence.service'])
+        self.assertEqual(lab.validation_metadata['origin'],'exact_archive')
 
     def test_accepted_mail_requires_matching_origin_and_replica_bytes(self):
         lab = object.__new__(paired.Lab)

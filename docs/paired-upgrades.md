@@ -254,7 +254,23 @@ converged durable metadata acknowledgements. The final report records the exact
 archives, image, architecture and accepted IDs. Private journals and diagnostic
 logs remain in the output directory. No external mail is delivered.
 
-With `--validation-candidate`, the final activation uses a dedicated temporary SSH
+For a new release that includes the native maintenance helpers, add
+`--archive-candidate` to exercise its exact archive through validation, promotion,
+ordinary activation and SSH completion. This mode installs the helper scripts and
+systemd definition from the inspected archive, compares their installed hashes,
+and keeps its binary, `build.json` and `SHA256SUMS` unchanged. It refuses archives
+that lack these helpers or change between inspection and copying. Historical
+0.31.8/0.31.9 archives cannot supply this new maintenance capability.
+
+`--archive-candidate` and `--validation-candidate` are mutually exclusive. The
+latter replaces a binary in an explicitly synthetic candidate and is useful during
+development; it cannot qualify final archive contents. The archive mode records
+`candidate_mode: exact_archive`, exact archive/binary/manifest identities and
+`provenance_verified: false`: checksums do not authenticate the publisher. Verify
+[release provenance](release-staging.md) separately before running the rehearsal.
+A new mode's contract tests are not a successful end-to-end run of a future RC.
+
+With either candidate option, the final activation uses a dedicated temporary SSH
 authorization on both disposable nodes. Host keys are pinned from the local test
 control plane. A test-only wrapper discards the coordinator response after actual
 durable completion. The fixture accepts additional synthetic mail, waits beyond
@@ -270,19 +286,23 @@ do not reuse an output directory or silently discard failure evidence. Removal
 is attempted for both test containers even after an earlier diagnostic fails.
 
 The base fixture also exercises durable root reservations and unchanged
-cancellation after the initiating helper exits. Its optional
+cancellation after the initiating helper exits. Its development-only optional
 `--validation-candidate DIRECTORY` mode adds a separately compiled candidate,
 real supervised startup on both nodes, disabled mail/admin paths, peer loss,
-native authorization expiry and unchanged application data. See the
+native authorization expiry and unchanged application data. It then exercises
+held promotion, pre-commit restoration, an aborted activation, committed ordinary
+startup, injected startup failure and forward recovery, followed by the pinned
+SSH completion sequence described above. See the
 [validation contract](maintenance-validation.md) for its metadata format and limits.
 
 This fixture does **not** qualify an unattended updater, complete paired
 controller-disconnect recovery, full-disk behavior, PostgreSQL disaster recovery,
 production models, external delivery, throughput or detection quality. A passing
 ARM64 run does not cover AMD64. A passing published archive pair does not qualify
-an unreleased candidate unless that optional mode was actually run; even then,
-it covers maintenance validation rather than normal candidate activation. Keep
-these distinct from the broader release gates.
+an unreleased candidate unless that optional mode was actually run. That mode
+records the exact candidate binary and the individual validation, activation and
+completion checks; it does not qualify another build or post-start downgrade.
+Keep these results distinct from the broader release gates.
 
 See [candidate runtime validation](maintenance-validation.md) for the explicit
 temporary mode that loads a reserved candidate without starting normal mail or
