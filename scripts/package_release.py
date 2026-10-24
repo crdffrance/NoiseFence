@@ -27,10 +27,18 @@ def write_archive(directory, archive):
         output.add(directory, arcname=directory.name, filter=archive_metadata)
 
 
+def build_environment(rehearsal_only):
+    if rehearsal_only:
+        return {'rehearsal_only': True, 'image': None, 'minimum_glibc': None}
+    return {'rehearsal_only': False, 'minimum_glibc': '2.36',
+            'image': 'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922'}
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=Path,required=True)
     parser.add_argument('--platform',choices=['linux-amd64','linux-arm64'],required=True)
+    parser.add_argument('--rehearsal-only', action='store_true', help='Host-built CI fixture; forbidden from release publication, no Bookworm compatibility claim')
     args=parser.parse_args()
     if subprocess.check_output(['git','status','--porcelain'],cwd=ROOT).strip():
         raise SystemExit('Commit all release sources before packaging; build.json must identify their exact commit')
@@ -85,13 +93,13 @@ def main():
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     (output/'build.json').write_text(json.dumps({
         'project':'NoiseFence','platform':args.platform,'version':version,
-        'rust':'1.98.0','minimum_glibc':'2.36','commit':commit,
+        'rust':'1.98.0','commit':commit,
+        **build_environment(args.rehearsal_only),
         'storage_schema':7,
         'source_sha256':source.hexdigest(),
         'source_digest_schema':'noisefence-build-inputs-2',
         'source_inputs':[str(p.relative_to(ROOT)) for p in sorted(inputs)],
         'source_url':f'https://github.com/crdffrance/NoiseFence/tree/{commit}',
-        'image':'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922',
         'license':'GPL-3.0-only','default_mode':'observe','proton_validated':False,
     },indent=2)+'\n')
     checksums={str(p.relative_to(output)):hashlib.sha256(p.read_bytes()).hexdigest()

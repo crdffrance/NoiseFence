@@ -209,6 +209,8 @@ not satisfy this paired test matrix or a selected PostgreSQL restoration gate.
 
 ## Run the disposable archive-pair fixture
 
+The [mandatory release gates](releasing.md#mandatory-native-lifecycle-gates) run this fixture automatically for each exact candidate architecture, alongside standalone installation. Use the manual runner below for diagnosis or a separately reviewed archive pair.
+
 Use Python 3.11+, Docker on a dedicated test host or disposable VM, Rust and two
 previously authenticated release archives with their `.sha256` sidecars. The
 systemd fixture uses privileged containers; do not run it on a production MX.

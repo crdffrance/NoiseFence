@@ -41,7 +41,9 @@ def validate_assets(directory, tag, commit):
         checksum = directory / (archive.name + '.sha256')
         if checksum.read_text().strip() != f'{digest(archive)}  {archive.name}':
             raise ValueError(f'Archive checksum mismatch: {platform}')
-        inspect_archive(archive, tag[1:], platform, commit)
+        inspected = inspect_archive(archive, tag[1:], platform, commit)
+        if inspected['rehearsal_only']:
+            raise ValueError('Host-built rehearsal archives cannot be published')
         assets.extend([archive, checksum])
     return assets
 

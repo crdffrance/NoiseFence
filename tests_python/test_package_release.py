@@ -16,6 +16,15 @@ sys.path.pop(0)
 
 
 class PackagePermissionsTests(unittest.TestCase):
+    def test_host_rehearsal_cannot_claim_bookworm_environment(self):
+        metadata = package.build_environment(True)
+        self.assertTrue(metadata['rehearsal_only'])
+        self.assertIsNone(metadata['minimum_glibc']); self.assertIsNone(metadata['image'])
+        metadata = package.build_environment(False)
+        self.assertFalse(metadata['rehearsal_only'])
+        self.assertEqual(metadata['minimum_glibc'], '2.36')
+        self.assertTrue(metadata['image'].startswith('rust@sha256:'))
+
     def test_private_build_tree_produces_public_readable_archive_without_changing_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

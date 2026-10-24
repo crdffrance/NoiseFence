@@ -194,7 +194,10 @@ def inspect_archive(archive, version, platform, commit, destination=None):
         declared[path] = sha
     require(declared == {path: sha for path, sha in files.items() if path != 'SHA256SUMS'},
             'Release checksums do not cover the exact archive contents')
-    return {'version': version, 'platform': platform, 'commit': commit, 'files': files, 'bytes': total}
+    rehearsal_only = build.get('rehearsal_only', False)
+    require(isinstance(rehearsal_only, bool), 'Invalid rehearsal-only marker')
+    return {'version': version, 'platform': platform, 'commit': commit, 'files': files, 'bytes': total,
+            'rehearsal_only': rehearsal_only}
 
 
 def bounded_command(command, *, timeout=90, maximum=4*1024**2, env=None):

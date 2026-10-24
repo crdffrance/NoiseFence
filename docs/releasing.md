@@ -94,6 +94,62 @@ primitive. Its tests do not authorize a candidate upgrade or rollback; retain th
 exact paired archive and selected-authority lifecycle gates.
 
 
+## Mandatory native lifecycle gates
+
+Both semantic CI jobs (amd64 and arm64) exercise installation and paired recovery
+before they can pass. These host-built fixtures are marked `rehearsal_only` and
+make no Bookworm/glibc compatibility claim. The publisher rejects them. The
+release build independently repeats the same checks against each **exact Bookworm
+archive** before uploading it for attestation and publication. A passing branch
+rehearsal does not qualify future release bytes.
+
+The baseline version, source commit and both published archive hashes are pinned
+in `tests/fixtures/release-baseline.json`. Review changes to this file explicitly;
+never silently replace the baseline with whatever release is latest. The initial
+0.31.9 baseline predates attestations. Its reviewed checksum is a test dependency,
+not a replacement for the new release's required provenance verification.
+
+`scripts/check_release_lifecycle.sh` downloads and verifies that baseline, builds
+unique temporary systemd fixture images, then runs the standalone installation
+and `--archive-candidate` pair scenarios on the matching architecture. It uses
+fresh synthetic accounts and mail, selected PostgreSQL management, bounded
+candidate validation, two-copy acceptance, peer loss, failed startup, forward
+recovery and interrupted SSH completion. Test containers have no external route;
+run this only on a disposable test host, never a production MX. Release builds
+reuse dependencies only inside their own job, including offline fixture generation;
+no shared Actions dependency cache is restored or saved for official artifacts.
+
+For a manual rehearsal from a clean committed checkout, after compiling the
+native binary and console and assembling the candidate archive:
+
+```sh
+platform=linux-arm64 # linux-amd64 on x86-64
+version=$(python3 scripts/version.py)
+baseline=$(python3 scripts/release_rehearsal.py baseline-version)
+NOISEFENCE_REHEARSAL_OUTPUT="$PWD/var/native-rehearsal/fixture" \
+NOISEFENCE_REHEARSAL_BASE_BUILD="$baseline" \
+NOISEFENCE_REHEARSAL_SHARED_LOOPBACK=1 \
+  cargo test --release --locked --features semantic --test management_rehearsal_fixture -- --ignored
+sh scripts/check_release_lifecycle.sh "$platform" \
+  "release/noisefence-$version-$platform.tar.gz" \
+  var/native-rehearsal/fixture var/native-rehearsal/results
+```
+
+Python 3.11+, Docker, GitHub CLI download access, Rust and a fresh fixture/output
+directory are required. Container builds and the pinned public download need
+network access; the running mail fixtures do not. `qualification.json` is produced
+only after both reports pass and their archive, installed helper and running
+binary identities match. GitHub retains **only this anonymous summary**. Keep raw
+fixture logs, messages, addresses, test credentials and journals private; do not
+upload the result directory. A failure records its phase in the job log and stops
+publication. The publish job downloads only the `linux-*` archive artifacts, not
+these test reports.
+
+These gates do not qualify detection accuracy, external delivery, production
+security profiles, full-disk disaster recovery or post-activation rollback. The
+summary explicitly leaves provenance unverified: attestation and authenticated
+staging remain separate gates. See the [paired fixture contract](paired-upgrades.md#run-the-disposable-archive-pair-fixture).
+
 ## Release candidate identities
 
 Artifact versions use the core and optional prerelease form of

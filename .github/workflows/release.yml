@@ -82,7 +82,10 @@ jobs:
             if [ "$pull_attempt" -eq 3 ]; then exit 1; fi
             sleep "$((pull_attempt * 5))"
           done
+          # Private to this job; no restored/saved/shared dependency cache.
+          mkdir -p "$RUNNER_TEMP/noisefence-release-cargo"
           docker run --pull=never --rm --add-host=localhost.:127.0.0.1 \
+            --env CARGO_HOME=/cargo --volume "$RUNNER_TEMP/noisefence-release-cargo:/cargo" \
             --env RUST_TEST_THREADS=1 --volume "$PWD:/workspace" --workdir /workspace \
             "$build_image" \
             sh -c 'getent hosts localhost. && cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
@@ -91,6 +94,32 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
         run: python3 scripts/package_release.py --binary target/release/noisefence --platform "$PLATFORM"
+      - name: Generate an isolated baseline fixture
+        run: |
+          baseline=$(python3 scripts/release_rehearsal.py baseline-version)
+          mkdir -p var/release-rehearsal
+          docker run --pull=never --rm --network none \
+            --env CARGO_HOME=/cargo --volume "$RUNNER_TEMP/noisefence-release-cargo:/cargo" \
+            --volume "$PWD:/workspace" --workdir /workspace \
+            --env NOISEFENCE_REHEARSAL_OUTPUT=/workspace/var/release-rehearsal/fixture \
+            --env NOISEFENCE_REHEARSAL_BASE_BUILD="$baseline" \
+            --env NOISEFENCE_REHEARSAL_SHARED_LOOPBACK=1 \
+            rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
+            cargo test --release --locked --offline --features semantic --test management_rehearsal_fixture -- --ignored
+          sudo chown -R "$(id -u):$(id -g)" var/release-rehearsal
+      - name: Qualify exact native release archives
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 scripts/version.py)
+          sh scripts/check_release_lifecycle.sh "$PLATFORM" "release/noisefence-$version-$PLATFORM.tar.gz" var/release-rehearsal/fixture var/release-rehearsal/results
+      - name: Retain anonymous native qualification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-release-${{ matrix.platform }}
+          path: var/release-rehearsal/results/qualification.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.platform }}
@@ -130,6 +159,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release
+          pattern: linux-*
           merge-multiple: true
       - name: Prepare version-specific release notes
         env:

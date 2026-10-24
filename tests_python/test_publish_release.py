@@ -25,13 +25,13 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / 'NOTES.md').write_text('Release notes')
 
-    def archive(self, platform, *, commit='a' * 40, unsafe=False, missing_manifest=False):
+    def archive(self, platform, *, commit='a' * 40, unsafe=False, missing_manifest=False, rehearsal_only=False):
         name = f'noisefence-0.29.1-{platform}'
         elf = bytearray(20)
         elf[:6] = b'\x7fELF\x02\x01'
         elf[18:20] = release.PLATFORMS[platform].to_bytes(2, 'little')
         files = {'build.json': json.dumps({'project': 'NoiseFence', 'storage_schema': 7, 'version': '0.29.1', 'platform': platform,
-                                         'commit': commit}).encode(),
+                                         'commit': commit, 'rehearsal_only': rehearsal_only}).encode(),
                  'noisefence': bytes(elf), 'web/index.html': b'<html lang="en">Console</html>'}
         checks = ''.join(f'{hashlib.sha256(data).hexdigest()}  {path}\n' for path, data in files.items())
         files['SHA256SUMS'] = ('' if missing_manifest else checks).encode()
@@ -58,6 +58,14 @@ class ReleaseTests(unittest.TestCase):
         for options in [{'commit': 'b' * 40}, {'unsafe': True}, {'missing_manifest': True}]:
             with self.subTest(options=options):
                 self.archive('linux-arm64', **options)
+                with self.assertRaises(ValueError):
+                    release.validate_assets(self.root, 'v0.29.1', 'a' * 40)
+
+    def test_host_rehearsal_and_invalid_markers_cannot_be_published(self):
+        self.both()
+        for value in [True, 'false', 1, None]:
+            with self.subTest(value=value):
+                self.archive('linux-arm64', rehearsal_only=value)
                 with self.assertRaises(ValueError):
                     release.validate_assets(self.root, 'v0.29.1', 'a' * 40)
 
