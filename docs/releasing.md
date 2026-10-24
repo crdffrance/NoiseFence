@@ -229,9 +229,19 @@ oneshot services that copy the shipped daemon's identity and isolation
 properties. Both contexts are tested with and without AppArmor. Unknown service
 properties stop the diagnostic until reviewed; it never starts the mail daemon
 or changes its policy. The query program emits only fixed result categories.
-Kernel diagnostics inspect both the journal and ring buffer, retain only the
-unique test profile's denials privately, and publish only resource categories.
-The probe removes its container before removing its own profile.
+Kernel diagnostics inspect the journal, ring buffer and a bounded auditd log
+suffix. They retain only the unique test profile's denials (including owned
+stacked/child labels) privately. Public results contain fixed operation/resource
+categories and a `disconnected_path` reason when the kernel reports that exact
+failure; they never contain raw paths or database error text. Socket access
+failures and PostgreSQL authentication refusals are separate categories.
+
+A separate, uniquely named debug profile tests `attach_disconnected` under the
+full service isolation to isolate cross-namespace path lookup failures. This
+flag can alias paths, as documented in the [AppArmor manual](https://manpages.ubuntu.com/manpages/noble/man5/apparmor.d.5.html),
+and is not a production policy recommendation. Success under this debug profile
+or a reduced namespace never satisfies the unchanged mandatory profile check.
+The probe removes its container before removing both of its own profiles.
 
 This short diagnostic helps locate policy failures without rebuilding every
 optimized Rust integration test. It does not replace the required exact-archive

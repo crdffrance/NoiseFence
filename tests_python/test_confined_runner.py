@@ -86,7 +86,7 @@ class ConfinedRunnerTests(unittest.TestCase):
         self.assertIn(b'/private/path', output)
         self.assertNotIn(b'/other/private', output);self.assertNotIn(b'/not-denied', output)
         self.assertEqual(command.call_args.kwargs['timeout'], 10)
-        self.assertEqual(command.call_count, 2)
+        self.assertEqual(command.call_count, 3)
         self.assertEqual(command.call_args_list[0].args[-2:], ('-n', '2000'))
         self.assertEqual(command.call_args_list[1].args, ('sudo', '-n', 'dmesg', '--color=never'))
         with patch.object(runner, 'command', side_effect=subprocess.TimeoutExpired('journalctl',10)):
@@ -95,7 +95,7 @@ class ConfinedRunnerTests(unittest.TestCase):
     def test_kernel_ring_is_used_when_journal_has_no_audit_record(self):
         self.args.evidence.mkdir()
         raw=('apparmor="DENIED" profile="'+NAME+'" operation="connect" name="/run/postgresql/socket"').encode()
-        with patch.object(runner,'command',side_effect=[b'',raw]):
+        with patch.object(runner,'command',side_effect=[b'',raw,b'']):
             self.assertEqual(runner.collect_denials(self.args.evidence,NAME),'collected')
         self.assertEqual((self.args.evidence/'denials.log').read_bytes(),raw)
 
@@ -159,6 +159,22 @@ class ConfinedRunnerTests(unittest.TestCase):
         receipt.write_text(json.dumps({'operation':str(IDENTITY),'containers':{'mx1':'production'}}))
         with patch.object(runner,'command') as command:
             with self.assertRaisesRegex(RuntimeError,'identities'):runner.containers_removed(self.args.output)
+            command.assert_not_called()
+
+    def test_auditd_consumed_records_are_retained_with_stacked_and_child_labels(self):
+        self.args.evidence.mkdir()
+        labels=[NAME,'unconfined//&'+NAME,NAME+'//child',NAME+'//&other',
+                'foreign-'+NAME,NAME+'-foreign','other']
+        lines=[('apparmor="DENIED" profile="'+label+'" operation="connect" name="PRIVATE-'+str(i)+'"').encode()
+               for i,label in enumerate(labels)]
+        raw=b'\n'.join(lines)+b'\napparmor="DENIED" profile="other" peer="'+NAME.encode()+b'"'
+        with patch.object(runner,'command',side_effect=[b'',b'',raw]) as reader:
+            self.assertEqual(runner.collect_denials(self.args.evidence,NAME),'collected')
+        self.assertEqual((self.args.evidence/'denials.log').read_bytes(),b'\n'.join(lines[:4]))
+        self.assertEqual(reader.call_args.args,('sudo','-n','tail','-c','262144','/var/log/audit/audit.log'))
+        with patch.object(runner,'command') as command:
+            with self.assertRaisesRegex(RuntimeError,'Invalid diagnostic'):
+                runner.collect_denials(self.args.evidence,'noisefence')
             command.assert_not_called()
 
 

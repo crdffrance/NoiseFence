@@ -57,8 +57,10 @@ class SocketProbeTests(unittest.TestCase):
                 if arguments[:2]==('docker','ps'):return '\n'.join(active).encode()
                 if arguments[:2]==('docker','inspect'):return ownership[arguments[-1]].encode()
                 if arguments[:2]==('docker','rm'):active.remove(arguments[-1])
-                if '--add' in arguments:profile.append('loaded')
-                if '--remove' in arguments:profile.clear()
+                if '--add' in arguments or '--remove' in arguments:
+                    name=Path(arguments[-1]).read_text().split('profile ',1)[1].split(' ',1)[0]
+                    if '--add' in arguments:profile.append(name)
+                    else:profile.remove(name)
                 return b''
             def read(path,*a,**kw):
                 if str(path)=='/sys/module/apparmor/parameters/enabled':return 'Y'
@@ -67,16 +69,16 @@ class SocketProbeTests(unittest.TestCase):
             environment={'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted','RUNNER_OS':'Linux'}
             def profiles():
                 # The controller generates the name before its first profile read.
-                return [] if not profile else ['noisefence-test-0123456789ab (enforce)']
+                return [name+' (enforce)' for name in profile]
             import uuid
             with patch.dict(os.environ,environment,clear=True),patch.object(probe.sys,'platform','linux'), \
                  patch.object(probe.uuid,'uuid4',return_value=uuid.UUID('01234567-89ab-4cde-8f01-23456789abcd')), \
                  patch.object(Path,'read_text',read),patch.object(probe.confined,'profiles',profiles), \
-                 patch.object(probe.confined,'policy',return_value=b'synthetic profile'), \
+                 patch.object(probe.confined,'policy',return_value=b'profile noisefence-test-0123456789ab {\n}\n'), \
                  patch.object(probe.confined,'command',side_effect=command), \
                  patch.object(probe.confined,'collect_denials',return_value='unavailable'), \
                  patch.object(probe.subprocess,'run',side_effect=[SimpleNamespace(stdout=b'query_ok',returncode=0),confined_result]), \
-                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*len(probe.CONTEXT_VARIANTS))]), \
+                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*(len(probe.CONTEXT_VARIANTS)+1))]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 code=probe.run(args)
             result=json.loads((args.output/'probe.json').read_text())
@@ -105,6 +107,8 @@ class SocketProbeTests(unittest.TestCase):
         self.assertEqual(code,1)
         self.assertEqual(result['unconfined'],result['confined'])
         self.assertEqual(result['service_context'],{'unconfined':'query_ok','confined':'permission_denied'})
+        self.assertEqual(result['attachment_diagnostic']['result'],'query_ok')
+        self.assertEqual(result['status'],'failed')  # Debug success never qualifies the original policy.
 
     def test_service_context_copies_shipped_hardening_and_refuses_unknown_changes(self):
         raw=(ROOT/'deploy/noisefence.service').read_text()
@@ -160,3 +164,20 @@ class SocketProbeTests(unittest.TestCase):
         self.assertNotIn('path: var/confinement-socket/result\n',diagnostic)
         self.assertIn('NOISEFENCE_REHEARSAL_APPARMOR:',required)
         self.assertIn('scripts/check_release_lifecycle.sh',required)
+
+    def test_attachment_hypothesis_is_explicitly_debug_only_and_keeps_full_isolation(self):
+        original='noisefence-test-0123456789ab';diagnostic='noisefence-test-abcdef012345'
+        raw=('profile '+original+' {\n  /run/postgresql/.s.PGSQL.[0-9]* rw,\n  signal (receive) peer='+original+',\n}\n').encode()
+        changed=probe.attachment_diagnostic(raw,original,diagnostic)
+        self.assertIn(('profile '+diagnostic+' flags=(attach_disconnected) {').encode(),changed)
+        restored=changed.replace(diagnostic.encode(),original.encode()).replace(b' flags=(attach_disconnected)',b'')
+        self.assertEqual(restored,raw)
+        for src,first,second in [(raw,original,original),(raw,original,'noisefence'),
+                                 (raw+b'flags=(complain)',original,diagnostic),
+                                 (raw*2,original,diagnostic)]:
+            with self.assertRaises(RuntimeError):probe.attachment_diagnostic(src,first,second)
+        props=probe.service_properties((ROOT/'deploy/noisefence.service').read_text())
+        unit=probe.service_unit(probe.DEBUG_ATTACHMENT,diagnostic,'/opt/noisefence/probe',props)
+        for item in props:self.assertIn(item+'\n',unit)
+        self.assertIn('AppArmorProfile='+diagnostic,unit)
+        self.assertNotIn('attach_disconnected',(ROOT/'deploy/hardening/isolation.py').read_text())

@@ -90,5 +90,13 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(result.returncode,7)
         self.assertIn(b'phase=paired exit=7', result.stderr)
 
+    def test_disconnected_socket_reason_is_closed_and_does_not_expose_paths(self):
+        result=diag.denial_categories('apparmor="DENIED" operation="connect" profile="PRIVATE" '
+            'info="Failed name lookup - disconnected path" name="run/postgresql/PRIVATE"')
+        self.assertEqual(result,[{'operation':'connect','resource':'postgresql_socket','reason':'disconnected_path'}])
+        self.assertNotIn('PRIVATE',json.dumps(result))
+        self.assertEqual(diag.denial_categories('apparmor="DENIED" operation="connect" '
+            'info="PRIVATE" name="/PRIVATE"'),[{'operation':'connect','resource':'other'}])
+
 
 if __name__ == '__main__':unittest.main()

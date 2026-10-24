@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -75,13 +76,23 @@ def collect_denials(evidence, name):
     # This is a private diagnostic only. Public output is reduced to fixed
     # operation/resource categories by rehearsal_diagnostics.py.
     readers = [('sudo', '-n', 'journalctl', '-k', '--no-pager', '-o', 'cat', '-n', '2000'),
-               ('sudo', '-n', 'dmesg', '--color=never')]
-    lines=[];available=False;marker=('profile="'+name+'"').encode()
+               ('sudo', '-n', 'dmesg', '--color=never'),
+               # auditd may consume kernel records without forwarding to printk.
+               ('sudo', '-n', 'tail', '-c', '262144', '/var/log/audit/audit.log')]
+    require(re.fullmatch(r'noisefence-test-[a-f0-9]{12}',name), 'Invalid diagnostic profile')
+    lines=[];available=False
+    marker=re.compile(rb'\bprofile="([^"\n]+)"')
+    own=name.encode()
     for arguments in readers:
         try:
             raw=command(*arguments,timeout=10);available=True
             for line in raw.splitlines():
-                if marker in line and b'apparmor="DENIED"' in line and line not in lines:
+                match=marker.search(line)
+                # Stacked labels and child profiles still belong to this
+                # unique fixture; similar names or peer labels do not.
+                owned=match and any(part==own or part.startswith(own+b'//')
+                    for part in match[1].split(b'//&'))
+                if owned and b'apparmor="DENIED"' in line and line not in lines:
                     lines.append(line)
         except (OSError,subprocess.SubprocessError):
             continue

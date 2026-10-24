@@ -119,6 +119,12 @@ def denial_categories(text):
                     else next((key for key, prefix in DENIAL_RESOURCES.items()
                                if name and name[1].startswith(prefix)), 'other'))
         item = {'operation':operation[1], 'resource':resource}
+        if 'info="Failed name lookup - disconnected path"' in line:
+            item['reason']='disconnected_path'
+            # The kernel deliberately omits the leading slash on a disconnected
+            # name. Keep the result categorical; never print that path.
+            if name and name[1].startswith('run/postgresql/'):
+                item['resource']='postgresql_socket'
         if item not in categories:
             categories.append(item)
     return categories
