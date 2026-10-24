@@ -31,6 +31,9 @@ class Host:
         self.new = self.root/'releases/new'; self.new.mkdir()
         self.current.symlink_to('releases/old')
         self.own = descriptor(node); self.own['expires_at'] = expiry
+        self.config = self.root/'config.toml'
+        self.config.write_text('[replication]\npeer_id="'+self.own['replica_peer']+'"\n')
+        self.own['config_sha256'] = hashlib.sha256(self.config.read_bytes()).hexdigest()
         self.own['candidate']['directory'] = str(self.new)
         self.old_identity = {**self.own['candidate'], 'directory': str(self.old), 'version': '0.31.8', 'commit': '3'*40,
                              'binary_sha256': '4'*64, 'manifest_sha256': '5'*64, 'build_sha256': '6'*64}

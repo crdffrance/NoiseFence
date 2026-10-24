@@ -29,19 +29,19 @@ DROPIN = '99-noisefence-upgrade-activation.conf'
 NORMAL = 'noisefence.service'
 
 
-def proposal(state):
+def _proposal(state, pair):
     require(state['phase'] == 'promoted' and state['peer'] is not None, 'Both releases must be promoted')
     left, right = state['descriptor'], state['peer']
-    require(promotion.paired(left, right) == state['pair_sha256']
+    require(pair(left, right) == state['pair_sha256']
             and all(d['validated_at'] is not None for d in [left, right])
             and all(left['original'][k] == right['original'][k] for k in ('version', 'commit')),
             'Prepared release pair is incompatible')
     return sorted([left, right], key=lambda d: d['own']['selection']['node']['node'])
 
 
-def checked_proposal(value, operation):
+def _checked_proposal(value, operation, pair):
     require(isinstance(value, list) and len(value) == 2, 'Activation requires exactly two prepared nodes')
-    digest = promotion.paired(*value)
+    digest = pair(*value)
     require(value == sorted(value, key=lambda d: d['own']['selection']['node']['node'])
             and all(d['operation'] == operation and d['validated_at'] is not None for d in value)
             and all(value[0]['original'][k] == value[1]['original'][k] for k in ('version', 'commit')),
@@ -49,11 +49,11 @@ def checked_proposal(value, operation):
     return digest
 
 
-def checked_decision(value, operation, proposed):
-    digest = checked_proposal(proposed, operation)
+def _checked_decision(value, operation, proposed, protocol, check_proposal):
+    digest = check_proposal(proposed, operation)
     nodes = [d['own']['selection']['node']['node'] for d in proposed]
     require(isinstance(value, dict) and set(value) == {'protocol','operation','proposal_sha256','outcome','decided_at','votes'}
-            and value['protocol'] == DECISION and value['operation'] == operation and value['proposal_sha256'] == digest
+            and value['protocol'] == protocol and value['operation'] == operation and value['proposal_sha256'] == digest
             and value['outcome'] in ('activate','abort') and type(value['decided_at']) is int and value['decided_at'] > 0
             and value['votes'] == (nodes if value['outcome'] == 'activate' else []), 'Invalid durable pair decision')
     if value['outcome'] == 'activate':
@@ -61,16 +61,16 @@ def checked_decision(value, operation, proposed):
     return value
 
 
-def checked_report(value):
+def _checked_report(value, protocol, check_proposal, check_decision):
     require(isinstance(value, dict) and set(value) == {'protocol','operation','node','proposal','phase','decision','started_at','verified_at','peer_completion'}
-            and value['protocol'] == REPORT and identity(value['operation']) and value['phase'] in PHASES,
+            and value['protocol'] == protocol and identity(value['operation']) and value['phase'] in PHASES,
             'Invalid activation report')
-    checked_proposal(value['proposal'], value['operation'])
+    check_proposal(value['proposal'], value['operation'])
     require(value['node'] in [d['own']['selection']['node']['node'] for d in value['proposal']], 'Unknown activation node')
     if value['decision'] is None:
         require(value['phase'] == 'armed', 'Activation decision missing')
     else:
-        checked_decision(value['decision'], value['operation'], value['proposal'])
+        check_decision(value['decision'], value['operation'], value['proposal'])
     if value['phase'] in ('starting','started','verified','finishing','complete'):
         require(value['decision'] is not None and value['decision']['outcome']=='activate'
                 and value['started_at'] is not None, 'Normal startup requires an activation decision')
@@ -101,11 +101,11 @@ def checked_report(value):
     return value
 
 
-def checked_ready(value, operation, proposed, node, now):
+def _checked_ready(value, operation, proposed, node, now, protocol, check_proposal):
     require(isinstance(value, dict) and set(value) == {'protocol','operation','node','proposal_sha256','checked_at',
                 'process','binary_sha256','last_sync','heartbeat','pending_replicas','unprotected','policy','since','policy_window'}
-            and value['protocol'] == READY and value['operation'] == operation and value['node'] == node
-            and value['proposal_sha256'] == checked_proposal(proposed, operation)
+            and value['protocol'] == protocol and value['operation'] == operation and value['node'] == node
+            and value['proposal_sha256'] == check_proposal(proposed, operation)
             and type(value['checked_at']) is int and 0 <= now-value['checked_at'] <= 30,
             'Stale or foreign runtime proof')
     process = value['process']
@@ -123,6 +123,26 @@ def checked_ready(value, operation, proposed, node, now):
             and type(value['unprotected']) is int and value['unprotected'] == 0,
             'Runtime proof does not establish fresh policy and replica readiness')
     return value
+
+
+def proposal(state):
+    return _proposal(state, promotion.paired)
+
+
+def checked_proposal(value, operation):
+    return _checked_proposal(value, operation, promotion.paired)
+
+
+def checked_decision(value, operation, proposed):
+    return _checked_decision(value, operation, proposed, DECISION, checked_proposal)
+
+
+def checked_report(value):
+    return _checked_report(value, REPORT, checked_proposal, checked_decision)
+
+
+def checked_ready(value, operation, proposed, node, now):
+    return _checked_ready(value, operation, proposed, node, now, READY, checked_proposal)
 
 
 def process_identity():
@@ -161,21 +181,33 @@ def runtime_counters():
 
 
 class Activation:
+    protocol = PROTOCOL
+    report_protocol = REPORT
+    decision_protocol = DECISION
+    ready_protocol = READY
+    promotion_type = promotion.Promotion
+    promotion_report = staticmethod(promotion.checked_report)
+    proposal = staticmethod(proposal)
+    checked_proposal = staticmethod(checked_proposal)
+    checked_decision = staticmethod(checked_decision)
+    checked_report = staticmethod(checked_report)
+    checked_ready = staticmethod(checked_ready)
+
     def __init__(self, operation):
         require(identity(operation), 'Canonical operation UUID required')
         self.operation = operation
         self.path = reservation.STATE/(operation+'-activation.json')
         self.marker = reservation.STATE/'activation.json'
         self.jobs = reservation.STATE/'activation-jobs.json'
-        self.promoted = promotion.Promotion(operation)
+        self.promoted = self.promotion_type(operation)
         self.hold = reservation.Reservation(operation)
 
     def state(self):
         value = reservation.read_json(self.path)
         require(isinstance(value,dict) and set(value) == {'protocol','operation','node','proposal','phase','decision',
             'started_at','verified_at','verification','peer_vote','peer_finish'}
-            and value['protocol'] == PROTOCOL and value['operation'] == self.operation, 'Invalid activation receipt')
-        checked_report(self.projection(value))
+            and value['protocol'] == self.protocol and value['operation'] == self.operation, 'Invalid activation receipt')
+        self.checked_report(self.projection(value))
         if value['phase'] not in ('armed','decided'):
             abort = value['phase'] in ('aborting','aborted','cancelling','cancelled')
             require(value['decision']['outcome'] == ('abort' if abort else 'activate'), 'Decision and activation phase conflict')
@@ -193,8 +225,8 @@ class Activation:
                     'Stored peer commit differs')
         if value['verification'] is not None:
             require(type(value['verified_at']) is int and set(value['verification']) == {'own','peer'}, 'Invalid verification receipt')
-            checked_ready(value['verification']['own'],self.operation,value['proposal'],value['node'],value['verified_at'])
-            checked_ready(value['verification']['peer'],self.operation,value['proposal'],peer_node,value['verified_at'])
+            self.checked_ready(value['verification']['own'],self.operation,value['proposal'],value['node'],value['verified_at'])
+            self.checked_ready(value['verification']['peer'],self.operation,value['proposal'],peer_node,value['verified_at'])
         if value['peer_finish'] is not None:
             self.match_peer(value,value['peer_finish'])
             require(value['peer_finish']['decision'] == value['decision']
@@ -207,11 +239,10 @@ class Activation:
             require(value['peer_finish'] is None, 'Unexpected peer completion')
         return value
 
-    @staticmethod
-    def projection(state):
+    def projection(self, state):
         peer = state['peer_finish']
         certificate = {k:peer[k] for k in ['node','verified_at']} | {'outcome':peer['decision']['outcome']} if peer is not None else None
-        return {k:state[k] for k in ['operation','node','proposal','phase','decision','started_at','verified_at']} | {'protocol':REPORT,'peer_completion':certificate}
+        return {k:state[k] for k in ['operation','node','proposal','phase','decision','started_at','verified_at']} | {'protocol':self.report_protocol,'peer_completion':certificate}
 
     def report(self):
         state = self.state()
@@ -230,7 +261,7 @@ class Activation:
         return next(d for d in state['proposal'] if d['own']['selection']['node']['node'] != state['node'])
 
     def owner(self, install=False):
-        expected = {'protocol':PROTOCOL,'operation':self.operation}
+        expected = {'protocol':self.protocol,'operation':self.operation}
         if reservation.exists(self.marker):
             require(reservation.read_json(self.marker) == expected, 'Another activation owns the reservation')
         else:
@@ -240,7 +271,7 @@ class Activation:
         return expected
 
     def match_peer(self, state, report):
-        checked_report(report)
+        self.checked_report(report)
         require(report['operation'] == self.operation and report['proposal'] == state['proposal']
                 and report['node'] == self.peer(state)['own']['selection']['node']['node'], 'Unexpected activation counterpart')
 
@@ -253,24 +284,24 @@ class Activation:
                     'Peer completion does not match retained local verification')
 
     def initialize(self, state, phase='armed', decision=None):
-        proposed = proposal(state)
+        proposed = self.proposal(state)
         node = state['descriptor']['own']['selection']['node']['node']
-        value = {'protocol':PROTOCOL,'operation':self.operation,'node':node,'proposal':proposed,'decision':decision,
+        value = {'protocol':self.protocol,'operation':self.operation,'node':node,'proposal':proposed,'decision':decision,
                  'started_at':None,'verified_at':None,'verification':None,'peer_vote':None,'peer_finish':None}
         self.save(value,phase);self.owner(install=True)
         return self.report()
 
     def arm(self, peer):
         state = self.promoted.state();self.promoted.owner()
-        proposed = proposal(state)
+        proposed = self.proposal(state)
         for descriptor in proposed:
-            validation.require_forward_upgrade(descriptor['original'], descriptor['own']['candidate'])
+            self.promoted.require_target(descriptor)
         if state['descriptor']['own']['selection']['role'] == 'coordinator':
-            peer = promotion.checked_report(peer)
+            peer = self.promotion_report(peer)
             require(peer['phase'] == 'promoted' and peer['descriptor'] == state['peer']
                     and peer['pair_sha256'] == state['pair_sha256'], 'Both promoted receipts are required')
         else:
-            peer = checked_report(peer)
+            peer = self.checked_report(peer)
             require(peer['phase'] == 'armed' and peer['decision'] is None and peer['proposal'] == proposed
                     and peer['node'] == state['peer']['own']['selection']['node']['node'],
                     'Arm the coordinator before the worker so an abort authority always exists')
@@ -278,10 +309,10 @@ class Activation:
         require(current == expected, 'Candidate pointer is not installed')
         if reservation.exists(self.path):
             value = self.state()
-            require(value['phase'] == 'armed' and value['proposal'] == proposal(state), 'Activation already advanced')
+            require(value['phase'] == 'armed' and value['proposal'] == self.proposal(state), 'Activation already advanced')
             self.owner(install=True);return self.report()
         require(not reservation.exists(self.marker) and not reservation.exists(self.jobs), 'Unowned activation artifacts')
-        require(int(time.time()) < min(d['own']['expires_at'] for d in proposal(state)), 'Preparation expired')
+        require(int(time.time()) < min(d['own']['expires_at'] for d in self.proposal(state)), 'Preparation expired')
         return self.initialize(state)
 
     def decide(self, outcome, peer=None):
@@ -293,20 +324,20 @@ class Activation:
         require(state['phase'] == 'armed', 'Activation is not armed')
         if outcome == 'activate':
             for descriptor in state['proposal']:
-                validation.require_forward_upgrade(descriptor['original'], descriptor['own']['candidate'])
+                self.promoted.require_target(descriptor)
             self.match_peer(state,peer)
             require(peer['phase'] == 'armed', 'Both nodes must promise to retain the promoted pair')
             current, expected = self.promoted.frozen(self.promoted.state())
             require(current == expected, 'Promoted installation changed')
         now = int(time.time())
-        decision = checked_decision({'protocol':DECISION,'operation':self.operation,
-            'proposal_sha256':checked_proposal(state['proposal'],self.operation),'outcome':outcome,'decided_at':now,
+        decision = self.checked_decision({'protocol':self.decision_protocol,'operation':self.operation,
+            'proposal_sha256':self.checked_proposal(state['proposal'],self.operation),'outcome':outcome,'decided_at':now,
             'votes':[d['own']['selection']['node']['node'] for d in state['proposal']] if outcome == 'activate' else []},self.operation,state['proposal'])
         self.save(state,'decided',decision=decision)
         return self.report()
 
     def accept(self, coordinator):
-        checked_report(coordinator)
+        self.checked_report(coordinator)
         require(coordinator['decision'] is not None and coordinator['operation'] == self.operation,
                 'Coordinator has not decided this operation')
         leader = next(d for d in coordinator['proposal'] if d['own']['selection']['role'] == 'coordinator')
@@ -318,7 +349,7 @@ class Activation:
             # The peer may already have restored, but it must retain this exact pair.
             require(local['phase'] in ('promoted','restoring','restored') and local['peer'] is not None, 'Unarmed peer lost its preparation')
             current, expected = self.promoted.frozen(local)
-            proposed = proposal({**local,'phase':'promoted'})
+            proposed = self.proposal({**local,'phase':'promoted'})
             require(proposed == coordinator['proposal'], 'Abort proposal differs')
             self.initialize({**local,'phase':'promoted'},phase='decided',decision=coordinator['decision'])
         state = self.state();self.owner(install=True);self.match_peer(state,coordinator)
@@ -405,15 +436,15 @@ class Activation:
         require(0 <= now-counters['heartbeat'] <= 15 and 0 <= now-counters['last_sync'] <= window,
                 'Fresh replica and authenticated policy exchange required')
         require(process_identity() == (process,executable),'Daemon changed while observing readiness')
-        proof = {'protocol':READY,'operation':self.operation,'node':state['node'],
-            'proposal_sha256':checked_proposal(state['proposal'],self.operation),'checked_at':now,'process':process,
+        proof = {'protocol':self.ready_protocol,'operation':self.operation,'node':state['node'],
+            'proposal_sha256':self.checked_proposal(state['proposal'],self.operation),'checked_at':now,'process':process,
             'binary_sha256':own['own']['candidate']['binary_sha256'],'policy':validation.policy_epoch(),'since':since,'policy_window':window,**counters}
-        return checked_ready(proof,self.operation,state['proposal'],state['node'],now)
+        return self.checked_ready(proof,self.operation,state['proposal'],state['node'],now)
 
     def verify(self, peer_proof):
         state = self.state();self.owner()
         peer_node = self.peer(state)['own']['selection']['node']['node']
-        peer_proof = checked_ready(peer_proof,self.operation,state['proposal'],peer_node,int(time.time()))
+        peer_proof = self.checked_ready(peer_proof,self.operation,state['proposal'],peer_node,int(time.time()))
         # /proc btime and start ticks are rounded to whole seconds. The
         # process estimate can precede its durable decision by one second; use
         # the later bound without representing that estimate as protocol time.
@@ -424,8 +455,8 @@ class Activation:
         verified_at = int(time.time())
         # Local observation can consume the remainder of the counterpart's
         # freshness window. Never persist a receipt our own reader will reject.
-        checked_ready(own,self.operation,state['proposal'],state['node'],verified_at)
-        checked_ready(peer_proof,self.operation,state['proposal'],peer_node,verified_at)
+        self.checked_ready(own,self.operation,state['proposal'],state['node'],verified_at)
+        self.checked_ready(peer_proof,self.operation,state['proposal'],peer_node,verified_at)
         self.save(state,'verified',verified_at=verified_at,verification={'own':own,'peer':peer_proof})
         return self.report()
 
@@ -441,7 +472,7 @@ class Activation:
                 and held['installation']==own['installation']
                 and promoted['phase'] in (('promoted','activated') if state['phase']=='finishing' else ('promoted',))
                 and promoted['descriptor']==own and promoted['peer']==self.peer(state)
-                and promoted['pair_sha256']==checked_proposal(state['proposal'],self.operation),
+                and promoted['pair_sha256']==self.checked_proposal(state['proposal'],self.operation),
                 'Reservation or promotion no longer matches this activation')
         # Validate before removing any protective service condition. An absent
         # marker is recoverable only after a finishing intent was persisted.
@@ -497,7 +528,7 @@ class Activation:
         self.owner()
         if state['phase']=='aborted':state=self.save(state,'cancelling',peer_finish=peer)
         own=self.promoted.state()
-        report={'protocol':promotion.REPORT,'operation':self.operation,'phase':'restored',
+        report={'protocol':self.promoted.report_protocol,'operation':self.operation,'phase':'restored',
                 'descriptor':self.peer(state),'pair_sha256':own['pair_sha256']}
         self.promoted.release(report,activation_abort=True)
         self.hold.cancel(activation_abort=True)
@@ -519,11 +550,18 @@ class Activation:
 
 
 def allow_abort(operation, cancellation=False):
-    state=Activation(operation).state()
+    require(identity(operation), 'Canonical operation UUID required')
+    value=reservation.read_json(reservation.STATE/(operation+'-activation.json'))
+    from rollback_activation import RetainedActivation, PROTOCOL as RETAINED_PROTOCOL
+    require(isinstance(value,dict) and value.get('protocol') in (PROTOCOL,RETAINED_PROTOCOL),
+            'Unknown activation protocol')
+    kind=Activation if value['protocol']==PROTOCOL else RetainedActivation
+    activation=kind(operation)
+    state=activation.state()
     require(state['decision'] is not None and state['decision']['outcome']=='abort'
             and state['phase'] in (('cancelling',) if cancellation else ('aborting','aborted','cancelling')),
             'Only the durable abort decision permits restoration')
-    Activation(operation).owner()
+    activation.owner()
 
 
 def main():

@@ -186,6 +186,111 @@ coordinates backend selection; it is not a general binary-upgrade controller.
 Do not lower `user_version`, erase markers, restore a stale database over accepted
 mail, run duplicate coordinators or silently fall back to legacy SQLite.
 
+## Inspect retained rollback identities
+
+The [rollback identity inspector](../deploy/postgresql/rollback_check.py) is a
+read-only preparation tool for a completed native paired activation. It cannot
+switch a release, start a candidate, restore a database or authorize a downgrade.
+Use it only during an already reviewed maintenance window with a **new** held
+reservation on each MX. Reserving the pair stops SMTP; do not reserve production
+merely to obtain this report.
+
+Obtain each node's completed report from `upgrade_activation.py report` through
+an authenticated administrator channel, as described in the
+[activation guide](maintenance-activation.md). Store the counterpart report in a
+root-owned, single-link private regular file. Use the same prior operation and new
+reservation UUIDs on both nodes:
+
+```sh
+sudo python3 /path/to/verified-tools/deploy/postgresql/rollback_check.py \
+  --operation NEW-RESERVATION-UUID \
+  --previous-operation COMPLETED-UPGRADE-UUID \
+  --peer-completion /root/peer-completion.json
+```
+
+The inspector validates the complete durable activation, reservation and
+promotion records, both completion reports, and the exact installed and retained
+archive manifests. It refuses unfinished activation, changed releases, changed
+configuration or authority, another candidate operation and missing writer holds.
+A committed but unfinished activation must use forward recovery. Historical
+runtime proofs establish what completed then; they do not prove that the retained
+binary can process today's state.
+
+The report records the current policy epoch without restoring the old one. Exit
+zero means the identity inspection succeeded. Its status remains
+`identity_checked_rollback_unqualified`, and `activation_authorized` is always
+`false`. Reports are private observations, not signed publisher attestations or
+remote authorization. The ordinary downgrade guard remains active even when both
+identity reports match. A compatible reverse runtime validation, exact-pair
+rehearsal and a fresh explicit paired rollback authorization are still required. In particular,
+a retained release without the native validation command cannot satisfy that
+runtime gate through this inspector.
+
+The native archive fixture runs this inspection on both nodes after a completed
+activation and new reservations. It checks the exact installed helper, refuses a
+self-report as counterpart evidence, confirms that downgrade validation remains
+blocked, compares accepted message and selected database snapshots, cancels the
+unchanged holds and verifies fresh policy synchronization and SMTP acceptance.
+This qualifies the inspection boundary only; it does not exercise rollback.
+
+If this is the end of the planned inspection, cancel each **unchanged new**
+reservation using the [reservation procedure](maintenance-reservations.md); verify
+normal readiness and the two-copy requirement on both nodes. Never cancel the
+completed prior activation, manually remove fences or switch `current` to make a
+rollback proceed.
+
+## Validate a retained runtime without activating it
+
+The experimental [retained-release supervisor](../deploy/postgresql/rollback_validation.py)
+can test the exact original release of the completed upgrade under the **new**
+reservations described above. It preserves the current release pointer and the
+selected database. This is preparation for a rollback protocol, not that protocol.
+Use verified current tooling; do not execute old administrative helpers from the
+retained archive. An old binary without `validate-runtime` will fail safely and
+cannot be qualified by this procedure.
+
+On each held node, obtain a descriptor with an explicit common expiry (Unix time,
+at most one hour ahead):
+
+```sh
+sudo python3 /path/to/verified-tools/deploy/postgresql/rollback_validation.py describe \
+  --operation NEW-RESERVATION-UUID \
+  --previous-operation COMPLETED-UPGRADE-UUID \
+  --peer-completion /root/peer-completion.json \
+  --expires-at EXPIRY
+```
+
+Exchange the descriptors over the same authenticated administrator channel, save
+them as root-owned private files, then run `start` with those arguments plus
+`--peer-report /root/retained-peer-descriptor.json` on each node. Use `status` and
+`stop` with `--operation NEW-RESERVATION-UUID` to inspect or revoke the probe.
+Each retry rechecks the exact archives, prior completion, current policy,
+authority, configuration and service definition. A lost start reply can resume
+only the same authorization. Changed or expired authorization must be stopped;
+it cannot silently adopt a new peer, release or operation.
+
+The temporary service exposes only the restricted maintenance protocol. Normal
+SMTP, relay and administration remain held. Readiness proves only the retained
+runtime's maintenance checks against the current state. Every status retains
+`activation_authorized: false` and `rollback_qualified: false`; its distinct
+receipts cannot be passed to the ordinary upgrade promotion helper. No database
+snapshot is restored. Do not interpret a shared schema number, startup success or
+identity report as permission to switch releases.
+
+Stop the temporary service on **both** nodes before cancelling the unchanged new
+reservations. A failed or interrupted stop keeps the normal-service hold; retry
+`stop` even after expiry. Cancellation resumes the current installed version,
+not the retained binary. The historical context is kept as an audit receipt and
+its operation UUID cannot be reused for an ordinary upgrade.
+
+The native fixture tests that unsupported historical binaries remain unready,
+that normal writers and SMTP stay stopped, that ordinary promotion refuses these
+receipts and that revocation preserves accepted mail and the selected database.
+The development tree now includes an [explicit retained activation protocol](maintenance-rollback.md)
+with separate reports and decisions. A supporting retained binary must pass the
+paired maintenance probes, and its exact-archive reverse activation and failure
+recovery must pass before the pair is qualified for production rollback.
+
 ## Required installed-system rehearsal
 
 Qualify the exact archive pair on two isolated Linux nodes before claiming a
