@@ -186,6 +186,52 @@ coordinates backend selection; it is not a general binary-upgrade controller.
 Do not lower `user_version`, erase markers, restore a stale database over accepted
 mail, run duplicate coordinators or silently fall back to legacy SQLite.
 
+## Inspect retained rollback identities
+
+The [rollback identity inspector](../deploy/postgresql/rollback_check.py) is a
+read-only preparation tool for a completed native paired activation. It cannot
+switch a release, start a candidate, restore a database or authorize a downgrade.
+Use it only during an already reviewed maintenance window with a **new** held
+reservation on each MX. Reserving the pair stops SMTP; do not reserve production
+merely to obtain this report.
+
+Obtain each node's completed report from `upgrade_activation.py report` through
+an authenticated administrator channel, as described in the
+[activation guide](maintenance-activation.md). Store the counterpart report in a
+root-owned, single-link private regular file. Use the same prior operation and new
+reservation UUIDs on both nodes:
+
+```sh
+sudo python3 /path/to/verified-tools/deploy/postgresql/rollback_check.py \
+  --operation NEW-RESERVATION-UUID \
+  --previous-operation COMPLETED-UPGRADE-UUID \
+  --peer-completion /root/peer-completion.json
+```
+
+The inspector validates the complete durable activation, reservation and
+promotion records, both completion reports, and the exact installed and retained
+archive manifests. It refuses unfinished activation, changed releases, changed
+configuration or authority, another candidate operation and missing writer holds.
+A committed but unfinished activation must use forward recovery. Historical
+runtime proofs establish what completed then; they do not prove that the retained
+binary can process today's state.
+
+The report records the current policy epoch without restoring the old one. Exit
+zero means the identity inspection succeeded. Its status remains
+`identity_checked_rollback_unqualified`, and `activation_authorized` is always
+`false`. Reports are private observations, not signed publisher attestations or
+remote authorization. The ordinary downgrade guard remains active even when both
+identity reports match. A compatible reverse runtime validation, exact-pair
+rehearsal and explicit paired rollback protocol are still required. In particular,
+a retained release without the native validation command cannot satisfy that
+runtime gate through this inspector.
+
+If this is the end of the planned inspection, cancel each **unchanged new**
+reservation using the [reservation procedure](maintenance-reservations.md); verify
+normal readiness and the two-copy requirement on both nodes. Never cancel the
+completed prior activation, manually remove fences or switch `current` to make a
+rollback proceed.
+
 ## Required installed-system rehearsal
 
 Qualify the exact archive pair on two isolated Linux nodes before claiming a
