@@ -36,6 +36,7 @@ class ConfinedRunnerTests(unittest.TestCase):
             patch.object(runner.uuid,'uuid4',return_value=IDENTITY), patch.object(Path,'read_text',read),
             patch.object(runner.platform,'release',return_value='fixture-kernel'),
             patch.object(runner,'policy',return_value=b'synthetic policy'),
+            patch.object(runner,'collect_denials',return_value='collected'),
             patch.object(runner,'profiles',side_effect=listing if listing is not None else [[],[NAME+' (enforce)'],[]]),
             patch.object(runner,'containers_removed',return_value=removed),
             patch.object(runner,'command',side_effect=command_error),
@@ -73,6 +74,21 @@ class ConfinedRunnerTests(unittest.TestCase):
         self.assertIn('/opt/noisefence/** mr,', result)
         self.assertIn('peer='+NAME+',', result)
         self.assertNotIn('flags=(complain)', result)
+
+    def test_kernel_diagnostic_is_bounded_and_selects_only_its_own_profile(self):
+        raw = ('apparmor="DENIED" profile="'+NAME+'" operation="open" name="/private/path"\n'
+               'apparmor="DENIED" profile="other" operation="open" name="/other/private"\n'
+               'apparmor="ALLOWED" profile="'+NAME+'" operation="open" name="/not-denied"\n').encode()
+        self.args.evidence.mkdir()
+        with patch.object(runner, 'command', return_value=raw) as command:
+            self.assertEqual(runner.collect_denials(self.args.evidence, NAME), 'collected')
+        output = (self.args.evidence/'denials.log').read_bytes()
+        self.assertIn(b'/private/path', output)
+        self.assertNotIn(b'/other/private', output);self.assertNotIn(b'/not-denied', output)
+        self.assertEqual(command.call_args.kwargs['timeout'], 10)
+        self.assertEqual(command.call_args.args[-2:], ('-n', '2000'))
+        with patch.object(runner, 'command', side_effect=subprocess.TimeoutExpired('journalctl',10)):
+            self.assertEqual(runner.collect_denials(self.args.evidence, NAME), 'unavailable')
 
     def test_explicit_host_guard_before_any_privileged_action(self):
         for environment in ({}, {**ENV,'RUNNER_ENVIRONMENT':'self-hosted'}, {**ENV,'RUNNER_OS':'Windows'}):

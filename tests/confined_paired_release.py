@@ -71,6 +71,19 @@ def containers_removed(output):
     return not (set(expected.values()) & existing)
 
 
+def collect_denials(evidence, name):
+    # This is a private diagnostic only. Public output is reduced to fixed
+    # operation/resource categories by rehearsal_diagnostics.py.
+    try:
+        raw = command('sudo', '-n', 'journalctl', '-k', '--no-pager', '-o', 'cat', '-n', '2000', timeout=10)
+        marker = ('profile="'+name+'"').encode()
+        lines = [line for line in raw.splitlines() if marker in line and b'apparmor="DENIED"' in line]
+        (evidence/'denials.log').write_bytes(b'\n'.join(lines)[-131072:])
+        return 'collected'
+    except (OSError, subprocess.SubprocessError):
+        return 'unavailable'
+
+
 def run(args):
     require(sys.platform == 'linux' and os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
@@ -107,6 +120,8 @@ def run(args):
             env={'PATH':PATH, 'HOME':str(evidence), 'LANG':'C', 'PYTHONDONTWRITEBYTECODE':'1'})
         proof['status'] = 'passed'
     finally:
+        if proof['status'] != 'passed':
+            proof['denial_diagnostics'] = collect_denials(evidence, name)
         # Removing a policy from a surviving test process would silently remove
         # confinement. Preserve that failure until this ephemeral VM is destroyed.
         if not containers_removed(output):

@@ -19,7 +19,10 @@ baseline=$(python3 scripts/release_rehearsal.py baseline-version)
 name="nf-release-test-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
 cleanup() {
     status=$?
-    if [ "$status" -ne 0 ]; then printf 'Native lifecycle failed: phase=%s exit=%s; raw fixture data was not uploaded.\n' "$phase" "$status" >&2; fi
+    if [ "$status" -ne 0 ]; then
+        printf 'Native lifecycle failed: phase=%s exit=%s; raw fixture data was not uploaded.\n' "$phase" "$status" >&2
+        python3 scripts/rehearsal_diagnostics.py "$output" "$phase" || true
+    fi
     docker image rm "$name-paired" "$name-standalone" >/dev/null 2>&1 || true
     exit "$status"
 }
