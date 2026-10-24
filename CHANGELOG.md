@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.32.0-rc.2 — Explicit retained-release recovery (unreleased)
+
+This candidate extends paired maintenance. It does not change filtering models,
+thresholds, provider activation or observation mode. Detection quality remains
+unqualified until an independent human-labelled evaluation passes.
+
+- Reject new downgrade and same-version operations through the forward upgrade
+  path while preserving recovery of already committed decisions.
+- Bind retained-release validation to a completed upgrade, a fresh two-node hold,
+  the exact original archives and the current selected database and policy.
+- Add separate retained promotion, activation, readiness and completion protocols.
+  Both nodes must commit before startup; auxiliary jobs remain held until both
+  runtimes prove fresh policy synchronization and protected message generations.
+- Recover lost start and completion replies without restoring old databases or
+  discarding mail accepted since the upgrade. Uncommitted operations can abort
+  back to the newer release; committed decisions require forward recovery.
+- Add a pinned rc.1 reference and a mandatory positive rollback rehearsal alongside
+  the historical 0.31.9 refusal tests on amd64 and arm64. Qualification applies
+  only after those exact-archive scenarios pass; unsupported probes cannot count
+  as success. Document the operator procedure and current limits in English.
+
 ## 0.32.0-rc.1 — Consistent decisions, reviewed administration and paired maintenance
 
 This prerelease is for qualification in observation mode. It does not establish

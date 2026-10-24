@@ -1,6 +1,6 @@
 # Context, coverage and calibration
 
-NoiseFence 0.31.6 records decision policy `decision-policy-12`. Recorded policy and detector versions distinguish new observations from historical results; this release does not change or activate the LLM.
+NoiseFence records decision policy `decision-policy-13`. Recorded policy and detector versions distinguish new observations from historical results. The contextual safeguards described here do not activate the LLM or change its configured selection.
 
 ## Readable content survives independent failures
 
@@ -59,7 +59,7 @@ The LLM receives the gateway's current UTC analysis date and bounded SPF/DKIM/DM
 
 Every new response records `llm.coherent`. A phishing/spam category with a probability at or below 0.5, or a legitimate category with a probability at or above 0.5, is inconsistent. The response is retained for diagnosis and accounting but has zero score weight and no definite second opinion. The console, headers and diagnostic counters distinguish this from a usable completed opinion. No retry or extra provider request is triggered. The configured text limit, concurrency, timeout and monthly budget remain enforced. These probabilities and confidence values are model assertions, not calibrated measurements.
 
-Context safeguards now cover abuse/brand reports asking to retain a URL in a feed and completed payment receipts. They still require observed aligned authentication and only abstain; they cannot declare a sender legitimate. Explicit demands for credentials, cryptocurrency or software installation prevent use of that contextual safeguard. This is not a comprehensive intent detector or a vendor allowlist. Primary antivirus and validated fusion decisions retain priority.
+Context safeguards cover abuse/brand reports asking to retain a URL in a feed and completed payment receipts. The context stage records disagreement with the legacy index. The final policy resolves that disagreement to HAM, or PUB when a separate completed mail-kind analysis establishes that type, only under the authenticated benign-conflict conditions above. This does not establish sender legitimacy or recipient consent. Explicit demands for credentials, cryptocurrency or software installation prevent use of that safeguard. Primary antivirus and validated fusion decisions retain priority.
 
 ## Positive evidence with partial coverage
 
@@ -71,7 +71,7 @@ The message remains incomplete, with a partial numeric diagnostic and the reason
 
 ## What this release does not claim
 
-No new model was trained or activated from the development examples. Context guards reduce erroneous unwanted decisions to review; they do not recalibrate the high raw indices or establish capture/false-positive rates. Confirmed legitimate receipts and wanted feeds are regression examples, not an independent evaluation set. Use recent human labels, campaign/time separation and an untouched holdout before activating a recalibrated model.
+Context guards resolve qualified conflicts through the final decision policy; they do not recalibrate the raw index or establish capture and false-positive rates. Detector uncertainty remains recorded even when the final verdict is HAM, SPAM or PUB. Historical receipt-time decisions remain unchanged. A private experimental model is not an activated or qualified model. Confirmed legitimate receipts and wanted feeds used to develop a safeguard remain regression examples, not an independent evaluation set. Require recent human labels, campaign/time separation and an untouched evaluation set before activating a recalibrated model.
 
 ## Provider availability
 

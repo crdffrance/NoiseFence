@@ -32,7 +32,7 @@ class RehearsalTests(unittest.TestCase):
         patcher = patch.object(rehearsal, 'BASELINE', pin_file); patcher.start(); self.addCleanup(patcher.stop)
         self.archive = self.root/('noisefence-'+self.version+'-'+self.platform+'.tar.gz')
         def helpers(files):
-            for name in ['upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py']:
+            for name in ['upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py','rollback_validation.py','rollback_promotion.py','rollback_activation.py']:
                 files['deploy/postgresql/'+name] = b'synthetic helper; never executed'
         with patch.object(archives,'VERSION',self.version), patch.object(archives,'COMMIT',self.commit), patch.object(archives,'TOP',self.archive.name.removesuffix('.tar.gz')):
             archives.fixture(self.archive, change=helpers)
@@ -57,19 +57,49 @@ class RehearsalTests(unittest.TestCase):
             'final_running':{node:{'smtp_ready':True,'running_release':self.version,'binary_sha256':files['noisefence']} for node in ['mx1','mx2']},
             'accepted':[{'id':str(i),'node':'mx1' if i%2 else 'mx2','private':'never upload'} for i in range(24)],
             'checks':[{'check':name,'private':'never upload'} for name in [
+                'unqualified_downgrade_and_replacement_refused',
                 'candidate_expired_stopped_and_preserved_selected_data',
                 'candidate_peer_loss_invalidates_readiness','mandatory_peer_outage_deferred',
                 'committed_start_failure_recovered_forward_and_auxiliary_jobs_held',
                 'actual_ssh_completion_reply_lost_after_durable_finish',
                 'native_pair_completed_over_pinned_ssh_after_proof_expiry',
+                'rollback_identities_checked_without_downgrade_authority','retained_validation_keeps_normal_writers_held',
                 'normal_candidates_verified_and_operation_completed']],
             'not_qualified':['detection_accuracy','archive_provenance'],
             'final_state':{'password':'never upload','message':'never upload'}}
 
-    def summarize(self):
+    def summarize(self, kind="historical"):
         (self.root/'paired/paired-lifecycle-report.json').write_text(json.dumps(self.paired))
         (self.root/'standalone/lifecycle-report.json').write_text(json.dumps(self.standalone))
-        return rehearsal.summarize(self.platform,self.archive,self.root,version=self.version,commit=self.commit)
+        return rehearsal.summarize(self.platform,self.archive,self.root,version=self.version,commit=self.commit,kind=kind)
+
+    def test_retained_gate_requires_positive_runtime_and_reverse_activation_evidence(self):
+        with patch.object(rehearsal,'RETAINED_BASELINE',rehearsal.BASELINE):
+            with self.assertRaisesRegex(ValueError,'Positive retained'):self.summarize(kind='retained')
+            self.paired['checks'] += [
+                {'check':'retained_pair_activated_with_current_mail_and_lost_replies',
+                 'retained_version':self.pin['version'],'source_version':self.version,'database_restored':False,'database_unchanged_before_start':True,
+                 'protocol':'noisefence-retained-activation-1','start_reply_lost':True,'finish_reply_lost':True},
+                {'check':'new_forward_operation_after_completed_rollback'}]
+            with self.assertRaisesRegex(ValueError,'Unsupported or skipped'):self.summarize(kind='retained')
+            probe=next(r for r in self.paired['checks'] if r['check']=='retained_validation_keeps_normal_writers_held')
+            probe.update(validation_ready=True,retained_command_supported=True)
+            self.assertEqual(self.summarize(kind='retained')['baseline_kind'],'retained')
+            self.paired['not_qualified'].append('post_activation_rollback')
+            with self.assertRaisesRegex(ValueError,'Incomplete retained'):self.summarize(kind='retained')
+            self.paired['not_qualified'].remove('post_activation_rollback')
+            for key,value in [('database_restored',True),('retained_version','0.0.1'),('start_reply_lost',False)]:
+                row=self.paired['checks'][-2];previous=row[key];row[key]=value
+                with self.assertRaises(ValueError):self.summarize(kind='retained')
+                row[key]=previous
+
+    def test_retained_pin_is_explicit_and_does_not_replace_historical_baseline(self):
+        old=rehearsal.baseline()
+        retained=rehearsal.baseline('retained')
+        self.assertEqual(retained['version'],'0.32.0-rc.1')
+        self.assertEqual(old['version'],self.pin['version'])
+        self.assertNotEqual(retained['archives'],old['archives'])
+        with self.assertRaisesRegex(ValueError,'Unknown baseline'):rehearsal.baseline('automatic-latest')
 
     def test_success_emits_bound_identity_and_counts_without_private_fixture_details(self):
         result = self.summarize()
@@ -185,6 +215,12 @@ class RehearsalTests(unittest.TestCase):
         self.paired['final_running']['mx2']['smtp_ready']=True
         self.paired['installed_helper_sha256']['mx1']={}
         with self.assertRaises(ValueError): self.summarize()
+
+    def test_historical_run_without_rollback_identity_inspection_cannot_qualify(self):
+        self.paired['checks'] = [row for row in self.paired['checks']
+            if row['check'] != 'rollback_identities_checked_without_downgrade_authority']
+        with self.assertRaisesRegex(ValueError, 'Required native recovery coverage'):
+            self.summarize()
 
     def test_missing_recovery_and_standalone_coverage_cannot_create_success(self):
         self.paired['checks'].pop()

@@ -62,20 +62,20 @@ def service_fingerprint(ignored_dropin=None):
     return fingerprint(result)
 
 
-def checked_prepared(value):
+def _checked_prepared(value, protocol, authorize, check_original):
     require(isinstance(value, dict) and set(value) == {'protocol', 'operation', 'own', 'peer',
                 'original', 'installation', 'service_sha256', 'prepared_at', 'validated_at'}
-            and value['protocol'] == PREPARED and identity(value['operation'])
+            and value['protocol'] == protocol and identity(value['operation'])
             and sha(value['service_sha256']) and type(value['prepared_at']) is int,
             'Invalid prepared release descriptor')
     own, peer = value['own'], value['peer']
-    validation.authorize(own, peer)
+    authorize(own, peer)
     require(own['operation'] == value['operation']
             and value['prepared_at'] > 0
             and (value['validated_at'] is None or (type(value['validated_at']) is int
                 and 0 < value['validated_at'] <= value['prepared_at'] < own['expires_at'])), 'Invalid preparation lifetime')
     # Reuse the candidate schema for the retained, independently verified release.
-    validation.checked_descriptor({**own, 'candidate': value['original']})
+    check_original(own, value['original'])
     installed = value['installation']; old = value['original']
     require(isinstance(installed, dict) and set(installed) == {'node', 'role', 'config_sha256',
                 'current_link', 'release_directory', 'manifest_sha256', 'binary_sha256', 'build_sha256', 'selection_sha256'}
@@ -90,8 +90,13 @@ def checked_prepared(value):
     return value
 
 
-def paired(own, peer):
-    checked_prepared(own); checked_prepared(peer)
+def checked_prepared(value):
+    return _checked_prepared(value, PREPARED, validation.authorize,
+                             lambda own, original: validation.checked_descriptor({**own, 'candidate': original}))
+
+
+def _paired(own, peer, check):
+    check(own); check(peer)
     require(own['own'] == peer['peer'] and own['peer'] == peer['own'],
             'Prepared peer does not describe the same candidate pair')
     # Architecture-specific release hashes may differ. The entire descriptors
@@ -99,16 +104,24 @@ def paired(own, peer):
     return fingerprint(sorted([own, peer], key=lambda d: d['own']['selection']['node']['node']))
 
 
-def checked_report(value):
+def paired(own, peer):
+    return _paired(own, peer, checked_prepared)
+
+
+def _checked_report(value, protocol, check):
     require(isinstance(value, dict) and set(value) == {'protocol', 'operation', 'phase', 'descriptor', 'pair_sha256'}
-            and value['protocol'] == REPORT and identity(value['operation']) and value['phase'] in PHASES,
+            and value['protocol'] == protocol and identity(value['operation']) and value['phase'] in PHASES,
             'Invalid peer promotion report')
-    checked_prepared(value['descriptor'])
+    check(value['descriptor'])
     require(value['operation'] == value['descriptor']['operation']
             and (value['pair_sha256'] is None or sha(value['pair_sha256'])), 'Invalid peer pair binding')
     require(value['pair_sha256'] is not None or value['phase'] in ('prepared', 'restoring', 'restored'),
             'Peer promotion report missing its pair binding')
     return value
+
+
+def checked_report(value):
+    return _checked_report(value, REPORT, checked_prepared)
 
 
 def switch_current(target, operation):
@@ -127,20 +140,37 @@ def switch_current(target, operation):
 
 
 class Promotion:
+    protocol = PROTOCOL
+    prepared_protocol = PREPARED
+    report_protocol = REPORT
+    checked_prepared = staticmethod(checked_prepared)
+    checked_report = staticmethod(checked_report)
+    paired = staticmethod(paired)
+
+    def validator(self):
+        return validation.Validation(self.operation)
+
+    def require_target(self, descriptor):
+        validation.require_forward_upgrade(descriptor['original'], descriptor['own']['candidate'])
+
+    def verify_context(self, state):
+        # Ordinary upgrades have no historical rollback authorization.
+        pass
+
     def __init__(self, operation):
         require(identity(operation), 'Canonical operation UUID required')
         self.operation = operation
         self.path = reservation.STATE / (operation+'-promotion.json')
         self.marker = reservation.STATE / 'promotion.json'
         self.hold = reservation.Reservation(operation)
-        self.validation = validation.Validation(operation)
+        self.validation = self.validator()
 
     def state(self):
         state = reservation.read_json(self.path)
         require(isinstance(state, dict) and set(state) == {'protocol', 'operation', 'phase', 'descriptor', 'peer', 'pair_sha256'}
-                and state['protocol'] == PROTOCOL and state['operation'] == self.operation
+                and state['protocol'] == self.protocol and state['operation'] == self.operation
                 and state['phase'] in PHASES, 'Invalid promotion receipt')
-        checked_prepared(state['descriptor'])
+        self.checked_prepared(state['descriptor'])
         require(state['descriptor']['operation'] == self.operation, 'Promotion operation differs')
         require(state['phase'] not in ('prepared', 'promoting', 'promoted') or state['descriptor']['validated_at'] is not None,
                 'Unvalidated restoration cannot authorize promotion')
@@ -148,7 +178,7 @@ class Promotion:
             require(state['pair_sha256'] is None and state['phase'] in ('prepared', 'restoring', 'restored'),
                     'Incomplete prepared pair receipt')
         else:
-            require(state['pair_sha256'] == paired(state['descriptor'], state['peer']), 'Promotion pair binding differs')
+            require(state['pair_sha256'] == self.paired(state['descriptor'], state['peer']), 'Promotion pair binding differs')
         return state
 
     def save(self, state, phase):
@@ -159,11 +189,11 @@ class Promotion:
     def report(self):
         state = self.state()
         reservation.sync_directory(self.path.parent)
-        return {'protocol': REPORT, 'operation': self.operation, 'phase': state['phase'],
+        return {'protocol': self.report_protocol, 'operation': self.operation, 'phase': state['phase'],
                 'descriptor': state['descriptor'], 'pair_sha256': state['pair_sha256']}
 
     def owner(self, allow_missing=False):
-        expected = {'protocol': PROTOCOL, 'operation': self.operation}
+        expected = {'protocol': self.protocol, 'operation': self.operation}
         if reservation.exists(self.marker):
             require(reservation.read_json(self.marker) == expected, 'Another promotion owns the hold')
         else:
@@ -172,6 +202,7 @@ class Promotion:
 
     def frozen(self, state):
         """Every pointer mutation requires a held, unchanged authority and policy."""
+        self.verify_context(state)
         self.hold.owner()
         status = self.hold.status()
         require(status['phase'] == 'held' and all(status[k] for k in ('reserved', 'service_hold', 'writers_stopped')),
@@ -205,13 +236,15 @@ class Promotion:
             own = candidate['own']
             installed = self.hold.state()['installation']
             now = int(time.time())
-            descriptor = checked_prepared({'protocol': PREPARED, 'operation': self.operation,
+            descriptor = self.checked_prepared({'protocol': self.prepared_protocol, 'operation': self.operation,
                 'own': own, 'peer': candidate['peer'], 'installation': installed,
                 'original': validation.candidate(Path(installed['release_directory'])),
                 'service_sha256': service_fingerprint(), 'prepared_at': now, 'validated_at': now})
+            self.require_target(descriptor)
             require(validation.candidate(Path(own['candidate']['directory'])) == own['candidate'],
                     'Validated candidate files changed')
-            state = {'protocol': PROTOCOL, 'operation': self.operation, 'descriptor': descriptor, 'peer': None, 'pair_sha256': None}
+            state = {'protocol': self.protocol, 'operation': self.operation, 'descriptor': descriptor, 'peer': None, 'pair_sha256': None}
+            self.verify_context(state)
             # The reservation cancellation guard also reads this receipt, so a
             # crash between these two durable writes cannot release normal jobs.
             state = self.save(state, 'prepared')
@@ -221,12 +254,14 @@ class Promotion:
     def promote(self, peer_report):
         reservation.require_no_activation(self.operation)
         state = self.state(); self.owner()
-        peer = checked_report(peer_report)
+        peer = self.checked_report(peer_report)
         require(state['phase'] in ('prepared', 'promoting', 'promoted')
                 and peer['phase'] in ('prepared', 'promoting', 'promoted'), 'Pair is no longer preparing promotion')
-        binding = paired(state['descriptor'], peer['descriptor'])
+        binding = self.paired(state['descriptor'], peer['descriptor'])
         require(all(state['descriptor']['original'][k] == peer['descriptor']['original'][k] for k in ('version', 'commit')),
                 'Promotion requires the same original version and source commit')
+        for descriptor in (state['descriptor'], peer['descriptor']):
+            self.require_target(descriptor)
         require(state['descriptor']['validated_at'] is not None and peer['descriptor']['validated_at'] is not None,
                 'Both candidates must have completed live validation')
         require(peer['pair_sha256'] in (None, binding) and state['peer'] in (None, peer['descriptor']),
@@ -255,7 +290,7 @@ class Promotion:
     def abandon(self, peer_report):
         reservation.require_no_activation(self.operation)
         """Allow safe pair cancellation if this peer never completed validation."""
-        peer = checked_report(peer_report)
+        peer = self.checked_report(peer_report)
         self.owner(allow_missing=True)
         if reservation.exists(self.path):
             state = self.state()
@@ -268,13 +303,13 @@ class Promotion:
             installed = self.hold.state()['installation']
             # No ready assertion is fabricated. This descriptor can only restore
             # the unchanged retained installation and release its service hold.
-            descriptor = checked_prepared({'protocol': PREPARED, 'operation': self.operation,
+            descriptor = self.checked_prepared({'protocol': self.prepared_protocol, 'operation': self.operation,
                 'own': own, 'peer': peer['descriptor']['own'], 'installation': installed,
                 'original': validation.candidate(Path(installed['release_directory'])),
                 'service_sha256': service_fingerprint(), 'prepared_at': int(time.time()), 'validated_at': None})
-            binding = paired(descriptor, peer['descriptor'])
+            binding = self.paired(descriptor, peer['descriptor'])
             require(peer['pair_sha256'] is None, 'Peer already bound another prepared descriptor')
-            state = self.save({'protocol': PROTOCOL, 'operation': self.operation, 'descriptor': descriptor,
+            state = self.save({'protocol': self.protocol, 'operation': self.operation, 'descriptor': descriptor,
                                'peer': peer['descriptor'], 'pair_sha256': binding}, 'restoring')
         atomic(self.marker, canonical(self.owner(allow_missing=True)))
         return self.restore()
@@ -317,10 +352,10 @@ class Promotion:
     def release(self, peer_report, *, activation_abort=False):
         reservation.require_no_activation(self.operation, abort=activation_abort)
         state = self.state(); self.owner(allow_missing=state['phase'] == 'released')
-        peer = checked_report(peer_report)
+        peer = self.checked_report(peer_report)
         require(state['phase'] in ('restored', 'released') and peer['phase'] in ('restored', 'released'),
                 'Both original installations must be restored before cancellation')
-        binding = paired(state['descriptor'], peer['descriptor'])
+        binding = self.paired(state['descriptor'], peer['descriptor'])
         require(state['peer'] in (None, peer['descriptor']) and peer['pair_sha256'] in (None, binding), 'Restored peer changed')
         # A lost reply after release/cancel returns the historical receipt only;
         # it never removes a newer operation's hold or starts services itself.

@@ -105,9 +105,10 @@ class PairedLifecycleTests(unittest.TestCase):
         self.assertNotIn('qualification_candidate',json.loads((destination/'build.json').read_text()))
 
     def test_archive_candidate_rejects_missing_helpers_and_changed_input(self):
-        item,_=self.complete_candidate_archive(missing='deploy/postgresql/upgrade_exchange.py')
-        with self.assertRaisesRegex(ValueError,'lacks'):
-            paired.archive_candidate(item,'arm64',self.root/'missing')
+        for name in ['upgrade_exchange.py', 'rollback_check.py', 'rollback_validation.py', 'rollback_promotion.py', 'rollback_activation.py']:
+            item,_=self.complete_candidate_archive(missing='deploy/postgresql/'+name)
+            with self.subTest(helper=name), self.assertRaisesRegex(ValueError,'lacks'):
+                paired.archive_candidate(item,'arm64',self.root/('missing-'+name))
         item,_=self.complete_candidate_archive()
         item['path'].write_bytes(item['path'].read_bytes()+b'changed')
         with self.assertRaisesRegex(ValueError,'changed'):

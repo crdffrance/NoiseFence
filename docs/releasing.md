@@ -109,6 +109,14 @@ never silently replace the baseline with whatever release is latest. The initial
 0.31.9 baseline predates attestations. Its reviewed checksum is a test dependency,
 not a replacement for the new release's required provenance verification.
 
+A separate positive retained-release gate pins the immutable rc.1 archives in
+`tests/fixtures/retained-release-baseline.json`. It must complete a forward
+upgrade, explicit retained activation with current data, recovery after discarded
+start/completion replies, new mail acceptance and a new forward operation. A
+missing maintenance command, skipped probe or failed rollback fails this gate.
+Both branch checks and release builds run it on each architecture; it supplements
+the historical baseline's safe-refusal coverage.
+
 `scripts/check_release_lifecycle.sh` downloads and verifies that baseline, builds
 unique temporary systemd fixture images, then runs the standalone installation
 and `--archive-candidate` pair scenarios on the matching architecture. It uses
@@ -139,6 +147,14 @@ sh scripts/check_release_lifecycle.sh "$platform" \
   var/native-rehearsal/fixture var/native-rehearsal/results
 ```
 
+Repeat the commands with fresh `fixture-retained` and `results-retained`
+directories for the second gate. Obtain its baseline with
+`baseline-version --baseline-kind retained`, then pass `retained` as the fifth
+argument to `check_release_lifecycle.sh`. This selects the separate pinned
+baseline and requires `--require-retained-activation`; do not reuse the historical
+fixture or change its recorded baseline build. See the
+[retained activation procedure](maintenance-rollback.md) for the tested protocol.
+
 Python 3.11+, Docker, GitHub CLI download access, Rust and a fresh fixture/output
 directory are required. Container builds and the pinned public download need
 network access; the running mail fixtures do not. `qualification.json` is produced
@@ -167,8 +183,10 @@ publication. The publish job downloads only the `linux-*` archive artifacts, not
 these test reports.
 
 These gates do not qualify detection accuracy, external delivery, production
-security profiles, full-disk disaster recovery or post-activation rollback. The
-summary explicitly leaves provenance unverified: attestation and authenticated
+security profiles, full-disk disaster recovery or rollback between other archive
+pairs. Positive retained activation applies only to the exact pair and fixture
+conditions recorded by the retained gate. The summary explicitly leaves
+provenance unverified: attestation and authenticated
 staging remain separate gates. See the [paired fixture contract](paired-upgrades.md#run-the-disposable-archive-pair-fixture).
 
 ## Release candidate identities

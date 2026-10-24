@@ -6,6 +6,10 @@ platform=${1:?Usage: check_release_lifecycle.sh PLATFORM ARCHIVE FIXTURE OUTPUT}
 archive=${2:?Candidate archive required}
 fixture=${3:?Fresh synthetic baseline fixture required}
 output=${4:?New output directory required}
+baseline_kind=${5:-historical}
+case "$baseline_kind" in historical|retained) ;; *) exit 2;; esac
+set --
+if [ "$baseline_kind" = retained ]; then set -- --require-retained-activation; fi
 case "$platform" in linux-amd64|linux-arm64) ;; *) exit 2;; esac
 confinement=${NOISEFENCE_REHEARSAL_APPARMOR:-0}
 case "$confinement" in 0|1) ;; *) exit 2;; esac
@@ -14,8 +18,8 @@ mkdir -p "$(dirname "$output")"
 mkdir -m 0700 "$output"
 phase=baseline
 printf 'Native lifecycle: %s\n' "$phase"
-python3 scripts/release_rehearsal.py fetch --platform "$platform" --directory "$output/baseline"
-baseline=$(python3 scripts/release_rehearsal.py baseline-version)
+python3 scripts/release_rehearsal.py fetch --baseline-kind "$baseline_kind" --platform "$platform" --directory "$output/baseline"
+baseline=$(python3 scripts/release_rehearsal.py baseline-version --baseline-kind "$baseline_kind")
 name="nf-release-test-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
 cleanup() {
     status=$?
@@ -47,10 +51,10 @@ python3 tests/release_lifecycle.py --old-archive "$output/baseline/noisefence-$b
 phase=paired
 printf 'Native lifecycle: %s\n' "$phase"
 if [ "$confinement" = 1 ]; then
-    python3 tests/confined_paired_release.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" --evidence "$output/apparmor" > "$output/paired.log" 2>&1
+    python3 tests/confined_paired_release.py "$@" --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" --evidence "$output/apparmor" > "$output/paired.log" 2>&1
 else
-    python3 tests/paired_release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
+    python3 tests/paired_release_lifecycle.py "$@" --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
 fi
 phase=summary
 printf 'Native lifecycle: %s\n' "$phase"
-python3 scripts/release_rehearsal.py summarize --platform "$platform" --archive "$archive" --directory "$output"
+python3 scripts/release_rehearsal.py summarize --baseline-kind "$baseline_kind" --platform "$platform" --archive "$archive" --directory "$output"
