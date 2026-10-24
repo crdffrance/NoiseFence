@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -42,6 +43,36 @@ class ConfinedRunnerTests(unittest.TestCase):
         values = [item.start() for item in patches]
         for item in patches:self.addCleanup(item.stop)
         return values[-2:]
+
+    def test_isolated_policy_bundle_runs_the_real_generator(self):
+        # Docker itself is exercised by native CI. This executes the real CLI
+        # against the exact minimal source mount assembled by policy(), so
+        # omitted imports cannot hide behind a mocked policy result.
+        def execute_generator(*arguments, timeout):
+            self.assertEqual(arguments[:2], ('docker', 'run'))
+            self.assertEqual(arguments[arguments.index('--network')+1], 'none')
+            self.assertIn('--read-only', arguments)
+            self.assertIn('no-new-privileges', arguments)
+            self.assertEqual(timeout, 60)
+            mount = arguments[arguments.index('--mount')+1]
+            self.assertTrue(mount.startswith('type=bind,src='))
+            self.assertTrue(mount.endswith(',dst=/source,readonly'))
+            source = Path(mount.removeprefix('type=bind,src=').removesuffix(',dst=/source,readonly'))
+            rendered = subprocess.check_output([sys.executable, '-B',
+                str(source/'tests/render_apparmor_fixture.py'), '--name', NAME], timeout=10,
+                env={'PATH':runner.PATH, 'HOME':str(self.root), 'TMPDIR':str(self.root),
+                     'PYTHONDONTWRITEBYTECODE':'1'})
+            self.assertEqual({str(p.relative_to(source)) for p in source.rglob('*') if p.is_file()},
+                {'tests/render_apparmor_fixture.py', 'deploy/hardening/isolation.py',
+                 'deploy/hardening/network.py'})
+            return rendered
+        with patch.object(runner, 'command', side_effect=execute_generator):
+            result = runner.policy('fixture-image', NAME).decode()
+        self.assertIn('profile '+NAME+' {', result)
+        self.assertEqual(sum(line.startswith('profile ') for line in result.splitlines()), 1)
+        self.assertIn('/opt/noisefence/** mr,', result)
+        self.assertIn('peer='+NAME+',', result)
+        self.assertNotIn('flags=(complain)', result)
 
     def test_explicit_host_guard_before_any_privileged_action(self):
         for environment in ({}, {**ENV,'RUNNER_ENVIRONMENT':'self-hosted'}, {**ENV,'RUNNER_OS':'Windows'}):

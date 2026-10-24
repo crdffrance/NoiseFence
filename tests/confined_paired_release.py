@@ -39,7 +39,9 @@ def profiles():
 def policy(image, name):
     with tempfile.TemporaryDirectory(prefix='nf-policy-source-') as temporary:
         root = Path(temporary)
-        for relative in ('tests/render_apparmor_fixture.py', 'deploy/hardening/isolation.py'):
+        # isolation.py imports its network helper even when only rendering.
+        for relative in ('tests/render_apparmor_fixture.py', 'deploy/hardening/isolation.py',
+                         'deploy/hardening/network.py'):
             target = root/relative; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SOURCE/relative, target); target.chmod(0o444)
         for directory in (root, root/'tests', root/'deploy', root/'deploy/hardening'):
