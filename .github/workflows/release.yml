@@ -82,7 +82,10 @@ jobs:
             if [ "$pull_attempt" -eq 3 ]; then exit 1; fi
             sleep "$((pull_attempt * 5))"
           done
+          # Private to this job; no restored/saved/shared dependency cache.
+          mkdir -p "$RUNNER_TEMP/noisefence-release-cargo"
           docker run --pull=never --rm --add-host=localhost.:127.0.0.1 \
+            --env CARGO_HOME=/cargo --volume "$RUNNER_TEMP/noisefence-release-cargo:/cargo" \
             --env RUST_TEST_THREADS=1 --volume "$PWD:/workspace" --workdir /workspace \
             "$build_image" \
             sh -c 'getent hosts localhost. && cargo test --release --locked --features semantic && cargo build --release --locked --features semantic'
@@ -91,6 +94,32 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
         run: python3 scripts/package_release.py --binary target/release/noisefence --platform "$PLATFORM"
+      - name: Generate an isolated baseline fixture
+        run: |
+          baseline=$(python3 scripts/release_rehearsal.py baseline-version)
+          mkdir -p var/release-rehearsal
+          docker run --pull=never --rm --network none \
+            --env CARGO_HOME=/cargo --volume "$RUNNER_TEMP/noisefence-release-cargo:/cargo" \
+            --volume "$PWD:/workspace" --workdir /workspace \
+            --env NOISEFENCE_REHEARSAL_OUTPUT=/workspace/var/release-rehearsal/fixture \
+            --env NOISEFENCE_REHEARSAL_BASE_BUILD="$baseline" \
+            --env NOISEFENCE_REHEARSAL_SHARED_LOOPBACK=1 \
+            rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 \
+            cargo test --release --locked --offline --features semantic --test management_rehearsal_fixture -- --ignored
+          sudo chown -R "$(id -u):$(id -g)" var/release-rehearsal
+      - name: Qualify exact native release archives
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 scripts/version.py)
+          sh scripts/check_release_lifecycle.sh "$PLATFORM" "release/noisefence-$version-$PLATFORM.tar.gz" var/release-rehearsal/fixture var/release-rehearsal/results
+      - name: Retain anonymous native qualification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-release-${{ matrix.platform }}
+          path: var/release-rehearsal/results/qualification.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.platform }}
@@ -103,6 +132,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -117,6 +148,10 @@ jobs:
             *.actions.githubusercontent.com:443
             results-receiver.actions.githubusercontent.com:443
             *.blob.core.windows.net:443
+            fulcio.sigstore.dev:443
+            rekor.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+            tuf-repo.github.com:443
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -124,11 +159,22 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release
+          pattern: linux-*
           merge-multiple: true
       - name: Prepare version-specific release notes
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python3 scripts/release_notes.py --tag "$RELEASE_TAG" --output release/NOTES.md
+      - name: Validate archives before attestation
+        env:
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/publish_release.py --tag "$RELEASE_TAG" --directory release --verify-only
+      - name: Attest validated release archives
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/noisefence-*.tar.gz
+          create-storage-record: false
       - name: Verify assets and publish release
         env:
           GH_TOKEN: ${{ github.token }}

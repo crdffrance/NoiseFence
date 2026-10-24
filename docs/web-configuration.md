@@ -6,12 +6,13 @@ The console manages **messaging and filter policies**. Installation settings sta
 
 | Area | Controls | Who can change it |
 | --- | --- | --- |
-| Domains | Accepted domains, enabled state, recipients, catch-all and aliases | Administrator |
+| Domains | Guided setup, draft/DNS/recipient checks, enabled state, recipients, catch-all and aliases | Administrator |
 | Gateways | Explicit upstream hosts, route assignment and destination port | Administrator |
 | Filters → Policy & actions | Observation/enforcement, reference threshold, sensitivity, spam/marketing/malware actions and quarantine retention | Administrator |
 | Filters → Rules & profiles | Profiles, domain/address assignments, conditions, rule priority, expiry and actions | Administrator |
 | Filters → Rule weights | Bounded contributions of supported content signals | Administrator |
 | Filters → Detection engines | Installed checks and optional score contributions | Administrator |
+| Filters → Providers & budgets | Read-only loaded configuration, credential state, reserved quotas, LLM accounting, recent coverage and incidents | Administrator |
 | Filters → IP reputation · RBL | DNSBL providers, exact return codes, IPv6, independent-provider threshold, timeout, cache, concurrency and admission action | Administrator |
 | Filters → SMTP admission | Greylisting, rate limits and bounded delays | Administrator |
 | Filters → Advanced settings | Analysis limits; LLM model/project, selection, budget and pricing date; OCR limits; DNS checks; URL following; native patterns, composites and family caps | Administrator |
@@ -21,15 +22,30 @@ The console manages **messaging and filter policies**. Installation settings sta
 | My filters | Preferences and rules for authorized mailboxes or domains | Authorized user |
 | Accounts & access | Accounts, grants, invitations and revocation | Administrator |
 | My account | Password, MFA and recovery codes | Account owner |
+| Server status → Configuration history & audit | Read-only revision comparison, reviewed restoration and searchable recent events | Administrator |
 | MX servers | Enrolment, policy synchronization, health and replication status | Administrator; host setup remains server-side |
 
 Some modules require a host-installed worker, model or initial provider configuration before they can be enabled. Unavailable modules are identified in the console. Trained model replacement and adaptive protocol changes retain their validation gates.
 
 ## Save, review and apply
 
-Edits form a draft. Review its changes and apply it explicitly. The server validates the complete configuration, checks the revision and records the change. A conflicting revision requires a reload; it never silently overwrites another administrator's work. Advanced JSON blocks must be validated before saving the overall draft. JSON import prepares a validated draft; export omits secrets.
+Edits form one shared draft across **Domains**, **Gateways**, **Filters** and **Server status**. Moving between those sections preserves it. Leaving for another workspace, navigating away with an unfinished domain wizard or choosing **Cancel** in the save bar requires explicit discard confirmation. Cancelling or pressing Escape preserves the draft.
 
-The last 100 configuration revisions are available for review. New SMTP transactions use the new settings. A transaction already in progress retains its policy snapshot, and accepted messages are not rescanned, retagged or redelivered. Lowering a concurrency limit waits for already admitted work; it does not cancel it. Provider accounting is not reset by saving a configuration.
+**Review and apply** shows the loaded and proposed values for all changed fields. Search by section or JSON pointer; array indexes are zero-based and preserve rule/route order. Large or deeply nested branches appear as complete old/new values rather than silently disappearing. This is a configuration comparison, not a prediction of message classifications. Use the separately labelled sample simulation where applicable. Provider key bytes and host installation settings are excluded.
+
+The confirmation is bound to the exact submitted payload, base revision and any explicit model-file selection. Editing any of them requires review again. Only **Apply settings** (or **Stage settings** in coordinated installations) submits it. The server still validates administrator access, CSRF, the complete configuration, model bindings and revision. A conflict retains the unsaved draft; inspect the error and discard/reload before editing against the new revision. The console never silently overwrites another administrator's changes. Advanced JSON blocks must be validated before saving the overall draft; JSON import prepares a validated draft and export omits secrets.
+
+A successful save has its own receipt. If the following read fails, the console keeps that receipt, marks displayed settings as potentially stale and disables editing until **Refresh installed settings** succeeds. Do not resubmit an acknowledged save. A staged receipt is not proof of installation: follow the activation panel for each MX, the committed revision and local SMTP readiness.
+
+New SMTP transactions use installed settings. A transaction already in progress retains its policy snapshot, and accepted messages are not rescanned, retagged or redelivered. Lowering a concurrency limit waits for already admitted work; it does not cancel it. Provider accounting is not reset by saving a configuration.
+
+## History, audit and restoration
+
+**Server status → Configuration history & audit** loads the latest 100 retained revisions and 200 audit events independently. A metrics, queue or audit failure does not hide the other successful reads. Unavailable queue data never means the queue is empty. Each history panel shows its capture time; audit search and category filters apply only to the loaded window, not the entire database. Local MX audit events are not automatically aggregated across servers.
+
+**Preview revision** compares retained values with the loaded editor without replacing the draft. **Use revision as draft** asks before replacing existing unsaved work and clears explicit model-file selections. Review and apply the resulting draft as a new revision. Missing historical fields use current compatibility defaults; this does not restore old provider credentials, model files, messages or databases. A changed base revision invalidates an open historical preview. **Base configuration** means current bootstrap policy for local SQLite deployments and retained revision 0 for central management; it is not necessarily the original installation policy.
+
+Audit entries distinguish recorded configurations from staged or cancelled activation proposals. Only configuration-revision events link to a revision; activation sequence numbers are separate identifiers. Neither an audit event nor its timestamp proves installation on every MX. A missing historical revision produces an explicit error without changing the draft.
 
 The risk index, classification, analysis coverage and delivery action are separate. Changing sensitivity does not change a previously recorded decision. Observation, malware priority, incomplete-analysis safeguards and Proton tagging validation still apply to personal rules.
 
@@ -55,7 +71,7 @@ Within administrator limits, users can choose sensitivity, actions for spam/mark
 
 Older saved settings inherit missing module parameters from the host configuration. An explicitly empty RBL list remains empty. Upgrading does not activate providers, personal preferences or enforcement.
 
-Storage is **schema 5 once paired replication is activated**. Never downgrade an active HA queue to a pre-0.17.3 binary, remove its `ha_required` marker, or restore an older database over accepted mail. A policy revision rollback is different from a binary/database rollback. See [operations](operations.md) and [high availability](high-availability.md) for compatible recovery procedures.
+Local storage uses **format 5 for paired replication, 6 for management transport and 7 for selected PostgreSQL management**. The maximum supported format in `build.json` does not by itself establish compatibility with a selected authority. Never downgrade an active HA queue to a pre-0.17.3 binary, remove its `ha_required` marker, or restore an older database over accepted mail. A policy revision rollback is different from a binary/database rollback. See [operations](operations.md) and [high availability](high-availability.md) for compatible recovery procedures.
 
 Destination verification is available under **Administration → Domains → Verify recipients at destination**, together with bounded deadlines and positive/negative cache TTLs. It can accompany wildcard domain reception but cannot accompany recipient fallback. See [recipient verification and fallback](recipient-fallback.md).
 

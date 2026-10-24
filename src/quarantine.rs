@@ -1,4 +1,5 @@
 //! Quarantine is a durable per-recipient delivery state, never a second mail queue.
+pub mod history;
 use crate::{now, store::Store};
 use anyhow::Result;
 use rusqlite::{OptionalExtension, params};
@@ -65,7 +66,7 @@ impl Store {
                 // Give released mail its full SMTP retry period from release time.
                 tx.execute("UPDATE delivery_policy SET released_at=?2 WHERE delivery_id=?1",params![id,now()])?;
             }
-            tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,?3,?4)",params![now(),username,action,id.to_string()])?;
+            tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,?3,?4)",params![now(),username,action,history::audit_object(&message,&recipient)])?;
             tx.commit()?;
             Ok(Change::Done)
         }).await?;

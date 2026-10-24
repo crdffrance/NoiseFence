@@ -1,7 +1,7 @@
 <a id="fiabilité-du-filtre"></a>
 # Reliability of the filter
 
-Since 0.5.0, the page **Reliability** completes the annotation with hidden scores in **Quality of the filter**. It does not write any setting and does not activate any model.
+Open **Quality & research → Rule reliability** to investigate recorded errors and check availability. The adjacent **Samples & evaluation** tab hides scores while annotating. It does not write any setting and does not activate any model.
 
 <a id="lire-le-bilan"></a>
 ## Read the report
@@ -10,7 +10,7 @@ The windows cover 1 to 29 days, up to 5,000 recent accessible messages, 32 MiB o
 
 - **Quality annotations**: explicit risk corrections, including those stored in batches. **Target corrections**: historical returns out of these annotations, often focused on errors.
 - Uncertain answers never become legitimate. Abstention on a spam reduces the recall; an abstention is not a false positive marking.
-- Reminder, false positives, precision and forbearance relate to the annotations available. The 95% Wilson intervals do not correct the selection bias or the dependence between campaigns. Without annotations, the result is unavailable. Zero error on ten messages does not show 0.1% false positives.
+- Recall, false-positive rate, precision and historical abstention relate to the annotations available. The 95% Wilson intervals do not correct the selection bias or the dependence between campaigns. Without annotations, the result is unavailable. Zero error on ten messages does not show 0.1% false positives.
 - Variations compare the last 24 hours to the rest of the period: at least 30 observations in each group, increase by at least 15 points and separate intervals. These are descriptive alerts to be examined, not statistical evidence of regression, nor an automatic deactivation mechanism.
 - Quotas, limits and unavailability remain distinct from a lack of detection. Availability alerts require at least three incidents out of 10% of the configured controls observed in the last 24 hours.
 

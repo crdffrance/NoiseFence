@@ -106,4 +106,7 @@ if __name__=='__main__':
     STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
     with open('/run/noisefence-upgrade.lock','a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        try:Path('/var/lib/noisefence-upgrade/active.json').lstat()
+        except FileNotFoundError:pass
+        else:raise ValueError('A durable upgrade reservation is active')
         print(json.dumps(fence(args.recovered_console)))

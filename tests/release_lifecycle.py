@@ -3,8 +3,11 @@
 The image must be the separately built lifecycle fixture; no host paths are mounted.
 Uses synthetic mail only. Never point this at a production container or data volume.
 """
-import argparse,hashlib,json,os,re,subprocess,time,uuid
+import argparse,hashlib,json,os,re,subprocess,sys,time,uuid
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'deploy/postgresql'))
+from release_version import VERSION, valid as valid_version, precedence
+sys.path.pop(0)
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--old-archive',type=Path,required=True)
 parser.add_argument('--new-archive',type=Path,required=True)
@@ -17,20 +20,20 @@ ROOT.mkdir(mode=0o700,parents=True,exist_ok=False)
 os.umask(0o077)
 archives={}
 for archive in [args.old_archive,args.new_archive]:
- match=re.fullmatch(r'noisefence-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.tar\.gz',archive.name)
- if not match or 'linux/'+match[2] != args.platform:raise ValueError('Archive must match the selected platform and stable release naming')
+ match=re.fullmatch(rf'noisefence-({VERSION})-linux-(amd64|arm64)\.tar\.gz',archive.name)
+ if not match or not valid_version(match[1]) or 'linux/'+match[2] != args.platform:raise ValueError('Archive must match the selected platform and release naming')
  archives[match[1]]=archive.resolve()
 if len(archives)!=2:raise ValueError('Supply two distinct compatible releases, oldest first')
 versions=list(archives)
-if tuple(map(int,versions[0].split('.'))) >= tuple(map(int,versions[1].split('.'))):raise ValueError('The new release must be newer')
+if precedence(versions[0]) >= precedence(versions[1]):raise ValueError('The new release must be newer')
 metadata=json.loads(subprocess.check_output(['docker','image','inspect',args.image]))[0]
 if metadata['Config'].get('Labels',{}).get('org.noisefence.test-fixture')!='release-lifecycle':raise ValueError('Build tests/fixtures/lifecycle.Dockerfile first')
 name='nf-lifecycle-'+uuid.uuid4().hex[:12]
 def run(*args,timeout=90):
  return subprocess.check_output(['docker',*args],timeout=timeout,stderr=subprocess.STDOUT)
-started=time.monotonic();checks=[]
+started=time.monotonic();checks=[];report=None
 try:
- run('run','-d','--name',name,'--hostname','test-lifecycle','--platform',args.platform,'--network','none','--cgroupns','private','--privileged','--cpus','2','--memory','1536m','--pids-limit','256','--tmpfs','/run','--tmpfs','/tmp',args.image)
+ run('run','-d','--name',name,'--hostname','test-lifecycle','--platform',args.platform,'--network','none','--cgroupns','private','--privileged','--cpus','2','--memory','1536m','--pids-limit','256','--tmpfs','/run','--tmpfs','/tmp','--tmpfs','/var/lib/noisefence:rw,size=64m,mode=0700',args.image)
  for version in versions:
   archive=archives[version]
   expected=Path(str(archive)+'.sha256').read_text().split()[0]
@@ -60,7 +63,7 @@ from pathlib import Path
 with smtplib.SMTP('127.0.0.1',2525,timeout=30) as c:
  c.sendmail('sender@example.test',['alice@example.test'],b'From: sender@example.test\r\nTo: alice@example.test\r\nSubject: Synthetic lifecycle fixture\r\n\r\nNo external delivery.\r\n')
 with sqlite3.connect('file:/var/lib/noisefence/state.sqlite3?mode=ro',uri=True) as db:
- rows=db.execute('select id from messages').fetchall();assert len(rows)==1
+ rows=db.execute('select id from messages order by id').fetchall();assert len(rows)==1
  Path('/root/accepted.json').write_text(json.dumps({'rows':rows,'digests':{id:hashlib.sha256((Path('/var/lib/noisefence/spool')/(id+'.eml')).read_bytes()).hexdigest() for (id,) in rows}}))
 """
  run('exec',name,'python3','-c',submit);checks.append('synthetic_smtp_acceptance')
@@ -70,11 +73,18 @@ with sqlite3.connect('file:/var/lib/noisefence/state.sqlite3?mode=ro',uri=True) 
  assert run('exec',name,'sha256sum','/etc/noisefence/config.toml')==before
  run('exec',name,'sh',new+'/deploy/install.sh',new)
  checks.append('idempotent_reinstall')
+ # Exercise kernel ENOSPC only after the candidate is installed, in a bounded
+ # synthetic tmpfs. The helper preserves the original receipt before extending it.
+ pressure=Path(__file__).resolve().parent/'fixtures/storage_pressure.py'
+ run('cp',str(pressure),name+':/root/storage_pressure.py')
+ pressure_report=json.loads(run('exec',name,'python3','/root/storage_pressure.py'))
+ assert pressure_report['status']=='passed'
+ checks.extend(pressure_report['checks'])
  run('exec',name,'systemctl','disable','--now','noisefence.service')
  run('exec',name,'python3','-c',r"""import sqlite3,json,socket,hashlib
 from pathlib import Path
 with sqlite3.connect('file:/var/lib/noisefence/state.sqlite3?mode=ro',uri=True) as db:
- rows=db.execute('select id from messages').fetchall()
+ rows=db.execute('select id from messages order by id').fetchall()
  saved=json.loads(Path('/root/accepted.json').read_text())
  assert [list(r) for r in rows]==saved['rows']
  for (id,) in rows: assert hashlib.sha256((Path('/var/lib/noisefence/spool')/(id+'.eml')).read_bytes()).hexdigest()==saved['digests'][id]
@@ -85,8 +95,8 @@ with socket.socket() as s:
  run('exec',name,'rm','/etc/systemd/system/noisefence.service')
  run('exec',name,'systemctl','daemon-reload')
  checks.append('unit_removed_data_retained')
- report={'status':'passed','checks':checks,'elapsed_seconds':round(time.monotonic()-started,3),'network':'none','production_affected':False,'versions':versions,'image_id':metadata['Id'],'platform':args.platform,'archive_sha256':{version:hashlib.sha256(path.read_bytes()).hexdigest() for version,path in archives.items()}}
- (ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report),flush=True)
+ report={'status':'validated_pending_cleanup','cleanup':False,'checks':checks,'elapsed_seconds':round(time.monotonic()-started,3),'network':'none','production_affected':False,'versions':versions,'image_id':metadata['Id'],'platform':args.platform,'archive_sha256':{version:hashlib.sha256(path.read_bytes()).hexdigest() for version,path in archives.items()},'storage_pressure':pressure_report}
+ (ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n')
 except subprocess.CalledProcessError as e:
  (ROOT/'lifecycle-failure.log').write_bytes(e.output)
  try:(ROOT/'lifecycle-journal.log').write_bytes(run('exec',name,'journalctl','-u','noisefence','--no-pager','-n','50'))
@@ -94,4 +104,14 @@ except subprocess.CalledProcessError as e:
  print(json.dumps({'status':'failed','checks':checks,'log':str(ROOT/'lifecycle-failure.log')}),flush=True)
  raise
 finally:
- run('rm','--force',name)
+ try:
+  run('rm','--force','--volumes',name)
+ except BaseException:
+  if report is not None:
+   report.update(status='cleanup_failed',cleanup=False)
+   (ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n')
+  raise
+# Successful checks alone do not prove that the disposable resources were removed.
+report.update(status='passed',cleanup=True)
+(ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n')
+print(json.dumps(report),flush=True)

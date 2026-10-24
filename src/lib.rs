@@ -86,3 +86,5 @@ pub mod central;
 pub mod onboarding;
 
 pub mod traffic;
+
+pub mod maintenance;

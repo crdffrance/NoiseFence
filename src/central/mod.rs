@@ -21,6 +21,7 @@ pub mod policies;
 pub mod population;
 pub mod preview;
 pub mod quality;
+pub mod quarantine;
 pub mod recovery;
 pub mod reliability;
 pub mod research;
@@ -204,6 +205,10 @@ impl Central {
             .map_err(database_error)?
             .get(0);
         ensure!(latest == 1, "Central schema is newer than this application");
+        // Additive performance index: preserve the immutable v1 migration checksum
+        // and older-binary compatibility; no data or storage semantics change.
+        tx.batch_execute("CREATE INDEX IF NOT EXISTS quarantine_request_history ON noisefence.queue_commands(message_id,recipient,created DESC,id DESC) WHERE command IN ('release','delete')")
+            .await.map_err(database_error)?;
         tx.commit().await.map_err(database_error)?;
         Ok(())
     }

@@ -402,6 +402,9 @@ pub fn local_checks(
         let host = parsed.host_str().unwrap();
         if let Some(host) = domain(host) {
             if targets.domains.contains(&host) || targets.domains.len() < 8 {
+                if !targets.priority_domains.contains(&host) {
+                    targets.priority_domains.push(host.clone());
+                }
                 targets.domains.insert(host);
             } else {
                 report.local_status = Status::Limited;
@@ -456,6 +459,23 @@ mod tests {
         let (_, targets) = local_checks(&raw, "", &cfg, &policy, &Feed::default());
         assert!(targets.urls.is_empty());
     }
+    #[test]
+    fn ranked_hosts_survive_without_http_navigation() {
+        let raw = mail(
+            "<a href='https://a.example.org'>Privacy</a><a href='https://www.google.com/url?q=https://z.example.net/login'>Open</a>",
+        );
+        let (_, targets) = local_checks(&raw, "", &config(), &Policy::default(), &Feed::default());
+        assert!(targets.urls.is_empty());
+        assert!(targets.priority_domains[..2].contains(&"z.example.net".into()));
+        assert!(targets.priority_domains.len() <= 8);
+        assert!(
+            targets
+                .priority_domains
+                .iter()
+                .all(|d| targets.domains.contains(d))
+        );
+    }
+
     fn config() -> Config {
         let mut c: Config = toml::from_str(include_str!("../../config/development.toml")).unwrap();
         c.domains[0].name = "crdf.fr".into();

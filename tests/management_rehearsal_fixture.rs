@@ -33,6 +33,13 @@ async fn generate_two_enrolled_synthetic_mxs() {
             .as_bytes(),
     )
     .unwrap();
+    let baseline_build = std::env::var("NOISEFENCE_REHEARSAL_BASE_BUILD")
+        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned());
+    assert!(noisefence::cluster::protocol::compatible_build(
+        &baseline_build
+    ));
+    let shared_loopback =
+        std::env::var("NOISEFENCE_REHEARSAL_SHARED_LOOPBACK").is_ok_and(|v| v == "1");
     let mut configs = Vec::new();
     let mut dbs = Vec::new();
     for i in 1..=2 {
@@ -47,12 +54,22 @@ async fn generate_two_enrolled_synthetic_mxs() {
         config.smtp.listen = "127.0.0.1:2525".parse().unwrap();
         config.web.listen = "127.0.0.1:18080".parse().unwrap();
         config.web.public_origin = "http://127.0.0.1:18080".into();
+        if shared_loopback && i == 2 {
+            config.smtp.listen = "127.0.0.1:2527".parse().unwrap();
+            config.web.listen = "127.0.0.1:18081".parse().unwrap();
+            config.web.public_origin = "http://127.0.0.1:18081".into();
+        }
+        let peer_url = if shared_loopback {
+            format!("http://127.0.0.1:{}", if i == 1 { 18081 } else { 18080 })
+        } else {
+            "http://127.0.0.1:19080".to_owned()
+        };
         config.relay.port = 2530; // No external delivery in this isolated rehearsal.
         let role = if i == 1 { "coordinator" } else { "worker" };
         let mut cluster: toml::Table =
             toml::from_str(&format!("role='{role}'\nnode_id='mx{i}'\npoll_seconds=2")).unwrap();
         if i == 2 {
-            cluster.insert("coordinator_url".into(), "http://127.0.0.1:19080".into());
+            cluster.insert("coordinator_url".into(), peer_url.clone().into());
             cluster.insert(
                 "credential_file".into(),
                 "/etc/noisefence/worker.key".into(),
@@ -60,7 +77,7 @@ async fn generate_two_enrolled_synthetic_mxs() {
             cluster.insert("allow_loopback_http".into(), true.into());
         }
         config.cluster = Some(cluster.try_into().unwrap());
-        config.replication=Some(toml::from_str(&format!("peer_id='mx{}'\npeer_url='http://127.0.0.1:19080'\ncredential_file='/etc/noisefence/replica.key'\nallow_loopback_http=true",3-i)).unwrap());
+        config.replication=Some(toml::from_str(&format!("peer_id='mx{}'\npeer_url='{peer_url}'\ncredential_file='/etc/noisefence/replica.key'\nallow_loopback_http=true",3-i)).unwrap());
         config.validate().unwrap();
         noisefence::cluster::protocol::private_write(&folder.join("worker.key"), token.as_bytes())
             .unwrap();
@@ -85,10 +102,15 @@ async fn generate_two_enrolled_synthetic_mxs() {
         dbs.push(db);
         configs.push(config);
     }
-    let baseline = artifacts::bind_credentials(
+    let mut baseline = artifacts::bind_credentials(
         artifacts::capture(&configs[0], Settings::from_config(&configs[0]), 0).unwrap(),
     )
     .unwrap();
+    // Construct a synthetic compatible baseline for the requested old runtime.
+    // Actual archive startup must still verify the typed policy; this is not
+    // evidence that arbitrary release pairs or production models are compatible.
+    baseline.bundle.build = baseline_build.clone();
+    baseline.bundle.digest = baseline.bundle.hash().unwrap();
     let mut publication = baseline.clone();
     publication.bundle.revision = 1;
     publication.bundle.digest = publication.bundle.hash().unwrap();
@@ -154,5 +176,15 @@ async fn generate_two_enrolled_synthetic_mxs() {
         )
         .unwrap();
     }
+    noisefence::cluster::protocol::private_write(
+        &root.join("fixture.json"),
+        serde_json::to_vec(&serde_json::json!({"schema":"noisefence-paired-fixture-1",
+            "synthetic_only":true,"generator_version":env!("CARGO_PKG_VERSION"),
+            "baseline_build":baseline_build,"shared_loopback":shared_loopback,
+            "nodes":["mx1","mx2"],"external_delivery":false}))
+        .unwrap()
+        .as_slice(),
+    )
+    .unwrap();
     println!("Synthetic enrolled fixture written to {}", root.display());
 }

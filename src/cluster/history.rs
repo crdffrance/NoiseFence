@@ -413,6 +413,21 @@ pub(crate) fn execute_transaction(
                     c.id
                 ],
             )?;
+            if matches!(c.command, Operation::Release | Operation::Delete) {
+                tx.execute(
+                    "INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,?3,?4)",
+                    params![
+                        now,
+                        c.username,
+                        if matches!(c.command, Operation::Release) {
+                            "quarantine_release"
+                        } else {
+                            "quarantine_delete"
+                        },
+                        crate::quarantine::history::audit_object(&c.message_id, &c.recipient)
+                    ],
+                )?;
+            }
             "done"
         } else {
             "conflict"

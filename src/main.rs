@@ -32,6 +32,11 @@ impl ProbeCategory {
 enum Command {
     /// Print the compiled engine identity without reading configuration or starting services.
     BuildIdentity,
+    /// Temporarily validate a reserved MX runtime; never starts SMTP, delivery or administration.
+    ValidateRuntime {
+        #[arg(long)]
+        plan: PathBuf,
+    },
     /// Read bounded operational counters from the selected management authority; no mutations.
     ManagementHealth,
     /// Verify a recovered console against local and PostgreSQL receipts; no listeners or state changes.
@@ -536,6 +541,9 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match &cli.command {
+        Command::ValidateRuntime { plan } => {
+            return noisefence::maintenance::serve(&cli.config, plan).await;
+        }
         Command::BuildIdentity => {
             println!(
                 "{}",

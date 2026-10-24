@@ -1,84 +1,142 @@
 <a id="qualité-du-filtrage--observations-annotations-et-candidats"></a>
+# Filter quality: observations, labels and shadow candidates
 
-The [calibration workbench](calibration-workbench.md) provides the supported Web workflow, offline worker installation, dataset isolation, comparison and shadow rollback. Evaluation annotations never become ordinary training feedback or sender trust.
-# Quality of filtering: observations, annotations and candidates
+Use **Quality & research → Samples & evaluation** to label recipient-visible mail,
+compare recorded engines and prepare a shadow candidate. A shadow candidate cannot
+tag, quarantine or replace the applied decision. Shipping this workflow does not
+ship a private trained model or establish a production accuracy claim.
 
-Since 0.4.8, NoiseFence has maintained an attached observation of the content, controls, reputation and type of mail. The ranking applied remains separate **from the observer candidate**, who cannot tag, quarantine or replace the delivery decision. No private model is delivered with the software.
+The [workbench guide](calibration-workbench.md) covers installation and Web controls.
+The [labelling protocol](../research/labeling-protocol.md) defines ground truth;
+[model provenance](model-provenance.md) defines compatibility. See
+[decision exports](decision-exports.md) for engine, recipient policy and action
+accounting.
 
 <a id="corriger-sur-un-échantillon-représentatif"></a>
-## Correct on a representative sample
+## Start with a representative sample
 
-The **Quality of the filter** page is available to administrators and users. It draws up to 200 messages for users and 5,000 for administrators from among those to which the account has access, within a selected period and domain. The period is explicit, and development samples can select a detector cohort. It includes incomplete analyses. The draw does not consult any score; its seed, population and members are frozen. The messages arrived then do not change the lot.
+The Web console uniformly samples up to 200 messages for a user or 5,000 for an
+administrator, within the selected period, domain and current access grants.
+Development samples may select a detector cohort. Population, seed and members
+are frozen; later arrivals do not change the sample. Incomplete analyses remain
+in the population. Sampling does not select messages by score.
 
-Check the original in the recipient's box, then annotate separately:
+Review the original and annotate the two axes independently:
 
-- risk: legitimate, spam/fraud or uncertain;
-- type: conversation, transaction, notification, newsletter, promotion or other.
+- **Risk:** legitimate, spam/fraud or uncertain.
+- **Mail type:** conversation, transactional, notification, newsletter, promotion
+  or other; this field is optional.
 
-An agreed newsletter is legitimate and newsletter-type. A fraudulent advertisement can be spam and promotional type. The type never neutralizes the risk. The object alone does not constitute proof; choose "I cannot conclude" if the original is not available. No label is deducted from the filter. The scores are hidden during this annotation.
-
-The console shows separately the number of risk and type annotations associated with exploitable observations, the missing observations and the number of detector configurations present. The type is optional: it does not block a certain annotation of the risk. These meters do not validate the number per period or a future model.
+A wanted newsletter is legitimate risk and newsletter type. A fraudulent promotion
+has spam risk even though its type is promotional. The subject, a sender name or
+another detector's verdict is not ground truth. Preserve uncertainty when the
+original or recipient context is missing. The annotation form hides model scores.
+Risk and type coverage counters do not establish chronological readiness or quality.
 
 ### Bulk annotation
 
-Open **Filter quality**, select a retained sample, then use **Select visible**
-or the checkbox beside each message. Search matches subjects and senders on the
-current page; **Unannotated only** hides existing labels. Each page contains at
-most 200 messages, so a 235-message sample is annotated over two pages. Selection
-clears on page/sample changes, refresh, and search changes.
+Select a retained sample, then use **Select visible** or individual row checkboxes.
+Search matches subjects and senders on the current page; **Unannotated only** hides
+existing labels. A page contains at most 200 messages. Selection clears on changes
+to page, sample, refresh or search.
 
-Choose **Risk for selected messages** (Spam / fraud, Legitimate, or uncertain),
-optionally choose a mail type, then select **Apply to N selected**. PUB is a mail
-type (newsletter or marketing), not a declaration that a message is wanted:
-choose its risk separately. Leaving mail type unchanged preserves existing type
-labels. Existing annotations are skipped unless **Replace my existing
-annotations** is explicitly checked; the result reports saved and skipped counts.
+Choose **Risk for selected messages**, optionally set a mail type, and choose
+**Apply to N selected**. Leaving type unchanged preserves existing type labels.
+Existing annotations are skipped unless **Replace my existing annotations** is
+checked. The response reports saved and skipped counts. PUB is not a consent label;
+record the risk separately.
 
-The server validates sample ownership, current recipient access and all selected
-IDs before committing any labels. Requests are limited to 200 distinct messages
-and are atomic on both SQLite and PostgreSQL. No message is moved, no recorded
-filter decision is changed, and no training job is started by bulk annotation.
-
-Quality annotations are isolated from operational feedback. "Uncertain" changes only the evaluation label. Operational corrections do not overwrite evaluation labels. The messages already delivered remain unchanged. Access is rechecked on the server side at each read and write, with session, original control and CSRF for mutations. Hidden copies do not become visible to other accounts.
+The server validates ownership, recipient grants and every selected message before
+committing. Requests contain at most 200 distinct messages and are atomic on both
+SQLite and PostgreSQL. Annotation does not move mail, rewrite saved decisions or
+start training. Evaluation annotations remain separate from operational feedback
+and sender trust. Session, origin and CSRF checks protect mutations; Bcc addresses
+do not become visible to other accounts.
 
 <a id="préparer-un-candidat-sur-le-serveur"></a>
-## Prepare a candidate on the server
+## Prepare a candidate offline
 
-The CLI supports up to 50,000 messages in a population of up to 50,000. The console displays the same frozen batch in pages of 200 messages. The dates are Unix UTC seconds, within the last thirty days. Example to adapt, by replacing the variables with the period, the account and the ID returned by the first order:
+Prefer the Web workflow on a managed coordinator. The CLI can sample up to 50,000
+messages from a population of at most 50,000. Dates are gateway receipt times in
+Unix UTC seconds within the retained 30-day window. Run commands as the installation
+account with its authorized configuration. Substitute the annotator, interval,
+cohort and returned batch ID below:
 
 ```sh
-noisefence --config /etc/noisefence/config.toml quality-sample --purpose development \
-  --username "$ANNOTATOR" --since "$SINCE" --until "$UNTIL" \
-  --count 10000 --domain example.org
+noisefence --config /etc/noisefence/config.toml quality-sample \
+  --purpose development --username "$ANNOTATOR" \
+  --since "$SINCE" --until "$UNTIL" --count 10000 \
+  --domain example.org --cohort "$COHORT_SHA256"
 
 noisefence --config /etc/noisefence/config.toml quality-export \
   --username "$ANNOTATOR" --batch "$BATCH_ID" \
-  --output /var/lib/noisefence/quality/sample.jsonl
+  --output /var/lib/noisefence/quality/development.jsonl
 
 OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
   /opt/noisefence/current/research/train_quality.py \
-  /var/lib/noisefence/quality/sample.jsonl \
-  /var/lib/noisefence/quality/candidate-01 --version candidate-01
+  /var/lib/noisefence/quality/development.jsonl \
+  /var/lib/noisefence/quality/candidate-01 --version candidate-01 \
+  --base-history /var/lib/noisefence/quality/base-history.jsonl
 ```
 
-Create the private directory and install `research/requirements.txt` in a dedicated Python environment. The Python path of the example is to be adapted. The export refuses to overwrite a lot. It does not contain any body, attachments, object, correspondent address, or private key of join; the vectors, campaign prints and dates remain private data. Do not publish them on GitHub. Exports and models outside SQLite have a retention to be managed by the operator, unlike the database metadata that expires after 30 days.
+Create the private parent directory and install the locked research dependencies
+first. Existing export/candidate paths are not overwritten. The export excludes
+bodies, attachments, subjects, mailbox addresses and private sender-lookup keys.
+Feature vectors, campaign fingerprints and dates still constitute private data.
+Keep them out of GitHub. Manage file retention explicitly; SQLite's metadata
+cleanup does not delete arbitrary offline exports.
 
-Training requires human annotations in five fixed time periods: 50% training, 15% parameter selection, 15% calibration, 10% thresholds, 10% final test. Accurate or close campaigns do not go through these periods. Contradictory campaigns and campaigns that cross a border are excluded and counted. A conserved campaign contributes a deterministic representative. Since 0.4.13, both heads are driven separately on the same temporal boundaries, fixed with all messages kept, even unannotated or incomplete. Each risk period must contain at least 12 campaigns and both risks: otherwise the order comes out with code 3 and a `insufficient_labels` ratio, without a model. The type uses its own annotations and requires 12 campaigns and the six types per period. If they are missing, only the risk is generated; the type indicates `not_trained` and no distribution of types is invented. A type conflict does not remove a consistent risk annotation, and vice versa. This minimum software does not guarantee sufficient statistical evaluation.
+Five chronological partitions use all retained timestamps: 50% fitting, 15% model
+selection, 15% calibration, 10% threshold selection and 10% development testing.
+Labels and observation availability cannot move these boundaries. Exact/near
+campaigns crossing partitions and conflicting campaigns are excluded and counted.
+Each retained campaign contributes one deterministic representative.
 
-The logistic regression is regulated. The risk receives a calibration of Platt and a zone of forbearance; the six types receive a calibration of temperature. The ratio measures recall, false positives, accuracy and exact binomial intervals at 95%, abstentions, Brier, matrix of types, results by type, comparison to the applied ranking and twelve predefined ablations: without LLM, reputation, history, behavior, native engine, Bayes native, lexical model, semantic model, identity/authentication, vision, type of mail, then contained alone. Each variant is re-entered and calibrated over the same periods; it does not settle on the final test. Remove a family measure its conditional contribution, not its causal independence. The control profiles not encountered at the training are abstentions. Unavailable controls are never transformed into malicious verdicts.
+Every risk partition requires at least 12 independent campaigns and both classes.
+Otherwise training returns `insufficient_labels` and exit code 3, without a model.
+The optional type head requires 12 campaigns and all six types per partition.
+Missing type coverage does not prevent a usable risk head; it produces no invented
+type distribution. Type conflicts do not erase consistent risk labels, or vice
+versa. These minima permit fitting; they do not qualify production performance.
 
-The test unit is **the campaign**, not all traffic. Messages without annotation, inaccessible, incomplete or excluded remain counted. A subset easy to annotate does not demonstrate the rate of false positives of the population. For a claim on traffic, then reserve an independent population, annotate its messages and count omissions and abstentions. Do not set the thresholds on the lot used to publish the results. A lack of error on a few dozen of mails does not show the target of 0.1%.
+Risk fitting uses regularized logistic regression, separate Platt calibration and
+two thresholds. Type fitting uses six classes and separate temperature calibration.
+Reports include recall, false positives, precision, exact-binomial 95% intervals,
+abstentions, Brier diagnostics, type confusion and fixed ablations. Ablations cover
+LLM, providers, history, behaviour, native features/Bayes, semantic, lexical,
+identity/authentication, vision, mail type and content-only inputs. Each variant is
+refitted on the designated partitions; test labels do not select its threshold.
+An ablation measures conditional usefulness, not causal independence.
 
-The `--base-history chemin.jsonl` option also checks the absence of common campaigns with the games of the basic models or previous tests. This private file contains `fingerprint`, `simhash` and `campaign`, such as fusion exports. Its absence remains an explicit limit of the ratio; no activation certificate is produced.
+The threshold partition enforces empirical counts: at most
+`floor(wanted × 0.001)` false positives and `floor(unwanted × 0.01)` false negatives.
+Inclusive ties and the native/Python numerical guard matter. If no thresholds
+satisfy the constraints, preparation stops. Saturated scores cannot be repaired by
+silently relaxing the constraints. Unsupported detector profiles remain research
+abstentions; unavailable checks never become malicious votes or clean evidence.
 
-The `noisefence-quality-model-2` model binds by SHA-256 a private manifest containing all the campaigns already consulted, including those excluded from the training, as well as the historical supplied. The availability profiles of the two heads are distinct. In case of exact equality of the probability of type, the last category in the order of protocol wins, as in the historical runtime Rust. Keep `training-manifest.json` with the weights; it must not be published. The format 1 remains legible, but only the format 2 carries this provenance.
+`--base-history` records campaign identities from base-model training and previous
+evaluations, and checks overlap with the proposed data. Omitting it leaves an
+explicit provenance limitation. The version-two model binds a private
+`training-manifest.json` containing all seen campaigns, including exclusions and
+supplied history. Keep that manifest with the weights. A model hash alone cannot
+reconstruct missing history. Unknown protected campaign identities stop fitting;
+never discard reservations to obtain a model.
 
 <a id="évaluer-sur-un-nouveau-lot-indépendant"></a>
-## Evaluate on a new independent batch
+## Evaluate a frozen candidate on future mail
 
-Fig the model before the beginning of the next period. Then export a completely annotated uniform reprint, without consulting it to adjust the candidate. Do not mix several versions of detector during training: the print includes the version of the application. An update requires new observations compatible; it does not retroactively make the old ones compatible.
+Freeze model bytes, profiles and thresholds before the next observation period.
+Create a **holdout** sample from later traffic. Holdouts cannot filter away
+incompatible observations. Annotate without using either engine as truth. Export
+once for the frozen candidate, retaining its exact SHA-256:
 
 ```sh
+noisefence --config /etc/noisefence/config.toml quality-export \
+  --username "$ANNOTATOR" --batch "$HOLDOUT_BATCH_ID" \
+  --candidate-sha256 "$CANDIDATE_SHA256" \
+  --output /var/lib/noisefence/quality/independent.jsonl
+
 OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
   /opt/noisefence/current/research/evaluate_quality.py \
   /var/lib/noisefence/quality/independent.jsonl \
@@ -87,61 +145,98 @@ OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 /opt/noisefence-learning/bin/python \
   --output /var/lib/noisefence/quality/evaluation-01.json
 ```
 
-This command does not change any threshold, model, message or setting. It refuses to overwrite the report and checks the footprint of the manifest. Common campaigns with all previous games, duplicates, conflicts, absent labels, loss of rights, incompatible observations and expired models prevent a complete validation. An unknown source of the basic corpus also blocks this validation. Unavailable predictions count as omissions, never as good answers.
+Export-use tracking records previous access and related campaigns. A failed or
+repeated export cannot reset freshness. The evaluator verifies model/manifest
+identity, chronology, base history, campaign overlap and coverage. Missing labels,
+rights loss, incompatible observations and unavailable predictions remain counted.
+An examined development sample cannot be renamed into an independent holdout.
 
-The report compares the ranking recorded to the pure candidate and the candidate with the main antivirus priority already observed. It separates message and campaign units, risk calibration and PUB accuracy/recall (newsletter or promotion), with a matrix of the six types including an unavailable column. PUB metrics refer to messages also annotated at risk. Recipient corrections and Proton's chosen folder are not replayed; registered supplier/LLM calls do not validate another selection policy for these calls.
+The report distinguishes the recorded engine, recipient policies, pure shadow
+candidate and candidate with the recorded antivirus priority. It reports message
+and campaign results, calibration, type confusion and publicity precision/recall.
+It does not replay provider requests, changed LLM-selection policy, recipient
+preferences or Proton placement. Research `review` means an abstention or missing
+prediction; it is neither a captured spam nor a true negative.
 
-Pilot criteria: at least twenty spams and one hundred legitimate independents, less false positives, as many spams captured and no more abstentions. The final targets are on the unilateral binomial terminals at 95%: capture at least 95%, false positives at the most 0.1%, abstentions at the most 5%. They ask for much more examples and a review of their representativeness. The report still contains `may_activate: false`, even if these digital tests pass. The output code is 0 if the pilot passes, 3 otherwise; it does not allow any activation.
+A pilot needs at least 20 unwanted and 100 wanted independent messages, complete
+coverage and no regression in false positives, captures or abstentions, with at
+least one improvement. Exact one-sided confidence checks are reported separately.
+Neither a passed pilot nor `meets_final_confidence_bounds` is a promotion
+certificate: reports always retain `may_activate: false`. The evaluator exits 0
+for a passed pilot and 3 otherwise. The distinct
+[versioned promotion contracts](calibration-workbench.md#qualification-and-latency)
+retain their own counts, Wilson bounds, latency and operational requirements.
 
 <a id="expliquer-les-erreurs-sans-exporter-les-messages"></a>
-## Explain errors without exporting messages
+## Explain errors without changing receipts
 
-The detail of a message breaks down the historical score before saturation between lexical, semantic, rules, authentication, reputation, SMTP and LLM. A combined historical contribution remains indivisible if its decomposition is lacking. The sum is verified against the recorded score; a divergence remains visible. The weights learned from the text and the MIME structure share hashbuckets: this report does not pretend to separate them retroactively.
+Message details separate the saved engine verdict, recipient policy, requested and
+effective action, delivery state, primary evidence and missing checks. Historical
+score components are reconciled before they are used in averages. A combined
+component cannot be retroactively split when its decomposition was not recorded.
+Text and MIME weights share hashed buckets; diagnostics do not invent an exact
+attribution between them.
 
-`noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` also produces these aggregates by false positives, spams detected, errors and omissions, as well as errors specific to the second opinion, its status, its cost recorded and its durations. Only reconciled decompositions are included in contribution averages. Conflicting and inaccessible returns are excluded explicitly. These are targeted corrections, therefore biased, not a measure of traffic. The audit does not open bodies, does not call any supplier and does not rewrite SQLite.
+The local `audit-confirmation` diagnostic reads a SQLite database without contacting
+providers. Its correction sample is biased and does not measure population accuracy.
+Do not treat obsolete SQLite management mirrors as authoritative after PostgreSQL
+selection; use the managed workbench and its current permissions and receipts.
 
-## Load in observation only
+## Select shadow observation through reviewed settings
 
-After reviewing the Python/Rust report and checking parity:
+After reviewing provenance and native/Python parity, use **Use in observation**
+on a prepared, unexpired compatible candidate. This creates a normal versioned
+configuration change. Managed MX nodes validate the transferred artifact and their
+loaded cohort before applying it. Review cluster state; distribution is asynchronous.
 
-```toml
-[quality]
-candidate = "/var/lib/noisefence/quality/candidate-01/model.json"
-```
-
-The model is a JSON of weight, without executable code, limited to 2 MiB. Restart the service after validation of the configuration. Protocol, policy footprint, basic models, profiles and dimensions must match. A candidate expired after 30 days or incompatible with abstinent. The console indicates its status separately from the ranking applied. This version does not propose any activation of its actions. Historical training tasks remain unchanged; this pipeline is explicitly launched once the batch has been annotated, without automatic training on the predictions of the filter.
+A candidate is data-only JSON, bounded to 2 MiB. Model, policy, protocol, dimensions
+and supported profiles must match. Expired or incompatible candidates produce no
+invented prediction. The risk/type results remain separate from the applied
+classification. No training job, model selection or report automatically promotes
+its actions. Loading or restoring a candidate does not rewrite historical mail.
 
 <a id="identité-liens-et-réputation"></a>
-## Identity, Relationships and Reputation
+## Context and availability remain evidence
 
-A correspondent's history requires a native SMTP source, a single From, an aligned DKIM validated by DMARC and a single recipient domain. It uses only the previous corrections of active and authorized administrators, over 30 days. Five legitimate campaigns over three separate days, without unwanted or conflict, establish a confidence signal; never a white list. The local-part keeps its break. An interrupted or saturated request becomes unavailable, under an external terminal of 200 ms included in the global delay d'analyse.
+Authenticated sender history uses earlier authorized operational feedback, bounded
+retention and campaign diversity. It is a signal, not an unconditional allowlist.
+Evaluation labels cannot leak into that live memory. Missing or overloaded lookups
+remain unavailable. See [capture coverage](capture-coverage.md) and
+[context controls](context-review.md).
 
-The phishing context brings together protected name, displayed domain, Reply-To domain, OCR/QR link and final site of a complete redirect chain. An exception on a tracker does not exempt control of the final site. Existing terminals on redirects, DNS, public addresses and volumes remain active. No new attachment download or content execution is added. New contextual signals feed observations and candidates; they do not force the historical ranking alone.
-
-Each CRDF/VT observation retains a digest of the indicator, its scope, status, date of request and age of cache. For VT, the identity and type of object must correspond; analyses longer than seven days remain unavailable. For CRDF, a match on a specific page remains suspicious at the host scale, and the date of analysis is unknown if it is not proven. A synthetic request at the root does not attest all pages of the domain. Meters distinguish between common staves and indicators between suppliers. See [CRDF documentation](https://threatcenter.crdf.fr/api/doc/) and VT objects [domain](https://docs.virustotal.com/reference/domain-info) and [file](https://docs.virustotal.com/reference/file-info).
-
-<a id="vérifications-logicielles-et-exploitation"></a>
-## Software verifications and operation
-
-`tests/quality.rs`, console tests and connector tests cover the provenance, range, freshness, rights, private export and maintenance of the original decision. `tests_python/test_quality.py` uses only synthetic fixtures; the IC compares the probabilities of Python to Rust weights within 1st-9. Competitive SMTP tests always check the durable file and unchanged bodies. These tests do not constitute a capture measure in production.
-
-This feature’s original migration was additive. Current paired installations require storage schema 5 and a compatible release. Do not downgrade the database, remove its HA marker or restore an older backup over accepted mail. See [installation](installation.md) and [HA recovery](high-availability.md) for current upgrade and rollback procedures.
-
-Since 0.5.0, native entries and their availability complete the candidate. The table **Reliability** describes the collection groups and comparisons. See [procedure and migration](reliability.md).
-
-
-Since 0.6.0, the thresholds use the exact numbers of the reserved period: `floor(legitimate_count × 0,001)` false positives and `floor(spam_count × 0.01)` false negatives maximum over this period. The upper threshold is the lowest permissible starting from 0.5, with a digital guard of 10−9 for the Python/Rust parity; the lower threshold extends the legitimate coverage up to 0.5 with the same guard. Inclusive and tied values comparisons are counted. A saturation at 0 or 1 that makes these constraints impossible interrupt the preparation; a removal cannot be indicated separately. This empirical choice does not validate a rate in the traffic: independent testing, coverage, intervals and activation rules remain necessary. See [coverage and behavioral memory](capture-coverage.md).
+Identity, Reply-To, OCR/QR, final URL destinations and provider reputation retain
+their scope and collection time. A trusted tracker does not approve the final site.
+A provider match for one URL does not automatically establish a malicious sender
+or every page on its domain. Deduplication, age, conflicts and availability must
+remain explicit; see [shared provider eligibility](unified-decisions.md#shared-provider-eligibility-and-native-accounting).
 
 ## Provider evidence contract migration
 
-`provider-target-evidence-1` binds quality vectors to frozen request-time
-eligibility, per-provider target deduplication and scoped cross-provider agreement.
-This changes the protocol digest without changing the vector layout. Older quality
-models fail compatibility validation; do not edit their declared digest or reuse
-old vectors with the new digest. Retain old history, collect compatible observations,
-and refit and independently evaluate before selecting a candidate. No promotion is
-automatic. See [shared eligibility](unified-decisions.md#shared-provider-eligibility-and-native-accounting).
+`provider-target-evidence-1` binds vectors to request-time eligibility, deduplicated
+targets and scoped cross-provider agreement. Semantics can change the protocol
+digest without changing vector dimensions. Retain old history, collect compatible
+observations and independently evaluate a refitted candidate. Do not edit a model's
+or historical vector's digest to bypass compatibility.
+
+<a id="vérifications-logicielles-et-exploitation"></a>
+## Software tests and operations
+
+Native quality/compatibility tests cover provenance, ranges, permissions, frozen
+samples and preservation of the original verdict. Python tests use synthetic
+fixtures and compare native/Python inference within the declared tolerance. These
+tests establish software behaviour for their cases, not production accuracy.
+
+Current local formats are 5 for paired replication, 6 for management transport and
+7 for selected PostgreSQL management. A matching format alone cannot authorize a
+rollback. Preserve accepted queues and authority markers; follow
+[paired upgrade preparation](paired-upgrades.md) and [HA recovery](high-availability.md).
+
+**Quality & research → Rule reliability** presents signal groups and comparisons.
+See [rule reliability](reliability.md). Its measurements do not grant promotion.
 
 ## Direct annotation links
 
-Open `/?view=quality` on your console host to go straight to Filter quality after sign-in. Each selected sample exposes a **Direct link to this annotation sample**, using `/?view=quality&sample=<batch UUID>`. The link grants no access: the API still checks the session, sample ownership and recipient permissions.
+Open `/?view=quality` on the console host after sign-in. A selected sample exposes
+**Direct link to this annotation sample**, using
+`/?view=quality&sample=<batch UUID>`. Links grant no additional access: ownership,
+session and recipient permissions are still checked by the server.

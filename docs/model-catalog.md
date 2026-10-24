@@ -1,7 +1,7 @@
 # Retained model sets
 
-Available in the unreleased 0.28.0-rc.3 candidate. This feature does not enroll
-production, qualify a detector or authorize delivery actions. Use **Filters →
+Retained sets preserve reviewed model bytes for explicit selection or recovery.
+Retention does not enroll a cluster, qualify a detector or authorize delivery actions. Use **Filters →
 Model files → Retained model sets** on an enrolled coordinator.
 
 ## Operator workflow

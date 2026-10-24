@@ -408,6 +408,29 @@ async fn diagnostics(
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct QuarantineHistoryQuery {
+    recipient: String,
+}
+async fn quarantine_history(
+    State(app): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<QuarantineHistoryQuery>,
+) -> ApiResult<Json<Value>> {
+    let user = authenticated(&app, &h).await?;
+    if uuid::Uuid::parse_str(&id).is_err() || !crate::config::valid_address(&q.recipient) {
+        return Err(Error(StatusCode::NOT_FOUND, "Message not found.".into()));
+    }
+    let session = message::digest(token(&h).unwrap().as_bytes());
+    let view = app
+        .store
+        .quarantine_history(user.username, session, id, q.recipient)
+        .await?
+        .ok_or_else(|| Error(StatusCode::NOT_FOUND, "Message not found.".into()))?;
+    Ok(Json(json!(view)))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct QuarantineRequest {
     recipient: String,
     action: crate::quarantine::Command,
@@ -710,7 +733,10 @@ pub fn router_controlled(
         .route("/search/messages", get(search_messages))
         .route("/messages/{id}/diagnostics", get(diagnostics))
         .route("/messages/{id}/feedback", post(feedback))
-        .route("/messages/{id}/quarantine", post(quarantine))
+        .route(
+            "/messages/{id}/quarantine",
+            get(quarantine_history).post(quarantine),
+        )
         .route("/stats", get(stats))
         .route("/password", post(password))
         .route("/metrics", get(metrics))

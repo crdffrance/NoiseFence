@@ -623,9 +623,18 @@ async fn session(
                         return Ok(());
                     }
                 }
-                file.flush().await?;
+                if file.flush().await.is_err() {
+                    reply(&mut io, "452 4.3.1 Storage failure\r\n").await?;
+                    return Ok(());
+                }
                 drop(file);
-                let raw = tokio::fs::read(&path).await?;
+                let raw = match tokio::fs::read(&path).await {
+                    Ok(raw) => raw,
+                    Err(_) => {
+                        reply(&mut io, "452 4.3.1 Storage failure\r\n").await?;
+                        return Ok(());
+                    }
+                };
                 if let Err(error) = message::validate(&raw) {
                     tracing::debug!(%error,"message framing rejected");
                     reply(&mut io, "554 5.6.0 Invalid message structure\r\n").await?;

@@ -8,7 +8,9 @@ use std::{
     path::Path,
 };
 
-/// Explicitly audited policy-compatible releases for a coordinator-first rollout.
+/// Explicitly audited legacy policy-compatible releases. This does not authorize
+/// mixed builds on selected PostgreSQL management: its policy transport requires
+/// an exact application build. Review both contracts before a paired upgrade.
 /// A future release must review its typed policies before extending this window.
 pub fn compatible_build(build: &str) -> bool {
     build == env!("CARGO_PKG_VERSION")
@@ -33,6 +35,7 @@ pub fn compatible_build(build: &str) -> bool {
                 | "0.31.7"
                 | "0.31.8"
                 | "0.31.9"
+                | "0.32.0-rc.1"
         ) && matches!(
             build,
             "0.14.0"
@@ -82,6 +85,7 @@ pub fn compatible_build(build: &str) -> bool {
                 | "0.31.6"
                 | "0.31.7"
                 | "0.31.8"
+                | "0.31.9"
         ))
 }
 

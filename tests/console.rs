@@ -2472,3 +2472,521 @@ async fn software_identity_requires_session_and_release_checks_require_admin_csr
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn domain_setup_checks_are_admin_only_revision_bound_and_do_not_send_data_or_apply() {
+    use noisefence::smtp::{self, Wire};
+    use tokio::{io::BufReader, net::TcpListener};
+    let dir = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let captured = seen.clone();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.domains[0].next_hops = vec![listener.local_addr().unwrap().to_string()];
+    cfg.domains[0].recipients = vec![
+        "alice@example.test".into(),
+        "missing@example.test".into(),
+        "busy@example.test".into(),
+    ];
+    cfg.domains[0].recipient_verification = None;
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "reader", false, vec!["*@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg, store.clone(), Some(control.clone())).unwrap();
+    let settings = serde_json::to_value(&control.snapshot().settings).unwrap();
+    let body =
+        json!({"revision":0,"domain":"example.test","settings":settings,"check":"configuration"});
+    let path = "/admin/domains/check";
+    assert_eq!(
+        request(&app, &reader, path, Some(body.clone())).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let missing_csrf = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1{path}"))
+        .header("content-type", "application/json")
+        .header("origin", "http://127.0.0.1:3000")
+        .header("cookie", format!("noisefence_session={admin}"))
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(missing_csrf).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let (status, report) = request(&app, &admin, path, Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["result"]["status"], "valid");
+    assert_eq!(report["draft"], true);
+    let mut stale = body.clone();
+    stale["revision"] = json!(1);
+    assert_eq!(
+        request(&app, &admin, path, Some(stale)).await.0,
+        StatusCode::CONFLICT
+    );
+    let mut unknown = body.clone();
+    unknown["domain"] = json!("unconfigured.test");
+    assert_eq!(
+        request(&app, &admin, path, Some(unknown)).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut looping = body.clone();
+    looping["settings"]["gateways"][0]["hosts"] = json!([control.base.hostname]);
+    assert_eq!(
+        request(&app, &admin, path, Some(looping)).await.0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut payload = body;
+    payload["check"] = json!("recipient");
+    for invalid in [
+        "alice@other.test",
+        "undeclared@example.test",
+        "alice@example.test\r\nDATA",
+    ] {
+        payload["recipient"] = json!(invalid);
+        assert_eq!(
+            request(&app, &admin, path, Some(payload.clone())).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+    let task = tokio::spawn(async move {
+        for _ in 0..3 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut io: Wire = BufReader::new(Box::new(stream));
+            smtp::reply(&mut io, "220 sink.test\r\n").await.unwrap();
+            while let Ok(Some(bytes)) = smtp::line(&mut io, 512, 5).await {
+                let command = String::from_utf8(bytes).unwrap();
+                captured.lock().unwrap().push(command.clone());
+                let reply = if command.starts_with("EHLO ") {
+                    "250 sink.test\r\n"
+                } else if command == "MAIL FROM:<>\r\n" || command == "RSET\r\n" {
+                    "250 OK\r\n"
+                } else if command == "RCPT TO:<alice@example.test>\r\n" {
+                    "250 2.1.5 OK\r\n"
+                } else if command == "RCPT TO:<missing@example.test>\r\n" {
+                    "550 5.1.1 Unknown\r\n"
+                } else if command == "RCPT TO:<busy@example.test>\r\n" {
+                    "451 4.3.0 Retry\r\n"
+                } else if command == "QUIT\r\n" {
+                    break;
+                } else {
+                    panic!("Unexpected SMTP command: {command}")
+                };
+                smtp::reply(&mut io, reply).await.unwrap();
+            }
+        }
+    });
+    for (address, expected) in [
+        ("alice", "accepted"),
+        ("missing", "unknown"),
+        ("busy", "unavailable"),
+    ] {
+        payload["recipient"] = json!(format!("{address}@example.test"));
+        let (status, report) = request(&app, &admin, path, Some(payload.clone())).await;
+        assert_eq!(status, StatusCode::OK, "{report}");
+        assert_eq!(report["result"]["status"], expected);
+        assert_eq!(report["result"]["data_sent"], false);
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.starts_with("RCPT TO:"))
+            .count(),
+        3
+    );
+    assert!(seen.lock().unwrap().iter().all(|s| !s.starts_with("DATA")));
+    assert_eq!(control.snapshot().revision, 0);
+    assert!(
+        control.snapshot().config.domains[0]
+            .recipient_verification
+            .is_none()
+    );
+    store
+        .read(|db| {
+            for table in ["messages", "console_revisions"] {
+                let count: i64 =
+                    db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })?;
+                assert_eq!(count, 0, "setup check must not write {table}");
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn provider_overview_is_admin_only_read_only_and_uses_loaded_capacity() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.protection = Some(Default::default());
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let admin = account(&store, "admin", true, vec![]).await;
+    let reader = account(&store, "reader", false, vec!["alice@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg, store, Some(control.clone())).unwrap();
+    assert_eq!(
+        request(&app, &reader, "/admin/providers", None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "invalid", "/admin/providers", None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let mut settings = serde_json::to_value(control.snapshot().settings.clone()).unwrap();
+    settings["detection"]["modules"]["protection"]["timeout_ms"] = json!(1500);
+    settings["detection"]["modules"]["protection"]["max_parallel"] = json!(3);
+    control
+        .apply(0, serde_json::from_value(settings).unwrap(), "admin".into())
+        .await
+        .unwrap();
+    let (status, value) = request(&app, &admin, "/admin/providers", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["revision"], 1);
+    assert_eq!(value["capacity"]["timeout_ms"], 1500);
+    assert_eq!(value["capacity"]["max_parallel"], 3);
+    assert_eq!(value["services"]["llm"]["installed"], false);
+    assert_eq!(value["services"]["llm"]["enabled"], false);
+    assert_eq!(value["services"]["llm"]["budget"]["status"], "not_started");
+    assert!(!dir.path().join("llm-budget.sqlite3").exists());
+    assert_eq!(control.snapshot().revision, 1);
+    let mut settings = control.snapshot().settings.clone();
+    settings.protection = None;
+    control.apply(1, settings, "admin".into()).await.unwrap();
+    let (_, disabled) = request(&app, &admin, "/admin/providers", None).await;
+    assert_eq!(disabled["available"], true);
+    assert_eq!(disabled["enabled"], false);
+    assert!(disabled["capacity"].is_null());
+    assert!(disabled["policy"].is_null());
+    // A corrupt ledger is unknown, not zero and not an outage of other cards.
+    std::fs::write(dir.path().join("llm-budget.sqlite3"), b"invalid ledger").unwrap();
+    let (status, bad) = request(&app, &admin, "/admin/providers", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(bad["services"]["llm"]["budget"].is_null());
+    assert_eq!(bad["revision"], 2);
+    assert!(!bad.to_string().contains(&dir.path().display().to_string()));
+}
+
+#[tokio::test]
+async fn preference_preview_is_scoped_revision_bound_and_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.custom_filtering=Some(serde_json::from_value(json!({"ordering":"scoped","profiles":[
+        {"id":"domain","name":"Domain profile","threshold":98.0,"require_corroboration":true,"spam":"quarantine","publicity":"deliver","review":"deliver","quarantine_days":7},
+        {"id":"bob","name":"BOB PRIVATE PROFILE","threshold":90.0,"require_corroboration":true,"spam":"deliver","publicity":"deliver","review":"deliver","quarantine_days":14}],
+        "bindings":[{"scope":"*@example.test","profile":"domain"},{"scope":"bob@example.test","profile":"bob"}],
+        "rules":[{"id":"admin","name":"Organization safeguard","enabled":true,"priority":0,"scope":"*","expires":null,"any":false,"conditions":[{"field":"subject","op":"contains","value":"PRIVATE CONDITION VALUE"}],"category":"spam","action":null,"stop":true}]})).unwrap());
+    cfg.preferences.mailboxes.insert("alice@example.test".into(),serde_json::from_value(json!({"profile":{"id":"saved","name":"Saved personal profile","threshold":90.0,"require_corroboration":true,"spam":"quarantine","publicity":"deliver","review":"deliver","quarantine_days":3},"rules":[]})).unwrap());
+    cfg.validate().unwrap();
+    let cfg = Arc::new(cfg);
+    let store = Store::open(dir.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let owner = account(&store, "owner", false, vec!["*@example.test"]).await;
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let app = api::router_controlled(cfg.clone(), store.clone(), Some(control.clone())).unwrap();
+    let draft = json!({"profile":{"id":"personal","name":"My profile","threshold":null,"require_corroboration":true,"spam":"deliver","publicity":"deliver","review":"deliver","quarantine_days":3},"rules":[]});
+    let body = json!({"revision":0,"scope":"alice@example.test","recipient":"alice@example.test","preference":draft});
+    let (status, result) = request(&app, &alice, "/preferences/preview", Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(result["schema"], "preference-preview-1");
+    assert_eq!(result["installed"]["threshold"], 90.0);
+    assert_eq!(result["draft"]["threshold"], 98.0);
+    assert_eq!(
+        result["draft"]["threshold_source"]["origin"],
+        "administrator"
+    );
+    assert_eq!(result["draft"]["action_source"]["origin"], "personal");
+    assert_eq!(result["installed"]["spam"], "quarantine");
+    assert_eq!(result["draft"]["spam"], "deliver");
+    assert_eq!(result["draft"]["quarantine_days"], 3);
+    assert!(!result.to_string().contains("PRIVATE"));
+    assert!(!result.to_string().contains("bob@example.test"));
+    assert!(!result.to_string().contains("conditions"));
+    assert_eq!(control.snapshot().revision, 0);
+    assert_eq!(control.snapshot().settings.preferences.mailboxes.len(), 1);
+    let count = store
+        .read(|db| {
+            Ok(db.query_row(
+                "SELECT (SELECT count(*) FROM console_revisions)+(SELECT count(*) FROM audit)",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "preview must not write a revision or audit event");
+    let mut restore = body.clone();
+    restore["preference"] = Value::Null;
+    let (status, removed) = request(&app, &alice, "/preferences/preview", Some(restore)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(removed["removing"], true);
+    assert_eq!(removed["installed"]["threshold"], 90.0);
+    assert_eq!(removed["draft"]["threshold"], 98.0);
+    assert_eq!(removed["draft"]["action_source"]["origin"], "administrator");
+    assert_eq!(
+        control.snapshot().settings.preferences.mailboxes.len(),
+        1,
+        "removal preview must retain the saved override"
+    );
+    let mut bad = body.clone();
+    bad["revision"] = json!(1);
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(bad))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let mut bad = body.clone();
+    bad["preference"]["profile"]["threshold"] = json!(60);
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(bad))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    for (scope, recipient) in [
+        ("*@example.test", "alice@example.test"),
+        ("alice@example.test", "bob@example.test"),
+        ("bob@example.test", "bob@example.test"),
+        ("*", "alice@example.test"),
+    ] {
+        let mut bad = body.clone();
+        bad["scope"] = json!(scope);
+        bad["recipient"] = json!(recipient);
+        assert_eq!(
+            request(&app, &alice, "/preferences/preview", Some(bad))
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let mut domain = body.clone();
+    domain["scope"] = json!("*@example.test");
+    assert_eq!(
+        request(&app, &owner, "/preferences/preview", Some(domain.clone()))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let mut unknown = domain.clone();
+    unknown["recipient"] = json!("missing@example.test");
+    assert_eq!(
+        request(&app, &owner, "/preferences/preview", Some(unknown))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    domain["recipient"] = json!("*@example.test");
+    assert_eq!(
+        request(&app, &owner, "/preferences/preview", Some(domain))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let missing_csrf = Request::builder()
+        .uri("/api/v1/preferences/preview")
+        .method("POST")
+        .header("cookie", format!("noisefence_session={alice}"))
+        .header("origin", "http://127.0.0.1:3000")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(missing_csrf).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(body.clone()))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, "/preferences/preview", Some(body))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn quarantine_history_is_recipient_scoped_read_only_and_retains_expiry_and_actions() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let bob = account(&store, "bob", false, vec!["bob@example.test"]).await;
+    let id = held_message(&store, &cfg).await;
+    let app = api::router(cfg, store.clone()).unwrap();
+    let path = format!("/messages/{id}/quarantine?recipient=alice%40example.test");
+    // Historical integer row IDs are not safe links: SQLite may reuse them.
+    // Also exclude recipient-bound events for a different message or recipient.
+    store.run(|db| {
+        db.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'previous-owner','quarantine_delete',CAST(id AS TEXT) FROM deliveries WHERE address='alice@example.test'", [noisefence::now()])?;
+        db.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'hidden-owner','quarantine_delete','quarantine-v1:'||message_id||':bob@example.test' FROM deliveries WHERE address='alice@example.test'", [noisefence::now()])?;
+        Ok(())
+    }).await.unwrap();
+    let (code, held) = request(&app, &alice, &path, None).await;
+    assert_eq!(code, StatusCode::OK, "{held}");
+    assert_eq!(held["schema"], "quarantine-history-1");
+    assert_eq!(held["status"], "quarantined");
+    assert!(held["held_until"].as_i64().unwrap() > noisefence::now());
+    assert_eq!(held["raw_available"], true);
+    assert_eq!(held["events"], json!([]));
+    assert_eq!(held["requests"], json!([]));
+    assert!(!held.to_string().contains("bob@example.test"));
+    assert_eq!(
+        request(&app, &bob, &path, None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&app, "invalid", &path, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let action_path = format!("/messages/{id}/quarantine");
+    assert_eq!(
+        request(
+            &app,
+            &alice,
+            &action_path,
+            Some(json!({"recipient":"alice@example.test","action":"release"}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, released) = request(&app, &alice, &path, None).await;
+    assert_eq!(released["status"], "pending");
+    assert!(released["released_at"].as_i64().is_some());
+    assert_eq!(released["events"].as_array().unwrap().len(), 1);
+    assert_eq!(released["events"][0]["action"], "quarantine_release");
+    assert_eq!(released["events"][0]["actor"], "alice");
+    store.run(|db|{db.execute("UPDATE delivery_policy SET held_until=?1 WHERE delivery_id IN (SELECT id FROM deliveries WHERE address='bob@example.test')",[noisefence::now()-1])?;Ok(())}).await.unwrap();
+    let bob_path = format!("/messages/{id}/quarantine?recipient=bob%40example.test");
+    let (_, elapsed) = request(&app, &bob, &bob_path, None).await;
+    assert_eq!(elapsed["status"], "quarantined");
+    assert!(elapsed["held_until"].as_i64().unwrap() <= elapsed["checked_at"].as_i64().unwrap());
+    store.cleanup().await.unwrap();
+    let (_, expired) = request(&app, &bob, &bob_path, None).await;
+    assert_eq!(expired["status"], "expired");
+    assert_eq!(expired["events"][0]["action"], "quarantine_expire");
+    assert_eq!(
+        expired["raw_available"], true,
+        "Alice is still pending; expiry is not physical deletion"
+    );
+    let before = store
+        .read(|db| Ok(db.query_row("SELECT COUNT(*) FROM audit", [], |r| r.get::<_, i64>(0))?))
+        .await
+        .unwrap();
+    request(&app, &alice, &path, None).await;
+    request(&app, &bob, &bob_path, None).await;
+    assert_eq!(
+        store
+            .read(|db| Ok(db.query_row("SELECT COUNT(*) FROM audit", [], |r| r.get::<_, i64>(0))?))
+            .await
+            .unwrap(),
+        before
+    );
+    store
+        .run(|db| {
+            db.execute("DELETE FROM grants WHERE username='alice'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &alice, &path, None).await.0,
+        StatusCode::NOT_FOUND
+    );
+    store
+        .run(|db| {
+            db.execute("UPDATE users SET disabled=1 WHERE username='bob'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, &bob, &bob_path, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn quarantine_history_bounds_actions_and_keeps_legacy_remote_expiry_unconfirmed() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let alice = account(&store, "alice", false, vec!["alice@example.test"]).await;
+    let id = held_message(&store, &cfg).await;
+    let binding = id.clone();
+    store.run(move|db|{
+        let tx=db.transaction()?;
+        for n in 0..55 {
+            tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'alice','quarantine_release',?2)",rusqlite::params![noisefence::now()-n,format!("quarantine-v1:{binding}:alice@example.test")])?;
+        }
+        tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,'retained-out-owner','quarantine_delete',?2)",rusqlite::params![noisefence::now()-31*86400,format!("quarantine-v1:{binding}:alice@example.test")])?;
+        tx.commit()?;Ok(())
+    }).await.unwrap();
+    let app = api::router(cfg, store.clone()).unwrap();
+    let path = format!("/messages/{id}/quarantine?recipient=alice%40example.test");
+    let (code, view) = request(&app, &alice, &path, None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(view["events"].as_array().unwrap().len(), 50);
+    assert_eq!(view["events_truncated"], true);
+    assert!(!view.to_string().contains("retained-out-owner"));
+    let binding = id.clone();
+    store.run(move|db|{
+        let at=noisefence::now();
+        db.execute("INSERT INTO cluster_origin VALUES(?1,'mx2',?1,?2,1,1)",rusqlite::params![binding,at-100])?;
+        for (index,result) in ["done","expired","conflict","unrecognized"].iter().enumerate() {
+            db.execute("INSERT INTO cluster_commands(id,node_id,message_id,recipient,command,username,created,expires,result,finished) VALUES(?1,'mx2',?2,'alice@example.test','\"release\"','alice',?3,?4,?5,?4)",rusqlite::params![format!("request-{index}"),binding,at-1000-index as i64,at-500,result])?;
+        }
+        db.execute("INSERT INTO cluster_commands(id,node_id,message_id,recipient,command,username,created,expires) VALUES('pending-expired','mx2',?1,'alice@example.test','\"delete\"','alice',?2,?3)",rusqlite::params![binding,at-600,at-1])?;
+        Ok(())
+    }).await.unwrap();
+    let (code, remote) = request(&app, &alice, &path, None).await;
+    assert_eq!(code, StatusCode::OK, "{remote}");
+    assert_eq!(remote["source"], "replicated");
+    assert_eq!(remote["node"], "mx2");
+    assert_eq!(
+        remote["events"],
+        json!([]),
+        "do not show another node's local audit as owning-MX history"
+    );
+    assert_eq!(remote["pending_command"], json!(null));
+    let requests = remote["requests"].as_array().unwrap();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(requests[0]["result"], "expired");
+    assert_eq!(requests[0]["execution_result"], json!(null));
+    let done = requests.iter().find(|v| v["result"] == "done").unwrap();
+    assert_eq!(done["execution_result"], "done");
+    assert!(done["acknowledged_at"].as_i64().is_some());
+    for request in requests.iter().filter(|v| v["result"] != "done") {
+        assert_eq!(request["execution_result"], json!(null));
+        assert_eq!(request["acknowledged_at"], json!(null));
+    }
+    assert!(requests.iter().any(|v| v["result"] == "unknown"));
+    assert!(store.read(|db|Ok(db.query_row("SELECT result IS NULL AND finished IS NULL FROM cluster_commands WHERE id='pending-expired'",[],|r|r.get::<_,bool>(0))?)).await.unwrap(),"history is read-only even when a deadline has passed");
+}

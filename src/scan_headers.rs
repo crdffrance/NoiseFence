@@ -1150,6 +1150,72 @@ mod tests {
 mod contract_tests {
     use super::*;
     #[test]
+    fn receipt_headers_match_private_export_after_recipient_override() {
+        use crate::{
+            actions, custom_filtering, decision_record, diagnostics::AnalysisPolicy,
+            fusion::runtime::Decision, mailing::Category,
+        };
+        let mut config = Config::load(std::path::Path::new("config/development.toml")).unwrap();
+        config.filter.threshold = 95.;
+        let mut scan = Scan {
+            score: 99.,
+            complete: false,
+            features_complete: Some(true),
+            model: "fixture".into(),
+            analysis_policy: Some(AnalysisPolicy::capture(&config)),
+            ..Default::default()
+        };
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        crate::decision::resolve_by_score(&mut scan, true, 95.);
+        let policy = custom_filtering::Assessment {
+            trace: None,
+            policy: "PRIVATE POLICY".into(),
+            profile: None,
+            threshold: 100.,
+            original_category: Category::Spam,
+            category: Category::Legitimate,
+            matched: vec![],
+            unavailable_conditions: 0,
+            action: actions::Applied {
+                coverage: None,
+                requested: actions::Action::Tag,
+                effective: actions::Action::Deliver,
+                reason: "observation".into(),
+                quarantine_days: 7,
+            },
+        };
+        decision_record::record_recipient(&mut scan, &config, Some(&policy), 1234);
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/recorded-decisions.json"))
+                .unwrap();
+        assert_eq!(crate::quality::recorded::snapshot(&scan), expected);
+        scan.score = 0.;
+        scan.complete = true;
+        scan.delivery_classification = Some(Category::Spam);
+        config.filter.threshold = 0.;
+        let wire = render(
+            &config,
+            "192.0.2.1".parse().unwrap(),
+            "fixture",
+            &scan,
+            None,
+        )
+        .replace("\r\n\t", " ");
+        for line in [
+            "X-NoiseFence-Verdict: ham",
+            "X-NoiseFence-Classification: legitimate",
+            "X-NoiseFence-Coverage: partial",
+            "X-NoiseFence-Score: 99.0",
+            "X-NoiseFence-Score-Type: partial",
+        ] {
+            assert!(wire.contains(&format!("{line}\r\n")), "{line}");
+        }
+        assert!(wire.contains("requested=tag; effective=deliver;"));
+        assert!(!wire.contains("PRIVATE"));
+        assert_eq!(crate::quality::recorded::snapshot(&scan), expected);
+    }
+
+    #[test]
     fn wire_and_console_share_scores_and_separate_tagging_from_classification() {
         let c = Config::load(std::path::Path::new("config/development.toml")).unwrap();
         let cases: Vec<serde_json::Value> =

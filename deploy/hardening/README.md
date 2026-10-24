@@ -125,7 +125,19 @@ in a network namespace. It starts no mail service or paid API call and deletes t
 copies afterward. Extraction stays beside the protected archive on disk, rather
 than in the system temporary directory, which may be a RAM-backed tmpfs. Reserve
 space for both the archive and its extracted files. Schedule backup daily and isolated verification weekly; monitor
-failures and freshness. A repository stored on mx1 is **not independent of mx1 loss**.
+failures and freshness. Verification requires one confirmed snapshot for every
+currently configured node, the selected backup mode, valid snapshot identities
+and a complete archive-check result including the queue metadata. An empty,
+duplicate, partial or mismatched set fails before restoration starts. Failure
+retains the last successful status, whose age must still be checked. Status
+files are atomically replaced with mode 0600.
+
+`restore-status.json` records both the verification time and `backup_time`, so a
+recent check of an old backup does not imply a recent backup. Its `recovery_scope`
+marks metadata-only checks as `metadata_only_not_a_queue_restore`; full checks
+use `archive_contents_only`. Neither value certifies a running recovered gateway.
+See the [independent resilience handoff](../../docs/external-resilience.md) before
+moving the collector outside the MX pair. A repository stored on mx1 is **not independent of mx1 loss**.
 Keep a separately recoverable copy of the encryption key and add independent storage
 when it becomes available.
 

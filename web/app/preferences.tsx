@@ -1,11 +1,17 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, Save, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, type User } from './client';
 import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, savesBlocked, type SaveResult } from './activation';
-import {TrafficPolicyEditor,defaultTrafficPolicy} from './traffic';
+import { ConfirmDialog } from './console-ui';
+import {
+  PreferencePreviewView,
+  type PreferencePreview,
+} from './preference-preview';
+import { orderingDescription } from './policy-trace';
+import { TrafficPolicyEditor, defaultTrafficPolicy } from './traffic';
 import type { Preferences, Preference } from './management';
 import type { CustomPolicy, Profile } from './custom-filtering';
 type Rule = CustomPolicy['rules'][number];
@@ -16,43 +22,46 @@ type View = {
   scopes: string[];
   mode: string;
   sensitivity_locked: boolean;
-  personal_traffic:boolean;
+  personal_traffic: boolean;
+  ordering: 'scoped' | 'legacy_priority';
 };
 const fields: Record<Rule['conditions'][number]['field'], string> = {
-  envelope_from: "Envelope sender",
-  from_domain: "Sender domain",
-  header_from: "From address",
-  subject: "Subject",
-  body: "Message text",
-  recipient: "Recipient",
-  recipient_domain: "Recipient domain",
-  size: "Size (bytes)",
+  envelope_from: 'Envelope sender',
+  from_domain: 'Sender domain',
+  header_from: 'From address',
+  subject: 'Subject',
+  body: 'Message text',
+  recipient: 'Recipient',
+  recipient_domain: 'Recipient domain',
+  size: 'Size (bytes)',
   score: 'Score',
-  category: "Category",
-  signal: "Engine signal",
+  category: 'Category',
+  signal: 'Engine signal',
   dmarc: 'DMARC',
 };
 const ops: Record<Rule['conditions'][number]['op'], string> = {
-  equals: "Equal to",
-  contains: "Contains",
-  starts_with: "Starts with",
-  ends_with: "Ends with",
-  present: "Present",
+  equals: 'Equal to',
+  contains: 'Contains',
+  starts_with: 'Starts with',
+  ends_with: 'Ends with',
+  present: 'Present',
   absent: 'Absent',
-  at_least: "At least",
-  at_most: "At most",
+  at_least: 'At least',
+  at_most: 'At most',
 };
 const actions = {
-  deliver: "Deliver",
-  tag: "Tag [SPAM] / [PUB]",
-  quarantine: "Quarantine",
+  deliver: 'Deliver',
+  tag: 'Tag [SPAM] / [PUB]',
+  quarantine: 'Quarantine',
 };
 export function MyFilters({
   user,
   onDirty,
+  onBusy,
 }: {
   user: User;
   onDirty: (dirty: boolean) => void;
+  onBusy: (busy: boolean) => void;
 }) {
   const activation = useActivation(user, false);
   const blocked = savesBlocked(activation.view, activation.error);
@@ -62,8 +71,56 @@ export function MyFilters({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  const customizeControl = useRef<HTMLInputElement>(null);
+  const saveNoticeRef = useRef<HTMLOutputElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  const reviewButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
+  useEffect(() => {
+    if (notice) saveNoticeRef.current?.focus();
+  }, [notice]);
+  const [pendingScope, setPendingScope] = useState<string | null>(null);
+  const [pendingReload, setPendingReload] = useState(false);
+  const [refreshRequired, setRefreshRequired] = useState(false);
+  const [addressInput, setAddressInput] = useState('');
+  const [recipient, setRecipient] = useState('');
+  const [review, setReview] = useState<{
+    key: string;
+    value: PreferencePreview;
+  } | null>(null);
+  const previewRecipient = scope.startsWith('*@')
+    ? recipient
+        .trim()
+        .replace(/@([^@]+)$/, (_, domain: string) => '@' + domain.toLowerCase())
+    : scope;
+  const reviewKey = JSON.stringify({
+    revision: view?.revision,
+    scope,
+    recipient: previewRecipient,
+    draft,
+  });
+  const reviewFresh =
+    review?.key === reviewKey &&
+    !refreshRequired &&
+    activation.view?.installed_revision === view?.revision;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    onBusy(busy);
+    return () => onBusy(false);
+  }, [busy, onBusy]);
   const saved = view?.settings.mailboxes[scope] ?? { profile: null, rules: [] };
-  const dirty = !!view && JSON.stringify(saved) !== JSON.stringify(draft);
+  const dirty =
+    !!view &&
+    !refreshRequired &&
+    JSON.stringify(saved) !== JSON.stringify(draft);
   useEffect(() => {
     let active = true;
     api<View>('/preferences')
@@ -72,6 +129,7 @@ export function MyFilters({
           setView(v);
           const s = v.scopes[0] ?? '';
           setScope(s);
+          setAddressInput(s.startsWith('*@') ? '' : s);
           setDraft(v.settings.mailboxes[s] ?? { profile: null, rules: [] });
         }
       })
@@ -88,49 +146,198 @@ export function MyFilters({
       if (dirty) e.preventDefault();
     };
     window.addEventListener('beforeunload', leave);
-    return () => window.removeEventListener('beforeunload', leave);
+    return () => {
+      window.removeEventListener('beforeunload', leave);
+      onDirty(false);
+    };
   }, [dirty, onDirty]);
-  function choose(s: string) {
-    if (
-      dirty &&
-      !window.confirm("Discard unsaved changes?")
-    )
-      return;
+  function switchScope(s: string) {
     setScope(s);
     setDraft(view?.settings.mailboxes[s] ?? { profile: null, rules: [] });
+    setRecipient('');
+    setReview(null);
     setNotice('');
+    setError('');
+    setAddressInput(s.startsWith('*@') ? '' : s);
   }
-  async function save(reset = false) {
-    if (!view || blocked) return;
+  function choose(s: string) {
+    if (busy || refreshRequired || s === scope) return;
+    if (dirty) {
+      setPendingScope(s);
+      return;
+    }
+    switchScope(s);
+  }
+  async function inspect(reset = false, display = true) {
+    if (!view || busy || !scope || !previewRecipient || refreshRequired) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api<PreferencePreview>(
+        '/preferences/preview',
+        {
+          revision: view.revision,
+          scope,
+          recipient: previewRecipient,
+          preference: reset ? null : draft,
+        },
+        user.csrf,
+      );
+      if (
+        result.schema !== 'preference-preview-1' ||
+        result.revision !== view.revision ||
+        result.scope !== scope ||
+        result.recipient !== previewRecipient
+      )
+        throw new Error(
+          'The review does not match this draft. Reload preferences and try again.',
+        );
+      if (mounted.current) {
+        if (display) setReview({ key: reviewKey, value: result });
+        return result;
+      }
+    } catch (e) {
+      if (mounted.current) {
+        setReview(null);
+        setError((e as Error).message);
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  async function enableProfile() {
+    const result = await inspect(false, false);
+    if (!result || !mounted.current) return;
+    setReview(null);
+    requestAnimationFrame(() => {
+      if (mounted.current) customizeControl.current?.focus();
+    });
+    const p = result.draft;
+    setDraft((previous) => ({
+      ...previous,
+      profile: {
+        id: 'personal',
+        name: 'Personal preferences',
+        threshold: null,
+        require_corroboration: true,
+        spam: p.spam,
+        publicity: p.publicity,
+        review: p.unassessed,
+        quarantine_days: p.quarantine_days,
+      },
+    }));
+  }
+  async function save() {
+    if (
+      !view ||
+      blocked ||
+      busy ||
+      !reviewFresh ||
+      !review ||
+      !view.settings.enabled
+    )
+      return;
     setBusy(true);
     setError('');
     setNotice('');
     try {
       const result = await api<SaveResult>(
         '/preferences',
-        { revision: view.revision, scope, preference: reset ? null : draft },
+        {
+          revision: view.revision,
+          scope,
+          preference: review.value.removing ? null : draft,
+        },
         user.csrf,
       );
-      const next = await api<View>('/preferences');
-      setView(next);
-      setDraft(next.settings.mailboxes[scope] ?? { profile: null, rules: [] });
-      await activation.refresh();
+      if (!mounted.current) return;
+      setReview(null);
       setNotice(saveNotice(result));
+      setRefreshRequired(true);
+      await activation.refresh();
+      try {
+        const next = await api<View>('/preferences');
+        if (!mounted.current) return;
+        setView(next);
+        setDraft(
+          next.settings.mailboxes[scope] ?? { profile: null, rules: [] },
+        );
+        setRefreshRequired(false);
+      } catch (e) {
+        if (mounted.current)
+          setError(
+            `Save acknowledged, but installed preferences could not be refreshed. Reload before editing again. ${(e as Error).message}`,
+          );
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current) {
+        setReview(null);
+        setError((e as Error).message);
+      }
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
+  async function reload() {
+    if (busy) return;
+    setBusy(true);
+    setPendingReload(false);
+    try {
+      const next = await api<View>('/preferences');
+      if (!mounted.current) return;
+      setView(next);
+      setDraft(next.settings.mailboxes[scope] ?? { profile: null, rules: [] });
+      setReview(null);
+      setError('');
+      setRefreshRequired(false);
+      setNotice('Installed preferences reloaded.');
+    } catch (e) {
+      if (mounted.current) setError((e as Error).message);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
+  const installedRevision = activation.view?.installed_revision;
+  const pendingActivation = activation.view?.pending;
+  const currentRevision = view?.revision;
   useEffect(() => {
-    if (!view || dirty || busy || !activation.view || activation.view.pending ||
-        activation.view.installed_revision === view.revision) return;
+    if (
+      currentRevision === undefined ||
+      dirty ||
+      busy ||
+      refreshRequired ||
+      installedRevision === undefined ||
+      pendingActivation ||
+      installedRevision === currentRevision
+    )
+      return;
     let active = true;
-    api<View>('/preferences').then(next => {
-      if (active) { setView(next); setDraft(next.settings.mailboxes[scope] ?? { profile: null, rules: [] }); setNotice('Installed preferences refreshed.'); }
-    }).catch(e => { if (active) setError(e.message); });
-    return () => { active = false; };
-  }, [activation.view, view, dirty, busy, scope]);
+    api<View>('/preferences')
+      .then((next) => {
+        if (active) {
+          setView(next);
+          setDraft(
+            next.settings.mailboxes[scope] ?? { profile: null, rules: [] },
+          );
+          setNotice('Installed preferences refreshed.');
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    installedRevision,
+    currentRevision,
+    pendingActivation,
+    dirty,
+    busy,
+    scope,
+    refreshRequired,
+  ]);
   function rule(i: number, p: Partial<Rule>) {
     setDraft({
       ...draft,
@@ -139,6 +346,42 @@ export function MyFilters({
   }
   return (
     <div className="management-settings personal-filters">
+      {pendingScope !== null && (
+        <ConfirmDialog
+          title="Discard unsaved filter changes?"
+          confirmLabel="Discard and change scope"
+          danger
+          busy={busy}
+          onCancel={() => {
+            setPendingScope(null);
+            setAddressInput(scope.startsWith('*@') ? '' : scope);
+          }}
+          onConfirm={() => {
+            switchScope(pendingScope);
+            setPendingScope(null);
+          }}
+        >
+          <p>
+            Only the current draft will be discarded. Installed policies and
+            delivered messages stay unchanged.
+          </p>
+        </ConfirmDialog>
+      )}
+      {pendingReload && (
+        <ConfirmDialog
+          title="Reload installed preferences?"
+          confirmLabel="Reload and discard draft"
+          danger
+          busy={busy}
+          onCancel={() => setPendingReload(false)}
+          onConfirm={() => void reload()}
+        >
+          <p>
+            Your current draft will be discarded only after installed
+            preferences can be loaded.
+          </p>
+        </ConfirmDialog>
+      )}
       <ActivationPanel state={activation} user={user} />
       <div className="page-title">
         <p className="eyebrow">PERSONAL SPACE</p>
@@ -146,37 +389,30 @@ export function MyFilters({
           <SlidersHorizontal size={26} /> My filters
         </h1>
         <p>
-          Choose sensitivity and actions for your addresses, then refine with your rules.
+          Choose sensitivity and actions for your addresses, then refine with
+          your rules.
         </p>
       </div>
       {error && (
-        <p role="alert" className="error">
+        <p ref={errorRef} tabIndex={-1} role="alert" className="error">
           {error}{' '}
           <Button
             variant="ghost"
-            onClick={async () => {
-              if (
-                dirty &&
-                !window.confirm("Reload and discard this draft?")
-              )
-                return;
-              try {
-                const v = await api<View>('/preferences');
-                setView(v);
-                setDraft(
-                  v.settings.mailboxes[scope] ?? { profile: null, rules: [] },
-                );
-                setError('');
-              } catch (e) {
-                setError((e as Error).message);
-              }
+            disabled={busy}
+            onClick={() => {
+              if (dirty && !refreshRequired) setPendingReload(true);
+              else void reload();
             }}
           >
             Reload
           </Button>
         </p>
       )}
-      {notice && <output className="notice">{notice}</output>}
+      {notice && (
+        <output ref={saveNoticeRef} tabIndex={-1} className="notice">
+          {notice}
+        </output>
+      )}
       {!view ? (
         <p>Loading preferences...</p>
       ) : (
@@ -185,6 +421,7 @@ export function MyFilters({
             <label>
               Authorized address or domain
               <select
+                disabled={busy || refreshRequired}
                 value={view.scopes.includes(scope) ? scope : ''}
                 onChange={(e) => choose(e.target.value)}
               >
@@ -200,32 +437,60 @@ export function MyFilters({
               <label>
                 Or a specific address in your domain
                 <input
+                  disabled={busy || refreshRequired}
                   aria-label="Specific address"
-                  key={scope}
-                  defaultValue={scope.startsWith('*@') ? '' : scope}
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
                   placeholder="name@example.org"
                   onBlur={(e) => {
                     if (e.target.value && e.target.value !== scope)
                       choose(
-                        e.target.value.replace(
-                          /@([^@]+)$/,
-                          (_, domain: string) => '@' + domain.toLowerCase(),
-                        ),
+                        e.target.value
+                          .trim()
+                          .replace(
+                            /@([^@]+)$/,
+                            (_, domain: string) => '@' + domain.toLowerCase(),
+                          ),
                       );
                   }}
                 />
               </label>
             )}
             <p>
-              Selected scope:{' '}
-              <strong>{scope || "No address assigned"}</strong>
+              Selected scope: <strong>{scope || 'No address assigned'}</strong>
             </p>
             <p>
-              A precise address prevails over the domain settings. The administrator&apos;s global rules and antivirus protection remain a priority.
+              {orderingDescription(view.ordering)} Administrator rules and
+              malware protection remain authoritative.
             </p>
+            {scope.startsWith('*@') && (
+              <label>
+                Original recipient for this review
+                <input
+                  disabled={busy || refreshRequired}
+                  value={recipient}
+                  placeholder="mailbox@example.test"
+                  onChange={(e) => setRecipient(e.target.value)}
+                />
+                <small>
+                  Choose one accepted mailbox in this domain. The review is
+                  specific to that address, including its alias policy.
+                </small>
+              </label>
+            )}
+            <Button
+              variant="outline"
+              disabled={busy || !scope || !previewRecipient || refreshRequired}
+              ref={reviewButton}
+              onClick={() => void inspect()}
+            >
+              Review installed and draft settings
+            </Button>
             {view.mode === 'observe' && (
               <p className="notice">
-                Active observation: decisions are visible in history, all messages are transmitted without marking or quarantine.
+                Active observation: decisions are visible in history, filtering
+                action policy transmits messages without tagging or quarantine.
+                Separate traffic protection and protocol checks still apply.
               </p>
             )}
           </section>
@@ -235,31 +500,52 @@ export function MyFilters({
             </p>
           )}
           <fieldset
-            disabled={!view.settings.enabled || busy || !scope || blocked}
+            disabled={
+              !view.settings.enabled ||
+              busy ||
+              !scope ||
+              blocked ||
+              refreshRequired
+            }
             className="personal-controls"
           >
-            {view.personal_traffic && <section className="management-card"><h3>Traffic protection</h3><label><input type="checkbox" checked={!!draft.traffic} onChange={e=>setDraft({...draft,traffic:e.target.checked?{...defaultTrafficPolicy}:null})}/> Customize traffic limits for this scope</label>{draft.traffic && <TrafficPolicyEditor value={draft.traffic} onChange={traffic=>setDraft({...draft,traffic})}/>}</section>}
+            {view.personal_traffic && (
+              <section className="management-card">
+                <h3>Traffic protection</h3>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={!!draft.traffic}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        traffic: e.target.checked
+                          ? { ...defaultTrafficPolicy }
+                          : null,
+                      })
+                    }
+                  />{' '}
+                  Customize traffic limits for this scope
+                </label>
+                {draft.traffic && (
+                  <TrafficPolicyEditor
+                    value={draft.traffic}
+                    onChange={(traffic) => setDraft({ ...draft, traffic })}
+                  />
+                )}
+              </section>
+            )}
             <section className="management-card">
               <label className="setting-toggle">
                 <input
                   type="checkbox"
+                  ref={customizeControl}
                   checked={draft.profile !== null}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      profile: e.target.checked
-                        ? {
-                            ...(view.defaults[scope] ??
-                              view.defaults['*@' + scope.split('@').pop()] ??
-                              view.defaults['*']),
-                            id: 'personal',
-                            name: "Personal preferences",
-                            threshold: null,
-                            require_corroboration: true,
-                          }
-                        : null,
-                    })
-                  }
+                  disabled={!previewRecipient}
+                  onChange={(e) => {
+                    if (e.target.checked) void enableProfile();
+                    else setDraft({ ...draft, profile: null });
+                  }}
                 />
                 Customize sensitivity and actions
               </label>
@@ -284,14 +570,14 @@ export function MyFilters({
                       }
                     >
                       <option value="inherit">
-                        Inherited from the admin threshold
+                        Inherit the next applicable threshold
                       </option>
                       {[
-                        [99.5, "Very tolerant"],
-                        [98, "Lenient"],
-                        [95, "Balanced"],
+                        [99.5, 'Very tolerant'],
+                        [98, 'Lenient'],
+                        [95, 'Balanced'],
                         [90, 'Strict'],
-                        [85, "Very strict"],
+                        [85, 'Very strict'],
                       ]
                         .filter(
                           ([n]) =>
@@ -340,7 +626,9 @@ export function MyFilters({
                   </label>
                   {(['spam', 'publicity'] as const).map((k) => (
                     <label key={k}>
-                      {k === 'spam' ? "Spam detected" : "Marketing and newsletters"}
+                      {k === 'spam'
+                        ? 'Spam detected'
+                        : 'Marketing and newsletters'}
                       <select
                         value={draft.profile![k]}
                         onChange={(e) =>
@@ -350,12 +638,19 @@ export function MyFilters({
                           })
                         }
                       >
-                        {view.settings.allowed_actions
-                          .map((a) => (
-                            <option key={a} value={a}>
-                              {actions[a]}
-                            </option>
-                          ))}
+                        {!view.settings.allowed_actions.includes(
+                          draft.profile![k],
+                        ) && (
+                          <option value={draft.profile![k]} disabled>
+                            {actions[draft.profile![k]]} · administrator only —
+                            choose an allowed action
+                          </option>
+                        )}
+                        {view.settings.allowed_actions.map((a) => (
+                          <option key={a} value={a}>
+                            {actions[a]}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   ))}
@@ -385,7 +680,9 @@ export function MyFilters({
                 My rules {draft.rules.length}/{view.settings.max_rules}
               </h2>
               <p>
-                The rules apply in this order, then the rules of the administrator. Corrections do not change messages already delivered.
+                The server orders active rules according to the selected
+                inheritance mode. Review the proposed order before applying.
+                Settings do not change messages already delivered.
               </p>
               <Button
                 variant="outline"
@@ -397,7 +694,7 @@ export function MyFilters({
                       ...draft.rules,
                       {
                         id: crypto.randomUUID(),
-                        name: "New rule",
+                        name: 'New rule',
                         enabled: true,
                         priority: draft.rules.length,
                         scope,
@@ -603,7 +900,9 @@ export function MyFilters({
                       <option value="spam">Spam</option>
                       <option value="publicity">Marketing</option>
                       <option value="legitimate">Legitimate</option>
-                      <option value="undetermined">Automatic decision by threshold (legacy rule)</option>
+                      <option value="undetermined">
+                        Automatic decision by threshold (legacy rule)
+                      </option>
                     </select>
                   </label>
                   <label>
@@ -629,31 +928,50 @@ export function MyFilters({
             ))}
             <div className="personal-save">
               <span>
-                {dirty
-                  ? "Unsaved changes"
-                  : activation.view?.pending ? "Activation pending" : "Installed preferences"}
+                {refreshRequired
+                  ? 'Saved · refresh required'
+                  : dirty
+                    ? 'Unsaved changes'
+                    : activation.view?.pending
+                      ? 'Activation pending'
+                      : 'Installed preferences'}
               </span>
               <Button
                 variant="outline"
-                disabled={!view.settings.mailboxes[scope]}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Remove these preferences and inherit global settings?",
-                    )
-                  )
-                    void save(true);
-                }}
+                disabled={!view.settings.mailboxes[scope] || !previewRecipient}
+                onClick={() => void inspect(true)}
               >
                 <RotateCcw size={16} />
-                Inherit
+                Review inherited settings
               </Button>
-              <Button disabled={!dirty} onClick={() => void save()}>
+              <Button
+                disabled={!dirty || !previewRecipient}
+                onClick={() => void inspect()}
+              >
                 <Save size={16} />
-                {busy ? "Saving…" : "Save my filters"}
+                {busy ? 'Checking…' : 'Review my changes'}
               </Button>
             </div>
           </fieldset>
+          {review && (
+            <PreferencePreviewView
+              value={review.value}
+              stale={!reviewFresh}
+              canApply={
+                view.settings.enabled &&
+                !blocked &&
+                (review.value.removing || dirty)
+              }
+              busy={busy}
+              onApply={() => void save()}
+              onClose={() => {
+                setReview(null);
+                requestAnimationFrame(() => {
+                  if (mounted.current) reviewButton.current?.focus();
+                });
+              }}
+            />
+          )}
         </>
       )}
     </div>

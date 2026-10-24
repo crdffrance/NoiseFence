@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.32.0-rc.1 — Consistent decisions, reviewed administration and paired maintenance
+
+This prerelease is for qualification in observation mode. It does not establish
+capture or false-positive rates, enable providers, promote a model, change
+thresholds or activate delivery policies.
+
+### Recorded decisions and filtering evidence
+
+- Return a temporary SMTP storage error if buffered DATA cannot be flushed or reread, instead of silently closing the connection. Exercise actual kernel ENOSPC before MAIL and after DATA begins, preserving already accepted messages and checking recovery after space is released.
+- Preserve documented CRDF permission, quota and response-shape failures in provider summaries while excluding unknown response text. Describe generic HTTP 401/403 as an access refusal without assuming that a key is invalid.
+- Preserve receipt-time engine verdicts, recipient-policy outcomes and requested/effective actions in full-population exports. Offline evaluation retains unavailable baselines, reads both population generations and separates recorded decisions from hypothetical candidates.
+- Explain when lexical evidence alone crosses the recorded content threshold without presenting the index as a calibrated probability. Keep human labels, AI suggestions, development samples and protected evaluation labels distinct.
+- Recognize distributed commercial discounts and cheaper offers while retaining transactional, security and conversation exclusions (`mailing-6`). Preserve ranked content hosts and final redirect destinations in reputation checks, including when HTTP following is disabled.
+- Accept explicit boolean CRDF blacklist states alongside integer/string 0/1 with strict target binding. Distinguish schema failures and bounded allowlisted HTTP errors without retaining provider text. Cache stale VirusTotal observations for 30 minutes without treating them as clean or current evidence.
+
+### Console and administration
+
+- Unify samples, independent engine comparisons and rule reliability under **Quality & research**, preserving old sample links and keyboard navigation. Keep Rspamd separate from NoiseFence decisions and distinguish detector disagreement from a confirmed error.
+- Present the saved verdict/action, latest delivery state, primary reasons, coverage and per-recipient controls separately. Fix overlapping research panels and clarify high-index Ham decisions, annotation provenance and precision labels.
+- Unify corrections and annotations around explicit saves, purpose and saved-state summaries. Preserve drafts across other-row saves, navigation and refresh failures; confirm abandonment and prevent further writes while refreshed labels are unavailable.
+- Review personal filter inheritance before saving, including aliases, administrator precedence, dormant values and fusion-managed sensitivity. Reuse SMTP rule ordering in read-only, recipient-scoped previews.
+- Bind administrator review to the exact settings, revision and model selection. Compare changed values, preserve related drafts, confirm discard and restoration, and distinguish acknowledged saves from failed refreshes. Load history, audit and operations independently; unavailable data never appears empty.
+- Preserve console and deployment identity for release candidates as well as stable versions. Share accepted/rejected artifact-version examples between Rust and Python; keep the stable-update checker separate.
+- Add **Filters → Providers & budgets** with loaded configuration/credential state, effective capacity, reserved quotas, read-only LLM accounting and recent incidents. Report measured CRDF/VirusTotal p95 with missing timing and failed attempts explicit; preserve activation controls.
+- Add guided domain setup with explicit upstream routes and destination-recipient verification. Bounded administrator DNS and envelope-only SMTP checks never send DATA. Public MX publication and actual inbox delivery remain operator validation steps.
+- Add recipient-scoped quarantine history with bounded audit events, remote requests and independent execution receipts. Preserve late confirmations, prevent historical row-ID reuse, disable expired/pending actions and expose snapshot age. A remote command receipt never proves destination delivery.
+- Improve keyboard focus, confirmed navigation, contrast and narrow-screen layouts. Add a synthetic localhost demonstration excluded from production builds; update Vite to 8.3.5 and align the SMTP load fixture with `mailing-6`.
+
+### Paired maintenance and release integrity
+
+- Require standalone and exact-archive paired lifecycle rehearsals on both native architectures before publication. Pin the historical baseline by version, commit and checksum; retain only anonymous CI evidence. Mark host-built CI fixtures separately and refuse their publication.
+- Normalize public archive ownership and permissions independently of the build umask, so the unprivileged service can enter candidate releases. Keep private build directories unchanged and refuse special archive members.
+- Add read-only upgrade prerequisites and prevent native installers from changing selected, partially selected or unknown management authority. Persist service holds, then validate exact expiring candidates bound to configuration, policy, authority, binary and service identities.
+- Support held pointer promotion, unchanged cancellation and pre-commit restoration. Require mutual durable promises and one coordinator decision before ordinary startup; verify fresh policy and replica readiness before releasing auxiliary jobs. Retain forward recovery after committed startup failure.
+- Complete an already-started pair over restricted pinned SSH, with exact operation authorization, bounded nonce-bound replies and durable recovery after a lost completion response. Earlier reservation, preparation and startup stages remain operator-driven.
+- Authenticate bounded archive inspection and native staging against the exact GitHub repository, release workflow, tag and source commit. Verify signed provenance before publication; historical archives without attestations cannot use this staging path. Share bounded prerelease identities across manifests, archives and maintenance helpers.
+- Preserve unchanged, digest-verified 0.31.9 policies without authorizing new mixed-build credential-bound activations. Selected PostgreSQL synchronization requires equal application builds and coordinated maintenance. Semantic version ordering does not prove rollback compatibility.
+- Add isolated native ARM64/systemd and SSH failure rehearsals, standalone archive installation checks, and a paired mode that tests exact archive contents without synthetic replacement. Require successful container and anonymous-volume cleanup before reporting an installation rehearsal as passed. Prepare independent monitoring and backup handoff. Use ephemeral export-test credentials and retain CodeQL checks without suppression.
+
+### Documentation and qualification limits
+
+The English guides describe decisions, label provenance, reviewed settings,
+quarantine history, maintenance trust boundaries and recovery. Source changes
+start a distinct detector cohort; historical vectors cannot establish current
+accuracy without verified equivalence and independent evaluation.
+
+Final RC archives on both architectures, the first positive attestation/staging
+round trip, production security profiles and post-start rollback still require
+qualification. Independent monitoring and backup activation need operator-supplied
+infrastructure. Observation, configured Scaleway suspension, Rspamd as a second
+opinion and the two-copy acceptance requirement remain unchanged.
+
 ## 0.31.9 — Qualification guidance and operational verification
 
 - Explain missing campaign counts and classes per chronological partition, with separate risk and mail-type readiness. Insufficient data still produces no candidate.

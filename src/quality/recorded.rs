@@ -3,6 +3,8 @@
 use crate::{decision_record::Coverage, engine::Scan};
 use serde_json::{Value, json};
 
+pub mod contract;
+
 pub const SCHEMA: &str = "noisefence-quality-decisions-1";
 
 pub fn snapshot(scan: &Scan) -> Value {

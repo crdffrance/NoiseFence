@@ -64,7 +64,7 @@ docker compose down
 
 Use Linux amd64 or arm64 with glibc 2.36 or newer, systemd and Python 3.11 or newer. Debian 12/13 are suitable baselines. Provide an explicit upstream route, authorized recipient/domain policy, public hostname, working forward/reverse DNS, a verified certificate and inbound/outbound TCP 25. Size storage for the maximum queue age and optional replicas.
 
-1. Download the matching archive and `.sha256` file from a specific [NoiseFence release](https://github.com/crdffrance/NoiseFence/releases). Check the outer SHA-256 before extracting, and the archive's `SHA256SUMS` before installation.
+1. Download the matching archive and `.sha256` file from a specific [NoiseFence release](https://github.com/crdffrance/NoiseFence/releases). Check the outer SHA-256 and [exact workflow/tag/commit attestation](release-staging.md#verify-before-a-first-installation) before extracting, then the archive's `SHA256SUMS` before installation. Historical releases without this proof cannot satisfy the strict provenance path.
 2. Copy `config/production.example.toml` to a private installation file. Set the actual hostname, domain and recipients, explicit next hops, certificate/key paths and console HTTPS origin. Keep `filter.mode = "observe"`. No catch-all is enabled by default.
 3. Configure an HTTPS reverse proxy for the console and API. Keep the API on loopback, and make `web.public_origin` exactly match the public URL. Use secure cookies. A host TLS certificate must also be readable by the SMTP service; test STARTTLS independently of browser HTTPS.
 4. Run the verified installer as root with the extracted archive and your initial configuration:
@@ -76,7 +76,7 @@ sudo systemctl status noisefence
 sudo journalctl -u noisefence --since '10 minutes ago'
 ```
 
-The installer creates the service account, keeps the durable state under `/var/lib/noisefence`, installs versioned releases under `/opt/noisefence/releases`, and preserves existing configuration. Later policy edits belong in the Web console. Run `check-config` after host-level changes.
+The installer refuses configured or persisted management authorities before invoking the candidate or modifying installation state. Those installations require a coordinated procedure; see [paired upgrade preparation](paired-upgrades.md). For supported local installations, it creates the service account, keeps the durable state under `/var/lib/noisefence`, installs versioned releases under `/opt/noisefence/releases`, and preserves existing configuration. Later policy edits belong in the Web console. Run `check-config` after host-level changes.
 
 See [operations](operations.md), [SMTP standards and TLS](standards.md), and the [Linux hardening guide](../deploy/hardening/README.md). Do not enable a firewall rule or change SSH identities without retaining a verified administrator access path.
 
@@ -120,9 +120,9 @@ Verify certificate validation, authorized recipients, relay-loop prevention, ret
 
 Build or install a specific release, retain its checksum and preserve current state. Stop the old process cleanly before replacing it. Check configuration, API health, SMTP readiness, queue age, pending deliveries, replication acknowledgements and upstream errors after restart.
 
-On paired MX deployments, upgrade the coordinator first within the documented compatibility window, then workers. A temporary peer outage deliberately produces `451`; it must not fall back to one copy. Preserve the five-day retry responsibility and all accepted bodies.
+Start with the [paired upgrade checklist and read-only reports](paired-upgrades.md). On paired MX deployments, upgrade the coordinator first within the documented compatibility window and a rehearsed procedure, then workers. A temporary peer outage deliberately produces `451`; it must not fall back to one copy. Preserve the five-day retry responsibility and all accepted bodies.
 
-Database schema 5 requires an HA-compatible release. Never restore an old database over current accepted mail or downgrade past the recorded schema/policy compatibility. Binary rollback, restoring a Web policy revision and disaster recovery are different operations. Keep the previous verified release, current backups and the [HA recovery procedure](high-availability.md) available before upgrading.
+The archive declares maximum local format 7: paired replication uses format 5, management transport format 6, and selected PostgreSQL management format 7. A format number alone does not establish cluster or management compatibility. Never restore an old database over current accepted mail or downgrade past the recorded schema/policy compatibility. Binary rollback, restoring a Web policy revision and disaster recovery are different operations. Keep the previous verified release, current backups and the [HA recovery procedure](high-availability.md) available before upgrading.
 
 ## Installed version and release checks
 

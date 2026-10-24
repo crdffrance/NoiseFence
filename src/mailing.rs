@@ -10,7 +10,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock, time::Instant};
 
-pub const VERSION: &str = "mailing-5";
+pub const VERSION: &str = "mailing-6";
 pub(crate) const SIGNAL_SQL: &str = "COALESCE(json_extract(m.scan,'$.mailing.status')='complete' AND json_extract(m.scan,'$.mailing.verdict') IN ('promotion','newsletter'),0)";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -337,7 +337,7 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         report,
         "commercial_offer",
         matches(
-            r"\b(?:promotions?|promos?|soldes|reductions?|remises?|discounts?|offres? (?:exclusives?|speciales?|du jour)|vente privee|black friday|flash sale|special offer|limited.time offer|(?:app(?:lication)?(?: mobile)?|essai|trial) gratuit(?:e)?|accompagnement patrimonial|rabatt|ofertas?|descuentos?|sconti)\b|\b(?:save|savings|economisez) (?:up to |jusqu'a )?[1-9][0-9]?\s*%",
+            r"\b(?:promotions?|promos?|soldes|reductions?|remises?|discounts?|offres? (?:exclusives?|speciales?|du jour)|vente privee|black friday|flash sale|special offer|limited.time offer|moins cher|(?:app(?:lication)?(?: mobile)?|essai|trial) gratuit(?:e)?|accompagnement patrimonial|rabatt|ofertas?|descuentos?|sconti)\b|\b(?:save|savings|economisez) (?:up to |jusqu'a )?(?:[1-9][0-9]?\s*%|[€$£]\s*[1-9][0-9]{0,3}(?:[.,][0-9]{2})?\b|[1-9][0-9]{0,3}(?:[.,][0-9]{2})?\s*(?:€|euros?\b))",
             &OFFER,
             &content,
         ),
@@ -362,7 +362,7 @@ fn analyze(raw: &[u8], policy: &Policy, report: &mut Report) -> Result<()> {
         report,
         "discount",
         matches(
-            r"(?:\b[1-9][0-9]?\s*%\s*(?:off|de (?:remise|reduction)|discount|de descuento)|\b(?:code promo|promo code|coupon code|livraison offerte|free shipping)\b)",
+            r"(?:\b[1-9][0-9]?\s*%\s*(?:off|de (?:remise|reduction)|discount|de descuento)|\b[1-9][0-9]{0,3}(?:[.,][0-9]{2})?\s*(?:€|euros?)\s*de (?:remise|reduction)\b|(?:\bsave\s*)?[€$£]\s*[1-9][0-9]{0,3}(?:[.,][0-9]{2})?\s*(?:off\b|discount\b)|\bsave\s+[€$£]\s*[1-9][0-9]{0,3}(?:[.,][0-9]{2})?\b|\b(?:code promo|promo code|coupon code|livraison offerte|free shipping)\b)",
             &DISCOUNT,
             &content,
         ),

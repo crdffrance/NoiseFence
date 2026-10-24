@@ -104,4 +104,7 @@ if __name__=='__main__':
     if os.geteuid()!=0:parser.error('Root required')
     with open('/run/noisefence-upgrade.lock','a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        try:Path('/var/lib/noisefence-upgrade/active.json').lstat()
+        except FileNotFoundError:pass
+        else:raise ValueError('A durable upgrade reservation is active')
         print(json.dumps(promote(args.fence_receipt,args.disaster)))

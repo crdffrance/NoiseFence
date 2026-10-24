@@ -535,3 +535,127 @@ fn frozen_sample_changes_policy_not_receipts_and_never_invents_a_zero() {
         506
     );
 }
+
+#[test]
+fn settings_preview_uses_the_same_profile_and_rule_order_as_smtp() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    cfg.domains[0]
+        .aliases
+        .insert("alias@example.test".into(), "alice@example.test".into());
+    let recipient = cfg.recipient("alias@example.test").unwrap();
+    for ordering in [Ordering::Scoped, Ordering::LegacyPriority] {
+        cfg.custom_filtering = Some(Policy {
+            ordering,
+            profiles: vec![
+                profile("global", Some(95.)),
+                profile("domain", Some(98.)),
+                profile("mailbox", None),
+            ],
+            bindings: vec![
+                Binding {
+                    scope: "*".into(),
+                    profile: "global".into(),
+                },
+                Binding {
+                    scope: "*@example.test".into(),
+                    profile: "domain".into(),
+                },
+                Binding {
+                    scope: "alice@example.test".into(),
+                    profile: "mailbox".into(),
+                },
+            ],
+            rules: vec![
+                rule("domain", "*@example.test", 1, Category::Publicity),
+                rule("global", "*", 5, Category::Spam),
+            ],
+            ..Default::default()
+        });
+        cfg.preferences.mailboxes.insert(
+            "*@example.test".into(),
+            Preference {
+                traffic: None,
+                profile: Some(profile("personal", None)),
+                rules: vec![rule("personal", "*@example.test", 7, Category::Legitimate)],
+            },
+        );
+        let empty = Policy::default();
+        let policy = cfg
+            .preferences
+            .policy(cfg.custom_filtering.as_ref().unwrap_or(&empty), &recipient);
+        let scan = scan();
+        let facts = Facts::metadata("sender@elsewhere.test", &scan);
+        let decision = assess(&policy, &cfg, &scan, &facts, &recipient, 1000);
+        let view = noisefence::preferences::preview::inspect(&cfg, &recipient, 1000);
+        let trace = decision.trace.unwrap();
+        assert_eq!(view.threshold, Some(decision.threshold));
+        assert_eq!(view.threshold_source.origin, Some(Origin::Administrator));
+        assert_eq!(
+            view.threshold_source.scope.as_deref(),
+            Some("*@example.test")
+        );
+        assert_eq!(
+            view.profiles
+                .iter()
+                .map(|p| (p.source.name.clone(), p.source.scope.clone(), p.selected))
+                .collect::<Vec<_>>(),
+            trace
+                .profiles
+                .iter()
+                .map(|p| (p.name.clone(), Some(p.scope.clone()), p.selected))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            view.rules.iter().map(|r| &r.name).collect::<Vec<_>>(),
+            trace.rules.iter().map(|r| &r.name).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn settings_preview_handles_disabled_preferences_expiry_and_fusion_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = (*common::config(dir.path())).clone();
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    let mut expired = rule("expired", "*", 0, Category::Spam);
+    expired.expires = Some(1000);
+    let mut disabled = rule("disabled", "*", 1, Category::Spam);
+    disabled.enabled = false;
+    cfg.custom_filtering = Some(Policy {
+        ordering: Ordering::Scoped,
+        rules: vec![
+            expired,
+            disabled,
+            rule("other", "bob@example.test", 2, Category::Spam),
+        ],
+        ..Default::default()
+    });
+    cfg.preferences.mailboxes.insert(
+        recipient.address.clone(),
+        Preference {
+            traffic: None,
+            profile: Some(profile("personal", Some(90.))),
+            rules: vec![],
+        },
+    );
+    let active = noisefence::preferences::preview::inspect(&cfg, &recipient, 1000);
+    assert_eq!(active.threshold, Some(90.));
+    assert_eq!(active.threshold_source.origin, Some(Origin::Personal));
+    assert!(active.rules.is_empty());
+    cfg.preferences.enabled = false;
+    let dormant = noisefence::preferences::preview::inspect(&cfg, &recipient, 1000);
+    assert!(!dormant.personal_enabled);
+    assert!(dormant.profiles.is_empty());
+    assert_eq!(dormant.threshold, Some(cfg.filter.threshold));
+    cfg.fusion = Some(noisefence::fusion::runtime::Settings {
+        family_caps: false,
+        model: "fixture".into(),
+        mode: noisefence::fusion::runtime::Mode::Decision,
+        validation_report: None,
+    });
+    let locked = noisefence::preferences::preview::inspect(&cfg, &recipient, 1000);
+    assert!(locked.threshold_locked);
+    assert!(locked.threshold.is_none());
+    assert!(locked.threshold_source.scope.is_none());
+}

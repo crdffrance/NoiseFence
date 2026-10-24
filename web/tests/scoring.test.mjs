@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
-import { scoreAdjustment, scoreValue } from '../app/scoring-format.ts';
+import { lexicalSensitivity, scoreAdjustment, scoreValue } from '../app/scoring-format.ts';
 
 const source = await readFile(new URL('../app/scoring-view.tsx',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText
@@ -69,4 +69,25 @@ test('dependency accounting shows excluded facts without reusing their proposed 
   }}));
   assert.doesNotMatch(escaped, /<script>/);
   assert.match(escaped, /&lt;script&gt;/);
+});
+
+test('lexical dominance uses the recorded threshold and never changes the verdict', () => {
+  const ledger = {...report, baseline:null, lexical:4, semantic:0.2, rules_total:-0.25,
+    total_logit:3.95, score:100/(1+Math.exp(-3.95))};
+  const sensitivity = lexicalSensitivity(ledger, 95);
+  assert.equal(sensitivity.lexicalReachesThreshold, true);
+  assert.ok(sensitivity.withoutLexical < 50);
+  const html = renderToStaticMarkup(createElement(ScoreAccounting,{report:ledger, threshold:95}));
+  assert.match(html, /lexical input alone reaches/);
+  assert.match(html, /not independent confirmation/);
+  assert.match(html, /not probabilities or replacement decisions/);
+  assert.equal(lexicalSensitivity(ledger),null);
+  for (const threshold of [0,100,NaN,Infinity]) assert.equal(lexicalSensitivity(ledger,threshold),null);
+  for (const change of [{lexical:null},{rules_total:null},{total_logit:9},{score:1},
+    {score:NaN},{baseline:-5},{invalid_inputs:1},{semantic:Infinity}]) {
+    assert.equal(lexicalSensitivity({...ledger,...change},95),null);
+  }
+  const lowered = {...ledger, rules_total:-2, total_logit:2.2, score:100/(1+Math.exp(-2.2))};
+  const restored = renderToStaticMarkup(createElement(ScoreAccounting,{report:lowered,threshold:95}));
+  assert.match(restored,/bring the combined index below/);
 });

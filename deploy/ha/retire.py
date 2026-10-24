@@ -122,6 +122,9 @@ def main():
             fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_NOFOLLOW,0o600)
             stream=stack.enter_context(os.fdopen(fd,'a'))
             fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        try:Path('/var/lib/noisefence-upgrade/active.json').lstat()
+        except FileNotFoundError:pass
+        else:raise ValueError('A durable upgrade reservation is active')
         print(json.dumps(retire(args.snapshot)))
 
 

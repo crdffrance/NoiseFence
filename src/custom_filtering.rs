@@ -457,6 +457,78 @@ impl Prepared {
         }
     }
 }
+/// The SMTP evaluator and configuration preview share this ordering.
+pub(crate) fn applicable_profiles<'a>(
+    policy: &'a Policy,
+    recipient: &Recipient,
+) -> Vec<(u8, &'a Profile, &'a str)> {
+    let mut profiles: Vec<_> = policy
+        .bindings
+        .iter()
+        .filter_map(|b| {
+            Some((
+                scope_rank(&b.scope, recipient)?,
+                policy.profiles.iter().find(|p| p.id == b.profile)?,
+                b.scope.as_str(),
+            ))
+        })
+        .collect();
+    profiles.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| {
+                if policy.ordering == Ordering::Scoped {
+                    policy
+                        .origins
+                        .profiles
+                        .contains_key(&b.1.id)
+                        .cmp(&policy.origins.profiles.contains_key(&a.1.id))
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .then_with(|| a.1.id.cmp(&b.1.id))
+    });
+    profiles
+}
+
+pub(crate) fn applicable_rules<'a>(
+    policy: &'a Policy,
+    recipient: &Recipient,
+    at: i64,
+) -> Vec<(usize, &'a Rule)> {
+    let mut rules: Vec<_> = policy
+        .rules
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| {
+            r.enabled
+                && r.expires.is_none_or(|t| t > at)
+                && scope_rank(&r.scope, recipient).is_some()
+        })
+        .collect();
+    rules.sort_by(|(_, a), (_, b)| {
+        let scope_order = if policy.ordering == Ordering::Scoped {
+            // Personal rules cannot stop administrator rules or override them.
+            (
+                !policy.origins.rules.contains_key(&a.id),
+                scope_rank(&a.scope, recipient),
+            )
+                .cmp(&(
+                    !policy.origins.rules.contains_key(&b.id),
+                    scope_rank(&b.scope, recipient),
+                ))
+        } else {
+            std::cmp::Ordering::Equal
+        };
+        scope_order.then_with(|| {
+            (a.priority, policy.origins.rules.get(&a.id).unwrap_or(&a.id))
+                .cmp(&(b.priority, policy.origins.rules.get(&b.id).unwrap_or(&b.id)))
+                .then_with(|| a.id.cmp(&b.id))
+        })
+    });
+    rules
+}
+
 pub fn assess(
     policy: &Policy,
     cfg: &Config,
@@ -499,32 +571,7 @@ pub fn assess_prepared(
         // Legacy rules retain their original content-index semantics.
         f.put(Field::Score, &score.to_string());
     }
-    let mut profiles: Vec<_> = policy
-        .bindings
-        .iter()
-        .filter_map(|b| {
-            Some((
-                scope_rank(&b.scope, recipient)?,
-                policy.profiles.iter().find(|p| p.id == b.profile)?,
-                b.scope.as_str(),
-            ))
-        })
-        .collect();
-    profiles.sort_by(|a, b| {
-        b.0.cmp(&a.0)
-            .then_with(|| {
-                if policy.ordering == Ordering::Scoped {
-                    policy
-                        .origins
-                        .profiles
-                        .contains_key(&b.1.id)
-                        .cmp(&policy.origins.profiles.contains_key(&a.1.id))
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
-            .then_with(|| a.1.id.cmp(&b.1.id))
-    });
+    let profiles = applicable_profiles(policy, recipient);
     let profile = profiles.first().map(|(_, p, _)| *p);
     // Defensive runtime guard as well as configuration validation: never turn a
     // fusion abstention into a legacy decision, even with an unchecked policy.
@@ -609,36 +656,7 @@ pub fn assess_prepared(
     let mut requested = choose(category);
     let mut matched = Vec::new();
     let mut unavailable_conditions = 0;
-    let mut rules: Vec<_> = policy
-        .rules
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| {
-            r.enabled
-                && r.expires.is_none_or(|t| t > at)
-                && scope_rank(&r.scope, recipient).is_some()
-        })
-        .collect();
-    rules.sort_by(|(_, a), (_, b)| {
-        let scope_order = if policy.ordering == Ordering::Scoped {
-            // Personal rules cannot stop administrator rules or override them.
-            (
-                !policy.origins.rules.contains_key(&a.id),
-                scope_rank(&a.scope, recipient),
-            )
-                .cmp(&(
-                    !policy.origins.rules.contains_key(&b.id),
-                    scope_rank(&b.scope, recipient),
-                ))
-        } else {
-            std::cmp::Ordering::Equal
-        };
-        scope_order.then_with(|| {
-            (a.priority, policy.origins.rules.get(&a.id).unwrap_or(&a.id))
-                .cmp(&(b.priority, policy.origins.rules.get(&b.id).unwrap_or(&b.id)))
-                .then_with(|| a.id.cmp(&b.id))
-        })
-    });
+    let rules = applicable_rules(policy, recipient, at);
     for (index, r) in rules {
         let mut step = crate::policy_trace::Rule {
             id: r.id.clone(),

@@ -10,7 +10,8 @@ import {
 
 test('failure diagnostics use fixed descriptions and do not echo untrusted text', () => {
   assert.match(checkFailure('timeout'), /Deadline/);
-  assert.match(checkFailure('authentication'), /authentication/);
+  assert.match(checkFailure('authentication'), /access rejected.*401\/403/);
+  assert.doesNotMatch(checkFailure('authentication'), /invalid (key|credential)/i);
   assert.equal(checkFailure(null), '');
   assert.equal(
     checkFailure('private@example.org <script>'),
@@ -253,4 +254,15 @@ test('qualification separates unassessed ham from guarded ham and never weakens 
   guarded.recipient_decision.classification = 'malware';
   assert.equal(classificationQualification(guarded), null);
   assert.equal(classificationQualification({decision: {outcome: 'legitimate'}}), null);
+});
+
+test('CRDF diagnostics separate schema, authorization and provider quota failures', () => {
+  assert.match(checkFailure('crdf_invalid_blacklist_state'), /invalid blacklist state/);
+  assert.match(checkFailure('crdf_missing_lookup_state'), /lookup state/);
+  assert.match(checkFailure('crdf_missing_permission'), /permission/);
+  assert.match(checkFailure('crdf_invalid_token'), /credential/);
+  assert.match(checkFailure('crdf_endpoint_quota'), /endpoint quota/);
+  assert.match(checkFailure('crdf_key_quota'), /credential quota/);
+  assert.match(checkFailure('crdf_ip_blocked'), /server IP/);
+  assert.match(checkFailure('crdf_key_blocked'), /API credential/);
 });

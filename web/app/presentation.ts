@@ -193,7 +193,7 @@ export function checkFailure(reason?: string | null) {
         budget_storage: 'Budget accounting unavailable',
         timeout: 'Deadline exceeded',
         network: 'Connection or TLS verification failed',
-        authentication: 'Provider authentication rejected',
+        authentication: 'Provider access rejected (HTTP 401/403)',
         rate_limit: 'Provider rate limit',
         provider_backoff: 'Provider cooldown after an error or refusal',
         http: 'Provider HTTP error',
@@ -205,6 +205,14 @@ export function checkFailure(reason?: string | null) {
         crdf_count_mismatch: 'CRDF response target count does not match the request',
         crdf_provider_error: 'CRDF reports an API error',
         crdf_invalid_schema: 'CRDF response format is not supported',
+        crdf_invalid_blacklist_state: 'CRDF returned an invalid blacklist state',
+        crdf_missing_lookup_state: 'CRDF did not return a valid lookup state',
+        crdf_invalid_token: 'CRDF rejected the API credential',
+        crdf_missing_permission: 'CRDF credential lacks the required lookup permission',
+        crdf_key_quota: 'CRDF credential quota reached',
+        crdf_endpoint_quota: 'CRDF endpoint quota reached',
+        crdf_ip_blocked: 'CRDF temporarily blocked this server IP',
+        crdf_key_blocked: 'CRDF temporarily blocked this API credential',
         accounting: 'Token usage exceeds the reserved budget',
       } as Record<string, string>
     )[reason] ?? 'Unknown cause'

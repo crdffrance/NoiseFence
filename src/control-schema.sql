@@ -160,3 +160,7 @@ CREATE TABLE IF NOT EXISTS quality_export_campaigns(
  fingerprint TEXT NOT NULL, simhash TEXT NOT NULL, exposed_at INTEGER NOT NULL,
  PRIMARY KEY(fingerprint,simhash)
 );
+
+-- Recipient-scoped quarantine history does not scan the whole administration audit.
+CREATE INDEX IF NOT EXISTS audit_quarantine_delivery ON audit(object_id,id DESC)
+ WHERE action IN ('quarantine_release','quarantine_delete','quarantine_expire');

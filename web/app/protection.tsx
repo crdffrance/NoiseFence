@@ -31,7 +31,7 @@ export type ProtectionPolicy = {
   link_exceptions: string[];
 };
 type Provider = 'crdf' | 'virustotal';
-type ProviderState = {
+export type ProviderState = {
   revision: number;
   available: boolean;
   keys: Record<Provider, boolean>;
@@ -123,7 +123,7 @@ export function ProtectionSettings({
       )}
       {notice && <output className="notice">{notice}</output>}
       {!status ? (
-        <p>Loading connectors...</p>
+        <p>{error ? 'Provider status unavailable. Reload this view to retry.' : 'Loading connectors…'}</p>
       ) : !status.available ? (
         <p>Module to install on the server.</p>
       ) : (
@@ -278,9 +278,7 @@ export function ProtectionSettings({
                 Search existing reports: CRDF domains (built HTTPS root, without path or email parameter); SHA-256 domains and fingerprints of attachments for VirusTotal. No message body, file or full link sent. Use keys licensed for this use.
               </p>
               <p className="small muted">
-                Quotas are shared by the entire server. Changing them does not reset meters to zero. Even unlimited:{' '}
-                {status.capacity?.max_parallel} simultaneous provider analyses,
-                {status.capacity?.max_indicators} indicators by provider and message, time {status.capacity?.timeout_ms} ms per provider.
+                Reservations are read from this node; a coordinator also counts credits issued to other MX servers. Changing limits does not reset counters. {status.capacity ? `Loaded capacity: ${status.capacity.max_parallel} parallel analyses, up to ${status.capacity.max_indicators} indicators per provider and message, ${status.capacity.timeout_ms} ms per provider.` : 'The module is currently disabled; capacity will be validated when the draft is applied.'}
               </p>
               <Button
                 type="button"
@@ -289,11 +287,12 @@ export function ProtectionSettings({
                     setStatus(await api<ProviderState>('/admin/protection'));
                     setError('');
                   } catch (e) {
+                    setStatus(null);
                     setError((e as Error).message);
                   }
                 }}
               >
-                Updating meters
+                Refresh counters
               </Button>
               <div className="module-grid">
                 {(['crdf', 'virustotal'] as const).map((provider) => (

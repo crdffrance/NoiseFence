@@ -92,7 +92,7 @@ No model is trained, promoted or enabled by these read-only counts.
 ### Operator procedure
 
 1. Keep **Filters → observation** and freeze detector/model/policy digests. Upgrade all MX software before collecting a new qualification cohort; mixed-version rolling-upgrade traffic is not one evaluation cohort.
-2. Open **Filter quality**, inspect **Evidence before activation**, and create distinct development and regression samples from the current cohort. Label messages without using engine scores as truth. Put previously corrected examples in regression, not the final holdout.
+2. Open **Quality & research → Samples & evaluation**, expand **Data readiness and release qualification**, and create distinct development and regression samples from the current cohort. Label messages without using engine scores as truth. Put previously corrected examples in regression, not the final holdout.
 3. Use the existing calibration workbench to export/train an observation-only candidate. Preserve rejected preparation reports when classes, campaigns, provenance or profiles are insufficient; do not force a fit or lower the statistical gates to obtain a model.
 4. Compare frozen NoiseFence and Rspamd results on the same human-labelled messages. Report missing analyses, unresolved actions, campaign denominators and results by mail kind/coverage. LLM-only regressions and reconstructed excerpts are separate experiments, never gateway accuracy results.
 5. Reserve a new prospective holdout after all prompt/rule changes. Qualify native and external latency separately on the reference hardware. Only activate actions after the independent promotion gates pass; keep the prior artifact and policy revision for rollback.

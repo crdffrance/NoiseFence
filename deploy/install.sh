@@ -3,11 +3,32 @@
 set -eu
 umask 027
 if [ "$(id -u)" != 0 ]; then echo 'Run this installer as root.' >&2; exit 1; fi
+# Hold the shared host lock for the entire installer, including child checks and
+# failed-start recovery. An interrupted paired operation remains reserved on disk.
+exec 9>/run/noisefence-upgrade.lock
+flock -n 9 || { echo 'Another host operation is running.' >&2; exit 1; }
+if [ -e /var/lib/noisefence-upgrade/active.json ] || [ -L /var/lib/noisefence-upgrade/active.json ]; then
+    echo 'A durable upgrade reservation is active; resume its owning operation.' >&2
+    exit 1
+fi
 bundle=$(realpath "${1:?Usage: install.sh EXTRACTED_RELEASE [INITIAL_CONFIG]}")
 initial_config=${2:-}
+if [ -n "$initial_config" ]; then initial_config=$(realpath "$initial_config"); fi
 cd "$bundle"
 sha256sum --check --quiet SHA256SUMS
 python3 -c "import sqlite3, tomllib"
+# Refuse selected or partially selected authorities before creating accounts,
+# copying configuration, changing release pointers or invoking the candidate.
+check_config=/etc/noisefence/config.toml
+if [ ! -f "$check_config" ]; then
+    if [ -z "$initial_config" ]; then echo 'Supply the initial configuration.' >&2; exit 1; fi
+    check_config=$(realpath "$initial_config")
+fi
+set -- --config "$check_config" --candidate "$bundle" --require-local-install
+if [ -e /opt/noisefence/current ] || [ -L /opt/noisefence/current ]; then
+    set -- "$@" --expect-existing-state
+fi
+python3 "$bundle/deploy/upgrade-check.py" "$@"
 version=$(./noisefence --version | awk '{print $2}')
 case "$version" in ''|*[!0-9A-Za-z.-]*) echo 'Invalid version' >&2; exit 1;; esac
 base=/opt/noisefence

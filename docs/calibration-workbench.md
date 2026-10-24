@@ -69,7 +69,7 @@ before this extension display an explicit request to run a new comparison.
 
 The table includes spam and legitimate denominators, class-specific review counts and confidence intervals. The small-sample notice below 20 paired labelled spams is a warning, not an activation or accuracy qualification threshold. All results remain descriptive until an independent, representative evaluation establishes the required confidence bounds. Rspamd predictions never supply training labels.
 
-NoiseFence 0.25 adds a reproducible research workflow under **Filter quality**. It does not claim perfect filtering or Rspamd-equivalent accuracy. A regression fix, agreement with Rspamd and a passing software test are different from measured performance on future mail.
+NoiseFence 0.25 adds a reproducible research workflow under **Quality & research → Samples & evaluation**. It does not claim perfect filtering or Rspamd-equivalent accuracy. A regression fix, agreement with Rspamd and a passing software test are different from measured performance on future mail.
 
 ## Prepare the data
 
@@ -267,3 +267,32 @@ software downgrades need a separate provenance review; a database copy alone doe
 not establish continuous export history. This mechanism does not certify blind
 labels, representative sampling, campaign independence, base-model provenance or
 qualification of the full delivery pipeline.
+
+## Diagnosing a dominant content model
+
+In message details, **How the content index was calculated** shows an arithmetic
+sensitivity diagnostic when the saved ledger and saved content threshold are
+consistent. It reports the index from the lexical input alone and the index with
+that input removed while keeping other contributions fixed. It explicitly notes
+when the lexical input alone crosses the threshold, including cases where other
+inputs bring the combined index back below it. Missing ledgers, invalid inputs or
+unrecorded thresholds do not receive reconstructed numbers from current settings.
+
+These values explain a receipt; they do not alter the verdict, represent spam
+probabilities, or evaluate the counterfactual safety of removing the model. Rules,
+models and external checks can be correlated. Use the existing **without_lexical**,
+**without_llm** and **without_providers** training ablations only after the fixed
+chronological partitions contain enough human-labelled campaigns. Report recall
+and false positives together and qualify against later independent traffic.
+
+Wanted promotions are risk `legitimate`, kind `promotion`; they are not extra spam
+training examples. Mailing version `mailing-6` recognizes currency discounts and
+cheaper offers when paired with distribution and commercial evidence. Receipt,
+security-message and conversation exclusions still take precedence, and a PUB
+hint never overrides a malicious verdict or demonstrates recipient consent.
+
+Application changes that affect extraction, provider selection or decision inputs
+continue to create distinct detector cohorts. Do not merge old vectors merely to
+meet sample counts. A future narrower detector fingerprint requires an audited
+dependency boundary and equivalence tests; removing files from the current
+fingerprint without that work is not a calibration fix.

@@ -13,9 +13,11 @@ import subprocess
 import time
 
 import train_fusion as f
+from recorded_decisions import validate_snapshot, policy_outcome
 
 SCHEMA = 'noisefence-population-evaluation-1'
-PREDICTIONS = 'noisefence-population-predictions-1'
+PREDICTIONS = 'noisefence-population-predictions-2'
+LEGACY_PREDICTIONS = 'noisefence-population-predictions-1'
 LABELS = ('legit', 'spam', 'phishing', 'unwanted_binary', 'uncertain')
 
 
@@ -156,6 +158,39 @@ def outcome_metrics(rows, predictions, campaign_groups):
                           'conservative_stability': f.metrics(campaign_labels, campaign_predictions)}}
 
 
+def recorded_results(rows, campaign_groups):
+    """Saved detector opinion and recipient policy, never hypothetical delivery.
+
+    Legacy population exports have no final-policy receipt. Do not reconstruct
+    that missing baseline from the old engine verdict, a tag or today's threshold.
+    """
+    engines, policies, provenance = [], [], Counter()
+    actions = {stage: Counter() for stage in ('requested', 'effective')}
+    transitions = Counter()
+    for row in rows:
+        snapshot = validate_snapshot(row) if row.get('decision_snapshot') is not None else None
+        provenance[snapshot['provenance'] if snapshot else 'not_exported'] += 1
+        engine = snapshot['engine'] if snapshot else row.get('decision')
+        engines.append({'unwanted': True, 'legitimate': False}.get((engine or {}).get('outcome')))
+        policies.append({'spam': True, 'legitimate': False}.get(policy_outcome(row)) if snapshot else None)
+        action = snapshot['action'] if snapshot else None
+        truth = 'unwanted' if row['spam'] is True else 'wanted' if row['spam'] is False else 'unknown'
+        for stage in actions:
+            actions[stage][(truth, action[stage] if action else 'not_recorded')] += 1
+        if action:
+            transitions[(action['requested'], action['effective'])] += 1
+    return {
+        'engine': outcome_metrics(rows, engines, campaign_groups),
+        'recipient_policy': outcome_metrics(rows, policies, campaign_groups),
+        'provenance': dict(provenance),
+        'actions_by_truth': {stage: [dict(truth=truth, action=action, count=count)
+            for (truth, action), count in sorted(values.items())] for stage, values in actions.items()},
+        'action_transitions': [dict(requested=requested, effective=effective, count=count)
+            for (requested, effective), count in sorted(transitions.items())],
+        'delivery_completion_measured': False,
+    }
+
+
 def target_supported(result, rows, sampling, review):
     if (sampling['kind'] != 'representative' or not review['blinded'] or not review['independent_campaigns']
             or result['unknown_truth'] or result['unassessable']
@@ -175,13 +210,17 @@ def checked_predictions(path, population_hash, model_hash, manifest_hash):
     header, footer = data[0], data[-1]
     f.require(set(header) == {'type', 'schema', 'source', 'protocol_sha256', 'model_sha256',
               'manifest_sha256', 'hypothetical', 'production_eligible'}
-              and header['type'] == 'header' and header['schema'] == PREDICTIONS
+              and header['type'] == 'header' and header['schema'] in (PREDICTIONS, LEGACY_PREDICTIONS)
               and header['protocol_sha256'] == f.PROTOCOL_HASH and header['model_sha256'] == model_hash
               and header['manifest_sha256'] == manifest_hash and header['hypothetical'] is True
               and header['production_eligible'] is False, 'Native prediction model binding mismatch')
     f.require(set(footer) == {'type', 'schema', 'population_sha256', 'source_counts', 'counts'}
-              and footer['type'] == 'footer' and footer['schema'] == PREDICTIONS
+              and footer['type'] == 'footer' and footer['schema'] == header['schema']
               and footer['population_sha256'] == population_hash, 'Native prediction population binding mismatch')
+    source_schema = header['source'].get('schema')
+    f.require(source_schema in ('noisefence-population-1', 'noisefence-population-2')
+              and (header['schema'] != LEGACY_PREDICTIONS or source_schema == 'noisefence-population-1'),
+              'Invalid population source version')
     rows = data[1:-1]
     counts = footer['counts']
     f.require(set(counts) == {'rows', 'assessed', 'unassessable', 'artifact_mismatch', 'ineligible_to_tag',
@@ -192,8 +231,13 @@ def checked_predictions(path, population_hash, model_hash, manifest_hash):
     for r in rows:
         f.require(set(r) == {'type', 'id', 'observed_at', 'raw_sha256', 'fingerprint', 'simhash', 'complete',
                   'features_complete', 'decision', 'tagged', 'label', 'evidence_status', 'availability_profile',
-                  'assessment', 'prediction'} and r['type'] == 'row' and f.is_hex(r['id']) and r['id'] not in seen,
+                  'assessment', 'prediction'} | ({'decision_snapshot'} if header['schema'] == PREDICTIONS else set())
+                  and r['type'] == 'row' and f.is_hex(r['id']) and r['id'] not in seen,
                   'Invalid native population row')
+        if source_schema == 'noisefence-population-2':
+            validate_snapshot(r, required=True)
+        else:
+            f.require(r.get('decision_snapshot') is None, 'Legacy export cannot claim an added receipt')
         seen.add(r['id'])
         p = r['prediction']
         if p is None:
@@ -277,7 +321,7 @@ def evaluate(manifest_path, output):
                    'manifest_sha256': hashlib.sha256(raw).hexdigest(), 'pins': pins})
     output.mkdir(parents=True, mode=0o700)
     f.private_json(output/'started.json', f.decode(consumed.read_bytes()))
-    results, first = {}, None
+    results, first, saved_results = {}, None, None
     for variant in f.VARIANTS:
         recheck()
         prediction_path = output / (variant + '.predictions.jsonl')
@@ -295,6 +339,7 @@ def evaluate(manifest_path, output):
         common = [{k: v for k, v in r.items() if k not in ('assessment', 'prediction')} for r in rows]
         if first is None:
             first = (common, footer['source_counts'])
+            saved_results = recorded_results(rows, campaign_groups)
         else:
             f.require(first == (common, footer['source_counts']), 'Population changed between variants')
         predictions = [r['prediction']['would_tag'] if r['prediction'] is not None else None for r in rows]
@@ -313,14 +358,16 @@ def evaluate(manifest_path, output):
         recheck()
     report = {'schema': SCHEMA, 'manifest_sha256': hashlib.sha256(raw).hexdigest(), 'pins': pins,
               'sampling': sampling, 'review': review, 'source_counts': first[1], 'fit_audit': audit,
-              'variants': results, 'test_consumed': True, 'production_eligible': False,
+              'recorded_baseline': saved_results, 'variants': results, 'test_consumed': True, 'production_eligible': False,
               'limitations': [
                   'Hypothetical fixed-observation predictions, assuming valid promotion, tag mode and Proton compatibility.',
                   'Unassessable evidence is unknown, not a legitimate prediction; conservative bounds apply to known truth only.',
                   'Message Wilson intervals assume independent messages; campaign copies can violate that assumption.',
                   'Campaign stability is conservative and its intervals still assume audited independent campaigns.',
                   'Reviews and complete history are human attestations; hashes cannot prove their truth or prevent copying/retesting.',
-                  'Native v1 export DSN and invalid_scan counts can only be bounded, not reconstructed per row.',
+                  'Native export DSN and invalid_scan counts can only be bounded, not reconstructed per row.',
+                  'Saved recipient policies are distinct from engine opinions and do not measure eventual delivery or folder placement.',
+                  'Version 1 populations lack recipient-policy receipts; that baseline remains unknown.',
                   'Accepted retained mail only, excluding SMTP refusals and already expired metadata.',
                   'Ablations freeze observations and LLM selection; no end-to-end latency or final Proton folder is measured.',
               ]}

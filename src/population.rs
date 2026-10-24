@@ -10,7 +10,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const SCHEMA: &str = "noisefence-population-1";
+pub const SCHEMA: &str = "noisefence-population-2";
+pub const LEGACY_SCHEMA: &str = "noisefence-population-1";
 const MAX_ROWS: usize = 50_000;
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 
@@ -195,11 +196,14 @@ pub(crate) fn project(row: Row, report: &mut Report) -> Result<Option<serde_json
             ("smtp", Some(e))
         }
     };
+    let decisions = scan.as_ref().map(crate::quality::recorded::snapshot).unwrap_or_else(||
+        serde_json::json!({"schema":crate::quality::recorded::SCHEMA,"provenance":"invalid", "engine":null,"final":null,"action":null}));
     Ok(Some(
         serde_json::json!({"type":"row","id":message::digest(row.id.as_bytes()),
                     "observed_at":row.created,"raw_sha256":raw_sha256,"fingerprint":fingerprint,"simhash":simhash,
                     "complete":complete,"features_complete":scan.as_ref().and_then(|s| s.features_complete),
                     "decision":scan.as_ref().and_then(|s| s.decision.as_ref()),
+                    "decision_snapshot":decisions,
                     "tagged":scan.as_ref().is_some_and(|s| s.tagged),
                     "label":{"status":label_status,"unwanted":unwanted,"labelled_at":row.labelled_at,
                         "authorized_votes":votes,"ignored_votes":ignored},

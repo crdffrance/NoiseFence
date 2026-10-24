@@ -1,3 +1,6 @@
+mod domain_setup;
+mod preference_preview;
+mod providers;
 use super::*;
 use crate::control::{Controller, Settings};
 
@@ -6,11 +9,13 @@ pub(super) fn routes() -> Router<App> {
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
         .route("/admin/rbl/test", post(test_rbl))
+        .route("/admin/domains/check", post(domain_setup::check))
         .route("/admin/admission", get(admission_status))
         .route("/admin/research-archive", get(research_archive_status))
         .route("/admin/config/validate", post(validate_configuration))
         .route("/admin/keys", get(managed_keys).post(save_managed_key))
         .route("/preferences", get(preferences).post(save_preferences))
+        .route("/preferences/preview", post(preference_preview::preview))
         .route("/preferences/activation", get(preference_activation))
         .route("/admin/revisions", get(revisions))
         .route("/admin/revisions/{id}", get(revision))
@@ -18,7 +23,8 @@ pub(super) fn routes() -> Router<App> {
         .route("/admin/audit", get(audit))
         .route("/admin/queue", get(queue))
         .route("/admin/queue/retry", post(retry))
-        .route("/admin/protection", get(protection_status))
+        .route("/admin/providers", get(providers::status))
+        .route("/admin/protection", get(providers::status))
         .route("/admin/protection/keys/{provider}", post(protection_key))
 }
 pub(super) async fn administrator(app: &App, h: &HeaderMap, write: bool) -> ApiResult<User> {
@@ -443,71 +449,6 @@ async fn retry(
     ))
 }
 
-async fn protection_status(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
-    administrator(&app, &h, false).await?;
-    let control = controller(&app)?;
-    let snapshot = control.snapshot();
-    let settings = snapshot.config.protection.as_ref();
-    let base = control.base.protection.as_ref();
-    let root = app.store.root.clone();
-    let resident_keys = snapshot.config.provider_credentials.clone();
-    let bound = snapshot.config.credential_generation.is_some();
-    let staged_generation = control.activation_journal().await?.and_then(|j| {
-        j.rollout()
-            .filter(|r| {
-                matches!(
-                    r.phase(),
-                    crate::cluster::activation::Phase::Preparing
-                        | crate::cluster::activation::Phase::Committed
-                )
-            })
-            .and_then(|r| r.candidate().credential_generation.clone())
-    });
-    let (keys, loaded_keys, pending_keys, usage) =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            use crate::protection::providers::{Provider, quota_usage_with_key, read_key};
-            let staged = staged_generation
-                .as_deref()
-                .map(|h| crate::credentials::generations::load(&root, h))
-                .transpose()?;
-            let mut saved = json!({});
-            let mut loaded = json!({});
-            let mut pending = json!({});
-            let mut usage = json!({});
-            for provider in [Provider::Crdf, Provider::Virustotal] {
-                let name = provider.name();
-                let current = resident_keys.as_ref().and_then(|keys| keys.get(name));
-                let source = if bound || staged.is_some() {
-                    staged
-                        .as_ref()
-                        .map_or(current, |s| s.get(name))
-                        .map(str::to_owned)
-                } else {
-                    read_key(&root, provider).ok()
-                };
-                saved[name] = json!(source.is_some());
-                loaded[name] = json!(current.is_some());
-                pending[name] = json!(source.as_deref() != current);
-                usage[name] = json!(quota_usage_with_key(&root, provider, current).ok());
-            }
-            Ok((saved, loaded, pending, usage))
-        })
-        .await
-        .map_err(|_| {
-            Error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Condition of the connectors not available.".into(),
-            )
-        })??;
-    use crate::protection::Provider;
-    Ok(Json(json!({
-        "available":base.is_some(), "enabled":settings.is_some(), "revision":snapshot.revision,
-        "keys":keys, "loaded_keys":loaded_keys, "pending_keys":pending_keys, "observation_only":true, "usage":usage,
-        "quotas":settings.map(|s|json!({"crdf":s.quota(Provider::Crdf,&s.policy),"virustotal":s.quota(Provider::Virustotal,&s.policy)})),
-        "bootstrap_quotas":base.map(|s|json!({"crdf":s.bootstrap_quota(Provider::Crdf),"virustotal":s.bootstrap_quota(Provider::Virustotal)})),
-        "capacity":base.map(|s|json!({"timeout_ms":s.timeout_ms,"max_parallel":s.max_parallel,"max_indicators":12}))
-    })))
-}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProtectionKey {
@@ -639,7 +580,7 @@ async fn preferences(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Val
         user.addresses
     };
     Ok(Json(
-        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"personal_traffic":crate::traffic::settings(&s.config).is_some_and(|s|s.allow_personal),"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config)}),
+        json!({"revision":s.revision,"settings":settings,"defaults":defaults,"scopes":scopes,"personal_traffic":crate::traffic::settings(&s.config).is_some_and(|s|s.allow_personal),"mode":s.config.filter.mode,"sensitivity_locked":crate::custom_filtering::sensitivity_locked(&s.config),"ordering":s.config.custom_filtering.as_ref().map(|p|p.ordering).unwrap_or_default()}),
     ))
 }
 async fn preference_activation(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {

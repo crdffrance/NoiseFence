@@ -6,7 +6,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     os::unix::{
-        fs::{OpenOptionsExt, PermissionsExt},
+        fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
         io::AsRawFd,
     },
     path::{Path, PathBuf},
@@ -372,13 +372,22 @@ impl Store {
         self.delivery_ready.notified().await;
     }
     pub fn daemon_lock(&self) -> Result<File> {
+        Self::daemon_lock_at(&self.root)
+    }
+    pub fn daemon_lock_at(root: &Path) -> Result<File> {
         let f = OpenOptions::new()
             .create(true)
             .truncate(false)
             .read(true)
             .write(true)
             .mode(0o600)
-            .open(self.root.join("daemon.lock"))?;
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(root.join("daemon.lock"))?;
+        let metadata = f.metadata()?;
+        ensure!(
+            metadata.is_file() && metadata.nlink() == 1,
+            "Daemon lock must be a regular, single-link file"
+        );
         // SAFETY: flock receives the live descriptor owned by f. Keeping f alive holds the lock.
         ensure!(
             unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
@@ -748,7 +757,7 @@ impl Store {
             .await?;
         self.run(|db| {
             let tx = db.transaction()?;
-            tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire',CAST(d.id AS TEXT) FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=d.message_id)",[now()])?;
+            tx.execute("INSERT INTO audit(created,username,action,object_id) SELECT ?1,'system','quarantine_expire','quarantine-v1:'||d.message_id||':'||d.address FROM deliveries d JOIN delivery_policy p ON p.delivery_id=d.id WHERE d.status='quarantined' AND p.held_until<=?1 AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=d.message_id)",[now()])?;
             tx.execute("UPDATE deliveries SET status='expired' WHERE status='quarantined' AND NOT EXISTS(SELECT 1 FROM cluster_origin WHERE message_id=deliveries.message_id) AND id IN (SELECT delivery_id FROM delivery_policy WHERE held_until<=?1)",[now()])?;
             tx.commit()?; Ok(())
         }).await?;

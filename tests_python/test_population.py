@@ -1,4 +1,7 @@
 """Population denominators and campaign isolation; synthetic software tests only."""
+import copy
+import json
+import tempfile
 import importlib.util
 from pathlib import Path
 import sys
@@ -23,6 +26,73 @@ class PopulationTests(unittest.TestCase):
             spec.loader.exec_module(cls.p)
         finally:
             sys.path.pop(0)
+
+    def test_saved_detector_policy_and_actions_are_distinct_and_missing_receipts_stay_unknown(self):
+        receipt = json.loads((Path(__file__).resolve().parents[1] / 'tests/fixtures/recorded-decisions.json').read_text())
+        spam = copy.deepcopy(receipt)
+        spam['final'].update(category='spam', classification='spam')
+        spam['action'] = {'requested': 'quarantine', 'effective': 'deliver'}
+        unknown = copy.deepcopy(receipt)
+        unknown['final'].update(category='legitimate', classification='unassessed', score=None)
+        unknown['engine'].update(outcome='undetermined', raw_score=None)
+        invalid = dict(schema=receipt['schema'], provenance='invalid', engine=None, final=None, action=None)
+        rows = [
+            {'spam': False, 'decision_snapshot': receipt, 'decision': {'outcome': 'legitimate'}},
+            {'spam': True, 'decision_snapshot': spam},
+            {'spam': False, 'decision_snapshot': unknown},
+            {'spam': True, 'decision_snapshot': invalid, 'decision': {'outcome': 'unwanted'}},
+            {'spam': True, 'decision': {'outcome': 'unwanted'}, 'tagged': True},
+        ]
+        frozen = copy.deepcopy(rows)
+        report = self.p.recorded_results(rows, [[i] for i in range(len(rows))])
+        self.assertEqual(report['engine']['conditional_on_assessed_and_labelled']['fp'], 1)
+        self.assertEqual(report['engine']['conditional_on_assessed_and_labelled']['tp'], 2)
+        final = report['recipient_policy']
+        self.assertEqual(final['conditional_on_assessed_and_labelled']['fp'], 0)
+        self.assertEqual(final['conditional_on_assessed_and_labelled']['tp'], 1)
+        self.assertEqual(final['unassessable'], 3)
+        self.assertEqual(report['provenance'], {'recipient_receipt': 3, 'invalid': 1, 'not_exported': 1})
+        self.assertIn({'truth': 'unwanted', 'action': 'deliver', 'count': 1}, report['actions_by_truth']['effective'])
+        self.assertIn({'requested': 'quarantine', 'effective': 'deliver', 'count': 1}, report['action_transitions'])
+        self.assertFalse(report['delivery_completion_measured'])
+        self.assertEqual(rows, frozen)
+
+    def test_prediction_versions_require_the_corresponding_receipt_contract(self):
+        p = self.p
+        receipt = json.loads((Path(__file__).resolve().parents[1] / 'tests/fixtures/recorded-decisions.json').read_text())
+        header = dict(type='header', schema=p.PREDICTIONS, source={'schema': 'noisefence-population-2'},
+                      protocol_sha256=p.f.PROTOCOL_HASH, model_sha256='a'*64, manifest_sha256='b'*64,
+                      hypothetical=True, production_eligible=False)
+        row = dict(type='row', id='c'*64, observed_at=100, raw_sha256=None, fingerprint=None, simhash=None,
+                   complete=False, features_complete=None, decision=None, tagged=False, label={},
+                   evidence_status='missing', availability_profile=None, assessment='missing_or_invalid_evidence',
+                   prediction=None, decision_snapshot=receipt)
+        footer = dict(type='footer', schema=p.PREDICTIONS, population_sha256='d'*64, source_counts={'exported':1},
+                      counts=dict(rows=1, assessed=0, unassessable=1, artifact_mismatch=0, ineligible_to_tag=0,
+                                  unsupported_profiles=0, would_tag=0))
+        def check(records):
+            with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary)/'predictions.jsonl'
+                path.write_text(''.join(json.dumps(r)+'\n' for r in records))
+                return p.checked_predictions(path, 'd'*64, 'a'*64, 'b'*64)
+        data = [header, row, footer]
+        self.assertEqual(check(data)[1][0]['decision_snapshot'], receipt)
+        for mutation in ('missing', 'null', 'extra', 'mismatch', 'downgrade'):
+            changed = copy.deepcopy(data)
+            if mutation == 'missing': del changed[1]['decision_snapshot']
+            elif mutation == 'null': changed[1]['decision_snapshot'] = None
+            elif mutation == 'extra': changed[1]['decision_snapshot']['body'] = 'PRIVATE'
+            elif mutation == 'mismatch': changed[1]['decision_snapshot']['final']['category'] = 'spam'
+            else: changed[0]['source']['schema'] = 'noisefence-population-1'
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError): check(changed)
+        legacy = copy.deepcopy(data)
+        legacy[0]['schema'] = legacy[2]['schema'] = p.LEGACY_PREDICTIONS
+        legacy[0]['source']['schema'] = 'noisefence-population-1'
+        del legacy[1]['decision_snapshot']
+        self.assertNotIn('decision_snapshot', check(legacy)[1][0])
+        legacy[0]['schema'] = legacy[2]['schema'] = p.PREDICTIONS
+        legacy[1]['decision_snapshot'] = None
+        self.assertIsNone(check(legacy)[1][0]['decision_snapshot'])
 
     def test_unknown_is_not_a_true_negative_and_known_fail_open_is_a_miss(self):
         p = self.p

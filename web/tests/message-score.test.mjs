@@ -379,3 +379,19 @@ test('missing score has no numeric meter and historical fallback never claims a 
   assert.match(html, /No usable value recorded/);
   assert.doesNotMatch(html, /<meter|Saved at receipt/);
 });
+
+test('delivery status is separate from the receipt action and only summarizes supplied recipients', () => {
+  const mail = { ...base, category: 'legitimate' };
+  for (const { statuses, label } of [{statuses:['delivered'],label:'Accepted by destination'}, {statuses:['quarantined'],label:'Quarantined'}, {statuses:['delivered','pending'],label:'In progress'}, {statuses:[],label:'Not recorded'}]) {
+    const detail = renderToStaticMarkup(createElement(MessageScoreDetails, {
+      mail, recipients: statuses.map(status => ({ status })), verdict: { label: 'Ham', tone: 'good' },
+    }));
+    assert.ok(detail.includes(label), `Missing delivery summary: ${label}`);
+    assert.match(detail, /Last recorded delivery/);
+    assert.match(detail, /Authorized recipients only/);
+    assert.match(detail, /not an inbox guarantee/);
+    assert.match(detail, /Action at receipt/);
+    assert.doesNotMatch(detail, /undefined|NaN/);
+  }
+  assert.doesNotMatch(renderToStaticMarkup(createElement(MessageScoreDetails, { mail })), /Last recorded delivery/);
+});

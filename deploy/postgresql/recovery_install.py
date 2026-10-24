@@ -21,7 +21,7 @@ import tomllib
 import urllib.parse
 
 from migration_agent import SERVICES, TIMERS, execute, read_selection, unit_state
-from migration_protocol import atomic, canonical, checked_selection, identity, private_read, require, sha
+from migration_protocol import require_no_upgrade_reservation, atomic, canonical, checked_selection, identity, private_read, require, sha
 
 STATE = Path('/var/lib/noisefence-recovery-install')
 UNITS = Path('/etc/systemd/system')
@@ -223,4 +223,5 @@ if __name__ == '__main__':
     require(os.geteuid() == 0, 'Root required')
     with open('/run/noisefence-upgrade.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require_no_upgrade_reservation()
         print(json.dumps(install(args.authorization, args.keys)))

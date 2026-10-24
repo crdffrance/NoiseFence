@@ -7,7 +7,7 @@ with a newsletter or promotion type; unwanted advertising is spam risk.
 
 ## Diagnose before fitting
 
-1. Draw a frozen sample in **Filter quality**, recording its purpose and time
+1. Draw a frozen sample in **Quality & research → Samples & evaluation**, recording its purpose and time
    window. Compare campaign-level and message-level results, mail types, engine
    versions and actual detector availability.
 2. Confirm suspected errors with the recipient. Keep AI assessments separate.

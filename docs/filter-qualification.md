@@ -15,7 +15,7 @@ asynchronous observer and verify that its result cannot change that decision.
 
 ## 2. Build a labelled development sample
 
-Use **Filter quality** to freeze a development sample from one installed detector
+Use **Quality & research → Samples & evaluation** to freeze a development sample from one installed detector
 cohort. Label wanted/unwanted risk and mail type independently, without using
 NoiseFence or Rspamd predictions as truth. Include recurring wanted reports,
 transactions, notifications and newsletters, as well as scams and phishing.
@@ -28,6 +28,8 @@ Older mixed-version traffic is not a replay of the current engine. Previously
 examined examples belong in development or regression, not a final holdout.
 
 ## 3. Calibrate without bypassing provenance
+
+Check the [application, detector, feature and model identity boundaries](model-provenance.md) before treating observations as compatible. Equal vector lengths or product version numbers are insufficient.
 
 Use the workbench readiness tables to fill missing risk/type classes in each
 chronological partition. Restore any missing protected campaign identities from

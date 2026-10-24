@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import { classification, scorePresentation } from '../app/presentation.ts';
 import { coveragePresentation, receiptAssessment } from '../app/assessment.ts';
 
@@ -58,3 +59,19 @@ for (const version of [1, 2]) {
     assert.equal(receiptAssessment(snapshot).action.effective, 'deliver');
   });
 }
+
+test('recipient override agrees with the shared SMTP and evaluation-export fixture', () => {
+  const snapshot = JSON.parse(readFileSync(new URL('../../tests/fixtures/recorded-decisions.json', import.meta.url), 'utf8'));
+  const final = snapshot.final;
+  const mail = {score: 0, complete: true, category: 'spam', recipient_decision: {...record,
+    classification: final.classification, coverage: 'partial', assessment: {...assessment,
+      category: final.category, complete: final.complete, classification_source: final.classification_source,
+      score: {...assessment.score, value: final.score}, action: {...assessment.action, ...snapshot.action}}}};
+  assert.equal(snapshot.engine.outcome, 'unwanted');
+  assert.equal(classification(mail, 0).label, 'Ham');
+  assert.equal(classification(mail, 100).label, 'Ham');
+  assert.equal(scorePresentation(mail).value, 99);
+  assert.equal(coveragePresentation(mail).label, 'Partial analysis');
+  assert.equal(receiptAssessment(mail).action.requested, 'tag');
+  assert.equal(receiptAssessment(mail).action.effective, 'deliver');
+});

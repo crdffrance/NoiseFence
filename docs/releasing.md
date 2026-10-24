@@ -21,7 +21,12 @@ The notes are extracted from the single matching changelog section by
 `scripts/release_notes.py`; missing, empty or duplicate sections block publication.
 The publish job verifies both architectures, each outer SHA-256, every internal
 `SHA256SUMS` entry, and `build.json` version/platform/commit against the tag checkout.
+The publish job then creates signed build-provenance attestations for the validated
+archives and verifies their exact workflow/tag/source identity before upload.
 It uploads to a draft, downloads and compares the uploaded bytes, then publishes.
+See [authenticated release staging](release-staging.md) for the trust policy,
+historical-release behavior and native preparation procedure. The first release
+using this workflow must qualify the complete attestation path.
 Unsuffixed versions become stable releases; suffixed versions remain prereleases.
 
 Release publication is triggered by a pushed tag, not by an ordinary commit to
@@ -73,8 +78,128 @@ Never move a published tag or replace its archives with a different build. A cor
 The native packager requires a clean, committed source checkout so that the
 commit recorded in `build.json` identifies the packaged code and documentation.
 Keep the source inventory and binary checksum from the successful build; do not
-package an older cached binary after a failed compilation.
+package an older cached binary after a failed compilation. Public tar members use
+root ownership, traversable directories, executable programs and readable data
+files, independent of the builder's umask; private source directories keep their
+original permissions. Special files and links are refused by the packager.
 
 A release does not change the server configuration, MX, or filtering mode. Proton deployment and validation remain separate steps. Keep the previous version and its configuration directory to support a compatible rollback.
 
-Current archives declare `storage_schema: 7` in `build.json`, the maximum supported local format. Paired replication uses format 5, management transport uses format 6, and selecting a PostgreSQL authority activates format 7. A format number alone does not establish management-database compatibility: the simple deployment helper refuses selected or transport-enabled installations, and automatic rollback remains disabled for them. Use the [coordinated migration procedure](../deploy/postgresql/MIGRATION-SUPERVISOR.md) and its recovery path. Never lower `user_version`, erase `ha_required` or restore a stale database over accepted mail. See [HA recovery](high-availability.md).
+Current archives declare `storage_schema: 7` in `build.json`, the maximum supported local format. Paired replication uses format 5, management transport uses format 6, and selecting a PostgreSQL authority activates format 7. A format number alone does not establish management-database compatibility: the native installer and restricted deployment helper refuse configured, selected or partially selected management installations, and automatic rollback remains disabled for them. Use the [coordinated migration procedure](../deploy/postgresql/MIGRATION-SUPERVISOR.md) and its recovery path. Never lower `user_version`, erase `ha_required` or restore a stale database over accepted mail. See [HA recovery](high-availability.md) and [paired upgrade preparation and rehearsal](paired-upgrades.md).
+
+For paired installations, follow the [selected-management archive rehearsal](paired-upgrades.md#run-the-disposable-archive-pair-fixture). Qualify each architecture and exact candidate; a cached healthy process or the legacy policy compatibility window does not prove a mixed-build PostgreSQL deployment works.
+
+The [native maintenance reservation](maintenance-reservations.md) is a stopped-host
+primitive. Its tests do not authorize a candidate upgrade or rollback; retain the
+exact paired archive and selected-authority lifecycle gates.
+
+
+## Mandatory native lifecycle gates
+
+Both semantic CI jobs (amd64 and arm64) exercise installation and paired recovery
+before they can pass. These host-built fixtures are marked `rehearsal_only` and
+make no Bookworm/glibc compatibility claim. The publisher rejects them. The
+release build independently repeats the same checks against each **exact Bookworm
+archive** before uploading it for attestation and publication. A passing branch
+rehearsal does not qualify future release bytes.
+
+The baseline version, source commit and both published archive hashes are pinned
+in `tests/fixtures/release-baseline.json`. Review changes to this file explicitly;
+never silently replace the baseline with whatever release is latest. The initial
+0.31.9 baseline predates attestations. Its reviewed checksum is a test dependency,
+not a replacement for the new release's required provenance verification.
+
+`scripts/check_release_lifecycle.sh` downloads and verifies that baseline, builds
+unique temporary systemd fixture images, then runs the standalone installation
+and `--archive-candidate` pair scenarios on the matching architecture. It uses
+fresh synthetic accounts and mail, selected PostgreSQL management, bounded
+candidate validation, two-copy acceptance, peer loss, failed startup, forward
+recovery and interrupted SSH completion. The standalone fixture also uses a bounded
+64 MiB tmpfs to provoke real kernel ENOSPC before MAIL and after DATA begins. It
+requires temporary SMTP failures, unchanged accepted bodies and queue state, and
+recovery after space is released. This checks storage-error handling, not power-loss
+persistence or full-disk recovery on a production filesystem. Test containers have no external route;
+run this only on a disposable test host, never a production MX. Release builds
+reuse dependencies only inside their own job, including offline fixture generation;
+no shared Actions dependency cache is restored or saved for official artifacts.
+
+For a manual rehearsal from a clean committed checkout, after compiling the
+native binary and console and assembling the candidate archive:
+
+```sh
+platform=linux-arm64 # linux-amd64 on x86-64
+version=$(python3 scripts/version.py)
+baseline=$(python3 scripts/release_rehearsal.py baseline-version)
+NOISEFENCE_REHEARSAL_OUTPUT="$PWD/var/native-rehearsal/fixture" \
+NOISEFENCE_REHEARSAL_BASE_BUILD="$baseline" \
+NOISEFENCE_REHEARSAL_SHARED_LOOPBACK=1 \
+  cargo test --release --locked --features semantic --test management_rehearsal_fixture -- --ignored
+sh scripts/check_release_lifecycle.sh "$platform" \
+  "release/noisefence-$version-$platform.tar.gz" \
+  var/native-rehearsal/fixture var/native-rehearsal/results
+```
+
+Python 3.11+, Docker, GitHub CLI download access, Rust and a fresh fixture/output
+directory are required. Container builds and the pinned public download need
+network access; the running mail fixtures do not. `qualification.json` is produced
+only after both reports pass and their archive, installed helper and running
+binary identities match. Each fixture must also confirm removal of its disposable
+container and anonymous volumes. Failed or incomplete cleanup cannot produce a
+successful qualification report. GitHub retains **only this anonymous summary**. Keep raw
+fixture logs, messages, addresses, test credentials and journals private; do not
+upload the result directory. A failure records its phase in the job log and stops
+publication. The publish job downloads only the `linux-*` archive artifacts, not
+these test reports.
+
+These gates do not qualify detection accuracy, external delivery, production
+security profiles, full-disk disaster recovery or post-activation rollback. The
+summary explicitly leaves provenance unverified: attestation and authenticated
+staging remain separate gates. See the [paired fixture contract](paired-upgrades.md#run-the-disposable-archive-pair-fixture).
+
+## Release candidate identities
+
+Artifact versions use the core and optional prerelease form of
+[Semantic Versioning](https://semver.org/), limited to 64 ASCII characters. Examples
+are `0.32.0-rc.1`, `0.32.0-rc.2` and `0.32.0`. Numeric components cannot contain
+leading zeroes; empty components and build metadata (`+...`) are not supported in
+NoiseFence artifact identities. The exact source commit remains in `build.json`
+and the provenance attestation.
+
+Manifest validation, bounded archive inspection, native validation descriptors
+and lifecycle fixtures share `deploy/postgresql/release_version.py`. Both native
+nodes must still name the same exact version and source commit. A prerelease and
+its stable successor are distinct candidates, not interchangeable identities.
+
+The lifecycle runners use semantic precedence, so `rc.2` precedes `rc.11`, and a
+stable version follows prereleases of the same core. This orders the rehearsal;
+it does not authorize an upgrade or prove rollback/storage compatibility. Keep
+all archive, authority, policy, replica, source and qualification checks. A public
+tag or released asset must never be moved or replaced to turn an RC into a final
+release. Publish a separately reviewed version instead.
+
+## 0.32.0-rc.1 qualification boundary
+
+This candidate adds the console and maintenance work described in the
+[changelog](../CHANGELOG.md#0320-rc1--consistent-decisions-reviewed-administration-and-paired-maintenance).
+It does not establish the filter's capture or false-positive targets. Keep the
+[human-label and independent-evaluation procedure](filter-qualification.md) as a
+separate gate; source changes create a distinct detector cohort unless verified
+equivalence proves otherwise.
+
+The audited policy shape can retain an unchanged, digest-verified 0.31.9 journal.
+This does not authorize a new old-build activation, an unknown future release,
+or mixed-build selected PostgreSQL synchronization. The two nodes must run the
+same application build for new policy exchange. Use coordinated maintenance,
+not a rolling upgrade. Post-start downgrade compatibility remains unqualified.
+
+Before calling the RC installation qualified, record successful validation of
+both exact Linux archives, their SHA-256 manifests, `build.json`, provenance and
+native staging. Run the standalone and selected-authority pair rehearsals on
+both architectures, using `--archive-candidate` for the paired runner to exercise
+the exact archive's native activation and recovery paths. Earlier locally built ARM64 results are supporting evidence, not substitutes
+for those archives. Keep the first positive attestation round trip explicit.
+
+The Web release checker follows public stable releases and identifies an installed
+RC as a development version. It never treats the RC as its future stable release
+or installs it automatically. Publishing the RC does not change server policies,
+models, provider consent or MX routing.

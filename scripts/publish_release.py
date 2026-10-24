@@ -4,13 +4,17 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import subprocess
-import tarfile
 import tempfile
+import sys
 
 from version import SEMVER, cargo_version
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"deploy/postgresql"))
+from release_bundle import inspect_archive, verify_provenance
+sys.path.pop(0)
 
 PLATFORMS = {'linux-amd64': 62, 'linux-arm64': 183}
 
@@ -37,40 +41,9 @@ def validate_assets(directory, tag, commit):
         checksum = directory / (archive.name + '.sha256')
         if checksum.read_text().strip() != f'{digest(archive)}  {archive.name}':
             raise ValueError(f'Archive checksum mismatch: {platform}')
-        with tarfile.open(archive, 'r:gz') as tar:
-            files = {}
-            for member in tar.getmembers():
-                path = PurePosixPath(member.name)
-                if path.is_absolute() or '..' in path.parts or path.parts[0] != name:
-                    raise ValueError('Unsafe archive path')
-                if member.isdir():
-                    continue
-                if not member.isfile() or member.name in files:
-                    raise ValueError('Non-regular or duplicate archive entry')
-                files[member.name] = member
-            def read(relative):
-                return tar.extractfile(files[f'{name}/{relative}']).read()
-            metadata = json.loads(read('build.json'))
-            if (metadata['version'], metadata['platform'], metadata['commit']) != (tag[1:], platform, commit):
-                raise ValueError(f'Archive provenance mismatch: {platform}')
-            elf = read('noisefence')[:20]
-            if elf[:4] != b'\x7fELF' or int.from_bytes(elf[18:20], 'little') != machine:
-                raise ValueError('Binary architecture mismatch')
-            if not read('web/index.html'):
-                raise ValueError('Missing console')
-            declared = {}
-            for line in read('SHA256SUMS').decode().splitlines():
-                sha, path = line.split('  ', 1)
-                if path in declared:
-                    raise ValueError('Duplicate checksum entry')
-                declared[path] = sha
-            expected = {p.removeprefix(name + '/') for p in files} - {'SHA256SUMS'}
-            if set(declared) != expected:
-                raise ValueError('Incomplete archive checksums')
-            for path, sha in declared.items():
-                with tar.extractfile(files[f'{name}/{path}']) as stream:
-                    if stream_digest(stream) != sha:
-                        raise ValueError(f'Internal checksum mismatch: {path}')
+        inspected = inspect_archive(archive, tag[1:], platform, commit)
+        if inspected['rehearsal_only']:
+            raise ValueError('Host-built rehearsal archives cannot be published')
         assets.extend([archive, checksum])
     return assets
 
@@ -111,6 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tag', required=True)
     parser.add_argument('--directory', type=Path, required=True)
+    parser.add_argument('--verify-only', action='store_true', help='Validate archive contents without publication or attestation lookup')
     args = parser.parse_args()
     if args.tag != 'v' + cargo_version():
         parser.error('Tag must match the product version')
@@ -119,6 +93,12 @@ def main():
         parser.error('Invalid repository')
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     assets = validate_assets(args.directory, args.tag, commit)
+    if args.verify_only:
+        print('Both release archives validated; nothing published')
+        return
+    for asset in assets:
+        if asset.name.endswith('.tar.gz'):
+            verify_provenance(asset, args.tag[1:], commit)
     publish(args.tag, args.directory, assets, repo)
 
 

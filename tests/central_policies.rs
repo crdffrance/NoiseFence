@@ -786,3 +786,158 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     );
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL on 127.0.0.1:15432 and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn maintenance_probes_require_exact_settled_pair_and_recheck_revocation_without_writes() {
+    async fn snapshot(db: &tokio_postgres::Client) -> Vec<(String, String)> {
+        let tables = db
+            .query(
+                "SELECT tablename FROM pg_tables WHERE schemaname='noisefence' ORDER BY tablename",
+                &[],
+            )
+            .await
+            .unwrap();
+        let mut result = Vec::new();
+        for table in tables {
+            let table: String = table.get(0);
+            assert!(
+                table
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            );
+            let row = db.query_one(&format!("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text),'[]'::jsonb)::text FROM noisefence.\"{table}\" r"), &[]).await.unwrap();
+            result.push((table, row.get(0)));
+        }
+        result
+    }
+    let f = postgres::Fixture::new().await;
+    let c = &f.central;
+    let db = f.connect().await;
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let base = artifacts::capture(&cfg, Settings::from_config(&cfg), 0)
+        .unwrap()
+        .bundle;
+    let owner = Identity {
+        node: "mx1".into(),
+        epoch: uuid::Uuid::new_v4().to_string(),
+    };
+    let peer = Identity {
+        node: "mx2".into(),
+        epoch: uuid::Uuid::new_v4().to_string(),
+    };
+    for node in [&owner, &peer] {
+        c.register_source(node).await.unwrap();
+    }
+    c.initialize_policy(&owner, base.clone()).await.unwrap();
+    let epoch = c.policy_journal(&owner).await.unwrap().current_epoch();
+    let hash = noisefence::message::digest(b"synthetic maintenance key");
+    c.enroll_node(&peer, "Synthetic peer", &hash).await.unwrap();
+    let auth = c
+        .authenticate_node(&peer.node, &hash)
+        .await
+        .unwrap()
+        .unwrap();
+    let before = snapshot(&db).await;
+    c.validate_maintenance_policy(&owner, &peer, &epoch, None)
+        .await
+        .unwrap();
+    c.validate_maintenance_policy(&owner, &peer, &epoch, Some(&auth))
+        .await
+        .unwrap();
+    let mut stale = epoch.clone();
+    stale.sequence += 1;
+    assert!(
+        c.validate_maintenance_policy(&owner, &peer, &stale, None)
+            .await
+            .is_err()
+    );
+    let wrong = Identity {
+        epoch: uuid::Uuid::new_v4().to_string(),
+        ..peer.clone()
+    };
+    assert!(
+        c.validate_maintenance_policy(&owner, &wrong, &epoch, Some(&auth))
+            .await
+            .is_err()
+    );
+    assert!(
+        c.validate_maintenance_policy(&peer, &owner, &epoch, None)
+            .await
+            .is_err()
+    );
+    assert!(
+        c.validate_maintenance_policy(&owner, &owner, &epoch, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(snapshot(&db).await, before);
+    // An already-authenticated request cannot survive a token rotation.
+    db.execute(
+        "UPDATE noisefence.cluster_nodes SET token_hash=$1 WHERE node=$2",
+        &[&"0".repeat(64), &peer.node],
+    )
+    .await
+    .unwrap();
+    let before = snapshot(&db).await;
+    assert!(
+        c.validate_maintenance_policy(&owner, &peer, &epoch, Some(&auth))
+            .await
+            .is_err()
+    );
+    assert_eq!(snapshot(&db).await, before);
+    // Pending policy is refused even if the current policy still matches.
+    let session = "a".repeat(64);
+    db.execute(
+        "INSERT INTO noisefence.users(username,password,admin) VALUES('admin','synthetic',true)",
+        &[],
+    )
+    .await
+    .unwrap();
+    db.execute("INSERT INTO noisefence.sessions(token_hash,username,csrf,expires) VALUES($1,'admin','synthetic',$2)",&[&session,&(noisefence::now()+3600)]).await.unwrap();
+    c.report_policy_peer(&peer, PROTOCOL, env!("CARGO_PKG_VERSION"), 0, &base.digest)
+        .await
+        .unwrap();
+    c.stage_policy(
+        &owner,
+        proposal(&base, next(&base), "admin", &session, None),
+    )
+    .await
+    .unwrap();
+    let before = snapshot(&db).await;
+    assert!(
+        c.validate_maintenance_policy(&owner, &peer, &epoch, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(snapshot(&db).await, before);
+    drop(db);
+    f.finish().await;
+
+    let f = postgres::Fixture::new().await;
+    for node in [
+        &owner,
+        &peer,
+        &Identity {
+            node: "mx3".into(),
+            epoch: uuid::Uuid::new_v4().to_string(),
+        },
+    ] {
+        f.central.register_source(node).await.unwrap();
+    }
+    f.central.initialize_policy(&owner, base).await.unwrap();
+    let epoch = f
+        .central
+        .policy_journal(&owner)
+        .await
+        .unwrap()
+        .current_epoch();
+    assert!(
+        f.central
+            .validate_maintenance_policy(&owner, &peer, &epoch, None)
+            .await
+            .is_err()
+    );
+    f.finish().await;
+}

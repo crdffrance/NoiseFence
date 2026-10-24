@@ -42,7 +42,7 @@ h2 {
   color: var(--nf-muted);
 }
 .eyebrow {
-  color: #737b87;
+  color: #66707d;
   letter-spacing: 0.1em;
   font-size: 10px;
   font-weight: 650;
@@ -291,7 +291,7 @@ a:focus-visible {
   align-items: center;
   gap: 12px;
   font-size: 11px;
-  color: #89909b;
+  color: #69717e;
 }
 .breadcrumbs > svg {
   color: #b1b6be;
@@ -329,7 +329,7 @@ a:focus-visible {
 .page-heading .muted {
   margin-top: 8px;
   font-size: 13px;
-  color: #757e8a;
+  color: #65707f;
 }
 .page-heading > button {
   height: 36px;
@@ -343,7 +343,7 @@ a:focus-visible {
   color: #7b8593;
 }
 .scope-bar label {
-  color: #737c89;
+  color: #65707f;
   font-size: 11px;
 }
 .scope-bar select {
@@ -437,7 +437,7 @@ a:focus-visible {
   padding: 12px 15px;
   border-color: #e7e0d6;
   background: #fbf9f4;
-  color: #81715b;
+  color: #75644d;
   border-radius: 8px;
   margin-bottom: 22px;
 }
@@ -625,7 +625,7 @@ a:focus-visible {
   border-radius: 9px;
   background: #f2f3f6;
   border: 1px solid #e9ebf0;
-  color: #7d8795;
+  color: #626e7e;
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -675,7 +675,7 @@ a:focus-visible {
   font-weight: 500;
   background: #f3f5f8;
   border: 1px solid #e5e8ee;
-  color: #727d8c;
+  color: #626e7e;
 }
 .status::before {
   content: '';
@@ -969,7 +969,7 @@ a:focus-visible {
 }
 .notice {
   background: #f6f8fb;
-  color: #667489;
+  color: #5f6b7d;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   font-size: 12px;
@@ -1700,7 +1700,7 @@ a:focus-visible {
   }
   .mobile-message time {
     font-size: 10px;
-    color: #7e8da0;
+    color: #647084;
   }
   .delivery-line {
     margin-top: 4px;
@@ -1864,3 +1864,8 @@ a:focus-visible {
 .sensitivity-domain strong { overflow-wrap: anywhere; }
 @media (max-width: 1100px) { .sensitivity-levels { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .sensitivity-levels { grid-template-columns: 1fr; } .sensitivity-domain { grid-template-columns: 1fr; } .sensitivity-level { padding: .85rem; } }
+
+/* Status receipts must wrap as a single panel, including on narrow screens. */
+output.notice {
+  display: block;
+}

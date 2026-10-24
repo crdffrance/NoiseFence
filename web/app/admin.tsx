@@ -1,4 +1,8 @@
 'use client';
+import { ProvidersOverview } from './providers-view';
+import { SettingsHistory } from './settings-history-view';
+import { SettingsComparison } from './settings-review-view';
+import { DomainSetup } from './domain-setup-view';
 import { LlmPricingNotice } from './llm-pricing-notice';
 import { ResearchArchiveSettings, type ArchiveSettings } from './research-archive';
 import { AdmissionEditor, type AdmissionSettings } from './smtp-admission';
@@ -14,25 +18,20 @@ import {
 } from './management';
 import { CustomFiltering, type CustomPolicy } from './custom-filtering';
 import { FilterSensitivity } from './filter-sensitivity-control';
-import {
-  sensitivityChanges,
-  type SensitivityLevel,
-} from './filter-sensitivity';
+import type { SensitivityLevel } from './filter-sensitivity';
 import { Invitations } from './onboarding';
-import { deliveryPolicy, restoreDefaults } from './policies';
-import { SectionTabs } from './console-ui';
+import { deliveryPolicy } from './policies';
+import { SectionTabs, ConfirmDialog } from './console-ui';
 import { matchesAccount } from './presentation';
 import {
   ActionSettings,
   RuleSettings,
-  actionLabel,
   type ActionPolicy,
   type Rule,
 } from './actions';
 import { MailingSettings, type MailingPolicy } from './mailing';
 import { ProtectionSettings, type ProtectionPolicy } from './protection';
-import { quotaLabel } from './provider-quotas';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   Globe2,
@@ -68,7 +67,7 @@ export const navigation = [
   { id: 'server', label: "Server status", icon: Server },
 ] as const;
 export type Section = (typeof navigation)[number]['id'];
-type Gateway = { id: string; name: string; hosts: string[]; port: number };
+export type Gateway = { id: string; name: string; hosts: string[]; port: number };
 type Domain = {
   name: string;
   gateway: string | null;
@@ -97,7 +96,7 @@ type Filters = {
   vision_scoring: boolean;
   reputation: boolean;
 };
-type Settings = {
+export type Settings = {
   quality_candidate?: {job:string|null;sha256:string|null}|null;
   research_archive?: ArchiveSettings | null;
   smtp_admission: AdmissionSettings;
@@ -139,13 +138,6 @@ type Account = {
   addresses: string[];
   version: number;
 };
-type Revision = { id: number; created: number; username: string };
-type Audit = {
-  created: number;
-  username: string;
-  action: string;
-  object: string;
-};
 type Delivery = {
   node_id?: string | null;
   pending_command?: boolean;
@@ -175,6 +167,7 @@ type Metrics = {
   };
 };
 const filterSections = [
+  { id: 'providers', label: 'Providers & budgets', description: 'Loaded keys, quotas, costs, coverage and incidents', icon: <Activity size={19} /> },
   { id: 'models', label: 'Model files', description: 'Installed artifacts and explicit updates', icon: <Server size={19} /> },
   {
     id: 'admission',
@@ -435,12 +428,16 @@ export function AdminConsole({
   user,
   section,
   onDirty,
+  onSetupDirty,
+  onBusy,
   onApplied,
   onDomain,
 }: {
   user: User;
   section: Section;
   onDirty: (v: boolean) => void;
+  onSetupDirty: (v: boolean) => void;
+  onBusy: (v: boolean) => void;
   onApplied: () => Promise<void>;
   onDomain: (name: string) => void;
 }) {
@@ -452,34 +449,58 @@ export function AdminConsole({
   const [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false),
-    [review, setReview] = useState(false);
+    [reviewed, setReviewed] = useState<string | null>(null);
+  const [refreshRequired, setRefreshRequired] = useState(false);
+  const [lastSave, setLastSave] = useState<SaveResult | null>(null);
+  const [discard, setDiscard] = useState(false);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const pageHeading = useRef<HTMLHeadingElement>(null);
+  const receiptRef = useRef<HTMLOutputElement>(null);
+  const alive = useRef(true);
+  useEffect(() => {alive.current=true;return()=>{alive.current=false;};},[]);
+  useEffect(() => {if(lastSave)receiptRef.current?.focus();},[lastSave]);
   const [accounts, setAccounts] = useState<Account[]>([]),
     [editing, setEditing] = useState<Account | null>(null),
     [password, setPassword] = useState('');
-  const [metrics, setMetrics] = useState<Metrics | null>(null),
-    [deliveries, setDeliveries] = useState<Delivery[]>([]),
-    [audit, setAudit] = useState<Audit[]>([]),
-    [revisions, setRevisions] = useState<Revision[]>([]);
+  const [operations, setOperations] = useState<{key:string;metrics:Metrics|null;deliveries:Delivery[]|null;metricsError:string;queueError:string}|null>(null);
   const [epoch, setEpoch] = useState(0);
   const [filterSection, setFilterSection] = useState<FilterSection>('policy');
   const [filterQuery, setFilterQuery] = useState('');
+  const [setupOpen, setSetupOpen] = useState(false);
+  const addDomainButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => { onSetupDirty(setupOpen); return () => onSetupDirty(false); }, [setupOpen, onSetupDirty]);
+  useEffect(() => { onBusy(busy); return () => onBusy(false); }, [busy, onBusy]);
+  function closeSetup() { setSetupOpen(false); requestAnimationFrame(() => addDomainButton.current?.focus()); }
   const [accountQuery, setAccountQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const modelDraft = draft ? JSON.stringify(normalize(draft)) : '';
   const modelSelection = modelChoice?.draft === modelDraft && modelChoice?.revision === config?.revision ? modelChoice.digest : null;
   const catalogSelection = modelSelection ? modelChoice?.catalogId : undefined;
+  const proposal = config && draft ? {
+    revision: config.revision,
+    settings: catalogSelection ? {...normalize(draft),quality_candidate:modelChoice?.quality ?? null} : normalize(draft),
+    installation_models_sha256: catalogSelection ? null : modelSelection,
+    catalog_models: catalogSelection ? {id:catalogSelection,sha256:modelSelection} : null,
+  } : null;
+  const reviewKey = JSON.stringify(proposal);
+  const review = reviewed === reviewKey;
+  const operationKey = JSON.stringify([user.username,section,epoch]);
+  const operationView = operations?.key === operationKey ? operations : null;
+  const metrics = operationView?.metrics ?? null;
+  const deliveries = operationView?.deliveries ?? [];
   const dirty =
+    !refreshRequired &&
     !!config &&
     !!draft &&
     (JSON.stringify(config.settings) !== JSON.stringify(draft) || modelSelection !== null);
   useEffect(() => {
-    onDirty(dirty);
+    onDirty(dirty || setupOpen);
     const leave = (e: BeforeUnloadEvent) => {
-      if (dirty) e.preventDefault();
+      if (dirty || setupOpen) e.preventDefault();
     };
     window.addEventListener('beforeunload', leave);
     return () => window.removeEventListener('beforeunload', leave);
-  }, [dirty, onDirty]);
+  }, [dirty, setupOpen, onDirty]);
   useEffect(() => {
     let active = true;
     api<Configuration>('/admin/config')
@@ -506,28 +527,24 @@ export function AdminConsole({
         .catch((e) => {
           if (active) setError(e.message);
         });
+    const abort = new AbortController();
     if (section === 'server')
-      Promise.all([
-        api<Metrics>('/metrics'),
-        api<Delivery[]>('/admin/queue'),
-        api<Audit[]>('/admin/audit'),
-        api<Revision[]>('/admin/revisions'),
-      ])
-        .then(([m, d, a, r]) => {
-          if (active) {
-            setMetrics(m);
-            setDeliveries(d);
-            setAudit(a);
-            setRevisions(r);
-          }
-        })
-        .catch((e) => {
-          if (active) setError(e.message);
+      void Promise.allSettled([
+        api<Metrics>('/metrics',undefined,undefined,{signal:abort.signal,cache:'no-store'}),
+        api<Delivery[]>('/admin/queue',undefined,undefined,{signal:abort.signal,cache:'no-store'}),
+      ]).then(([m,d]) => {
+        if(active)setOperations({key:operationKey,
+          metrics:m.status==='fulfilled'?m.value:null,
+          deliveries:d.status==='fulfilled'?d.value:null,
+          metricsError:m.status==='rejected'?String(m.reason?.message??m.reason):'',
+          queueError:d.status==='rejected'?String(d.reason?.message??d.reason):'',
         });
+      });
     return () => {
       active = false;
+      abort.abort();
     };
-  }, [section, user, epoch]);
+  }, [section, user, operationKey]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError('');
@@ -535,40 +552,56 @@ export function AdminConsole({
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      if(alive.current)setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if(alive.current)setBusy(false);
     }
   }
   async function reload() {
-    const c = await api<Configuration>('/admin/config');
+    const c = await api<Configuration>('/admin/config',undefined,undefined,{cache:'no-store'});
+    if(!alive.current)return;
     setConfig(c);
     setDraft(c.settings);
     setModelChoice(null);
-    setReview(false);
+    setReviewed(null);
+    setRefreshRequired(false);
     setEpoch((e) => e + 1);
   }
   async function save() {
-    if (!config || !draft || blocked) return;
-    const result = await api<SaveResult>(
-      '/admin/config',
-      { revision: config.revision, settings: catalogSelection ? {...normalize(draft),quality_candidate:modelChoice?.quality ?? null} : normalize(draft), installation_models_sha256: catalogSelection ? null : modelSelection, catalog_models: catalogSelection ? {id:catalogSelection,sha256:modelSelection} : null },
-      user.csrf,
-    );
-    await reload();
+    if (!proposal || !review || blocked || refreshRequired) return;
+    // The exact reviewed payload includes its revision and explicit model selection.
+    let result: SaveResult;
+    try {
+      result = await api<SaveResult>('/admin/config', JSON.parse(reviewKey), user.csrf);
+    } catch(e) {
+      if(alive.current)setReviewed(null);
+      throw e;
+    }
+    if(!alive.current)return;
+    setLastSave(result);
+    setReviewed(null);
+    setRefreshRequired(true);
+    try {
+      await reload();
+    } catch(e) {
+      if(alive.current)setError(`Save acknowledged, but installed settings could not be refreshed. Refresh before editing again. ${(e as Error).message}`);
+    }
     await activation.refresh();
-    setNotice(saveNotice(result));
-    if (!result.staged) await onApplied();
+    if(!alive.current)return;
+    if(!result.staged) {
+      try {await onApplied();}
+      catch(e){if(alive.current)setError(`Settings were saved. The message overview could not be refreshed: ${(e as Error).message}`);}
+    }
   }
   useEffect(() => {
-    if (!config || dirty || busy || !activation.view || activation.view.pending ||
+    if (!config || dirty || busy || refreshRequired || !activation.view || activation.view.pending ||
         activation.view.installed_revision === config.revision) return;
     let active = true;
     api<Configuration>('/admin/config').then(c => {
-      if (active) { setConfig(c); setDraft(c.settings); setReview(false); setNotice('Installed configuration refreshed.'); void onApplied().catch(e => setError(e.message)); }
+      if (active) { setConfig(c); setDraft(c.settings); setReviewed(null); setNotice('Installed configuration refreshed.'); void onApplied().catch(e => setError(e.message)); }
     }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
-  }, [activation.view, config, dirty, busy, onApplied]);
+  }, [activation.view, config, dirty, busy, refreshRequired, onApplied]);
   if (!config || !draft)
     return (
       <div className="panel">
@@ -604,24 +637,6 @@ export function AdminConsole({
   function filterAt<K extends keyof Filters>(key: K, value: Filters[K]) {
     setDraft((d) => d && { ...d, filters: { ...d.filters, [key]: value } });
   }
-  const changedDomains = draft.domains.filter(
-    (d) =>
-      JSON.stringify(d) !==
-      JSON.stringify(
-        config.settings.domains.find((old) => old.name === d.name),
-      ),
-  );
-  const removed = config.settings.domains.filter(
-    (d) => !draft.domains.some((n) => n.name === d.name),
-  );
-  const changedGateways = draft.gateways.filter(
-    (g) =>
-      JSON.stringify(g) !==
-      JSON.stringify(config.settings.gateways.find((old) => old.id === g.id)),
-  );
-  const removedGateways = config.settings.gateways.filter(
-    (g) => !draft.gateways.some((n) => n.id === g.id),
-  );
   return (
     <div className="admin-console">
       <ActivationPanel state={activation} user={user} administrator />
@@ -630,7 +645,7 @@ export function AdminConsole({
           <p className="eyebrow">
             {section === 'server' ? 'OPERATIONS' : 'ADMINISTRATION'}
           </p>
-          <h1>{navigation.find((n) => n.id === section)?.label}</h1>
+          <h1 ref={pageHeading} tabIndex={-1}>{navigation.find((n) => n.id === section)?.label}</h1>
           <p className="muted">
             {
               {
@@ -662,6 +677,9 @@ export function AdminConsole({
           {notice}
         </output>
       )}
+      {lastSave && <output ref={receiptRef} tabIndex={-1} className="notice">{saveNotice(lastSave)}</output>}
+      {refreshRequired && <section className="panel" aria-label="Saved configuration refresh required"><p>Save acknowledged. Displayed settings may be stale; editing is disabled until they are refreshed.</p><Button disabled={busy} onClick={()=>void action(async()=>{await reload();await activation.refresh();setNotice('Installed settings refreshed.');requestAnimationFrame(()=>receiptRef.current?.focus());})}>Refresh installed settings</Button></section>}
+      <fieldset className="admin-editors" disabled={busy || refreshRequired}>
       {section === 'domains' && (
         <>
           <div className="admin-summary">
@@ -670,34 +688,18 @@ export function AdminConsole({
               <strong>
                 {draft.domains.filter((d) => d.enabled).length}
               </strong>{' '}
-              active domains
+              {dirty ? "domains enabled in draft" : "active domains"}
             </span>
             <span>
               <Network size={19} />
               <strong>{draft.gateways.length}</strong> Available gateways
             </span>
-            <Button
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  domains: [
-                    ...draft.domains,
-                    {
-                      name: '',
-                      gateway: draft.gateways[0]?.id ?? null,
-                      enabled: true,
-                      accept_all_recipients: true,
-                      recipients: [],
-                      aliases: {},
-                    },
-                  ],
-                })
-              }
-            >
-              <Plus size={16} />
-              Add Domain
+            <Button ref={addDomainButton} disabled={setupOpen} onClick={() => setSetupOpen(true)}>
+              <Plus size={16} /> Add domain
             </Button>
           </div>
+          {setupOpen && <DomainSetup settings={normalize(draft)} revision={config.revision} hostname={config.hostname} user={user}
+            onClose={closeSetup} onPrepared={next => { setDraft(next); setReviewed(null); closeSetup(); setNotice('Domain added to the draft. Review all changes before applying.'); }} />}
           <div className="notice">
             To receive emails, the domain must also be configured at your email host. After validation of the delivery, its DNS will point to {config.hostname}.
           </div>
@@ -1021,6 +1023,9 @@ export function AdminConsole({
             value={filterSection}
             onChange={setFilterSection}
           />
+          <div id="filters-panel-providers" role="tabpanel" aria-labelledby="filters-tab-providers" hidden={filterSection !== 'providers'} className="filter-section">
+            {section === 'filters' && filterSection === 'providers' && <ProvidersOverview revision={config.revision} hasDraft={dirty} onSettings={target => {setFilterQuery(''); setFilterSection(target); requestAnimationFrame(() => document.getElementById(`filters-tab-${target}`)?.focus());}}/>}
+          </div>
           <div
             id="filters-panel-admission"
             role="tabpanel"
@@ -1114,8 +1119,8 @@ export function AdminConsole({
             />
           </div>
           <div id="filters-panel-models" role="tabpanel" aria-labelledby="filters-tab-models" hidden={filterSection !== 'models'} className="filter-section">
-            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
-            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
+            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked || setupOpen} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
+            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked || setupOpen} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
               if (!choice) {setModelChoice(null);return;}
               setModelChoice({digest:choice.digest,catalogId:choice.id,quality:choice.quality_candidate,draft:modelDraft,revision:config.revision});
             }} />
@@ -1295,7 +1300,7 @@ export function AdminConsole({
             className="filter-section"
           >
             <ProtectionSettings
-              key={epoch}
+              key={`${user.username}:${config.revision}:${epoch}`}
               revision={config.revision}
               policy={draft.protection}
               user={user}
@@ -1574,6 +1579,7 @@ export function AdminConsole({
               Refresh
             </Button>
           </div>
+          {operationView?.metricsError && <p role="alert" className="error">{operationView.metricsError} Metrics are unavailable.</p>}
           <div className="stats">
             <section>
               <span>Messages · last hour</span>
@@ -1591,7 +1597,7 @@ export function AdminConsole({
               <small className="muted">
                 {metrics?.oldest_pending_age_seconds != null
                   ? `Older: ${Math.floor(metrics.oldest_pending_age_seconds / 60)} min`
-                  : "Queue empty"}
+                  : metrics ? (metrics.queued_deliveries===0 ? "Queue empty" : "Oldest pending age unavailable") : "Queue status unavailable"}
               </small>
             </section>
             <section>
@@ -1610,19 +1616,19 @@ export function AdminConsole({
           </div>
           <div className="server-facts">
             <span>
-              <strong>{config.max_connections}</strong> connexions SMTP
+              <strong>{config.max_connections}</strong> SMTP connections
             </span>
             <span>
               <strong>{config.processing}</strong> simultaneous analyses
             </span>
             <span>
-              <strong>{config.relay_workers}</strong> Simultaneous deliveries
+              <strong>{config.relay_workers}</strong> simultaneous deliveries
             </span>
             <span>
               <strong>
                 {Math.round(config.max_message_bytes / 1024 ** 2)} MiB
               </strong>{' '}
-              by message
+              per message
             </span>
           </div>
           {metrics?.llm_budget && <LlmPricingNotice checkedAt={metrics.llm_budget.pricing_checked_at} />}
@@ -1638,7 +1644,7 @@ export function AdminConsole({
             <p className="muted small">
               The first 200 unresolved deliveries. Temporary failures are retried for up to five days.
             </p>
-            {!deliveries.length ? (
+            {!operationView ? <output>Loading the delivery queue…</output> : operationView.queueError ? <p role="alert" className="error">{operationView.queueError} Queue state is unavailable; it is not confirmed empty.</p> : !deliveries.length ? (
               <div className="empty compact">
                 <CheckCircle2 size={28} />
                 <h2>No message pending</h2>
@@ -1716,352 +1722,25 @@ export function AdminConsole({
               </div>
             )}
           </section>
-          <div className="admin-two-columns">
-            <section className="panel">
-              <h2>Settings History</h2>
-              <p className="muted small">
-                Load an old configuration, examine it and apply it as a new revision.
-              </p>
-              <div className="revision-list">
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    void action(async () => {
-                      if (
-                        dirty &&
-                        !window.confirm(
-                          "Replace unapplied changes?",
-                        )
-                      )
-                        return;
-                      setDraft(
-                        restoreDefaults(
-                          await api<Settings>('/admin/revisions/0'),
-                        ),
-                      );
-                      setEpoch((e) => e + 1);
-                      setNotice(
-                        "Initial configuration loaded. Check changes before application.",
-                      );
-                    })
-                  }
-                >
-                  Load initial configuration
-                </Button>
-                {revisions.map((r) => (
-                  <div key={r.id}>
-                    <span>
-                      <strong>Revision {r.id}</strong>
-                      <small>
-                        {stamp(r.created)} · {r.username}
-                      </small>
-                    </span>
-                    <Button
-                      variant="ghost"
-                      disabled={busy || r.id === config.revision}
-                      onClick={() =>
-                        void action(async () => {
-                          if (
-                            dirty &&
-                            !window.confirm(
-                              "Replace unapplied changes?",
-                            )
-                          )
-                            return;
-                          setDraft(
-                            restoreDefaults(
-                              await api<Settings>(`/admin/revisions/${r.id}`),
-                            ),
-                          );
-                          setEpoch((e) => e + 1);
-                          setNotice(`Revision ${r.id} for consideration.`);
-                        })
-                      }
-                    >
-                      {r.id === config.revision ? 'Active' : "Load"}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="panel">
-              <h2>Administration audit log</h2>
-              <p className="muted small">
-                The last 200 recorded events.
-              </p>
-              <div className="audit-list">
-                {audit.map((a, i) => (
-                  <div key={i}>
-                    <span className="audit-dot" />
-                    <div>
-                      <strong>
-                        {{
-                          configuration: "Adjustments applied",
-                          account: "Account modified",
-                          retry: "Relaunched delivery",
-                          login: "Sign in",
-                          feedback: "Classification correction",
-                        }[a.action] || a.action}
-                      </strong>
-                      <p>
-                        {a.username}
-                        {a.object && ` · ${a.object}`}
-                      </p>
-                      <small>{stamp(a.created)}</small>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
+          <SettingsHistory owner={user.username} revision={config.revision} settings={config.settings} epoch={epoch} dirty={dirty} busy={busy || refreshRequired}
+            onLoad={(value,label)=>{setDraft(value);setModelChoice(null);setReviewed(null);setEpoch(e=>e+1);setNotice(`${label} loaded as an unsaved draft. Review before applying as a new revision.`);}} />
         </>
       )}
       {dirty && (
         <div className="save-area">
-          {review && (
+          {review && proposal && (
             <section className="change-review">
-              {modelSelection && <p className="notice">This change explicitly selects {catalogSelection ? 'retained' : 'server'} model files with digest <code>{modelSelection}</code>. Changed bytes will be refused until previewed again.</p>}
+              <h2 ref={reviewHeading} tabIndex={-1}>Review configuration changes</h2>
+              {modelSelection && <p className="notice">Explicit {catalogSelection ? 'retained' : 'server'} model-file selection: <code>{modelSelection}</code>. File bytes and activation prerequisites are checked again by the server.</p>}
               {catalogSelection && <p className="notice">The shadow candidate follows the retained preview, including explicit absence. Its role remains observation only.</p>}
-              <h2>Check for changes</h2>
-              <ul>
-                {(
-                  ['research_archive', 'smtp_admission', 'rbl', 'detection', 'preferences'] as const
-                )
-                  .filter(
-                    (k) =>
-                      JSON.stringify(draft[k]) !==
-                      JSON.stringify(config.settings[k]),
-                  )
-                  .map((k) => (
-                    <li key={k}>
-                      <strong>
-                        {k === 'research_archive'
-                          ? 'Temporary R&D archive: collection, expiry and storage'
-                          : k === 'smtp_admission'
-                          ? "SMTP admission: greylisting, throughput and slow down"
-                          : k === 'rbl'
-                            ? "IP and RBL reputation"
-                            : k === 'detection'
-                              ? "Engine parameters and budgets"
-                              : "Preferences and personal rights"}
-                      </strong>
-                      <details>
-                        <summary>See proposed values</summary>
-                        <pre className="management-result">
-                          {JSON.stringify(draft[k], null, 2)}
-                        </pre>
-                      </details>
-                    </li>
-                  ))}
-                {sensitivityChanges(
-                  config.settings.custom_filtering,
-                  draft.custom_filtering,
-                ).map((change) => (
-                  <li key={`sensitivity:${change.scope}`}>
-                    Sensitivity{' '}
-                    <strong>
-                      {change.scope === '*' ? 'organisation' : change.scope}
-                    </strong>{' '}
-                    :{' '}
-                    {change.before === null
-                      ? "inherited"
-                      : `threshold ${change.before}`}{' '}
-                    →{' '}
-                    {change.after === null
-                      ? "inherited"
-                      : `threshold ${change.after}`}
-                    . Delivery actions are configured separately.
-                  </li>
-                ))}
-                {JSON.stringify(draft.custom_filtering) !==
-                  JSON.stringify(config.settings.custom_filtering) && (
-                  <li>
-                    Customized rules:{' '}
-                    {draft.custom_filtering?.rules.length || 0} rules,{' '}
-                    {draft.custom_filtering?.profiles.length || 0} profils,{' '}
-                    {draft.custom_filtering?.bindings.length || 0} New messages will be evaluated according to this draft.
-                  </li>
-                )}
-                {changedDomains.map((d, i) => (
-                  <li key={`d${i}`}>
-                    Domain <strong>{d.name || "(missing name)"}</strong> :{' '}
-                    {d.enabled ? "Enabled" : "Disabled"},{' '}
-                    {d.accept_all_recipients
-                      ? "all addresses"
-                      : `${d.recipients.filter(Boolean).length} adresses`}
-                    , gateway{' '}
-                    {draft.gateways.find((g) => g.id === d.gateway)?.name ||
-                      "aliases only"}
-                    , {Object.keys(d.aliases).length} alias.
-                  </li>
-                ))}
-                {removed.map((d) => (
-                  <li key={d.name}>
-                    Withdrawal of the domain <strong>{d.name}</strong>.
-                  </li>
-                ))}
-                {changedGateways.map((g) => (
-                  <li key={g.id}>
-                    Gateway <strong>{g.name || "(missing name)"}</strong> :{' '}
-                    {g.hosts.join(' → ')} · port {g.port}.
-                  </li>
-                ))}
-                {removedGateways.map((g) => (
-                  <li key={g.id}>
-                    Gateway removed <strong>{g.name}</strong>.
-                  </li>
-                ))}
-                {JSON.stringify(draft.protection) !==
-                  JSON.stringify(config.settings.protection) && (
-                  <li>
-                    <strong>
-                      Complementary protection:{' '}
-                      {draft.protection ? "observation activated" : "Deactivated"}
-                    </strong>
-                    {draft.protection && (
-                      <>
-                        <p>
-                          Impersonation:{' '}
-                          {draft.protection.identity ? "Enabled" : "Disabled"}{' '}
-                          · Links:{' '}
-                          {draft.protection.links ? "Enabled" : "Deactivated"} · Campaigns:{' '}
-                          {draft.protection.campaigns
-                            ? "Enabled"
-                            : "Deactivated"}{' '}
-                          · CRDF :{' '}
-                          {draft.protection.crdf ? "Enabled" : "Disabled"} ·
-                          VirusTotal :{' '}
-                          {draft.protection.virustotal ? "Enabled" : "Disabled"}
-                          .
-                        </p>
-                        <p>
-                          Quotas CRDF :{' '}
-                          {draft.protection.crdf_quota
-                            ? quotaLabel(draft.protection.crdf_quota)
-                            : "server ceilings"}
-                          . Quotas VirusTotal :{' '}
-                          {draft.protection.virustotal_quota
-                            ? quotaLabel(draft.protection.virustotal_quota)
-                            : "server ceilings"}
-                          .
-                        </p>
-                        <p>
-                          Protected names:{' '}
-                          {draft.protection.protected_names
-                            .map((x) => `${x.name} (${x.domain})`)
-                            .join(', ') || "none"}
-                          .
-                        </p>
-                        <p>
-                          Exceptions to reply:{' '}
-                          {draft.protection.reply_exceptions
-                            .filter(Boolean)
-                            .join(', ') || "none"}
-                          . Exceptions to follow-up:{' '}
-                          {draft.protection.link_exceptions
-                            .filter(Boolean)
-                            .join(', ') || "none"}
-                          .
-                        </p>
-                      </>
-                    )}
-                  </li>
-                )}
-                {JSON.stringify(draft.mailing) !==
-                  JSON.stringify(config.settings.mailing) && (
-                  <li>
-                    <strong>
-                      Marketing classification: {draft.mailing ? "Enabled" : "Disabled"}
-                    </strong>
-                    {draft.mailing && (
-                      <p>
-                        Newsletters:{' '}
-                        {draft.mailing.include_newsletters
-                          ? 'incluses'
-                          : 'exclues'}{' '}
-                        · Prefix [PUB] in marking mode:{' '}
-                        {(draft.actions?.publicity ??
-                          (draft.mailing.tag_subject ? 'tag' : 'deliver')) ===
-                        'tag'
-                          ? "Enabled"
-                          : "Disabled"}
-                        .
-                      </p>
-                    )}
-                  </li>
-                )}
-                {JSON.stringify(draft.actions) !==
-                  JSON.stringify(config.settings.actions) && (
-                  <li>
-                    <strong>Actions after detection</strong>
-                    <p>
-                      Spam : {actionLabel[deliveryPolicy(draft).spam]} · PUB :{' '}
-                      {actionLabel[deliveryPolicy(draft).publicity]} · Malware :{' '}
-                      {actionLabel[deliveryPolicy(draft).malware]}.
-                    </p>
-                    <p>
-                      Quarantine: discard after{' '}
-                      {deliveryPolicy(draft).quarantine_days} days without release.
-                    </p>
-                  </li>
-                )}
-                {Object.entries(draft.filters)
-                  .filter(
-                    ([k, v]) =>
-                      JSON.stringify(v) !==
-                      JSON.stringify(
-                        config.settings.filters[k as keyof Filters],
-                      ),
-                  )
-                  .map(([k, v]) => (
-                    <li key={k}>
-                      {(
-                        {
-                          rule_weights: "Weight of heuristic rules",
-                          mode: "Operating mode",
-                          threshold: "Classification threshold",
-                          require_corroboration:
-                            "Confirmation before Spam classification",
-                          smtp_policy_scoring: 'Contribution SMTP',
-                          vision_scoring: 'Contribution OCR',
-                        } as Record<string, string>
-                      )[k] ||
-                        modules.find((m) => m.key === k)?.title ||
-                        k}{' '}
-                      :{' '}
-                      <strong>
-                        {typeof v === 'object'
-                          ? Object.entries(v)
-                              .map(
-                                ([id, weight]) =>
-                                  `${config.rules.find((r) => r.id === id)?.label ?? id} : ${weight}`,
-                              )
-                              .join(' · ') || "default values"
-                          : v === 'enforce'
-                            ? 'actions actives'
-                            : typeof v === 'boolean'
-                              ? v
-                                ? "Enabled"
-                                : "Disabled"
-                              : v === 'tag'
-                                ? 'tagging'
-                                : v === 'observe'
-                                  ? 'observation'
-                                  : v}
-                      </strong>
-                      .
-                    </li>
-                  ))}
-              </ul>
-              <p className="small muted">
-                {activation.view?.coordinated ? 'Activation waits for every MX. New SMTP acceptance may be temporarily deferred.' : 'Applies to future messages.'} Already accepted deliveries keep their decisions.
-              </p>
+              <SettingsComparison before={config.settings} after={proposal.settings} beforeLabel={`Loaded revision ${config.revision}`} afterLabel="Proposed settings"/>
+              <p className="small muted">{activation.view?.coordinated ? 'Activation waits for every MX. New SMTP acceptance may be temporarily deferred.' : 'Applies to future messages.'} Already accepted deliveries keep their recorded decisions. Saving revalidates permissions, configuration and the base revision.</p>
             </section>
           )}
+          {reviewed && !review && <p className="notice">The draft, base revision or selected model files changed. Review again before applying.</p>}
           <div className="save-bar">
             <span>
-              <strong>Changes not implemented</strong>
+              <strong>Unsaved changes</strong>
               <small>Initial revision: {config.revision}</small>
             </span>
             <div>
@@ -2069,22 +1748,17 @@ export function AdminConsole({
                 variant="ghost"
                 disabled={busy}
                 onClick={() => {
-                  if (
-                    window.confirm(
-                      "Drop the changes and reload the active settings?",
-                    )
-                  )
-                    void action(reload);
+                  setDiscard(true);
                 }}
               >
                 <RotateCcw size={16} />
                 Cancel
               </Button>
               <Button
-                disabled={busy || blocked}
+                disabled={busy || blocked || setupOpen}
                 onClick={() => {
                   if (review) void action(save);
-                  else setReview(true);
+                  else {setReviewed(reviewKey);requestAnimationFrame(()=>reviewHeading.current?.focus());}
                 }}
               >
                 <Save size={16} />
@@ -2098,6 +1772,8 @@ export function AdminConsole({
           </div>
         </div>
       )}
+      </fieldset>
+      {discard && <ConfirmDialog title="Discard unsaved configuration?" confirmLabel="Discard and reload" danger busy={busy} onCancel={()=>setDiscard(false)} onConfirm={()=>{setDiscard(false);void action(async()=>{await reload();setNotice('Draft discarded; installed settings reloaded.');requestAnimationFrame(()=>pageHeading.current?.focus());});}}><p>Replace the current draft with the installed settings. This does not undo any saved revision.</p></ConfirmDialog>}
     </div>
   );
 }

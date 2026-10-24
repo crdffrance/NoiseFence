@@ -11,10 +11,34 @@ from version import cargo_version
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
+def archive_metadata(member):
+    """Public release permissions must not inherit the builder's private umask."""
+    if not (member.isdir() or member.isfile()):
+        raise ValueError('Release archives may only contain directories and regular files')
+    member.mode = 0o755 if member.isdir() or member.mode & 0o111 else 0o644
+    member.uid = member.gid = 0
+    member.uname = member.gname = 'root'
+    return member
+
+
+def write_archive(directory, archive):
+    with tarfile.open(archive, 'w:gz') as output:
+        output.add(directory, arcname=directory.name, filter=archive_metadata)
+
+
+def build_environment(rehearsal_only):
+    if rehearsal_only:
+        return {'rehearsal_only': True, 'image': None, 'minimum_glibc': None}
+    return {'rehearsal_only': False, 'minimum_glibc': '2.36',
+            'image': 'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922'}
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=Path,required=True)
     parser.add_argument('--platform',choices=['linux-amd64','linux-arm64'],required=True)
+    parser.add_argument('--rehearsal-only', action='store_true', help='Host-built CI fixture; forbidden from release publication, no Bookworm compatibility claim')
     args=parser.parse_args()
     if subprocess.check_output(['git','status','--porcelain'],cwd=ROOT).strip():
         raise SystemExit('Commit all release sources before packaging; build.json must identify their exact commit')
@@ -69,20 +93,20 @@ def main():
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     (output/'build.json').write_text(json.dumps({
         'project':'NoiseFence','platform':args.platform,'version':version,
-        'rust':'1.98.0','minimum_glibc':'2.36','commit':commit,
+        'rust':'1.98.0','commit':commit,
+        **build_environment(args.rehearsal_only),
         'storage_schema':7,
         'source_sha256':source.hexdigest(),
         'source_digest_schema':'noisefence-build-inputs-2',
         'source_inputs':[str(p.relative_to(ROOT)) for p in sorted(inputs)],
         'source_url':f'https://github.com/crdffrance/NoiseFence/tree/{commit}',
-        'image':'rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922',
         'license':'GPL-3.0-only','default_mode':'observe','proton_validated':False,
     },indent=2)+'\n')
     checksums={str(p.relative_to(output)):hashlib.sha256(p.read_bytes()).hexdigest()
                for p in sorted(output.rglob('*')) if p.is_file()}
     (output/'SHA256SUMS').write_text(''.join(f'{sha}  {path}\n' for path,sha in checksums.items()))
     archive=Path(str(output)+'.tar.gz')
-    with tarfile.open(archive,'w:gz') as tar: tar.add(output,arcname=name)
+    write_archive(output, archive)
     digest=hashlib.sha256(archive.read_bytes()).hexdigest()
     Path(str(archive)+'.sha256').write_text(f'{digest}  {archive.name}\n')
     print(archive)

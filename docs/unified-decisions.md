@@ -16,7 +16,8 @@ Incoming SMTP processing captures two additive, versioned fields in the persiste
 The shared assessment freezes the applied threshold, requested/effective action,
 action reason, score source and semantics. A subsequent setting change does not
 re-evaluate an accepted message. API history, diagnostics, search and statistics
-use recorded decisions. Legacy messages retain their explicit original verdict,
+use recorded decisions. [Evaluation exports](decision-exports.md) preserve the same
+recipient snapshot separately from the original detector opinion. Legacy messages retain their explicit original verdict,
 or their recorded original threshold. When neither exists, the category is
 historically unknown; today's settings are never substituted.
 
@@ -32,7 +33,7 @@ policy can evaluate partial actions against decision-specific evidence instead.
 Proton marking guards remain independent.
 Recipient copies only share SMTP bytes when their effective policy fingerprints
 match. A different threshold, matched rule, profile or action creates a distinct
-copy. Each copy exposes only its own decision in version 9 diagnostic headers.
+copy. Each copy exposes only its own decision in version 12 diagnostic headers.
 
 Recipient variants share one immutable body allocation and retain their own
 headers. Disk writes and replica uploads stream both chunks. The configured SMTP

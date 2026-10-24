@@ -4,11 +4,13 @@
 
 - [Installation: Docker and Linux](installation.md)
 - [Operations and routing](operations.md)
+- [Paired upgrades and recovery boundaries](paired-upgrades.md)
 - [Production readiness, health monitoring and incident recovery](production-readiness.md)
 - [Web configuration](web-configuration.md)
 - [Console and access control](console.md)
 - [Multiple MX servers](multi-mx.md)
 - [Two-copy durability and console recovery](high-availability.md)
+- [Independent monitoring and backup handoff](external-resilience.md)
 - [Independent SMTP/TLS/HTTPS probe](../deploy/external-monitor/README.md)
 - [Linux hardening and backups](../deploy/hardening/README.md)
 - [Security boundaries](security.md)
@@ -58,3 +60,5 @@
 - [Final release qualification](final-release-plan.md): evidence, calibration, coherence and release gates.
 
 - [Unified receipt decisions](unified-decisions.md): canonical records, policy variants and remaining qualification work.
+
+- [Model identity and provenance](model-provenance.md)

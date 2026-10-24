@@ -1,4 +1,5 @@
 //! Mailbox-owned policy; all edits require a current grant, including aliases and domain scopes.
+pub mod preview;
 use crate::{
     actions::Action,
     config::{Config, Recipient},
@@ -62,6 +63,28 @@ impl Preference {
             ..Default::default()
         }
     }
+}
+/// Preserve legacy binding order for inherited thresholds.
+pub(crate) fn inherited_threshold_profile<'a>(
+    base: &'a Policy,
+    recipient: &Recipient,
+) -> Option<(&'a Profile, &'a str)> {
+    let mut profiles: Vec<_> = base
+        .bindings
+        .iter()
+        .filter_map(|b| {
+            Some((
+                crate::custom_filtering::scope_rank(&b.scope, recipient)?,
+                base.profiles.iter().find(|p| p.id == b.profile)?,
+                b.scope.as_str(),
+            ))
+        })
+        .collect();
+    profiles.sort_by_key(|(rank, _, _)| std::cmp::Reverse(*rank));
+    profiles
+        .into_iter()
+        .find(|(_, p, _)| p.threshold.is_some())
+        .map(|(_, p, s)| (p, s))
 }
 impl Settings {
     pub fn validate(&self, cfg: &Config) -> Result<()> {
@@ -136,6 +159,14 @@ impl Settings {
                 (a || t.0, b || t.1)
             })
     }
+    pub(crate) fn legacy_preference(&self, recipient: &Recipient) -> Option<(u8, &Preference)> {
+        self.mailboxes
+            .iter()
+            .filter_map(|(scope, p)| {
+                crate::custom_filtering::scope_rank(scope, recipient).map(|r| (r, p))
+            })
+            .max_by_key(|(rank, _)| *rank)
+    }
     pub fn policy<'a>(&self, base: &'a Policy, recipient: &Recipient) -> Cow<'a, Policy> {
         if !self.enabled {
             return Cow::Borrowed(base);
@@ -143,13 +174,7 @@ impl Settings {
         if base.ordering == crate::custom_filtering::Ordering::Scoped {
             return self.scoped_policy(base, recipient);
         }
-        let selected = self
-            .mailboxes
-            .iter()
-            .filter_map(|(scope, p)| {
-                crate::custom_filtering::scope_rank(scope, recipient).map(|r| (r, p))
-            })
-            .max_by_key(|(rank, _)| *rank);
+        let selected = self.legacy_preference(recipient);
         let Some((_, personal)) = selected else {
             return Cow::Borrowed(base);
         };
@@ -157,18 +182,8 @@ impl Settings {
         if let Some(profile) = &personal.profile {
             let mut profile = profile.clone();
             if profile.threshold.is_none() {
-                let mut inherited: Vec<_> = base
-                    .bindings
-                    .iter()
-                    .filter_map(|b| {
-                        Some((
-                            crate::custom_filtering::scope_rank(&b.scope, recipient)?,
-                            base.profiles.iter().find(|p| p.id == b.profile)?,
-                        ))
-                    })
-                    .collect();
-                inherited.sort_by_key(|(rank, _)| std::cmp::Reverse(*rank));
-                profile.threshold = inherited.iter().find_map(|(_, p)| p.threshold);
+                profile.threshold =
+                    inherited_threshold_profile(base, recipient).and_then(|(p, _)| p.threshold);
             }
 
             profile.id = (0..)

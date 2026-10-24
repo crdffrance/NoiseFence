@@ -44,5 +44,8 @@ CREATE TABLE IF NOT EXISTS cluster_commands(
  created INTEGER NOT NULL, expires INTEGER NOT NULL, result TEXT,
  finished INTEGER
 );
+-- Bounded per-recipient history remains independent of unrelated command volume.
+CREATE INDEX IF NOT EXISTS cluster_quarantine_history ON cluster_commands(message_id,recipient,created DESC,id DESC)
+ WHERE command IN ('"release"','"delete"');
 CREATE UNIQUE INDEX IF NOT EXISTS cluster_pending_command ON cluster_commands(node_id,message_id,recipient) WHERE finished IS NULL;
 CREATE TABLE IF NOT EXISTS cluster_command_receipts(id TEXT PRIMARY KEY,result TEXT NOT NULL,created INTEGER NOT NULL);
