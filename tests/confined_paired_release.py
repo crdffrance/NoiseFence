@@ -74,14 +74,20 @@ def containers_removed(output):
 def collect_denials(evidence, name):
     # This is a private diagnostic only. Public output is reduced to fixed
     # operation/resource categories by rehearsal_diagnostics.py.
-    try:
-        raw = command('sudo', '-n', 'journalctl', '-k', '--no-pager', '-o', 'cat', '-n', '2000', timeout=10)
-        marker = ('profile="'+name+'"').encode()
-        lines = [line for line in raw.splitlines() if marker in line and b'apparmor="DENIED"' in line]
+    readers = [('sudo', '-n', 'journalctl', '-k', '--no-pager', '-o', 'cat', '-n', '2000'),
+               ('sudo', '-n', 'dmesg', '--color=never')]
+    lines=[];available=False;marker=('profile="'+name+'"').encode()
+    for arguments in readers:
+        try:
+            raw=command(*arguments,timeout=10);available=True
+            for line in raw.splitlines():
+                if marker in line and b'apparmor="DENIED"' in line and line not in lines:
+                    lines.append(line)
+        except (OSError,subprocess.SubprocessError):
+            continue
+    if available:
         (evidence/'denials.log').write_bytes(b'\n'.join(lines)[-131072:])
-        return 'collected'
-    except (OSError, subprocess.SubprocessError):
-        return 'unavailable'
+    return 'collected' if available else 'unavailable'
 
 
 def run(args):

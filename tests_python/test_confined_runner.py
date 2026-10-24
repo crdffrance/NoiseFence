@@ -86,9 +86,18 @@ class ConfinedRunnerTests(unittest.TestCase):
         self.assertIn(b'/private/path', output)
         self.assertNotIn(b'/other/private', output);self.assertNotIn(b'/not-denied', output)
         self.assertEqual(command.call_args.kwargs['timeout'], 10)
-        self.assertEqual(command.call_args.args[-2:], ('-n', '2000'))
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual(command.call_args_list[0].args[-2:], ('-n', '2000'))
+        self.assertEqual(command.call_args_list[1].args, ('sudo', '-n', 'dmesg', '--color=never'))
         with patch.object(runner, 'command', side_effect=subprocess.TimeoutExpired('journalctl',10)):
             self.assertEqual(runner.collect_denials(self.args.evidence, NAME), 'unavailable')
+
+    def test_kernel_ring_is_used_when_journal_has_no_audit_record(self):
+        self.args.evidence.mkdir()
+        raw=('apparmor="DENIED" profile="'+NAME+'" operation="connect" name="/run/postgresql/socket"').encode()
+        with patch.object(runner,'command',side_effect=[b'',raw]):
+            self.assertEqual(runner.collect_denials(self.args.evidence,NAME),'collected')
+        self.assertEqual((self.args.evidence/'denials.log').read_bytes(),raw)
 
     def test_explicit_host_guard_before_any_privileged_action(self):
         for environment in ({}, {**ENV,'RUNNER_ENVIRONMENT':'self-hosted'}, {**ENV,'RUNNER_OS':'Windows'}):

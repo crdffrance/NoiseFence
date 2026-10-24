@@ -45,6 +45,8 @@ INDICATORS = {
     'service_exec_failure': ('203/EXEC',),
     'connection_refused': ('Connection refused', 'os error 111'),
     'central_sync_pending': ('central management synchronization pending',),
+    'central_policy_capacity_unavailable': ('Central policy capacity unavailable',),
+    'central_ingestion_capacity_unavailable': ('Central ingestion capacity unavailable',),
     'replication_unavailable': ('durable replication unavailable',),
     'activation_pending': ('coordinated activation pending',),
     'database_error': ('database is locked', 'database is busy', 'error returned from database'),

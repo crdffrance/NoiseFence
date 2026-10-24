@@ -51,6 +51,11 @@ class DiagnosticsTests(unittest.TestCase):
         for word in ('secret.key','other.key','private-profile','SECRET-OPERATION','/not-public'):
             self.assertNotIn(word,json.dumps(result))
 
+    def test_postgresql_capacity_errors_publish_only_fixed_categories(self):
+        result=diag.describe('Central policy capacity unavailable PRIVATE-DB\nCentral ingestion capacity unavailable PRIVATE-USER',{},[])
+        self.assertEqual(result['indicators'],['central_policy_capacity_unavailable','central_ingestion_capacity_unavailable'])
+        self.assertNotIn('PRIVATE',json.dumps(result))
+
     def test_missing_truncated_malformed_and_unrecognized_logs_are_not_passes(self):
         self.assertEqual(diag.diagnose(self.root/'missing','paired')['logs'],{})
         (self.root/'paired.log').write_bytes(b'\xff' * (diag.LIMIT+10) + b'Permission denied\n')

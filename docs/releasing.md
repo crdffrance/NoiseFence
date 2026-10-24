@@ -218,3 +218,19 @@ The Web release checker follows public stable releases and identifies an install
 RC as a development version. It never treats the RC as its future stable release
 or installs it automatically. Publishing the RC does not change server policies,
 models, provider consent or MX routing.
+
+### Short PostgreSQL confinement diagnostic
+
+The `confinement socket probe` workflow performs a fixed, peer-authenticated
+`SELECT 1` over the local PostgreSQL Unix socket, with and without the same
+AppArmor policy. Its PostgreSQL container has no external network route and no
+production credentials. The query program emits only fixed result categories.
+Kernel diagnostics inspect both the journal and ring buffer, retain only the
+unique test profile's denials privately, and publish only resource categories.
+The probe removes its container before removing its own profile.
+
+This short diagnostic helps locate policy failures without rebuilding every
+optimized Rust integration test. It does not replace the required exact-archive
+lifecycle checks, test rollback or qualify delivery and filter accuracy. Only the
+anonymous `probe.json` is retained as a public artifact; raw logs and database
+state are not uploaded.
