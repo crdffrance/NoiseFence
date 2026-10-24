@@ -8,9 +8,10 @@ second durable copy throughout an upgrade.
 
 The current release provides a read-only local prerequisite report and guards
 for simple installation paths. It does **not** provide a qualified unattended
-paired updater or certify a compatible paired rollback. A passing prerequisite
-report is not an authorization to deploy. The installed-system rehearsal below
-remains a release gate.
+paired updater or certify arbitrary release pairs for rollback. The disposable
+fixture below exercises a coordinated stop/start with exact published archives;
+it is not a production controller. A passing prerequisite report is not an
+authorization to deploy. The full installed-system matrix remains a release gate.
 
 ## Installation paths
 
@@ -97,13 +98,30 @@ It can still describe a management installation requiring coordination. Add
 Invalid input, unreadable state, expired deadline or failed receipt publication
 return 2. Neither a failed probe nor missing data counts as success.
 
-## Reviewed rolling sequence
+## Selected management requires matching builds
+
+The published 0.31.8 and 0.31.9 PostgreSQL policy transport accepts only a worker
+reporting the coordinator's exact application version. The legacy
+`compatible_build` policy window does not extend that central transport contract.
+An actual two-node archive rehearsal reproduced `Invalid central policy poll`
+when one node ran each version. A recently healthy process can still report ready
+before its next policy poll, so a health snapshot alone is insufficient.
+
+Do not advertise a rolling mixed-version upgrade for this pair. A coordinated
+maintenance procedure must stop both daemons before changing either installed
+binary, start the complete matching pair, and verify a **new authenticated policy
+exchange** after that transition. SMTP senders retry during the outage. This does
+not make any other release pair compatible or protect against concurrent policy,
+recovery or deployment operations. Those reservations remain required.
+
+## Reviewed maintenance sequence
 
 1. Record both node identities, coordinator/worker roles, installed release
    manifests, the proposed archive hashes and the complete management authority.
-   Confirm the exact old/new pair is covered by the reviewed cluster protocol
-   compatibility window. Do not infer compatibility from matching local schema
-   numbers or a semver comparison.
+   Confirm the exact old/new pair and the actual management transport have been
+   rehearsed. Selected PostgreSQL policy transport can require matching builds
+   even when the legacy policy window permits older bundles. Do not infer
+   compatibility from matching local schema numbers or a semver comparison.
 2. Obtain a consistent backup and prove it can be restored into an isolated
    destination. A PostgreSQL selection needs its bound database, original MFA
    key, immutable models/credentials and local journals. A metadata-only backup
@@ -115,17 +133,18 @@ return 2. Neither a failed probe nor missing data counts as success.
    stale heartbeat, unprotected messages and pending updates before proceeding.
    Verify queue age, free space, memory headroom, checkpoint age and the tested
    recovery procedure separately; the helper does not measure them all.
-5. Use the procedure rehearsed for this authority and version pair. Update the
-   coordinator before workers only within that proven compatibility window.
-   A selected PostgreSQL deployment must not use the simple pointer-switch
+5. Use the procedure rehearsed for this authority and exact version pair. For
+   published 0.31.8/0.31.9 selected management, stop both daemons before switching
+   either binary. A selected deployment must not use the simple pointer-switch
    installer or rerun a backend migration merely to upgrade a binary.
-6. After the first restart, verify the actual running build, management access,
-   SMTP readiness, current peer identity and replication receipts. Recheck both
-   nodes before changing the second. If checks fail, stop the rollout and retain
-   its state; do not automatically switch the other node or clear a fence.
-7. After the second restart, capture new receipts and verify every accepted
-   synthetic test message and recipient state. Close the operation only after
-   both nodes run the expected release and outstanding replica updates converge.
+6. Verify the actual running builds, authority binding, SMTP readiness, peer
+   identity, replica receipts and a successful authenticated policy exchange
+   newer than the transition. A cached last-seen timestamp is not enough. If a
+   start fails, retain the operation state and use the rehearsed recovery plan;
+   do not clear a fence or declare an unchanged second node upgraded.
+7. Capture new receipts and verify every accepted synthetic test message and
+   recipient state. Close the operation only after both nodes run the expected
+   release and outstanding replica updates converge.
 
 While either mandatory peer is unavailable, new SMTP traffic can receive `451`.
 This is deliberate deferral; the sending server retries. Never remove a two-copy
@@ -169,3 +188,63 @@ external relay and no production state. Record:
 The single-node [release lifecycle fixture](installation.md#rehearse-an-upgrade-without-production-data)
 proves install/reinstall/remove preservation only for its tested archives. It does
 not satisfy this paired test matrix or a selected PostgreSQL restoration gate.
+
+
+## Run the disposable archive-pair fixture
+
+Use Python 3.11+, Docker on a dedicated test host or disposable VM, Rust and two
+previously authenticated release archives with their `.sha256` sidecars. The
+systemd fixture uses privileged containers; do not run it on a production MX.
+It binds no host ports or host directories. Its two root filesystems have distinct
+machine identities and share only a loopback network namespace without an
+external route. Test SSH credentials are ephemeral and valid only in that
+namespace. A local PostgreSQL 17 instance is initialized from synthetic state.
+
+From the repository root, with a **new** fixture and output directory:
+
+```sh
+# Match the image platform to both release archives. Use linux/amd64 on x86-64.
+docker build --platform linux/arm64 -f tests/fixtures/paired.Dockerfile \
+  -t noisefence-paired:qualification .
+
+NOISEFENCE_REHEARSAL_OUTPUT=/absolute/private/paired-fixture \
+NOISEFENCE_REHEARSAL_BASE_BUILD=0.31.8 \
+NOISEFENCE_REHEARSAL_SHARED_LOOPBACK=1 \
+  cargo test --locked --test management_rehearsal_fixture -- --ignored
+
+python3 tests/paired_release_lifecycle.py \
+  --old-archive /absolute/releases/noisefence-0.31.8-linux-arm64.tar.gz \
+  --new-archive /absolute/releases/noisefence-0.31.9-linux-arm64.tar.gz \
+  --image noisefence-paired:qualification --platform linux/arm64 \
+  --fixture /absolute/private/paired-fixture \
+  --output /absolute/private/paired-result
+```
+
+The generator records a synthetic baseline for the requested compatible old
+build. This is only test preparation: each real archive still has to parse and
+validate that state. Never supply a production data directory or credentials.
+The runner checks archive names, outer and inner checksums, platform, build
+identity, bounded safe member paths and image identity before using them.
+
+The fixture starts both old binaries, accepts synthetic mail on each node and
+uses the real management migration supervisor to select a synthetic PostgreSQL
+authority. That migration creates the laboratory baseline; it is **not repeated**
+for either binary transition. It exercises a missing replica, an injected failed
+candidate start, coordinated upgrade and coordinated rollback. It requires fresh
+policy synchronization, unchanged authority/configuration/installed policy,
+original recipient state, matching original and replica body hashes, and
+converged durable metadata acknowledgements. The final report records the exact
+archives, image, architecture and accepted IDs. Private journals and diagnostic
+logs remain in the output directory. No external mail is delivered.
+
+`paired-lifecycle-report.json` has status `passed` only after the assertions and
+container cleanup succeed. `failed.json` or `cleanup_failed` is a failure, even
+when earlier events were positive. Inspect `cleanup.json` and the bounded logs;
+do not reuse an output directory or silently discard failure evidence. Removal
+is attempted for both test containers even after an earlier diagnostic fails.
+
+This fixture does **not** qualify an unattended updater, maintenance reservation,
+controller-disconnect recovery, full-disk behavior, PostgreSQL disaster recovery,
+production models, external delivery, throughput or detection quality. A passing
+ARM64 run does not cover AMD64. A passing published archive pair does not qualify
+an unreleased candidate. Keep these distinct from the broader release gates.
