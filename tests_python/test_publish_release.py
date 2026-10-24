@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tarfile
@@ -27,9 +28,9 @@ class ReleaseTests(unittest.TestCase):
     def archive(self, platform, *, commit='a' * 40, unsafe=False, missing_manifest=False):
         name = f'noisefence-0.29.1-{platform}'
         elf = bytearray(20)
-        elf[:4] = b'\x7fELF'
+        elf[:6] = b'\x7fELF\x02\x01'
         elf[18:20] = release.PLATFORMS[platform].to_bytes(2, 'little')
-        files = {'build.json': json.dumps({'version': '0.29.1', 'platform': platform,
+        files = {'build.json': json.dumps({'project': 'NoiseFence', 'storage_schema': 7, 'version': '0.29.1', 'platform': platform,
                                          'commit': commit}).encode(),
                  'noisefence': bytes(elf), 'web/index.html': b'<html lang="en">Console</html>'}
         checks = ''.join(f'{hashlib.sha256(data).hexdigest()}  {path}\n' for path, data in files.items())
@@ -38,6 +39,7 @@ class ReleaseTests(unittest.TestCase):
         with tarfile.open(archive, 'w:gz') as tar:
             for path, data in files.items():
                 info = tarfile.TarInfo(f'{name}/{path}'); info.size = len(data)
+                if path == 'noisefence': info.mode = 0o755
                 tar.addfile(info, io.BytesIO(data))
             if unsafe:
                 tar.addfile(tarfile.TarInfo('../escape'))
@@ -99,6 +101,22 @@ class ReleaseTests(unittest.TestCase):
         release.publish('v0.29.1-rc.1', self.root, [], 'example/repo')
         self.assertIn('--prerelease=true', gh.call_args.args)
         self.assertIn('--latest=false', gh.call_args.args)
+
+    def test_main_requires_both_provenances_before_publishing(self):
+        self.both()
+        argv=['publish_release.py','--tag','v0.29.1','--directory',str(self.root)]
+        with patch.object(sys,'argv',argv),patch.dict(os.environ,{'GH_REPO':'crdffrance/NoiseFence'}), \
+                patch.object(release,'cargo_version',return_value='0.29.1'), \
+                patch.object(release.subprocess,'check_output',return_value='a'*40), \
+                patch.object(release,'publish') as publish,patch.object(release,'verify_provenance') as verify:
+            verify.side_effect=ValueError('untrusted source')
+            with self.assertRaises(ValueError):release.main()
+            publish.assert_not_called()
+            verify.reset_mock();verify.side_effect=None
+            release.main()
+            self.assertEqual(verify.call_count,2);publish.assert_called_once()
+            verify.reset_mock();publish.reset_mock();argv.append('--verify-only')
+            release.main();verify.assert_not_called();publish.assert_not_called()
 
     @patch.object(release, 'gh', side_effect=RuntimeError('API unavailable'))
     def test_api_failure_does_not_create_release(self, gh):

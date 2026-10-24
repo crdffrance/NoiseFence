@@ -64,7 +64,7 @@ docker compose down
 
 Use Linux amd64 or arm64 with glibc 2.36 or newer, systemd and Python 3.11 or newer. Debian 12/13 are suitable baselines. Provide an explicit upstream route, authorized recipient/domain policy, public hostname, working forward/reverse DNS, a verified certificate and inbound/outbound TCP 25. Size storage for the maximum queue age and optional replicas.
 
-1. Download the matching archive and `.sha256` file from a specific [NoiseFence release](https://github.com/crdffrance/NoiseFence/releases). Check the outer SHA-256 before extracting, and the archive's `SHA256SUMS` before installation.
+1. Download the matching archive and `.sha256` file from a specific [NoiseFence release](https://github.com/crdffrance/NoiseFence/releases). Check the outer SHA-256 and [exact workflow/tag/commit attestation](release-staging.md#verify-before-a-first-installation) before extracting, then the archive's `SHA256SUMS` before installation. Historical releases without this proof cannot satisfy the strict provenance path.
 2. Copy `config/production.example.toml` to a private installation file. Set the actual hostname, domain and recipients, explicit next hops, certificate/key paths and console HTTPS origin. Keep `filter.mode = "observe"`. No catch-all is enabled by default.
 3. Configure an HTTPS reverse proxy for the console and API. Keep the API on loopback, and make `web.public_origin` exactly match the public URL. Use secure cookies. A host TLS certificate must also be readable by the SMTP service; test STARTTLS independently of browser HTTPS.
 4. Run the verified installer as root with the extracted archive and your initial configuration:

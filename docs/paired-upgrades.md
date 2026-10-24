@@ -123,8 +123,10 @@ start a bounded candidate under that hold. The [pre-commit promotion helper](mai
 binds both prepared releases and can switch or restore their pointers without
 starting normal services. The [activation protocol](maintenance-activation.md)
 then records mutual promises and a durable coordinator decision, starts the pair
-and verifies fresh runtime state. Authenticated archive staging, automated report
-exchange and rollback after ordinary startup still need their full qualification.
+and verifies fresh runtime state. The [staging helper](release-staging.md)
+authenticates and extracts a release before reservation without executing it.
+The first attested-release round trip, automated report exchange and rollback
+after ordinary startup still need their full qualification.
 
 ## Reviewed maintenance sequence
 

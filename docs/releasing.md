@@ -21,7 +21,12 @@ The notes are extracted from the single matching changelog section by
 `scripts/release_notes.py`; missing, empty or duplicate sections block publication.
 The publish job verifies both architectures, each outer SHA-256, every internal
 `SHA256SUMS` entry, and `build.json` version/platform/commit against the tag checkout.
+The publish job then creates signed build-provenance attestations for the validated
+archives and verifies their exact workflow/tag/source identity before upload.
 It uploads to a draft, downloads and compares the uploaded bytes, then publishes.
+See [authenticated release staging](release-staging.md) for the trust policy,
+historical-release behavior and native preparation procedure. The first release
+using this workflow must qualify the complete attestation path.
 Unsuffixed versions become stable releases; suffixed versions remain prereleases.
 
 Release publication is triggered by a pushed tag, not by an ordinary commit to
