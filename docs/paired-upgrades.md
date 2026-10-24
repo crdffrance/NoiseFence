@@ -126,8 +126,10 @@ then records mutual promises and a durable coordinator decision, starts the pair
 and verifies fresh runtime state. The [staging helper](release-staging.md)
 authenticates and extracts a release before reservation without executing it.
 The [restricted SSH completion helper](maintenance-exchange.md) exchanges final
-proofs for an already-started pair. The first attested-release round trip, complete
-remote lifecycle and rollback after ordinary startup still need their full qualification.
+proofs for an already-started pair. Its real ARM64 native lifecycle includes
+recovery after a lost completion response and expired temporary proofs. The first
+attested-release round trip, earlier remote lifecycle stages, final archives on
+both architectures and rollback after ordinary startup remain qualification gates.
 
 ## Reviewed maintenance sequence
 
@@ -251,6 +253,15 @@ original recipient state, matching original and replica body hashes, and
 converged durable metadata acknowledgements. The final report records the exact
 archives, image, architecture and accepted IDs. Private journals and diagnostic
 logs remain in the output directory. No external mail is delivered.
+
+With `--validation-candidate`, the final activation uses a dedicated temporary SSH
+authorization on both disposable nodes. Host keys are pinned from the local test
+control plane. A test-only wrapper discards the coordinator response after actual
+durable completion. The fixture accepts additional synthetic mail, waits beyond
+the 30-second proof window, resumes the peer and repeats completion. It records
+the same retained decision, verification timestamps, restored timers and two-copy
+message invariants. The SSH exchange receipts are saved privately in
+`exchange-receipts.json`; private keys never leave the containers.
 
 `paired-lifecycle-report.json` has status `passed` only after the assertions and
 container cleanup succeed. `failed.json` or `cleanup_failed` is a failure, even

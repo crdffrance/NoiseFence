@@ -17,10 +17,10 @@ class PairedLifecycleTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def archive(self, extra=None, **changes):
-        path = self.root/'noisefence-0.31.8-linux-arm64.tar.gz'
+    def archive(self, extra=None, release='0.31.8', **changes):
+        path = self.root/f'noisefence-{release}-linux-arm64.tar.gz'
         top = path.name.removesuffix('.tar.gz')
-        build = {'project':'NoiseFence','platform':'linux-arm64','version':'0.31.8',
+        build = {'project':'NoiseFence','platform':'linux-arm64','version':release,
                  'storage_schema':7,'commit':'a'*40, **changes}
         raw = json.dumps(build).encode()
         with tarfile.open(path, 'w:gz') as output:
@@ -41,6 +41,13 @@ class PairedLifecycleTests(unittest.TestCase):
             path = self.archive(**changes)
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 paired.archive(path, 'arm64')
+
+    def test_prerelease_archive_identity_is_preserved(self):
+        for version in ['0.32.0-rc.1','1.0.0-beta.11']:
+            result=paired.archive(self.archive(release=version),'arm64')
+            self.assertEqual(result['version'],version)
+        for version in ['1.0.0-rc.01','1.0.0+other','01.0.0']:
+            with self.assertRaises(ValueError):paired.archive(self.archive(release=version),'arm64')
 
     def test_unsafe_link_and_duplicate_archive_members_fail_before_extraction(self):
         top = 'noisefence-0.31.8-linux-arm64'

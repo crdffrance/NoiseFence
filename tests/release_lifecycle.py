@@ -3,8 +3,11 @@
 The image must be the separately built lifecycle fixture; no host paths are mounted.
 Uses synthetic mail only. Never point this at a production container or data volume.
 """
-import argparse,hashlib,json,os,re,subprocess,time,uuid
+import argparse,hashlib,json,os,re,subprocess,sys,time,uuid
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'deploy/postgresql'))
+from release_version import VERSION, valid as valid_version, precedence
+sys.path.pop(0)
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--old-archive',type=Path,required=True)
 parser.add_argument('--new-archive',type=Path,required=True)
@@ -17,12 +20,12 @@ ROOT.mkdir(mode=0o700,parents=True,exist_ok=False)
 os.umask(0o077)
 archives={}
 for archive in [args.old_archive,args.new_archive]:
- match=re.fullmatch(r'noisefence-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.tar\.gz',archive.name)
- if not match or 'linux/'+match[2] != args.platform:raise ValueError('Archive must match the selected platform and stable release naming')
+ match=re.fullmatch(rf'noisefence-({VERSION})-linux-(amd64|arm64)\.tar\.gz',archive.name)
+ if not match or not valid_version(match[1]) or 'linux/'+match[2] != args.platform:raise ValueError('Archive must match the selected platform and release naming')
  archives[match[1]]=archive.resolve()
 if len(archives)!=2:raise ValueError('Supply two distinct compatible releases, oldest first')
 versions=list(archives)
-if tuple(map(int,versions[0].split('.'))) >= tuple(map(int,versions[1].split('.'))):raise ValueError('The new release must be newer')
+if precedence(versions[0]) >= precedence(versions[1]):raise ValueError('The new release must be newer')
 metadata=json.loads(subprocess.check_output(['docker','image','inspect',args.image]))[0]
 if metadata['Config'].get('Labels',{}).get('org.noisefence.test-fixture')!='release-lifecycle':raise ValueError('Build tests/fixtures/lifecycle.Dockerfile first')
 name='nf-lifecycle-'+uuid.uuid4().hex[:12]

@@ -15,10 +15,10 @@ import tarfile
 import time
 
 from migration_protocol import pairs, require
+from release_version import VERSION, valid as valid_version
 
 REPOSITORY = 'crdffrance/NoiseFence'
 WORKFLOW = REPOSITORY + '/.github/workflows/release.yml'
-VERSION = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?'
 MACHINES = {'linux-amd64': 62, 'linux-arm64': 183}
 MAX_ARCHIVE = 512 * 1024**2
 MAX_EXPANDED = 2 * 1024**3
@@ -28,7 +28,7 @@ CHUNK = 65536
 
 
 def identity(version, platform, commit):
-    require(isinstance(version, str) and len(version) <= 64 and re.fullmatch(VERSION, version),
+    require(valid_version(version),
             'Invalid release version')
     require(platform in MACHINES and isinstance(commit, str) and re.fullmatch('[a-f0-9]{40}', commit),
             'Invalid release platform or commit')
@@ -224,7 +224,7 @@ def bounded_command(command, *, timeout=90, maximum=4*1024**2, env=None):
 
 
 def verify_provenance(archive, version, commit, *, executable='gh', env=None):
-    require(isinstance(version, str) and len(version) <= 64 and re.fullmatch(VERSION, version)
+    require(valid_version(version)
             and isinstance(commit, str) and re.fullmatch('[a-f0-9]{40}', commit), 'Invalid provenance identity')
     raw = bounded_command([executable, 'attestation', 'verify', str(Path(archive).resolve()),
         '--repo', REPOSITORY, '--hostname', 'github.com',

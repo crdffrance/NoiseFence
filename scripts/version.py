@@ -3,13 +3,18 @@
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SEMVER = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?'
+sys.path.insert(0, str(ROOT/'deploy/postgresql'))
+from release_version import VERSION as SEMVER, valid as valid_version
+sys.path.pop(0)
 
 def cargo_version():
-    return re.search(r'^version = "([^"]+)"', (ROOT/'Cargo.toml').read_text(), re.M)[1]
+    value = re.search(r'^version = "([^"]+)"', (ROOT/'Cargo.toml').read_text(), re.M)[1]
+    if not valid_version(value): raise SystemExit('Invalid Cargo version')
+    return value
 
 def lock_version(path):
     return re.search(r'\[\[package\]\]\nname = "noisefence"\nversion = "([^"]+)"', path.read_text())[1]
@@ -21,7 +26,7 @@ def main():
     parser.add_argument('--tag')
     args = parser.parse_args()
     if args.version:
-        if not re.fullmatch(SEMVER, args.version):
+        if not valid_version(args.version):
             parser.error('Use a semantic version, e.g. 0.1.1 or 0.2.0-rc.1')
         p = ROOT/'Cargo.toml'
         p.write_text(re.sub(r'^version = "[^"]+"', f'version = "{args.version}"', p.read_text(), count=1, flags=re.M))
@@ -35,7 +40,7 @@ def main():
             if 'packages' in data: data['packages']['']['version']=args.version
             p.write_text(json.dumps(data,indent=2)+'\n')
     version=cargo_version()
-    if not re.fullmatch(SEMVER,version): raise SystemExit('Invalid Cargo version')
+    if not valid_version(version): raise SystemExit('Invalid Cargo version')
     values={p:lock_version(ROOT/p) for p in ['Cargo.lock','fuzz/Cargo.lock']}
     for name in ['web/package.json','web/package-lock.json']:
         data=json.loads((ROOT/name).read_text()); values[name]=data['version']

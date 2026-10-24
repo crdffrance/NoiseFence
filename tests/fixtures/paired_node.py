@@ -10,9 +10,14 @@ import shutil
 import smtplib
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.request
 import uuid
+
+sys.path.insert(0, '/root/source/deploy/postgresql')
+from release_version import valid as valid_version
+sys.path.pop(0)
 
 BASE = Path('/opt/noisefence')
 DATA = Path('/var/lib/noisefence')
@@ -260,7 +265,7 @@ def main():
     parser.add_argument('--old', required=True); parser.add_argument('--new', required=True)
     parser.add_argument('--value')
     args = parser.parse_args()
-    require(all(re.fullmatch(r'\d+\.\d+\.\d+', v) for v in [args.old, args.new]), 'Invalid archive versions')
+    require(all(valid_version(v) for v in [args.old, args.new]), 'Invalid archive versions')
     if args.action == 'bootstrap': result = bootstrap(args.node, args.old, args.new)
     elif args.action == 'migration': result = migration_setup(args.node, args.old, args.value)
     elif args.action == 'ready': result = readiness(args.node, args.value)

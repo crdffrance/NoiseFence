@@ -19,6 +19,7 @@ import urllib.request
 
 import upgrade_reservation as reservation
 from migration_protocol import atomic, canonical, checked_selection, identity, pairs, require
+from release_version import valid as valid_version
 
 PROTOCOL = 'noisefence-upgrade-validation-1'
 DESCRIPTOR = 'noisefence-upgrade-validation-descriptor-1'
@@ -49,7 +50,7 @@ def checked_descriptor(value):
     require(isinstance(candidate, dict) and set(candidate) == {'directory', 'binary_sha256', 'manifest_sha256', 'build_sha256', 'version', 'commit', 'platform'}
             and isinstance(candidate['directory'], str) and Path(candidate['directory']).is_absolute()
             and all(isinstance(candidate[k], str) and HASH.fullmatch(candidate[k]) for k in ('binary_sha256', 'manifest_sha256', 'build_sha256'))
-            and isinstance(candidate['version'], str) and re.fullmatch(r'\d{1,6}\.\d{1,6}\.\d{1,6}', candidate['version'])
+            and valid_version(candidate['version'])
             and isinstance(candidate['commit'], str) and re.fullmatch('[a-f0-9]{40}', candidate['commit'])
             and candidate['platform'] in ('linux-amd64', 'linux-arm64'), 'Invalid candidate identity')
     return value

@@ -206,6 +206,9 @@ The disposable [paired lifecycle fixture](paired-upgrades.md#run-the-disposable-
 can exercise a real candidate with these helpers after the published archive
 rehearsal: abort with an unarmed peer, mutual-decision startup guards, actual
 ordinary SMTP/policy/replica checks, committed startup failure and forward retry,
-auxiliary timer fencing, idempotent completion and two-copy synthetic acceptance. It records the installed helper hashes. This does not qualify other
+auxiliary timer fencing, authenticated SSH completion and two-copy synthetic
+acceptance. It also discards a real completion reply, waits for temporary proofs
+to expire, resumes the delayed counterpart and repeats completion without changing
+the durable decision. It records the installed helper hashes. This does not qualify other
 architectures, arbitrary release pairs, production security profiles, independent
 backup restoration or detection accuracy. Those remain separate release gates.

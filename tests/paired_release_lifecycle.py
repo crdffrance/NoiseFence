@@ -12,11 +12,15 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import sys
 import tarfile
 import time
 import uuid
 
 SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE/'deploy/postgresql'))
+from release_version import VERSION, valid as valid_version, precedence
+sys.path.pop(0)
 
 
 def digest(path):
@@ -25,8 +29,8 @@ def digest(path):
 
 
 def archive(path, architecture):
-    match = re.fullmatch(r'noisefence-(\d+\.\d+\.\d+)-linux-(amd64|arm64)\.tar\.gz', path.name)
-    if not match or match[2] != architecture:
+    match = re.fullmatch(rf'noisefence-({VERSION})-linux-(amd64|arm64)\.tar\.gz', path.name)
+    if not match or not valid_version(match[1]) or match[2] != architecture:
         raise ValueError('Release archive name/platform mismatch')
     expected = Path(str(path)+'.sha256').read_text().split()[0]
     actual = digest(path)
@@ -143,6 +147,7 @@ class Lab:
                                    (SOURCE/'deploy/noisefence.service', '/root/source/deploy/noisefence.service'),
                                    (SOURCE/'deploy/install.sh', '/root/source/deploy/install.sh'),
                                    (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py'),
+                                   (SOURCE/'tests/fixtures/exchange_node.py', '/root/source/tests/fixtures/exchange_node.py'),
                                    (SOURCE/'tests/fixtures/validation_node.py', '/root/source/tests/fixtures/validation_node.py')]:
                 self.run('cp', str(source), self.names[node]+':'+target)
             for item in (self.old, self.new):
@@ -575,19 +580,85 @@ class Lab:
                 break
             except subprocess.CalledProcessError:time.sleep(.5)
         else:raise RuntimeError('Fresh normal policy/replica proof did not converge')
-        verified={node:self.activation(node,'verify',proofs['mx2' if node=='mx1' else 'mx1']) for node in self.names}
-        completed={}
-        for node in self.names:
-            peer='mx2' if node=='mx1' else 'mx1'
-            completed[node]=self.activation(node,'finish',verified[peer])
-            if self.command(node,'systemctl','show','noisefence-quality.timer','--property=ActiveState','--value').strip()!=b'active':raise RuntimeError('Previously active timer did not resume')
-            if completed[node]!=self.activation(node,'finish',verified[peer]):raise RuntimeError('Completed activation response was not recoverable')
-            self.command(node,'python3','-c',
-                "from pathlib import Path; p=Path('/var/lib/noisefence-upgrade'); "
-                "assert not any((p/n).exists() for n in ['active.json','hold.json','activation.json','activation-jobs.json','promotion.json'])")
+        completed = self.exchange_completion(started)
         self.final_release='qualification-candidate'
         self.invariant();self.submit('after_committed_candidate_activation')
         self.record('normal_candidates_verified_and_operation_completed',proofs=proofs,nodes=completed)
+
+    def exchange_completion(self, started):
+        helper = '/root/source/tests/fixtures/exchange_node.py'
+        metadata = {node:json.loads(self.command(node,'python3',helper,'prepare','--node',node,
+                                                '--operation',self.operation)) for node in self.names}
+        if metadata['mx1']['authorization']['proposal_sha256'] != metadata['mx2']['authorization']['proposal_sha256']:
+            raise RuntimeError('SSH authorizations name different prepared pairs')
+        if metadata['mx1']['host_key'].split()[:2] == metadata['mx2']['host_key'].split()[:2]:
+            raise RuntimeError('Disposable SSH hosts must have distinct keys')
+        public = self.root/'exchange-controller.pub';public.write_text(metadata['mx1']['client_key']+'\n')
+        known = self.root/'exchange-known_hosts'
+        known.write_text(''.join('noisefence-upgrade-'+node+' '+' '.join(metadata[node]['host_key'].split()[:2])+'\n' for node in self.names))
+        auth = metadata['mx1']['authorization']
+        config = {k:auth[k] for k in ['protocol','operation','proposal_sha256','expires_at']}
+        config.update(coordinator='mx1',ssh_key='/etc/noisefence-upgrade/identity',
+                      known_hosts='/etc/noisefence-upgrade/known_hosts',
+                      nodes={node:{'host':'127.0.0.1','port':2221 if node=='mx1' else 2222,'user':'root'} for node in self.names})
+        config_path = self.root/'exchange-controller.json';config_path.write_text(json.dumps(config)+'\n')
+        for node in self.names:
+            self.run('cp',str(public),self.names[node]+':/root/paired-test/exchange-controller.pub')
+            self.command(node,'chown','root:root','/root/paired-test/exchange-controller.pub')
+            self.command(node,'chmod','0600','/root/paired-test/exchange-controller.pub')
+            self.command(node,'python3',helper,'setup','--node',node)
+        for source,target in [(known,'known_hosts'),(config_path,'controller.json')]:
+            remote='/etc/noisefence-upgrade/'+target
+            self.run('cp',str(source),self.names['mx1']+':'+remote)
+            self.command('mx1','chown','root:root',remote);self.command('mx1','chmod','0600',remote)
+        command=['python3','/usr/local/libexec/noisefence-management/upgrade_exchange.py','complete',
+                 '--config','/etc/noisefence-upgrade/controller.json']
+        try:self.command('mx1',*command,timeout=300)
+        except subprocess.CalledProcessError:pass
+        else:raise RuntimeError('Injected completed SSH reply was not lost')
+        # Prove the failure happened after a real durable finish, not during
+        # configuration, SSH setup or proof collection.
+        lost=json.loads(self.command('mx1','cat','/root/paired-test/discarded-completion.json'))
+        interrupted={node:self.activation(node,'status') for node in self.names}
+        if (lost['result'] != interrupted['mx1'] or interrupted['mx1']['phase']!='complete'
+                or interrupted['mx2']['phase']!='verified'
+                or any(interrupted[node]['decision']!=started[node]['decision'] for node in self.names)):
+            raise RuntimeError('Lost SSH reply did not preserve the original completed/verified decision')
+        timers={node:self.command(node,'systemctl','show','noisefence-quality.timer','--property=ActiveState','--value').decode().strip() for node in self.names}
+        if timers != {'mx1':'active','mx2':'inactive'}:raise RuntimeError('Unexpected auxiliary timer boundary after lost reply')
+        self.invariant();self.submit('while_completion_reply_lost')
+        self.record('actual_ssh_completion_reply_lost_after_durable_finish',nodes=interrupted,timers=timers)
+        # Native proof expiry must not invent a rollback or replace the durable
+        # completion certificate. Exercise real elapsed time, not a mocked clock.
+        deadline=max(value['verified_at'] for value in interrupted.values())+32
+        while time.time() < deadline:time.sleep(min(.5,deadline-time.time()))
+        output=json.loads(self.command('mx1',*command,timeout=300))
+        if output.get('status')!='complete' or output.get('operation')!=self.operation:
+            raise RuntimeError('SSH completion retry did not finish the same operation')
+        completed={node:self.activation(node,'status') for node in self.names}
+        for node in self.names:
+            if (completed[node]['phase']!='complete' or completed[node]['decision']!=started[node]['decision']
+                    or completed[node]['verified_at']!=interrupted[node]['verified_at']):
+                raise RuntimeError('Delayed SSH completion replaced its decision or old proof')
+            if self.command(node,'systemctl','show','noisefence-quality.timer','--property=ActiveState','--value').strip()!=b'active':
+                raise RuntimeError('Previously active timer did not resume')
+            self.command(node,'python3','-c',
+                "from pathlib import Path; p=Path('/var/lib/noisefence-upgrade'); "
+                "assert not any((p/n).exists() for n in ['active.json','hold.json','activation.json','activation-jobs.json','promotion.json'])")
+            self.ready(node,'qualification-candidate')
+        replay=json.loads(self.command('mx1',*command,timeout=300))
+        if replay.get('status')!='complete':raise RuntimeError('Completed SSH retry was not idempotent')
+        if completed!={node:self.activation(node,'status') for node in self.names}:
+            raise RuntimeError('Completed SSH retry changed durable receipts')
+        # Keep only bounded operational JSON; temporary keys never leave the lab.
+        receipt_text=self.command('mx1','python3','-c',
+            "import json; from pathlib import Path; p=Path('/var/lib/noisefence-upgrade/exchange'); "
+            "v={str(f.relative_to(p)):json.loads(f.read_text()) for f in p.glob('*/*.json')}; print(json.dumps(v))")
+        if len(receipt_text)>2*1024**2:raise RuntimeError('Unexpected controller evidence size')
+        (self.root/'exchange-receipts.json').write_bytes(receipt_text)
+        self.record('native_pair_completed_over_pinned_ssh_after_proof_expiry',nodes=completed,attempts=3,
+                    helper='upgrade_exchange.py',proofs_reused=True)
+        return completed
 
     def failure_recovery(self):
         self.command('mx2', 'systemctl', 'stop', 'noisefence.service')
@@ -680,6 +751,8 @@ class Lab:
             try:
                 journal = self.command(node, 'journalctl', '-u', 'noisefence.service', '--no-pager', '-n', '100', timeout=20)
                 (self.root/(node+'-journal.log')).write_bytes(journal)
+                ssh_log = self.command(node, 'journalctl', '-u', 'paired-upgrade-ssh.service', '--no-pager', '-n', '60', timeout=20)
+                (self.root/(node+'-exchange-journal.log')).write_bytes(ssh_log)
                 validation_log = self.command(node, 'journalctl', '-u', 'noisefence-validation.service', '--no-pager', '-n', '100', timeout=20)
                 (self.root/(node+'-validation-journal.log')).write_bytes(validation_log)
                 validation_paths = self.command(node, 'python3', '-c', "import json,os; from pathlib import Path; roots=['/root/paired-test/validation-peer.json','/usr/local/libexec/noisefence-management/upgrade_validation.service','/var/lib/noisefence-upgrade/validation.json']; result=[]; seen=set();\nfor root in roots:\n for p in [Path(root),*Path(root).parents]:\n  if p in seen or not p.exists():continue\n  seen.add(p);s=p.lstat();result.append({'path':str(p),'uid':s.st_uid,'mode':oct(s.st_mode&0o7777),'link':p.is_symlink()})\nprint(json.dumps(result))", timeout=20)
@@ -717,7 +790,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(); os.umask(0o077)
     old, new = (archive(p, args.platform.split('/')[1]) for p in [args.old_archive, args.new_archive])
-    if tuple(map(int, old['version'].split('.'))) >= tuple(map(int, new['version'].split('.'))):
+    if precedence(old['version']) >= precedence(new['version']):
         raise ValueError('Supply distinct releases in ascending version order')
     fixture = json.loads((args.fixture/'fixture.json').read_text())
     if (fixture.get('schema') != 'noisefence-paired-fixture-1' or fixture.get('synthetic_only') is not True

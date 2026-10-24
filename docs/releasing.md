@@ -89,3 +89,25 @@ For paired installations, follow the [selected-management archive rehearsal](pai
 The [native maintenance reservation](maintenance-reservations.md) is a stopped-host
 primitive. Its tests do not authorize a candidate upgrade or rollback; retain the
 exact paired archive and selected-authority lifecycle gates.
+
+
+## Release candidate identities
+
+Artifact versions use the core and optional prerelease form of
+[Semantic Versioning](https://semver.org/), limited to 64 ASCII characters. Examples
+are `0.32.0-rc.1`, `0.32.0-rc.2` and `0.32.0`. Numeric components cannot contain
+leading zeroes; empty components and build metadata (`+...`) are not supported in
+NoiseFence artifact identities. The exact source commit remains in `build.json`
+and the provenance attestation.
+
+Manifest validation, bounded archive inspection, native validation descriptors
+and lifecycle fixtures share `deploy/postgresql/release_version.py`. Both native
+nodes must still name the same exact version and source commit. A prerelease and
+its stable successor are distinct candidates, not interchangeable identities.
+
+The lifecycle runners use semantic precedence, so `rc.2` precedes `rc.11`, and a
+stable version follows prereleases of the same core. This orders the rehearsal;
+it does not authorize an upgrade or prove rollback/storage compatibility. Keep
+all archive, authority, policy, replica, source and qualification checks. A public
+tag or released asset must never be moved or replaced to turn an RC into a final
+release. Publish a separately reviewed version instead.

@@ -138,8 +138,18 @@ and a synthetic status backend: valid pinned identity succeeds; a foreign host
 key, client key, command, node or expired authorization is refused. Run it only in
 the dedicated isolated Linux test container, never on an installed MX.
 
-The earlier native ARM64 lifecycle separately exercises the activation helper
-against real systemd, policy and replica state. Combining the new SSH exchange
-with that full lifecycle on final archives and both architectures remains a
-qualification gate. This completion helper does not yet automate the earlier
-reservation, candidate validation, promotion, commit and startup stages.
+The native ARM64/systemd lifecycle now also runs this SSH exchange against the
+actual installed activation helper, selected PostgreSQL authority, running
+candidate and replica state. It discards one real coordinator completion response,
+waits beyond the 30-second proof window and resumes using the durable completion
+certificate. Both nodes finish the same decision, repeated completion is
+idempotent, and all 24 accepted synthetic messages retain their two copies.
+Previously active auxiliary timers resume and the disposable containers are removed.
+
+The test-only SSH wrapper injects the lost response; it does not replace the native
+activation backend or fabricate its proofs. Temporary private SSH keys remain
+inside the laboratory. The retained local candidate is a release-profile ARM64
+build, not a published final archive. Final archives, AMD64, production security
+profiles and post-start downgrade compatibility remain qualification gates. This
+completion helper does not yet automate the earlier reservation, candidate
+validation, promotion, commit and startup stages.
