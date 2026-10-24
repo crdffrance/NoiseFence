@@ -7,6 +7,8 @@ archive=${2:?Candidate archive required}
 fixture=${3:?Fresh synthetic baseline fixture required}
 output=${4:?New output directory required}
 case "$platform" in linux-amd64|linux-arm64) ;; *) exit 2;; esac
+confinement=${NOISEFENCE_REHEARSAL_APPARMOR:-0}
+case "$confinement" in 0|1) ;; *) exit 2;; esac
 docker_platform="linux/${platform#linux-}"
 mkdir -p "$(dirname "$output")"
 mkdir -m 0700 "$output"
@@ -33,7 +35,11 @@ printf 'Native lifecycle: %s\n' "$phase"
 python3 tests/release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-standalone" --platform "$docker_platform" --output "$output/standalone" > "$output/standalone.log" 2>&1
 phase=paired
 printf 'Native lifecycle: %s\n' "$phase"
-python3 tests/paired_release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
+if [ "$confinement" = 1 ]; then
+    python3 tests/confined_paired_release.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" --evidence "$output/apparmor" > "$output/paired.log" 2>&1
+else
+    python3 tests/paired_release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
+fi
 phase=summary
 printf 'Native lifecycle: %s\n' "$phase"
 python3 scripts/release_rehearsal.py summarize --platform "$platform" --archive "$archive" --directory "$output"

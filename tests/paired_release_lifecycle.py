@@ -110,6 +110,9 @@ def policy_is_fresh(peers, expected_build, since, digest, now):
 class Lab:
     def __init__(self, args, old, new):
         self.args, self.old, self.new = args, old, new
+        self.apparmor_profile = getattr(args, 'apparmor_profile', None)
+        if self.apparmor_profile and not re.fullmatch(r'noisefence-test-[a-f0-9]{12}', self.apparmor_profile):
+            raise ValueError('Use a unique disposable AppArmor profile name')
         self.root = args.output.resolve()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=False)
         self.operation = str(uuid.uuid4())
@@ -153,7 +156,16 @@ class Lab:
         if (result['running_release'] != version
                 or result['binary_sha256'] != self.binary_hashes[node][version]):
             raise RuntimeError('Running executable differs from verified staged archive')
+        if getattr(self, 'apparmor_profile', None):
+            self.check_confinement(result.get('confinement'), self.binary_hashes[node][version])
         return result
+
+    def check_confinement(self, proof, binary_hash):
+        if (not isinstance(proof, dict) or proof.get('profile') != self.apparmor_profile
+                or proof.get('mode') != 'enforce'
+                or proof.get('process_profile') != self.apparmor_profile+' (enforce)'
+                or proof.get('binary_sha256') != binary_hash):
+            raise RuntimeError('Missing exact running-binary AppArmor evidence')
 
     def record(self, check, **details):
         row = {'check': check, 'elapsed_seconds': round(time.monotonic()-self.started, 3), **details}
@@ -172,13 +184,15 @@ class Lab:
                      '--cpus', '2', '--memory', '1536m', '--pids-limit', '256',
                      '--tmpfs', '/run', '--tmpfs', '/tmp',
                      '--env', 'NOISEFENCE_DISPOSABLE_PAIRED_TEST=1',
-                     '--env', 'FIXTURE_ARCH='+self.args.platform.split('/')[1], self.args.image)
+                     '--env', 'FIXTURE_ARCH='+self.args.platform.split('/')[1],
+                     '--env', 'NOISEFENCE_TEST_APPARMOR_PROFILE='+(self.apparmor_profile or ''), self.args.image)
             self.command(node, 'mkdir', '-p', '/root/releases', '/root/source/deploy', '/root/source/tests/fixtures')
             self.run('cp', str(self.args.fixture.resolve()), self.names[node]+':/root/fixture')
             for source, target in [(self.deployment_source/'postgresql', '/root/source/deploy/postgresql'),
                                    (self.deployment_source/'noisefence.service', '/root/source/deploy/noisefence.service'),
                                    (self.deployment_source/'install.sh', '/root/source/deploy/install.sh'),
                                    (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py'),
+                                   (SOURCE/'tests/fixtures/confinement_node.py', '/root/source/tests/fixtures/confinement_node.py'),
                                    (SOURCE/'tests/fixtures/exchange_node.py', '/root/source/tests/fixtures/exchange_node.py'),
                                    (SOURCE/'tests/fixtures/validation_node.py', '/root/source/tests/fixtures/validation_node.py')]:
                 self.run('cp', str(source), self.names[node]+':'+target)
@@ -192,6 +206,13 @@ class Lab:
                 for filename in ['noisefence', 'candidate.json']:
                     self.run('cp', str(self.args.validation_candidate/filename), self.names[node]+':/root/validation-candidate/'+filename)
             state = self.node(node, 'bootstrap')
+            if self.apparmor_profile:
+                proof = state.get('confinement')
+                if (not isinstance(proof, dict) or proof.get('profile') != self.apparmor_profile
+                        or not all(proof.get(key) is True for key in
+                                   ('allowed_configuration', 'unconfined_canary_read', 'confined_canary_denied'))):
+                    raise RuntimeError('AppArmor canary did not establish enforcement')
+                self.record('apparmor_canary_enforced', node=node, **proof)
             # Exercise a real auxiliary timer without running training or feeds.
             self.command(node,'python3','-c',
                 "from pathlib import Path; d=Path('/etc/systemd/system'); "
@@ -388,6 +409,11 @@ class Lab:
             time.sleep(.5)
         else:
             raise RuntimeError('Native candidate pair did not become validation-ready')
+        if self.apparmor_profile:
+            for node in self.names:
+                proof = self.node(node, 'confinement', 'noisefence-validation.service')
+                self.check_confinement(proof, self.validation_metadata['binary_sha256'])
+                self.record('candidate_apparmor_enforced', node=node, **proof)
         self.record('native_candidate_pair_validation_ready', candidate=self.validation_metadata, nodes=states)
         for node in self.names:
             self.validation_node(node, 'disabled', node)
@@ -783,6 +809,8 @@ class Lab:
                   'archive_sha256': {i['version']: i['sha256'] for i in (self.old, self.new)},
                   'archive_commits': {i['version']: i['commit'] for i in (self.old, self.new)},
                   'image_id': metadata['Id'], 'platform': self.args.platform,
+                  'apparmor_profile': self.apparmor_profile,
+                  'confinement_scope': 'named_profile_enforcement_with_dac_canary' if self.apparmor_profile else 'not_exercised',
                   'network': 'shared_loopback_without_external_route', 'production_affected': False,
                   'scope': 'coordinated_stop_start_archive_pair_with_synthetic_selected_authority',
                   'sequence': 'both_stopped_before_switching_either_binary',
@@ -834,6 +862,7 @@ def main():
     candidate = parser.add_mutually_exclusive_group()
     candidate.add_argument('--validation-candidate', type=Path, help='Optional locally built release-profile semantic binary plus candidate.json; never a production archive')
     candidate.add_argument('--archive-candidate', action='store_true', help='Exercise candidate activation using the exact new archive and its native helpers, without rewriting artifacts')
+    parser.add_argument('--apparmor-profile', help='Unique noisefence-test-<12 hex> profile already enforced on the disposable Linux host; missing enforcement fails')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(); os.umask(0o077)
     old, new = (archive(p, args.platform.split('/')[1]) for p in [args.old_archive, args.new_archive])

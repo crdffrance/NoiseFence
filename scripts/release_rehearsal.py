@@ -60,6 +60,43 @@ def read_report(path):
     return value
 
 
+def confinement_summary(directory, paired, files):
+    name = paired.get('apparmor_profile')
+    evidence = Path(directory)/'apparmor/confinement.json'
+    if not name:
+        bundle.require(not evidence.exists() and paired.get('confinement_scope') in (None, 'not_exercised'),
+                       'Unexpected confinement evidence without an enforced pair')
+        return {'status':'not_exercised'}
+    bundle.require(isinstance(name,str) and re.fullmatch(r'noisefence-test-[a-f0-9]{12}',name)
+        and paired.get('confinement_scope') == 'named_profile_enforcement_with_dac_canary',
+        'Unexpected confinement scope')
+    proof = read_report(evidence)
+    bundle.require(proof.get('schema') == 'noisefence-confinement-rehearsal-1'
+        and proof.get('profile') == name and proof.get('profile_removed') is True
+        and proof.get('platform') == paired.get('platform'),
+        'Confinement load or cleanup is not bound to this paired run')
+    for field in ('profile_sha256','generator_sha256','renderer_sha256'):
+        bundle.require(isinstance(proof.get(field),str) and re.fullmatch('[0-9a-f]{64}',proof[field]),
+                       'Missing confinement source digest')
+    bundle.require(proof['generator_sha256'] == files.get('deploy/hardening/isolation.py'),
+                   'Test policy generator differs from the candidate archive')
+    def runtime(row):
+        return (row.get('profile') == name and row.get('process_profile') == name+' (enforce)'
+                and row.get('mode') == 'enforce' and row.get('binary_sha256') == files['noisefence'])
+    events = paired.get('checks',[])
+    for node in ('mx1','mx2'):
+        bundle.require(any(row.get('check') == 'apparmor_canary_enforced' and row.get('node') == node
+            and row.get('profile') == name and all(row.get(key) is True for key in
+                ('allowed_configuration','unconfined_canary_read','confined_canary_denied')) for row in events),
+            'Both nodes need a real confinement canary')
+        bundle.require(any(row.get('check') == 'candidate_apparmor_enforced' and row.get('node') == node
+            and runtime(row) for row in events), 'Both validation candidates need runtime confinement')
+        bundle.require(runtime(paired.get('final_running',{}).get(node,{}).get('confinement',{})),
+                       'Both final daemons need runtime confinement')
+    return {'status':'enforced', 'mode':'enforce', 'profile_removed':True,
+            **{key:proof[key] for key in ('profile_sha256','generator_sha256','renderer_sha256')}}
+
+
 def summarize(platform, archive, directory, *, version, commit):
     pin = baseline(); directory = Path(directory); archive = Path(archive)
     bundle.require(precedence(pin['version']) < precedence(version), 'Review the baseline before changing release order')
@@ -117,6 +154,7 @@ def summarize(platform, archive, directory, *, version, commit):
         'disk_full_before_mail_temporarily_rejected', 'disk_full_after_data_temporarily_rejected',
         'disk_full_recovery_preserves_accepted_messages'}
     bundle.require(standalone_checks <= set(standalone['checks']), 'Standalone lifecycle coverage is missing')
+    confinement = confinement_summary(directory, paired, inspected['files'])
     # Deliberate allowlist: no fixture credentials, messages, recipients, private
     # paths, raw observations, environment values or journal text in CI artifacts.
     return {'schema':'noisefence-release-rehearsal-1', 'status':'passed',
@@ -126,7 +164,7 @@ def summarize(platform, archive, directory, *, version, commit):
         'standalone_checks':standalone['checks'], 'paired_checks':checks,
         'accepted_synthetic_messages':len(accepted), 'cleanup':True,
         'production_affected':False, 'provenance_verified':False,
-        'rehearsal_only':inspected['rehearsal_only'],
+        'rehearsal_only':inspected['rehearsal_only'], 'confinement':confinement,
         'not_qualified':paired['not_qualified']}
 
 
