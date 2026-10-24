@@ -19,7 +19,7 @@ import urllib.request
 
 import upgrade_reservation as reservation
 from migration_protocol import atomic, canonical, checked_selection, identity, pairs, require
-from release_version import valid as valid_version
+from release_version import precedence, valid as valid_version
 
 PROTOCOL = 'noisefence-upgrade-validation-1'
 DESCRIPTOR = 'noisefence-upgrade-validation-descriptor-1'
@@ -81,6 +81,14 @@ def candidate(path):
             'version': build.get('version'), 'commit': build.get('commit'), 'platform': build.get('platform')}
 
 
+def require_forward_upgrade(original, target):
+    # A successful startup or a shared schema number cannot qualify a downgrade.
+    # Recovery of an already committed decision is handled by its saved receipt.
+    require(precedence(target['version']) > precedence(original['version']),
+            'Candidate version must be newer than the installed release; '
+            'downgrade and same-version replacement require a separately qualified recovery procedure')
+
+
 def held(operation):
     hold = reservation.Reservation(operation)
     hold.owner(); status = hold.status(); recorded = hold.state()
@@ -93,7 +101,10 @@ def held(operation):
 def describe(operation, directory, expires_at):
     require(type(expires_at) is int and int(time.time()) < expires_at <= int(time.time())+3600,
             'Validation authorization expired or exceeds one hour')
-    held(operation)
+    hold = held(operation)
+    target = candidate(directory)
+    original = candidate(Path(hold.state()['installation']['release_directory']))
+    require_forward_upgrade(original, target)
     selected = reservation.read_selection(reservation.DATA)
     require(selected is not None, 'Selected PostgreSQL management is required')
     import tomllib
@@ -101,7 +112,7 @@ def describe(operation, directory, expires_at):
         raw = source.read()
     config = tomllib.loads(raw.decode())
     return checked_descriptor({'protocol': DESCRIPTOR, 'operation': operation, 'expires_at': expires_at,
-        'selection': selected, 'policy': policy_epoch(), 'candidate': candidate(directory),
+        'selection': selected, 'policy': policy_epoch(), 'candidate': target,
         'config_sha256': hashlib.sha256(raw).hexdigest(), 'service_sha256': hashlib.sha256(unit_template()).hexdigest(), 'replica_peer': config['replication']['peer_id']})
 
 
