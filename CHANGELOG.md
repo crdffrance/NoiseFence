@@ -28,6 +28,7 @@ thresholds or activate delivery policies.
 
 ### Paired maintenance and release integrity
 
+- Normalize public archive ownership and permissions independently of the build umask, so the unprivileged service can enter candidate releases. Keep private build directories unchanged and refuse special archive members.
 - Add read-only upgrade prerequisites and prevent native installers from changing selected, partially selected or unknown management authority. Persist service holds, then validate exact expiring candidates bound to configuration, policy, authority, binary and service identities.
 - Support held pointer promotion, unchanged cancellation and pre-commit restoration. Require mutual durable promises and one coordinator decision before ordinary startup; verify fresh policy and replica readiness before releasing auxiliary jobs. Retain forward recovery after committed startup failure.
 - Complete an already-started pair over restricted pinned SSH, with exact operation authorization, bounded nonce-bound replies and durable recovery after a lost completion response. Earlier reservation, preparation and startup stages remain operator-driven.

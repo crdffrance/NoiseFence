@@ -78,7 +78,10 @@ Never move a published tag or replace its archives with a different build. A cor
 The native packager requires a clean, committed source checkout so that the
 commit recorded in `build.json` identifies the packaged code and documentation.
 Keep the source inventory and binary checksum from the successful build; do not
-package an older cached binary after a failed compilation.
+package an older cached binary after a failed compilation. Public tar members use
+root ownership, traversable directories, executable programs and readable data
+files, independent of the builder's umask; private source directories keep their
+original permissions. Special files and links are refused by the packager.
 
 A release does not change the server configuration, MX, or filtering mode. Proton deployment and validation remain separate steps. Keep the previous version and its configuration directory to support a compatible rollback.
 

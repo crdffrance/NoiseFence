@@ -11,6 +11,22 @@ from version import cargo_version
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
+def archive_metadata(member):
+    """Public release permissions must not inherit the builder's private umask."""
+    if not (member.isdir() or member.isfile()):
+        raise ValueError('Release archives may only contain directories and regular files')
+    member.mode = 0o755 if member.isdir() or member.mode & 0o111 else 0o644
+    member.uid = member.gid = 0
+    member.uname = member.gname = 'root'
+    return member
+
+
+def write_archive(directory, archive):
+    with tarfile.open(archive, 'w:gz') as output:
+        output.add(directory, arcname=directory.name, filter=archive_metadata)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=Path,required=True)
@@ -82,7 +98,7 @@ def main():
                for p in sorted(output.rglob('*')) if p.is_file()}
     (output/'SHA256SUMS').write_text(''.join(f'{sha}  {path}\n' for path,sha in checksums.items()))
     archive=Path(str(output)+'.tar.gz')
-    with tarfile.open(archive,'w:gz') as tar: tar.add(output,arcname=name)
+    write_archive(output, archive)
     digest=hashlib.sha256(archive.read_bytes()).hexdigest()
     Path(str(archive)+'.sha256').write_text(f'{digest}  {archive.name}\n')
     print(archive)
