@@ -44,7 +44,7 @@ class SocketProbeTests(unittest.TestCase):
                     probe.run(SimpleNamespace())
                 command.assert_not_called()
 
-    def exercise(self, confined_result, service_confined=None):
+    def exercise(self, confined_result, service_confined=None, *, scoped_supported=True, scoped_result='query_ok'):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);binary=root/'probe';binary.write_bytes(b'synthetic-never-executed')
             args=SimpleNamespace(binary=binary,image='synthetic',output=root/'result')
@@ -77,8 +77,10 @@ class SocketProbeTests(unittest.TestCase):
                  patch.object(probe.confined,'policy',return_value=b'profile noisefence-test-0123456789ab {\n}\n'), \
                  patch.object(probe.confined,'command',side_effect=command), \
                  patch.object(probe.confined,'collect_denials',return_value='unavailable'), \
+                 patch.object(probe,'supported_profile',return_value=scoped_supported), \
+                 patch.object(probe,'parser_version',return_value='4.1.0'), \
                  patch.object(probe.subprocess,'run',side_effect=[SimpleNamespace(stdout=b'query_ok',returncode=0),confined_result]), \
-                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*(len(probe.CONTEXT_VARIANTS)+1))]), \
+                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*(len(probe.CONTEXT_VARIANTS)+1)),*([scoped_result] if scoped_supported else [])]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 code=probe.run(args)
             result=json.loads((args.output/'probe.json').read_text())
@@ -87,6 +89,11 @@ class SocketProbeTests(unittest.TestCase):
             self.assertEqual(run[run.index('--network')+1],'none')
             self.assertEqual(run[run.index('--memory')+1],'512m')
             self.assertTrue(result['container_removed']);self.assertTrue(result['profile_removed'])
+            self.assertEqual(sum('--add' in event for event in events),3 if scoped_supported else 2)
+            self.assertEqual(sum('--remove' in event for event in events),3 if scoped_supported else 2)
+            if scoped_supported:
+                checks=[event[-1] for event in events if event[:2]==('docker','exec') and 'test' in event]
+                self.assertEqual(checks,['/att/noisefence-test-23456789abcd']*2)
             self.assertLess(next(i for i,e in enumerate(events) if e[:2]==('docker','rm')),
                             next(i for i,e in enumerate(events) if '--remove' in e))
             self.assertNotIn('PRIVATE',json.dumps(result))
@@ -108,6 +115,7 @@ class SocketProbeTests(unittest.TestCase):
         self.assertEqual(result['unconfined'],result['confined'])
         self.assertEqual(result['service_context'],{'unconfined':'query_ok','confined':'permission_denied'})
         self.assertEqual(result['attachment_diagnostic']['result'],'query_ok')
+        self.assertEqual(result['scoped_attachment_diagnostic']['result'],'query_ok')
         self.assertEqual(result['status'],'failed')  # Debug success never qualifies the original policy.
 
     def test_service_context_copies_shipped_hardening_and_refuses_unknown_changes(self):
@@ -181,3 +189,69 @@ class SocketProbeTests(unittest.TestCase):
         for item in props:self.assertIn(item+'\n',unit)
         self.assertIn('AppArmorProfile='+diagnostic,unit)
         self.assertNotIn('attach_disconnected',(ROOT/'deploy/hardening/isolation.py').read_text())
+
+
+    def test_scoped_attachment_adds_only_one_socket_under_a_distinct_prefix(self):
+        original='noisefence-test-0123456789ab';diagnostic='noisefence-test-abcdef012345'
+        raw=('profile '+original+' {\n  /run/postgresql/.s.PGSQL.[0-9]* rw,\n  signal (receive) peer='+original+',\n}\n').encode()
+        changed=probe.scoped_attachment_diagnostic(raw,original,diagnostic)
+        prefix='/att/'+diagnostic+'/'
+        flag=(' flags=(attach_disconnected.path='+prefix+')').encode()
+        permission=('  '+prefix+'run/postgresql/.s.PGSQL.5432 rw,\n').encode()
+        self.assertEqual(changed.count(permission),1)
+        self.assertEqual(changed.replace(flag,b'').replace(permission,b'').replace(diagnostic.encode(),original.encode()),raw)
+        for invalid in (raw+b'  /etc/** rw,\n',raw[:-2],raw+b'profile extra {\n}\n'):
+            with self.assertRaises(RuntimeError):probe.scoped_attachment_diagnostic(invalid,original,diagnostic)
+        properties=probe.service_properties((ROOT/'deploy/noisefence.service').read_text())
+        unit=probe.service_unit(probe.SCOPED_ATTACHMENT,diagnostic,'/opt/noisefence/probe',properties)
+        for item in properties:self.assertIn(item+'\n',unit)
+        self.assertIn('AppArmorProfile='+diagnostic,unit)
+        self.assertNotIn('attach_disconnected',(ROOT/'deploy/hardening/isolation.py').read_text())
+
+    def test_parser_capability_check_never_loads_policy_or_exposes_errors(self):
+        for code in (0,1):
+            with patch.object(probe.subprocess,'run',return_value=SimpleNamespace(returncode=code,stderr=b'PRIVATE')) as command:
+                self.assertEqual(probe.supported_profile(Path('/fixture/profile')),code==0)
+            self.assertEqual(command.call_args.args[0],['sudo','-n',probe.confined.PARSER,'--skip-kernel-load','--skip-cache','/fixture/profile'])
+            self.assertEqual(command.call_args.kwargs['timeout'],15)
+            self.assertEqual(command.call_args.kwargs['env'],{'PATH':probe.PATH,'LANG':'C'})
+            self.assertTrue(command.call_args.kwargs['capture_output'])
+
+    def test_rejected_scoped_syntax_does_not_replace_or_qualify_real_profile(self):
+        code,result=self.exercise(SimpleNamespace(stdout=b'query_ok',returncode=0),
+            SimpleNamespace(stdout=b'socket_permission_denied',returncode=1),scoped_supported=False)
+        self.assertEqual(code,1);self.assertEqual(result['status'],'failed')
+        self.assertEqual(result['scoped_attachment_diagnostic']['parser'],'rejected')
+        self.assertEqual(result['scoped_attachment_diagnostic']['result'],'parser_rejected')
+        self.assertEqual(result['attachment_diagnostic']['result'],'query_ok')
+        self.assertEqual(result['service_context']['confined'],'socket_permission_denied')
+
+    def test_diagnostic_refusal_does_not_change_original_profile_result(self):
+        code,result=self.exercise(SimpleNamespace(stdout=b'query_ok',returncode=0),scoped_result='socket_permission_denied')
+        self.assertEqual(code,0);self.assertEqual(result['status'],'passed')
+        self.assertEqual(result['scoped_attachment_diagnostic']['result'],'socket_permission_denied')
+
+    def test_old_and_new_runner_diagnostics_do_not_cancel_each_other(self):
+        workflow=(ROOT/'.github/workflows/confinement-probe.yml').read_text()
+        self.assertIn('fail-fast: false',workflow)
+        self.assertIn('runner: [ubuntu-24.04, ubuntu-26.04]',workflow)
+        self.assertIn('name: confinement-socket-result-${{ matrix.runner }}',workflow)
+
+
+    def test_parser_version_exposes_only_a_bounded_public_identifier(self):
+        for raw,expected in [(b'AppArmor parser version 4.1.0\nCopyright PRIVATE\n','4.1.0'),
+                             (b'AppArmor parser version 4.0.1-0ubuntu3\r\n','4.0.1-0ubuntu3'),
+                             (b'PRIVATE',None),(b'AppArmor parser version 4.1.0 PRIVATE',None),
+                             (b'AppArmor parser version 4.1.0\n'+b'A'*4096,None)]:
+            with patch.object(probe.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=raw)) as command:
+                self.assertEqual(probe.parser_version(),expected)
+            self.assertEqual(command.call_args.args[0],[probe.confined.PARSER,'--version'])
+            self.assertEqual(command.call_args.kwargs['timeout'],5)
+            self.assertEqual(command.call_args.kwargs['env'],{'PATH':probe.PATH,'LANG':'C'})
+
+    def test_unavailable_parser_version_is_unknown_not_an_invented_version(self):
+        for failure in (OSError('PRIVATE'),probe.subprocess.TimeoutExpired('PRIVATE',5)):
+            with patch.object(probe.subprocess,'run',side_effect=failure):
+                self.assertIsNone(probe.parser_version())
+        with patch.object(probe.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout=b'AppArmor parser version 4.1.0')):
+            self.assertIsNone(probe.parser_version())

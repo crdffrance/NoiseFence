@@ -241,7 +241,19 @@ full service isolation to isolate cross-namespace path lookup failures. This
 flag can alias paths, as documented in the [AppArmor manual](https://manpages.ubuntu.com/manpages/noble/man5/apparmor.d.5.html),
 and is not a production policy recommendation. Success under this debug profile
 or a reduced namespace never satisfies the unchanged mandatory profile check.
-The probe removes its container before removing both of its own profiles.
+The probe removes its container before removing all of its own loaded profiles.
+
+A second diagnostic uses `attach_disconnected.path` with a unique `/att/` prefix
+and adds only the fixed PostgreSQL socket under that prefix. The fixture verifies
+that this prefix has no real directory or symlink before querying; the complete
+service isolation remains enabled. Parsing is checked without loading the policy.
+The result records a bounded public parser version when available, otherwise `null`.
+A parser rejection is recorded separately and never authorizes a fallback or a
+change to the shipped profile. The short workflow covers Ubuntu 24.04 and 26.04
+with separate result artifacts, because [upstream AppArmor documents the syntax
+as unsupported in 4.0 and older](https://gitlab.com/apparmor/apparmor/-/merge_requests/2171).
+Both attachment variants remain diagnostic only. A successful variant does not
+satisfy the required original-profile check or qualify a full daemon migration.
 
 This short diagnostic helps locate policy failures without rebuilding every
 optimized Rust integration test. It does not replace the required exact-archive

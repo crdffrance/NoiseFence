@@ -25,7 +25,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   postgres-boundary:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
       - name: Harden runner
@@ -51,7 +55,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: confinement-socket-result
+          name: confinement-socket-result-${{ matrix.runner }}
           path: var/confinement-socket/result/probe.json
           if-no-files-found: ignore
           retention-days: 14
