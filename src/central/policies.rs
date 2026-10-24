@@ -367,6 +367,43 @@ impl Central {
         tx.commit().await.map_err(database_error)?;
         Ok(journal)
     }
+    /// Read-only maintenance proof. Never acknowledges, stages or advances a rollout.
+    /// Both identities and the settled epoch are checked in the same transaction.
+    pub async fn validate_maintenance_policy(
+        &self,
+        owner: &Identity,
+        peer: &Identity,
+        expected: &Epoch,
+        authenticated: Option<&super::nodes::Authenticated>,
+    ) -> Result<()> {
+        expected.validate()?;
+        let mut db = self
+            .interactive
+            .get()
+            .await
+            .context("Maintenance policy capacity unavailable")?;
+        let tx = db.transaction().await.map_err(database_error)?;
+        management_lock(&tx).await?;
+        let authority = read(&tx, Some(owner)).await?;
+        ensure!(
+            authority.journal.released() && authority.journal.current_epoch() == *expected,
+            "Maintenance policy is pending or changed"
+        );
+        ensure!(
+            authority.membership.len() == 2
+                && owner.node != peer.node
+                && authority.membership.get(&owner.node) == Some(&owner.epoch)
+                && authority.membership.get(&peer.node) == Some(&peer.epoch),
+            "Maintenance requires the exact selected pair"
+        );
+        if let Some(node) = authenticated {
+            ensure!(node.identity() == peer, "Maintenance peer identity differs");
+            node.check(&tx).await?;
+        }
+        // Dropping this read transaction releases locks; no status/credit mutation.
+        Ok(())
+    }
+
     pub async fn policy_journal(&self, owner: &Identity) -> Result<Journal> {
         let mut db = self
             .interactive

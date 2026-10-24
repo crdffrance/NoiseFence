@@ -121,3 +121,8 @@ That fixture uses synthetic data and exact supplied archives; it does not qualif
 an unattended production controller, starting new binaries under reservation,
 rollback after schema/policy changes, current production models or arbitrary
 release pairs. Those remain separate release gates.
+
+The [candidate runtime validation mode](maintenance-validation.md) supplies a
+separate bounded, authenticated probe router for a future supervisor while these
+holds remain in force. It does not change this helper's cancellation contract or
+make candidate activation automatic.

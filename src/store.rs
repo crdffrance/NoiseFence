@@ -6,7 +6,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     os::unix::{
-        fs::{OpenOptionsExt, PermissionsExt},
+        fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
         io::AsRawFd,
     },
     path::{Path, PathBuf},
@@ -372,13 +372,22 @@ impl Store {
         self.delivery_ready.notified().await;
     }
     pub fn daemon_lock(&self) -> Result<File> {
+        Self::daemon_lock_at(&self.root)
+    }
+    pub fn daemon_lock_at(root: &Path) -> Result<File> {
         let f = OpenOptions::new()
             .create(true)
             .truncate(false)
             .read(true)
             .write(true)
             .mode(0o600)
-            .open(self.root.join("daemon.lock"))?;
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(root.join("daemon.lock"))?;
+        let metadata = f.metadata()?;
+        ensure!(
+            metadata.is_file() && metadata.nlink() == 1,
+            "Daemon lock must be a regular, single-link file"
+        );
         // SAFETY: flock receives the live descriptor owned by f. Keeping f alive holds the lock.
         ensure!(
             unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,

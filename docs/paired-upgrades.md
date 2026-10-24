@@ -252,3 +252,8 @@ controller-disconnect recovery, full-disk behavior, PostgreSQL disaster recovery
 production models, external delivery, throughput or detection quality. A passing
 ARM64 run does not cover AMD64. A passing published archive pair does not qualify
 an unreleased candidate. Keep these distinct from the broader release gates.
+
+See [candidate runtime validation](maintenance-validation.md) for the explicit
+temporary mode that loads a reserved candidate without starting normal mail or
+administrative services. Its probe readiness is separate from normal SMTP and
+replica durability; the complete production supervisor remains a release gate.
