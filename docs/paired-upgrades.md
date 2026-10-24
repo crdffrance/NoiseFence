@@ -202,6 +202,12 @@ external relay and no production state. Record:
   or forward recovery when a migration makes rollback incompatible;
 - final readiness, queue reconciliation and immutable operation receipts.
 
+The native pair fixture also reserves both upgraded nodes and tries to validate
+an older release and the already installed version. Both attempts must fail before
+a validation receipt or process is created, preserve the selected database and
+accepted messages, and allow unchanged reservation cancellation. This verifies
+refusal of an unqualified downgrade; it does not qualify a production rollback.
+
 The single-node [release lifecycle fixture](installation.md#rehearse-an-upgrade-without-production-data)
 proves install/reinstall/remove preservation only for its tested archives. It does
 not satisfy this paired test matrix or a selected PostgreSQL restoration gate.

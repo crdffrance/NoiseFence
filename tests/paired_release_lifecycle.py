@@ -751,6 +751,40 @@ class Lab:
         self.record('failed_candidate_recovered')
         self.submit('after_start_failure')
 
+    def nonforward_validation_refused(self, current_version):
+        operation = str(uuid.uuid4())
+        helper = '/usr/local/libexec/noisefence-management/upgrade_reservation.py'
+        for node in ('mx2', 'mx1'):
+            held = json.loads(self.command(node, 'python3', helper, 'begin', '--operation', operation))
+            if held.get('phase') != 'held' or held.get('writers_stopped') is not True:
+                raise RuntimeError('Non-forward refusal requires a real held installation')
+        before = self.inspect()
+        database = self.validation_node('mx1', 'database')
+        for node in self.names:
+            for version in (self.old['version'], current_version):
+                self.command(node, 'python3', '-c',
+                    "import subprocess,sys,time;from pathlib import Path; "
+                    "p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_validation.py','describe',"
+                    "'--operation',sys.argv[1],'--candidate','/opt/noisefence/releases/'+sys.argv[2],"
+                    "'--expires-at',str(int(time.time())+120)],capture_output=True,timeout=30); "
+                    "assert p.returncode!=0 and b'Candidate version must be newer' in p.stderr, (p.returncode,p.stderr); "
+                    "assert not (Path('/var/lib/noisefence-upgrade')/(sys.argv[1]+'-validation.json')).exists(); "
+                    "assert not Path('/etc/noisefence/maintenance-validation.json').exists(); print('refused')",
+                    operation, version)
+            if self.command(node, 'readlink', '-f', '/opt/noisefence/current').decode().strip() != '/opt/noisefence/releases/'+current_version:
+                raise RuntimeError('Refused downgrade changed the installed pointer')
+        if self.inspect() != before or self.validation_node('mx1', 'database') != database:
+            raise RuntimeError('Refused candidate changed accepted mail or selected management data')
+        since = int(time.time())
+        for node in ('mx1', 'mx2'):
+            cancelled = json.loads(self.command(node, 'python3', helper, 'cancel', '--operation', operation))
+            if cancelled.get('phase') != 'cancelled':raise RuntimeError('Refused candidate left an unexpected hold')
+        self.fresh_policy(current_version, since)
+        for node in self.names:self.ready(node, current_version)
+        self.invariant()
+        self.record('unqualified_downgrade_and_replacement_refused', installed_version=current_version,
+                    refused_versions=[self.old['version'],current_version], nodes=['mx1','mx2'])
+
     def rollout(self):
         # Published selected-management releases require equal peer builds.
         # Stop both daemons before changing either pointer; cached health alone
@@ -769,6 +803,7 @@ class Lab:
             self.invariant()
             self.record('coordinated_pair_ready', phase=phase, version=version)
             self.submit('after_pair_'+phase)
+            if phase == 'upgrade':self.nonforward_validation_refused(version)
 
     def finish(self, metadata):
         self.invariant()

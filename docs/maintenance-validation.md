@@ -13,6 +13,13 @@ stopped using [durable maintenance reservations](maintenance-reservations.md). T
 command does not reserve a host, change a release pointer, release a hold or
 restart the normal services. Do not use it as a replacement for `serve`.
 
+New candidate validation requires a strictly newer semantic version than the
+installed release. Equal-version replacements and downgrades are refused before
+the candidate process or validation receipt is created. This direction check does
+not establish schema compatibility; all normal readiness and data checks still
+apply. Recover a failed committed activation using its original operation and
+immutable decision. A new operation is not a shortcut around downgrade qualification.
+
 ## Supervised host procedure
 
 Install `upgrade_validation.py`, `upgrade_validation.service` and all the other
