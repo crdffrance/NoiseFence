@@ -140,4 +140,4 @@ Quarantine originally introduced format 2; paired replication uses 5, management
 
 ## Independent availability checks
 
-Install the [external SMTP/TLS/HTTPS probe](../deploy/external-monitor/README.md) on an independent host. It checks admission without submitting mail and reports stale/unavailable checks explicitly. A host and an independent alert destination must be supplied by the operator; neither is created automatically.
+Install the [external SMTP/TLS/HTTPS probe](../deploy/external-monitor/README.md) on an independent host. It checks admission without submitting mail and reports stale/unavailable checks explicitly. Use the read-only saved-report consumer to reject stale or incomplete observations. The [independent resilience handoff](external-resilience.md) separates probe installation, external alert delivery, encrypted backups and restore qualification. A host and an independent alert destination must be supplied by the operator; neither is created automatically.

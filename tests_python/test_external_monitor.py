@@ -1,5 +1,9 @@
 """Local synthetic servers exercise the actual SMTP/TLS/HTTP probe."""
 import contextlib
+import copy
+import datetime
+import io
+import os
 import http.server
 import importlib.util
 import json
@@ -8,6 +12,7 @@ import shutil
 import socketserver
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -170,6 +175,159 @@ class ExternalMonitorTests(unittest.TestCase):
     def test_certificate_warning_uses_actual_expiry(self):
         self.assertEqual(probe.certificate_days({'notAfter':'Jan 15 00:00:00 2030 GMT'},
             ssl.cert_time_to_seconds('Jan 02 00:00:00 2030 GMT')), 13)
+
+
+class ReportConsumerTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.path = self.root / 'report.json'
+        self.nodes = [{'host': 'mx.example', 'expected_addresses': ['8.8.8.8'],
+                       'console_redirect_hosts': ['coordinator.example']}]
+        self.now = float(int(time.time()))
+        self.report = {
+            'schema': 'noisefence-external-health-1',
+            'checked_at': datetime.datetime.fromtimestamp(self.now - 10, datetime.timezone.utc).isoformat(),
+            'config_sha256': probe.config_digest(self.nodes), 'status': 'ok',
+            'messages_submitted': 0,
+            'nodes': [{'host': 'mx.example', 'status': 'ok', 'checked_address': '8.8.8.8',
+                       'checks': {
+                           'dns': {'status': 'ok', 'addresses': ['8.8.8.8']},
+                           'smtp': {'status': 'ok', 'admission': True, 'message_submitted': False,
+                                    'tls': 'TLSv1.3', 'certificate_days_remaining': 29},
+                           'https': {'status': 'ok', 'http_status': 200, 'redirect_followed': False,
+                                     'certificate_days_remaining': 29}}}]}
+
+    def check(self, report=None, **kwargs):
+        self.path.write_text(json.dumps(self.report if report is None else report))
+        with patch.object(probe.socket, 'getaddrinfo', side_effect=AssertionError('Unexpected DNS')), \
+             patch.object(probe.socket, 'create_connection', side_effect=AssertionError('Unexpected connection')):
+            return probe.check_report(self.path, self.nodes, now=self.now, **kwargs)
+
+    def test_current_complete_report_is_healthy_without_network_or_writes(self):
+        self.assertEqual(self.check()['status'], 'ok')
+        before = self.path.stat()
+        result = probe.check_report(self.path, self.nodes, now=self.now)
+        self.assertEqual(result['age_seconds'], 10)
+        self.assertFalse(result['network_used'])
+        self.assertEqual(result['scope'], 'one_address_per_host')
+        self.assertEqual(self.path.stat().st_mtime_ns, before.st_mtime_ns)
+        self.assertEqual(json.loads(self.path.read_text()), self.report)
+
+    def test_age_boundary_clock_skew_timezone_and_operator_bound(self):
+        for offset, reason in [(-180, None), (-181, 'stale_report'), (31, 'clock_skew')]:
+            self.report['checked_at'] = datetime.datetime.fromtimestamp(
+                self.now + offset, datetime.timezone.utc).isoformat()
+            result = self.check()
+            self.assertEqual(result['status'], 'attention' if reason else 'ok')
+            if reason:
+                self.assertIn(reason, result['reasons'])
+        self.report['checked_at'] = '2026-01-01T00:00:00'
+        self.assertIn('invalid_report', self.check()['reasons'])
+        for maximum in [0, 29, 3601, True]:
+            with self.assertRaises(ValueError):
+                self.check(max_age=maximum)
+
+    def test_missing_special_partial_oversized_and_ambiguous_reports_fail_closed(self):
+        def unavailable():
+            result = probe.check_report(self.path, self.nodes, now=self.now)
+            self.assertEqual(result['status'], 'attention')
+            self.assertEqual(result['reasons'], ['report_unavailable'])
+        unavailable()
+        for content in ['{', ' ' * 131073, '{"status":"failed","status":"ok"}', '{"status":NaN}']:
+            self.path.write_text(content)
+            unavailable()
+        self.path.unlink()
+        os.mkfifo(self.path)
+        started = time.monotonic()
+        unavailable()
+        self.assertLess(time.monotonic() - started, 1)
+        self.path.unlink()
+        target = self.root / 'target'; target.write_text(json.dumps(self.report))
+        self.path.symlink_to(target)
+        unavailable()
+        self.path.unlink(); self.path.mkdir()
+        unavailable()
+
+    def test_changed_configuration_and_duplicate_or_missing_nodes_are_not_healthy(self):
+        changed = copy.deepcopy(self.report)
+        changed.pop('config_sha256')  # Earlier schema-1 reports need a new probe.
+        self.assertIn('configuration_changed', self.check(changed)['reasons'])
+        changed['config_sha256'] = '0' * 64
+        self.assertIn('configuration_changed', self.check(changed)['reasons'])
+        for rows in [[], self.report['nodes'] * 2, [{'host': 'other.example'}], [None]]:
+            changed = {**self.report, 'nodes': rows}
+            self.assertEqual(self.check(changed)['status'], 'attention')
+        self.nodes[0]['console_redirect_hosts'] = []
+        self.assertIn('configuration_changed', self.check()['reasons'])
+
+    def test_top_level_ok_cannot_hide_failed_or_missing_checks(self):
+        mutations = [
+            ('dns', 'status', 'failed'), ('dns', 'addresses', ['127.0.0.1']),
+            ('dns', 'addresses', ['1.1.1.1']), ('dns', 'addresses', []),
+            ('smtp', 'admission', False), ('smtp', 'admission', 1),
+            ('smtp', 'message_submitted', True), ('smtp', 'tls', 'TLSv1.1'),
+            ('smtp', 'certificate_days_remaining', 13),
+            ('https', 'certificate_days_remaining', True),
+            ('https', 'http_status', 503), ('https', 'redirect_followed', True)]
+        for check, field, value in mutations:
+            with self.subTest(check=check, field=field):
+                changed = copy.deepcopy(self.report)
+                changed['nodes'][0]['checks'][check][field] = value
+                self.assertIn('incomplete_or_failed_checks', self.check(changed)['reasons'])
+        changed = copy.deepcopy(self.report)
+        del changed['nodes'][0]['checks']['https']
+        self.assertEqual(self.check(changed)['status'], 'attention')
+        for submitted in [1, False, None]:
+            self.assertIn('probe_attention', self.check({**self.report, 'messages_submitted': submitted})['reasons'])
+
+    def test_allowed_redirect_is_checked_without_using_a_remote_location(self):
+        self.report['nodes'][0]['checks']['https'].update(http_status=302, redirect_host='coordinator.example')
+        self.assertEqual(self.check()['status'], 'ok')
+        self.report['nodes'][0]['checks']['https']['redirect_host'] = 'unexpected.example'
+        self.report['nodes'][0]['checks']['https']['remote_text'] = 'PRIVATE CONTENT'
+        result = self.check()
+        self.assertEqual(result['status'], 'attention')
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_cli_checks_without_replacing_or_creating_output(self):
+        config = self.root / 'config.json'
+        config.write_text(json.dumps({'schema': 1, 'nodes': self.nodes}, indent=4))
+        self.check()
+        command = [sys.executable, str(ROOT/'deploy/external-monitor/probe.py'),
+                   '--config', str(config), '--check-report', str(self.path)]
+        run = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse(json.loads(run.stdout)['network_used'])
+        self.report['checked_at'] = '2020-01-01T00:00:00+00:00'
+        self.path.write_text(json.dumps(self.report))
+        run = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('stale_report', json.loads(run.stdout)['reasons'])
+        other = self.root / 'output.json'
+        run = subprocess.run(command + ['--output', str(other)], capture_output=True, text=True, timeout=5)
+        self.assertEqual(run.returncode, 2)
+        self.assertFalse(other.exists())
+
+    def test_producer_binds_configuration_and_timestamps_before_slow_checks(self):
+        config = self.root / 'config.json'
+        config.write_text(json.dumps({'schema': 1, 'nodes': self.nodes}))
+        def slow_node(node):
+            time.sleep(0.05)
+            return self.report['nodes'][0]
+        output = io.StringIO()
+        before = time.time()
+        with patch.object(sys, 'argv', ['probe', '--config', str(config), '--output', str(self.path)]), \
+             patch.object(probe, 'bounded_node', side_effect=slow_node), contextlib.redirect_stdout(output):
+            self.assertEqual(probe.main(), 0)
+        result = json.loads(self.path.read_text())
+        observed = datetime.datetime.fromisoformat(result['checked_at']).timestamp()
+        self.assertGreaterEqual(observed, before)
+        self.assertLess(observed, time.time() - 0.04)
+        self.assertEqual(result['config_sha256'], probe.config_digest(self.nodes))
+        self.assertEqual(probe.check_report(self.path, self.nodes)['status'], 'ok')
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@
 - [Console and access control](console.md)
 - [Multiple MX servers](multi-mx.md)
 - [Two-copy durability and console recovery](high-availability.md)
+- [Independent monitoring and backup handoff](external-resilience.md)
 - [Independent SMTP/TLS/HTTPS probe](../deploy/external-monitor/README.md)
 - [Linux hardening and backups](../deploy/hardening/README.md)
 - [Security boundaries](security.md)

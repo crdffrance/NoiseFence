@@ -29,9 +29,36 @@ Each node has a 25-second hard deadline, including DNS resolution. Up to four no
 
 ## Alert integration and freshness
 
-Exit codes are 0 (all checks healthy), 1 (one or more checks need attention), and 2 (invalid configuration or report/runtime failure). The JSON schema is `noisefence-external-health-1`. A monitoring consumer must check both `status` and `checked_at`; an absent report or a report older than three minutes is an outage/monitoring failure, never a healthy result. A failed service may leave the previous report on disk.
+Exit codes are 0 (all checks healthy), 1 (one or more checks need attention), and 2 (invalid configuration or report/runtime failure). The JSON schema is `noisefence-external-health-1`. A monitoring consumer must check both `status` and `checked_at`; an absent report or a report older than three minutes is an outage/monitoring failure, never a healthy result. A failed service may leave the previous report on disk. `checked_at` is the start
+of the observation, including time spent resolving and connecting. New reports
+also bind the normalized configuration with `config_sha256`.
 
-No notification destination is configured by the installer. Forward service failures and stale reports to an independent monitoring/alert service when one is available. Merely installing this timer does not create off-host alerts. If no independent host is available, keep this directory ready and leave external activation pending.
+Use the included read-only consumer from your monitoring scheduler:
+
+```sh
+sudo python3 /usr/local/libexec/noisefence-external/probe.py \
+  --config /etc/noisefence-external.json \
+  --check-report /var/lib/noisefence-external/latest.json --max-age 180
+```
+
+This command makes no DNS or network calls and does not replace the report. Exit
+0 requires a recent, complete, healthy result for every configured node. Exit 1
+reports missing, unreadable, malformed, stale or inconsistent observations, an
+unexpected node set, changed configuration, failed checks or a clock more than
+30 seconds in the future. Exit 2 reports invalid command/configuration/runtime
+input. Treat both nonzero codes, execution timeout and missing scheduler runs as
+unhealthy. The consumer accepts `--max-age` from 30 to 3600 seconds; increasing it
+increases the time a stopped probe can go unnoticed.
+
+The consumer requires an ordinary file of at most 128 KiB and refuses symlinks,
+FIFOs and duplicate JSON keys. Its JSON summary contains fixed reason codes and
+age, without copying source error text. Top-level `ok` cannot override a missing
+SMTP/TLS/HTTPS result. Old reports without a configuration digest fail until the
+updated probe completes a fresh run. The digest binds configuration; it is not a
+signature or protection against a compromised monitoring host. Only one address
+per host is still tested; the consumer explicitly retains that coverage limit.
+
+No notification destination is configured by the installer. Forward service failures and stale reports to an independent monitoring/alert service when one is available. Run the consumer independently of the probe service, so a stopped timer is detected. Alert on failures and absence of consumer results through the monitoring service; running both on an MX cannot establish independent availability. Merely installing this timer does not create off-host alerts. If no independent host is available, keep this directory ready and leave external activation pending.
 
 ## Remove
 
@@ -47,4 +74,4 @@ Keep `/etc/noisefence-external.json` and the state directory until any needed mo
 
 ## Validation
 
-`python3 -m unittest discover -s tests_python -p test_external_monitor.py -v` runs synthetic local TLS/SMTP/HTTPS fixtures. It covers a valid STARTTLS transaction, a 451 response, CA and hostname failures, DNS address restrictions, HTTPS errors and redirect restrictions, deadlines, certificate expiry and private report permissions. These tests do not certify reachability from a particular future monitoring host.
+`python3 -m unittest discover -s tests_python -p test_external_monitor.py -v` runs synthetic local TLS/SMTP/HTTPS fixtures. It covers a valid STARTTLS transaction, a 451 response, CA and hostname failures, DNS address restrictions, HTTPS errors and redirect restrictions, deadlines, certificate expiry and private report permissions. They also exercise the report consumer with missing, stale, future-dated, duplicated, partial, oversized and special-file reports, changed configuration, misleading top-level statuses and actual CLI exit codes. These tests do not certify reachability from a particular future monitoring host. See the [independent resilience handoff](../../docs/external-resilience.md) for activation and backup prerequisites.
