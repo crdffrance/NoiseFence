@@ -31,7 +31,7 @@ if metadata['Config'].get('Labels',{}).get('org.noisefence.test-fixture')!='rele
 name='nf-lifecycle-'+uuid.uuid4().hex[:12]
 def run(*args,timeout=90):
  return subprocess.check_output(['docker',*args],timeout=timeout,stderr=subprocess.STDOUT)
-started=time.monotonic();checks=[]
+started=time.monotonic();checks=[];report=None
 try:
  run('run','-d','--name',name,'--hostname','test-lifecycle','--platform',args.platform,'--network','none','--cgroupns','private','--privileged','--cpus','2','--memory','1536m','--pids-limit','256','--tmpfs','/run','--tmpfs','/tmp',args.image)
  for version in versions:
@@ -88,8 +88,8 @@ with socket.socket() as s:
  run('exec',name,'rm','/etc/systemd/system/noisefence.service')
  run('exec',name,'systemctl','daemon-reload')
  checks.append('unit_removed_data_retained')
- report={'status':'passed','checks':checks,'elapsed_seconds':round(time.monotonic()-started,3),'network':'none','production_affected':False,'versions':versions,'image_id':metadata['Id'],'platform':args.platform,'archive_sha256':{version:hashlib.sha256(path.read_bytes()).hexdigest() for version,path in archives.items()}}
- (ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report),flush=True)
+ report={'status':'validated_pending_cleanup','cleanup':False,'checks':checks,'elapsed_seconds':round(time.monotonic()-started,3),'network':'none','production_affected':False,'versions':versions,'image_id':metadata['Id'],'platform':args.platform,'archive_sha256':{version:hashlib.sha256(path.read_bytes()).hexdigest() for version,path in archives.items()}}
+ (ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n')
 except subprocess.CalledProcessError as e:
  (ROOT/'lifecycle-failure.log').write_bytes(e.output)
  try:(ROOT/'lifecycle-journal.log').write_bytes(run('exec',name,'journalctl','-u','noisefence','--no-pager','-n','50'))
@@ -97,4 +97,14 @@ except subprocess.CalledProcessError as e:
  print(json.dumps({'status':'failed','checks':checks,'log':str(ROOT/'lifecycle-failure.log')}),flush=True)
  raise
 finally:
- run('rm','--force',name)
+ try:
+  run('rm','--force','--volumes',name)
+ except BaseException:
+  if report is not None:
+   report.update(status='cleanup_failed',cleanup=False)
+   (ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n')
+  raise
+# Successful checks alone do not prove that the disposable resources were removed.
+report.update(status='passed',cleanup=True)
+(ROOT/'lifecycle-report.json').write_text(json.dumps(report,indent=2)+'\n')
+print(json.dumps(report),flush=True)

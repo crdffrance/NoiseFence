@@ -36,7 +36,7 @@ thresholds or activate delivery policies.
 - Complete an already-started pair over restricted pinned SSH, with exact operation authorization, bounded nonce-bound replies and durable recovery after a lost completion response. Earlier reservation, preparation and startup stages remain operator-driven.
 - Authenticate bounded archive inspection and native staging against the exact GitHub repository, release workflow, tag and source commit. Verify signed provenance before publication; historical archives without attestations cannot use this staging path. Share bounded prerelease identities across manifests, archives and maintenance helpers.
 - Preserve unchanged, digest-verified 0.31.9 policies without authorizing new mixed-build credential-bound activations. Selected PostgreSQL synchronization requires equal application builds and coordinated maintenance. Semantic version ordering does not prove rollback compatibility.
-- Add isolated native ARM64/systemd and SSH failure rehearsals, standalone archive installation checks, and a paired mode that tests exact archive contents without synthetic replacement. Prepare independent monitoring and backup handoff. Use ephemeral export-test credentials and retain CodeQL checks without suppression.
+- Add isolated native ARM64/systemd and SSH failure rehearsals, standalone archive installation checks, and a paired mode that tests exact archive contents without synthetic replacement. Require successful container and anonymous-volume cleanup before reporting an installation rehearsal as passed. Prepare independent monitoring and backup handoff. Use ephemeral export-test credentials and retain CodeQL checks without suppression.
 
 ### Documentation and qualification limits
 

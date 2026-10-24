@@ -40,7 +40,7 @@ class RehearsalTests(unittest.TestCase):
         Path(str(self.archive)+'.sha256').write_text(self.sha+'  '+self.archive.name+'\n')
         files = rehearsal.bundle.inspect_archive(self.archive,self.version,self.platform,self.commit)['files']
         digests = {self.pin['version']:self.pin['archives'][self.platform], self.version:self.sha}
-        self.standalone = {'status':'passed','production_affected':False,'platform':'linux/arm64',
+        self.standalone = {'status':'passed','cleanup':True,'production_affected':False,'platform':'linux/arm64',
             'archive_sha256':digests,'versions':[self.pin['version'],self.version],
             'checks':['fresh_install_0.31.9','synthetic_smtp_acceptance','upgrade_'+self.version,
                       'idempotent_reinstall','stopped_service_preserves_accepted_body_and_queue','unit_removed_data_retained']}
@@ -85,6 +85,16 @@ class RehearsalTests(unittest.TestCase):
                           ('platform','linux/amd64'),('production_affected',True),('archive_commits',{})]:
             self.paired = {**original,key:value}
             with self.subTest(key=key),self.assertRaises(ValueError): self.summarize()
+
+    def test_standalone_cleanup_must_be_explicitly_verified(self):
+        for value in [None, False, 'true']:
+            self.standalone['cleanup'] = value
+            with self.subTest(cleanup=value), self.assertRaisesRegex(ValueError, 'cleanup'):
+                self.summarize()
+        self.standalone['cleanup'] = True
+        self.standalone['status'] = 'cleanup_failed'
+        with self.assertRaisesRegex(ValueError, 'did not pass'):
+            self.summarize()
 
     def test_actual_candidate_bytes_and_both_running_identities_are_required(self):
         self.paired['validation_candidate']['manifest_sha256']='0'*64

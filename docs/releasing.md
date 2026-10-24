@@ -139,7 +139,9 @@ Python 3.11+, Docker, GitHub CLI download access, Rust and a fresh fixture/outpu
 directory are required. Container builds and the pinned public download need
 network access; the running mail fixtures do not. `qualification.json` is produced
 only after both reports pass and their archive, installed helper and running
-binary identities match. GitHub retains **only this anonymous summary**. Keep raw
+binary identities match. Each fixture must also confirm removal of its disposable
+container and anonymous volumes. Failed or incomplete cleanup cannot produce a
+successful qualification report. GitHub retains **only this anonymous summary**. Keep raw
 fixture logs, messages, addresses, test credentials and journals private; do not
 upload the result directory. A failure records its phase in the job log and stops
 publication. The publish job downloads only the `linux-*` archive artifacts, not

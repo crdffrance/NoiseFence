@@ -77,6 +77,7 @@ def summarize(platform, archive, directory, *, version, commit):
                        and report.get('archive_sha256') == expected,
                        'Lifecycle reports do not describe these exact archives')
     bundle.require(standalone.get('versions') == [pin['version'], version], 'Wrong standalone release order')
+    bundle.require(standalone.get('cleanup') is True, 'Standalone fixture cleanup is unverified')
     bundle.require(paired.get('cleanup') is True and paired.get('candidate_mode') == 'exact_archive'
         and paired.get('archive_commits') == {pin['version']:pin['commit'], version:commit},
         'Exact paired candidate or cleanup is unverified')
