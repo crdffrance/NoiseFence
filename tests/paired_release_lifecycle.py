@@ -193,6 +193,7 @@ class Lab:
                                    (self.deployment_source/'install.sh', '/root/source/deploy/install.sh'),
                                    (SOURCE/'tests/fixtures/paired_node.py', '/root/source/tests/fixtures/paired_node.py'),
                                    (SOURCE/'tests/fixtures/confinement_node.py', '/root/source/tests/fixtures/confinement_node.py'),
+                                   (SOURCE/'tests/fixtures/runtime_diagnostics.py', '/root/source/tests/fixtures/runtime_diagnostics.py'),
                                    (SOURCE/'tests/fixtures/exchange_node.py', '/root/source/tests/fixtures/exchange_node.py'),
                                    (SOURCE/'tests/fixtures/validation_node.py', '/root/source/tests/fixtures/validation_node.py')]:
                 self.run('cp', str(source), self.names[node]+':'+target)
@@ -821,6 +822,13 @@ class Lab:
     def close(self):
         failures = []
         for node in reversed(self.created):
+            # Diagnostics cannot prevent container cleanup or publish private state.
+            try:
+                runtime = self.command(node, 'python3', '/root/source/tests/fixtures/runtime_diagnostics.py',
+                                       '--node', node, timeout=15)
+                (self.root/(node+'-runtime-diagnostic.json')).write_bytes(runtime)
+            except Exception:
+                pass
             try:
                 journal = self.command(node, 'journalctl', '-u', 'noisefence.service', '--no-pager', '-n', '100', timeout=20)
                 (self.root/(node+'-journal.log')).write_bytes(journal)

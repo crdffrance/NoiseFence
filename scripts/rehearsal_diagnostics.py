@@ -23,6 +23,8 @@ SOURCES = (
     'scripts/release_rehearsal.py', 'deploy/postgresql/upgrade_reservation.py',
     'deploy/postgresql/upgrade_validation.py', 'deploy/postgresql/upgrade_promotion.py',
     'deploy/postgresql/upgrade_activation.py', 'deploy/postgresql/upgrade_exchange.py',
+    'deploy/postgresql/migrate.py', 'deploy/postgresql/migration_agent.py',
+    'deploy/postgresql/migration_protocol.py', 'deploy/postgresql/migration_snapshot.py',
 )
 LOGS = (
     'paired.log', 'standalone.log', 'paired/failure-command.log',
@@ -42,6 +44,10 @@ INDICATORS = {
     'service_apparmor_failure': ('231/APPARMOR',),
     'service_exec_failure': ('203/EXEC',),
     'connection_refused': ('Connection refused', 'os error 111'),
+    'central_sync_pending': ('central management synchronization pending',),
+    'replication_unavailable': ('durable replication unavailable',),
+    'activation_pending': ('coordinated activation pending',),
+    'database_error': ('database is locked', 'database is busy', 'error returned from database'),
 }
 
 
@@ -133,6 +139,25 @@ def describe(text, locations, assertions):
             'denials':denial_categories(text)}
 
 
+def runtime_observation(text):
+    """Only fixed enums and optional booleans may leave the private fixture."""
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        return {'status':'unavailable'}
+    if (not isinstance(value,dict) or set(value) != {'schema','service','health','database'}
+        or value['schema'] != 'noisefence-fixture-runtime-diagnostic-1'
+        or value['service'] not in ('active','inactive','failed','activating','deactivating','unavailable')
+        or value['health'] not in ('ready','not_ready','invalid','unavailable')):
+        return {'status':'unavailable'}
+    db=value['database']
+    if (not isinstance(db,dict) or set(db) != {'selected','replication_required','pending_updates','unprotected','heartbeat','policy_sync'}
+        or any(db[key] is not None and type(db[key]) is not bool for key in ('selected','replication_required','pending_updates','unprotected'))
+        or any(db[key] not in ('fresh','stale','invalid','missing','unavailable') for key in ('heartbeat','policy_sync'))):
+        return {'status':'unavailable'}
+    return value
+
+
 def diagnose(directory, phase):
     if phase not in PHASES:
         raise ValueError('Unknown rehearsal phase')
@@ -143,7 +168,9 @@ def diagnose(directory, phase):
         if text is not None:
             logs[relative] = describe(text, locations, assertions)
     return {'schema':'noisefence-rehearsal-failure-1', 'status':'failed', 'phase':phase,
-            'raw_data_included':False, 'logs':logs}
+            'raw_data_included':False, 'logs':logs,
+            'runtime':{node:runtime_observation(tail(directory,'paired/'+node+'-runtime-diagnostic.json'))
+                       for node in ('mx1','mx2')}}
 
 
 def main():

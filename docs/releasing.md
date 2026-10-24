@@ -153,6 +153,12 @@ It distinguishes the intentional denial canary from other resources and excludes
 raw exception values,
 command arguments, configuration and message data; the original failing exit code
 is preserved. Missing diagnostics never count as a successful rehearsal.
+The failure report also includes fixed service/HTTP states and query-only SQLite
+observations: authority selection present, two-copy requirement, outstanding
+replica work, and heartbeat/policy-sync freshness categories. It excludes queue
+identities, counts, timestamps, connection details and message content. These
+observations distinguish an unavailable probe from a service reporting not ready;
+they neither authorize recovery nor replace the normal native qualification.
 
 GitHub retains **only the anonymous qualification summary** as an artifact. Keep raw
 fixture logs, messages, addresses, test credentials and journals private; do not
