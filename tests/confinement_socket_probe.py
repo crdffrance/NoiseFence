@@ -15,7 +15,7 @@ import sys
 import uuid
 import confined_paired_release as confined
 
-CATEGORIES = {'query_ok','permission_denied','missing_socket','connection_refused','timeout','protocol_or_io_error'}
+CATEGORIES = {'query_ok','authentication_refused','socket_permission_denied','permission_denied','missing_socket','connection_refused','timeout','protocol_or_io_error'}
 PATH = confined.PATH
 
 
@@ -55,12 +55,29 @@ def service_properties(raw):
     return [key+'='+values[key] for key in sorted(SERVICE_CONTEXT)]
 
 
+# Diagnostic-only variants on the ephemeral, network-isolated fixture. The
+# required full-context result remains mandatory; variants never qualify it.
+CONTEXT_VARIANTS = {
+    'confined-no-private-tmp': {'PrivateTmp':'false'},
+    'confined-no-protect-system': {'ProtectSystem':'false'},
+    'confined-no-protect-home': {'ProtectHome':'false'},
+    'confined-no-mount-isolation': {
+        'PrivateTmp':'false', 'ProtectSystem':'false', 'ProtectHome':'false',
+        'ProtectKernelTunables':'false', 'ProtectKernelModules':'false', 'ProtectControlGroups':'false',
+    },
+    'confined-explicit-pg-bind': {'BindReadOnlyPaths':'/run/postgresql'},
+}
+
+
 def service_unit(mode, profile, binary, properties):
-    confined.require(mode in ('unconfined', 'confined'), 'Invalid diagnostic mode')
+    confined.require(mode in ('unconfined', 'confined') or mode in CONTEXT_VARIANTS, 'Invalid diagnostic mode')
+    values=dict(item.split('=',1) for item in properties)
+    values.update(CONTEXT_VARIANTS.get(mode,{}))
+    properties=[key+'='+value for key,value in sorted(values.items())]
     lines = ['[Service]', 'Type=oneshot', 'TimeoutStartSec=8s', 'Restart=no',
              *properties, 'StandardOutput=journal', 'StandardError=journal',
              'SyslogIdentifier=noisefence-socket-'+mode, 'ExecStart='+binary]
-    if mode == 'confined':
+    if mode != 'unconfined':
         lines.append('AppArmorProfile='+profile)
     return '\n'.join(lines)+'\n'
 
@@ -95,6 +112,7 @@ def run(args):
            'container_removed':False,'profile_removed':False,
            'service_sha256':hashlib.sha256(service_raw.encode()).hexdigest(),
            'service_context':{'unconfined':None,'confined':None},
+           'namespace_diagnostics':{key:None for key in CONTEXT_VARIANTS},
            'service_probe_scope':'same_identity_and_isolation_read_only_oneshot_no_daemon_start'}
     confined.require(not any(x.split(' ',1)[0]==profile for x in confined.profiles()),'Profile already exists')
     loaded=False;created=False
@@ -128,13 +146,15 @@ def run(args):
             command+=[directory+'/noisefence']
             result=subprocess.run(command,capture_output=True,timeout=12,env={'PATH':PATH,'LANG':'C'})
             proof[mode]=classify(result)
-        for mode in ('unconfined','confined'):
+        for mode in ('unconfined','confined',*CONTEXT_VARIANTS):
             unit_file=root/('noisefence-socket-'+mode+'.service')
             unit_file.write_text(service_unit(mode,profile,directory+'/noisefence',properties))
             docker('cp',str(unit_file),name+':/etc/systemd/system/'+unit_file.name)
         inside('systemctl','daemon-reload')
         for mode in ('unconfined','confined'):
             proof['service_context'][mode]=service_query(name,mode)
+        for mode in CONTEXT_VARIANTS:
+            proof['namespace_diagnostics'][mode]=service_query(name,mode)
         proof['denial_diagnostics']=confined.collect_denials(root,profile)
         from importlib.util import spec_from_file_location,module_from_spec
         spec=spec_from_file_location('rehearsal_diagnostics',confined.SOURCE/'scripts/rehearsal_diagnostics.py')

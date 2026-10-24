@@ -41,6 +41,8 @@ jobs:
       - name: Prepare the disposable PostgreSQL image and fixed query probe
         run: |
           mkdir -p var/confinement-socket
+          rustc --edition=2024 --test tests/fixtures/postgres_socket_probe.rs -o var/confinement-socket/probe-unit
+          var/confinement-socket/probe-unit
           rustc --edition=2024 tests/fixtures/postgres_socket_probe.rs -o var/confinement-socket/probe
           docker build --file tests/fixtures/paired.Dockerfile --tag nf-confinement-socket .
       - name: Compare direct and systemd queries with and without AppArmor

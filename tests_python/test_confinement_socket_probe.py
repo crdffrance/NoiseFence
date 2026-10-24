@@ -26,6 +26,16 @@ class SocketProbeTests(unittest.TestCase):
         for text in [b'PRIVATE-PASSWORD',b'query_ok\nprivate',b'',b'\xff']:
             self.assertEqual(probe.classify(SimpleNamespace(stdout=text,returncode=0)),'unexpected_result')
 
+    def test_socket_access_and_database_authentication_are_not_conflated(self):
+        self.assertIn('socket_permission_denied',probe.CATEGORIES)
+        self.assertIn('authentication_refused',probe.CATEGORIES)
+        for boundary in ('socket_permission_denied','authentication_refused'):
+            code,result=self.exercise(SimpleNamespace(stdout=b'query_ok',returncode=0),
+                                     SimpleNamespace(stdout=boundary.encode(),returncode=1))
+            self.assertEqual(code,1)
+            self.assertEqual(result['service_context']['confined'],boundary)
+            self.assertEqual(result['status'],'failed')
+
     def test_no_native_action_before_disposable_host_guard(self):
         for env in [{},{'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'self-hosted','RUNNER_OS':'Linux'}]:
             with patch.dict(os.environ,env,clear=True),patch.object(probe.sys,'platform','linux'), \
@@ -66,7 +76,7 @@ class SocketProbeTests(unittest.TestCase):
                  patch.object(probe.confined,'command',side_effect=command), \
                  patch.object(probe.confined,'collect_denials',return_value='unavailable'), \
                  patch.object(probe.subprocess,'run',side_effect=[SimpleNamespace(stdout=b'query_ok',returncode=0),confined_result]), \
-                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok']), \
+                 patch.object(probe,'service_query',side_effect=['query_ok',probe.classify(service_confined) if service_confined else 'query_ok',*(['query_ok']*len(probe.CONTEXT_VARIANTS))]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 code=probe.run(args)
             result=json.loads((args.output/'probe.json').read_text())
@@ -115,6 +125,18 @@ class SocketProbeTests(unittest.TestCase):
                         raw.replace('PrivateTmp=true',''),raw.replace('User=noisefence','User=root')):
             with self.assertRaises(RuntimeError):probe.service_properties(changed)
         with self.assertRaises(RuntimeError):probe.service_unit('invalid','x','y',[])
+
+    def test_namespace_variants_are_fixed_and_keep_the_confined_identity(self):
+        props=probe.service_properties((ROOT/'deploy/noisefence.service').read_text())
+        for mode,changes in probe.CONTEXT_VARIANTS.items():
+            unit=probe.service_unit(mode,'synthetic-profile','/opt/noisefence/probe',props)
+            self.assertIn('AppArmorProfile=synthetic-profile',unit)
+            self.assertIn('User=noisefence',unit)
+            self.assertIn('NoNewPrivileges=true',unit)
+            for key,value in changes.items():self.assertIn(key+'='+value+'\n',unit)
+            for item in props:
+                if item.split('=',1)[0] not in changes:self.assertIn(item+'\n',unit)
+        self.assertNotIn('attach_disconnected',unit)
 
     def test_systemd_query_uses_private_manager_and_fixed_journal_identifier(self):
         for output,code,expected in [(b'query_ok\n',0,'query_ok'),
