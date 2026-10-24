@@ -193,7 +193,7 @@ export function checkFailure(reason?: string | null) {
         budget_storage: 'Budget accounting unavailable',
         timeout: 'Deadline exceeded',
         network: 'Connection or TLS verification failed',
-        authentication: 'Provider authentication rejected',
+        authentication: 'Provider access rejected (HTTP 401/403)',
         rate_limit: 'Provider rate limit',
         provider_backoff: 'Provider cooldown after an error or refusal',
         http: 'Provider HTTP error',

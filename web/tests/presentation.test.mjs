@@ -10,7 +10,8 @@ import {
 
 test('failure diagnostics use fixed descriptions and do not echo untrusted text', () => {
   assert.match(checkFailure('timeout'), /Deadline/);
-  assert.match(checkFailure('authentication'), /authentication/);
+  assert.match(checkFailure('authentication'), /access rejected.*401\/403/);
+  assert.doesNotMatch(checkFailure('authentication'), /invalid (key|credential)/i);
   assert.equal(checkFailure(null), '');
   assert.equal(
     checkFailure('private@example.org <script>'),

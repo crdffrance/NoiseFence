@@ -152,6 +152,37 @@ are never saved. Failure, cooldown and retry behavior do not depend on receiving
 that optional diagnostic. A non-JSON 403 remains an authorization/access failure;
 it is not proof that the key lacks a scope.
 
+The provider overview and reliability aggregates retain the same documented
+schema, permission, credential and quota codes as individual message details.
+Unknown codes and provider response text are excluded. A generic access refusal
+(HTTP 401/403) does not by itself identify an invalid credential, missing scope
+or network restriction.
+
 `MissingPermission` requires checking the provider's authorized lookup access;
 unlimited local budgets do not grant permissions or bypass upstream limits. See
 the [CRDF API contract](https://threatcenter.crdf.fr/api/doc/).
+
+## Diagnose coverage before changing limits
+
+1. Select the relevant engine build and period under **Filters → Providers &
+   budgets**. Message-level status can be incomplete while some targets succeeded;
+   inspect retained targets, omitted targets and individual transport failures.
+   Historical coverage is not a live provider health check.
+2. Check the effective quota and node allocation, including any active cooldown.
+   A zero CRDF quota means no local limit. It does not change VirusTotal limits,
+   upstream account restrictions or the provider's `Retry-After` instruction.
+3. Distinguish a stale VirusTotal report from a failed request. Repeating a lookup
+   does not refresh the provider's underlying analysis. NoiseFence does not
+   submit private content or request a new scan to make this indicator usable.
+4. For an access refusal, verify the credential generation referenced by the
+   loaded policy. A mutable installation key file may differ from the resident
+   runtime. A controlled synthetic-domain probe can verify current access without
+   sending a message; it still consumes a provider request and is not a capture
+   or false-positive measurement.
+5. For timeouts, inspect the recorded capacity, storage, response-header and
+   response-body phases. Adjust timeouts or concurrency only after identifying the
+   bottleneck and checking the total analysis budget. Never increase spam scores
+   because a provider was unavailable.
+
+Keep raw provider replies and credentials out of public logs and issue reports.
+Use fixed diagnostic codes, counts, HTTP statuses and bounded timing summaries.

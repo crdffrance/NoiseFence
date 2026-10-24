@@ -1,36 +1,95 @@
 <a id="couverture-et-contexte-du-filtrage--060"></a>
-# Coverage and context of filtering — 0.6.0
+<a id="coverage-and-context-of-filtering--060"></a>
+# Filter coverage and sender context
 
 <a id="réputation-et-redirections"></a>
-## Reputation and redirection
+## Reputation and redirects
 
-The cache of the twelve priority targets is consulted before capacity doors, quotas and supplier breaks. The destinations discovered remain priority. Additional targets are counted as omitted. A lack of information, an old VirusTotal report or an error is never worth the mischief.
+NoiseFence checks cached results for up to twelve priority targets before applying
+request capacity, quota and provider cooldown limits. Final redirect destinations
+have priority, followed by ranked content hosts. Additional targets are counted
+as omitted. Missing information, a stale VirusTotal report or a provider error is
+unavailable evidence, never proof of spam or safety.
 
-[CRDF search_urls](https://threatcenter.crdf.fr/api/doc/) accepts a list of targets. NoiseFence brings together up to twelve domain roots per query, without email addresses, path, URL settings or body. Each response must correspond only once to a requested target. A poorly associated response invalidates the lot. Page detection does not condemn its entire domain. VirusTotal uses only existing domain reports or fingerprints; no new content submissions or file submissions.
+[CRDF search_urls](https://threatcenter.crdf.fr/api/doc/) accepts a batch of domain
+roots. NoiseFence sends at most twelve synthetic HTTPS roots, without email
+addresses, message bodies, URL paths or query parameters. Each response must bind
+exactly once to a requested target. Missing, foreign or duplicate targets invalidate
+the batch; a malformed entry within a correctly bound batch leaves valid siblings
+usable. A match against one page does not establish that its entire hosting domain
+is malicious. VirusTotal lookups use existing domain or file-hash reports and
+never submit attachments or message content.
 
-The limit counts query reservations, after acquiring network capacity. A failure at the time of sending can keep a reservation without an answer: the meter remains cautious. Individual caches and UTC meters persist. Zero remains "unlimited", without removing the limits of parallelism and duration. The customer does not perform an implied resumption. A connection error or HTTP 502/503/504 without explicit pause allows at most one resumption, after 50 ms, with a new reservation and within the same overall delay. Errors 429/ authentication are not repeated. The `Retry-After` pause valid on 429/503 is persistent and limited to seven days; a longer time limit already recorded remains priority. See also [virusTotal errors](https://docs.virustotal.com/reference/errors).
+Quotas count request reservations made after acquiring network capacity. A send
+failure can consume a reservation without producing a response; accounting remains
+conservative. Caches and UTC quota counters persist. Zero means unlimited local
+quota, while concurrency, deadlines and provider cooldowns remain enforced. A
+connection failure or HTTP 502/503/504 without an explicit delay allows at most one
+retry after 50 ms, with a new reservation inside the original deadline. Access
+refusals and HTTP 429 are not retried immediately. Valid `Retry-After` delays are
+bounded to seven days; an existing longer cooldown is preserved. See
+[provider diagnostics](protection.md#diagnose-coverage-before-changing-limits).
 
-The redirect channels use the shared capabilities available within a global timeframe. A slow string does not block other capabilities. The client keeps the DNS check of each jump, network pinning, TLS certificates, prohibited addresses and the 64 KiB playback limit. It does not run JavaScript. The bulky or dependent pages of a script remain incomplete. The end of an analysis cancels its HTTP tasks; no continuous exploration in the background.
+Redirect chains share bounded capacity and an overall deadline. A slow chain does
+not reserve every slot. Every hop retains DNS revalidation, pinned destination
+addresses, TLS verification, private-network exclusions and a 64 KiB response-body
+limit. JavaScript is not executed. Oversized or script-dependent pages can remain
+incomplete; completion of the message analysis cancels its outstanding HTTP tasks.
+See [URL resolution](url-resolution.md) for complete limits.
 
 <a id="exploiter-les-diagnostics"></a>
-## Applying diagnostics
+## Use the diagnostics
 
-The **Quality & research → Rule reliability** tab shows requests, HTTP responses, recovered or unretrieved incidents, pauses and indicators omitted. The reasons for redirection distinguish security constraints, transport, readability and remote responses. The current group is separated from the last 24 hours all versions combined. Older messages do not have all new meters; zero history does not prove zero query.
+**Quality & research → Rule reliability** shows requests, HTTP responses, recovered
+failures, cooldowns and omitted indicators. Redirect details separate security
+constraints, transport failures, unreadable content and remote responses. Select
+the current engine build or all available builds explicitly. Older messages can
+lack newer counters; missing history does not prove that no request occurred.
 
-The context of missed spam and omissions is exclusively about spam annotated cases by the authorized account. Targeted corrections remain separate from quality annotations. Several incidents may concern the same message; they are diagnostic tracks, not causal demonstration. Synthetic regression games cover in particular quotas with malicious cache result, recoveries, poorly associated targets, slow links and corresponding changes. They do not measure the recall on the actual traffic.
+Missed-spam analysis uses only messages labelled as unwanted by an authorized
+account. Operational corrections remain separate from evaluation labels. Several
+failures can affect the same message; these are investigation leads, not causal
+proof. Synthetic tests cover cached malicious results despite exhausted quota,
+retries, mismatched targets, slow links and sender-context changes. They do not
+measure recall on independent real traffic.
 
 <a id="mémoire-comportementale-consultative"></a>
-## Consultative behavioural memory
+## Advisory sender history
 
-An identity must come from a SMTP session, with a single From address and a DMARC aligned DKIM. The key includes the recipient domain. Observations include a print of the only recipient of an envelope, no more than eight fields of links cut within that perimeter and six types of native motifs, without keeping the text. A message with multiple recipients of an envelope does not keep this context; no hidden copy identity is exposed to another account.
+Identity must come from a native SMTP session, a single From address and a
+DMARC-aligned DKIM signature. Its key includes the recipient domain. Context uses
+a fingerprint of the sole envelope recipient, at most eight link domains and six
+native pattern types, without storing message text. Multi-recipient envelopes do
+not retain this context; Bcc identities are not exposed to other accounts.
 
-The reference only uses the previous human labels of active administrators having access to the message. Contradictory corrections are excluded; an exact campaign contributes once. Samples must share the protocol and native policy, over 30 days, with at least five legitimate campaigns and three separate days. Partial data, an expired request, a policy change or a too small sample does not create a supposed novelty. SQLite playback is limited to 2,000 lines and 200 ms; the interruption disables comparison, without blocking delivery.
+The reference uses earlier human labels from active administrators who can access
+the message. Conflicting labels are excluded and an exact campaign contributes
+once. Samples must share the feature protocol and native policy, cover at least
+five wanted campaigns on three distinct days, and fall within 30 days. Partial
+data, a changed policy, a timed-out query or too few examples leaves comparison
+unavailable. The SQLite read is bounded to 2,000 rows and 200 ms; an interrupted
+comparison does not block delivery.
 
-Novelty booleans feed only the quality candidate into observation, with explicit unavailable states and dedicated removal. They do not create a whitelist, do not change the active score and do not conclude that there is fraud. Public reports and quality exports remove private keys and samples. These metadata follow the retention of thirty days of messages; no additional body is retained. LLM lexical, semantic and budget weights are not modified by this version.
+Novelty flags feed only the shadow quality candidate, with explicit availability
+and ablation features. They do not create a sender allowlist, alter the active
+score or establish fraud. Public reports and quality exports exclude private
+identity keys and reference samples. Metadata follows message retention; no
+additional body is retained for this comparison.
 
 <a id="migration-et-preuve-de-qualité"></a>
-## Migration and proof of quality
+## Compatibility and quality evidence
 
-The quality protocol contains new features. A candidate prior to 0.6.0 is refused: remove his optional path before `check-config`, keep the private model apart and retrain a candidate on new compatible observations. Do not mix cohorts or rebuild deleted messages. Behavioural memory starts without reference; it must collect recent annotations. New diagnostic fields are optional for old message readers and do not add SQLite migration.
+Sender-history features were introduced with the 0.6.0 quality protocol. A model
+must match the currently supported feature protocol and detector cohort; version
+numbers alone do not establish compatibility. Preserve incompatible model bytes
+privately and collect new compatible observations before retraining. Do not edit
+cohort identities, pool incompatible vectors or reconstruct deleted messages to
+make a candidate eligible. See [model provenance](model-provenance.md).
 
-The selection of thresholds in `train_quality.py` meets the empirical budgets over the selection period only, with tied values included. The testing period and prospective evaluation keep the pre-recall campaigns away. The 95% targets and 0.1% false positives remain to be demonstrated with their intervals; a suite of software tests or a very small annotated lot does not establish them. No candidate is automatically activated. The observation mode and the Proton validation checks remain applied before any marking.
+Threshold selection in `train_quality.py` applies empirical error budgets to the
+selection partition and includes tied scores. Testing and prospective evaluation
+exclude campaigns seen during fitting or selection. The 95% capture and 0.1%
+false-positive targets require independent evidence and confidence intervals;
+software tests or a small corrected sample do not establish them. Candidates are
+not activated automatically. Observation and Proton validation still apply before
+subject marking. Follow the [qualification procedure](filter-qualification.md).

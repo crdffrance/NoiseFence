@@ -8,6 +8,7 @@ thresholds or activate delivery policies.
 
 ### Recorded decisions and filtering evidence
 
+- Preserve documented CRDF permission, quota and response-shape failures in provider summaries while excluding unknown response text. Describe generic HTTP 401/403 as an access refusal without assuming that a key is invalid.
 - Preserve receipt-time engine verdicts, recipient-policy outcomes and requested/effective actions in full-population exports. Offline evaluation retains unavailable baselines, reads both population generations and separates recorded decisions from hypothetical candidates.
 - Explain when lexical evidence alone crosses the recorded content threshold without presenting the index as a calibrated probability. Keep human labels, AI suggestions, development samples and protected evaluation labels distinct.
 - Recognize distributed commercial discounts and cheaper offers while retaining transactional, security and conversation exclusions (`mailing-6`). Preserve ranked content hosts and final redirect destinations in reputation checks, including when HTTP following is disabled.

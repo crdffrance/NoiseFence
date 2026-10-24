@@ -76,6 +76,14 @@ impl Provider {
                             | "crdf_count_mismatch"
                             | "crdf_provider_error"
                             | "crdf_invalid_schema"
+                            | "crdf_invalid_blacklist_state"
+                            | "crdf_missing_lookup_state"
+                            | "crdf_invalid_token"
+                            | "crdf_missing_permission"
+                            | "crdf_key_quota"
+                            | "crdf_endpoint_quota"
+                            | "crdf_ip_blocked"
+                            | "crdf_key_blocked"
                     )
                 {
                     *self.failures.entry(name.clone()).or_default() += (*count).min(24);
@@ -254,6 +262,49 @@ mod tests {
         assert_eq!(report["providers"]["crdf"]["p95_ms"], 190);
         assert!(report["providers"]["crdf"].get("latencies").is_none());
     }
+    #[test]
+    fn provider_specific_failures_survive_aggregation_without_private_text() {
+        let codes = [
+            "crdf_invalid_blacklist_state",
+            "crdf_missing_lookup_state",
+            "crdf_invalid_token",
+            "crdf_missing_permission",
+            "crdf_key_quota",
+            "crdf_endpoint_quota",
+            "crdf_ip_blocked",
+            "crdf_key_blocked",
+        ];
+        let mut failures: BTreeMap<String, usize> =
+            codes.iter().map(|name| ((*name).into(), 2)).collect();
+        failures.insert("PRIVATE_RESPONSE_KEY".into(), 1);
+        failures.insert("crdf_PRIVATE_RESPONSE_KEY".into(), 1);
+        failures.insert("crdf_invalid_token_with_private_suffix".into(), 1);
+        failures.insert("timeout".into(), usize::MAX);
+        let scan = Scan {
+            protection: Some(crate::protection::Report {
+                crdf: ProviderReport {
+                    status: Status::Unavailable,
+                    failure_counts: failures,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut coverage = Coverage::default();
+        coverage.add(&scan);
+        let serialized = serde_json::to_value(coverage).unwrap();
+        let observed = &serialized["providers"]["crdf"]["failures"];
+        for code in codes {
+            assert_eq!(observed[code], 2, "missing diagnostic: {code}");
+        }
+        assert_eq!(observed["timeout"], 24);
+        assert_eq!(observed.as_object().unwrap().len(), codes.len() + 1);
+        assert!(!serialized.to_string().contains("PRIVATE"));
+        assert!(!serialized.to_string().contains("private_suffix"));
+        assert_eq!(serialized["providers"]["crdf"]["checked"], 0);
+    }
+
     #[test]
     fn recovered_transport_is_counted_without_exposing_provider_text_or_claiming_a_miss() {
         let mut scan = Scan {
