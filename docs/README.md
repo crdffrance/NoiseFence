@@ -4,6 +4,7 @@
 
 - [Installation: Docker and Linux](installation.md)
 - [Operations and routing](operations.md)
+- [Paired upgrades and recovery boundaries](paired-upgrades.md)
 - [Production readiness, health monitoring and incident recovery](production-readiness.md)
 - [Web configuration](web-configuration.md)
 - [Console and access control](console.md)

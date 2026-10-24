@@ -71,7 +71,7 @@ Within administrator limits, users can choose sensitivity, actions for spam/mark
 
 Older saved settings inherit missing module parameters from the host configuration. An explicitly empty RBL list remains empty. Upgrading does not activate providers, personal preferences or enforcement.
 
-Storage is **schema 5 once paired replication is activated**. Never downgrade an active HA queue to a pre-0.17.3 binary, remove its `ha_required` marker, or restore an older database over accepted mail. A policy revision rollback is different from a binary/database rollback. See [operations](operations.md) and [high availability](high-availability.md) for compatible recovery procedures.
+Local storage uses **format 5 for paired replication, 6 for management transport and 7 for selected PostgreSQL management**. The maximum supported format in `build.json` does not by itself establish compatibility with a selected authority. Never downgrade an active HA queue to a pre-0.17.3 binary, remove its `ha_required` marker, or restore an older database over accepted mail. A policy revision rollback is different from a binary/database rollback. See [operations](operations.md) and [high availability](high-availability.md) for compatible recovery procedures.
 
 Destination verification is available under **Administration → Domains → Verify recipients at destination**, together with bounded deadlines and positive/negative cache TTLs. It can accompany wildcard domain reception but cannot accompany recipient fallback. See [recipient verification and fallback](recipient-fallback.md).
 

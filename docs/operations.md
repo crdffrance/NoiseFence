@@ -21,7 +21,7 @@ Compile on the Linux target with `cargo build --release --locked`. The compilati
 
 The archive of [ GitHub releases](https://github.com/crdffrance/NoiseFence/releases) `noisefence-VERSION-linux-amd64.tar.gz` and `noisefence-VERSION-linux-arm64.tar.gz` are built in Linux Bookworm containers with Rust 1.98. Choose the architecture corresponding to `uname -m` (`x86_64` → amd64, `aarch64` → arm64). They require glibc 2.36 or more recent, for example Debian 12 or Ubuntu 24.04. They are not suitable for Alpine/musl. After extraction, check `sha256sum -c SHA256SUMS`. The binary is `noisefence` and the `web` folder contains only the public console. Install these two elements at the locations below. `build.json` records the image and the source digest.
 
-For a versioned installation, run `sudo sh deploy/install.sh /path/to/release /path/to/config.local.toml`. Releases are kept under `/opt/noisefence/releases/VERSION`; the installer updates `current` and preserves existing configuration. It refuses a different build with the same version. Keep a consistent backup before upgrading. Rollback requires compatible storage and policy; see [installation](installation.md) and [HA recovery](high-availability.md).
+For a supported local-management versioned installation, run `sudo sh deploy/install.sh /path/to/release /path/to/config.local.toml`. Releases are kept under `/opt/noisefence/releases/VERSION`; the installer updates `current` and preserves existing configuration. It refuses a different build with the same version, unknown local storage and configured/persisted management authorities. Review [paired upgrade preparation](paired-upgrades.md) before changing an MX; its read-only receipts are prerequisites, not deployment authorization. Keep a consistent backup before upgrading. Rollback requires compatible storage and policy; see [installation](installation.md) and [HA recovery](high-availability.md).
 
 The [first installation guide](getting-started.md) details the download, configuration preparation, administrator creation and controls.
 
@@ -108,7 +108,7 @@ Since 0.4.1, the relay logs the DNS, connection, banner, EHLO, STARTTLS and TLS 
 
 `GET /api/v1/messages/UUID/diagnostics`, with an authorized session, provides explanations and the last 50 server attempts per recipient. The initial response is limited to 100 transcripts for the entire message; `?delivery_id=DELIVERY_ID` loads the history of a single authorized recipient. The console reports partial history and allows it to be loaded on request. Each transcript keeps up to 32 events and 2,048 bytes per text field. It is stored in `delivery_attempts` in the same transaction as the delivery result. These traces follow the preservation of the metadata of the message and their deletion in cascade; unresolved messages remain accessible. The retention of the systemd log remains managed separately by journald. A stop during an attempt can leave its steps only in log; the console does not invent a final result. Possible SMTP duplicates after a lost final response remain subject to the usual rules of new attempt.
 
-SMTP transcripts were introduced as an additive migration. Current HA installations require schema 5 regardless of when this table was added; follow the current compatibility checks for rollback. Diagnoses never expose learning vectors or other recipients of a message out of account rights.
+SMTP transcripts were introduced as an additive migration. Paired replication requires local format 5; management transport and PostgreSQL selection can advance it to 6 and 7. Follow authority, policy and protocol compatibility checks for rollback, not the age of this table. Diagnoses never expose learning vectors or other recipients of a message out of account rights.
 
 Set alerts on free space below the reserve, queue age over 30 minutes, recurring Proton errors, unreported failures, incomplete analysis rates and absence of events. The systemd unit restarts the service after error, with limitation of restarts.
 
@@ -136,7 +136,7 @@ Compare the candidate on a recently retained corpus for validation. A model that
 <a id="mise-à-jour-vers-04"></a>
 ## Storage compatibility
 
-Quarantine originally introduced schema 2; later features and paired replication use newer schemas, up to schema 5. Back up the current database, spool and configuration consistently. Do not run an incompatible older binary or restore an old database over accepted mail. Observation and routes are preserved during installation. Monitor `quarantined_deliveries`, queue age and free disk space; see [recovery](high-availability.md).
+Quarantine originally introduced format 2; paired replication uses 5, management transport 6 and selected PostgreSQL management 7. Back up the current database, spool and configuration consistently. Do not run an incompatible older binary or restore an old database over accepted mail. Observation and routes are preserved during installation. Monitor `quarantined_deliveries`, queue age and free disk space; see [recovery](high-availability.md).
 
 ## Independent availability checks
 

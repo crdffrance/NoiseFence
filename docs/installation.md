@@ -76,7 +76,7 @@ sudo systemctl status noisefence
 sudo journalctl -u noisefence --since '10 minutes ago'
 ```
 
-The installer creates the service account, keeps the durable state under `/var/lib/noisefence`, installs versioned releases under `/opt/noisefence/releases`, and preserves existing configuration. Later policy edits belong in the Web console. Run `check-config` after host-level changes.
+The installer refuses configured or persisted management authorities before invoking the candidate or modifying installation state. Those installations require a coordinated procedure; see [paired upgrade preparation](paired-upgrades.md). For supported local installations, it creates the service account, keeps the durable state under `/var/lib/noisefence`, installs versioned releases under `/opt/noisefence/releases`, and preserves existing configuration. Later policy edits belong in the Web console. Run `check-config` after host-level changes.
 
 See [operations](operations.md), [SMTP standards and TLS](standards.md), and the [Linux hardening guide](../deploy/hardening/README.md). Do not enable a firewall rule or change SSH identities without retaining a verified administrator access path.
 
@@ -120,9 +120,9 @@ Verify certificate validation, authorized recipients, relay-loop prevention, ret
 
 Build or install a specific release, retain its checksum and preserve current state. Stop the old process cleanly before replacing it. Check configuration, API health, SMTP readiness, queue age, pending deliveries, replication acknowledgements and upstream errors after restart.
 
-On paired MX deployments, upgrade the coordinator first within the documented compatibility window, then workers. A temporary peer outage deliberately produces `451`; it must not fall back to one copy. Preserve the five-day retry responsibility and all accepted bodies.
+Start with the [paired upgrade checklist and read-only reports](paired-upgrades.md). On paired MX deployments, upgrade the coordinator first within the documented compatibility window and a rehearsed procedure, then workers. A temporary peer outage deliberately produces `451`; it must not fall back to one copy. Preserve the five-day retry responsibility and all accepted bodies.
 
-Database schema 5 requires an HA-compatible release. Never restore an old database over current accepted mail or downgrade past the recorded schema/policy compatibility. Binary rollback, restoring a Web policy revision and disaster recovery are different operations. Keep the previous verified release, current backups and the [HA recovery procedure](high-availability.md) available before upgrading.
+The archive declares maximum local format 7: paired replication uses format 5, management transport format 6, and selected PostgreSQL management format 7. A format number alone does not establish cluster or management compatibility. Never restore an old database over current accepted mail or downgrade past the recorded schema/policy compatibility. Binary rollback, restoring a Web policy revision and disaster recovery are different operations. Keep the previous verified release, current backups and the [HA recovery procedure](high-availability.md) available before upgrading.
 
 ## Installed version and release checks
 

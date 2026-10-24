@@ -45,6 +45,8 @@ production migration. In particular, a live PostgreSQL dump and a local queue co
 are separate snapshots; recovery must reconcile their journals and revoke stale
 access before starting a restored service.
 
+For an existing pair, begin with the [upgrade preparation and rehearsal gates](paired-upgrades.md). The read-only local reports do not replace coordination, backup restoration or release compatibility tests.
+
 ## Installation
 
 1. Install a compatible HA release on both MX servers, coordinator first. Preserve current queues, observation mode, identities and budgets. HA requires at least 0.17.3; use the current release on both nodes after a rolling upgrade.
@@ -134,4 +136,4 @@ Reintegration is controlled, not an automatic failback. Resolve uncertain delive
 - Inspect `journalctl -u noisefence -u noisefence-standby-push`; monitor free space, replica quota and stalled generations.
 - `/healthz` reports `smtp_ready: false` when the required peer is unavailable. A recovery-only console always reports false.
 - Exercise restoration in a separate directory with an isolated network, without SMTP delivery or production accounts used for testing.
-- HA activation uses storage schema 5. Do not run an older incompatible binary against it. Rollback must also preserve current policy and accepted-message state.
+- HA activation uses local format 5; management transport and PostgreSQL selection can advance it to 6 and 7. Do not run an incompatible older binary. Rollback must also preserve current authority, policy, model and accepted-message state; a matching format number is not sufficient.

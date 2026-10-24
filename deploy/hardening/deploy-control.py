@@ -4,6 +4,7 @@
 Never runs release-provided scripts as root. No arbitrary paths, shell, service
 names, uploads, key management or configuration writes are accepted here.
 """
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -23,15 +24,22 @@ CONFIG=Path('/etc/noisefence/config.toml')
 
 def local_activation_allowed(config, database):
     """A format number cannot authorize changing a selected cluster authority."""
-    if tomllib.loads(config.read_text()).get('management'):
+    settings=tomllib.loads(config.read_text())
+    if 'management' in settings:
         raise ValueError('Management-backed deployments require coordinated migration or recovery')
-    with sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True) as db:
+    with contextlib.closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True,timeout=.05)) as db:
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
         schema=db.execute('PRAGMA user_version').fetchone()[0]
+        if not 1<=schema<=7:
+            raise ValueError('Unknown storage schema; deployment refused')
         if schema>=7:
             raise ValueError('Selected management authority requires coordinated deployment')
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cluster_state'").fetchone():
-            if db.execute("SELECT 1 FROM cluster_state WHERE key IN ('management_transport','runtime_history_protocol') LIMIT 1").fetchone():
-                raise ValueError('Central transport requires coordinated deployment')
+            if db.execute("SELECT 1 FROM cluster_state WHERE key IN ('management_selection','management_transport','runtime_history_protocol','management_recovery_required','management_worker_release') LIMIT 1").fetchone():
+                raise ValueError('Central authority requires coordinated deployment')
+            if 'replication' not in settings and db.execute("SELECT 1 FROM cluster_state WHERE key='ha_required' LIMIT 1").fetchone():
+                raise ValueError('Mandatory replication is missing from configuration')
     return schema
 
 def run(*args,timeout=90):
@@ -72,7 +80,8 @@ def ready():
 def activate(version):
     root,manifest=release(version)
     schema=local_activation_allowed(CONFIG,Path('/var/lib/noisefence/state.sqlite3'))
-    if manifest.get('storage_schema',1)<schema:raise ValueError('Incompatible storage schema; downgrade refused')
+    supported=manifest.get('storage_schema',1)
+    if type(supported) is not int or not schema<=supported<=7:raise ValueError('Incompatible storage schema; downgrade refused')
     run('/usr/sbin/runuser','-u','noisefence','--',str(root/'noisefence'),'--config','/etc/noisefence/config.toml','check-config')
     old=os.readlink(BASE/'current');next_path=BASE/'current.deploy-next'
     if next_path.exists() or next_path.is_symlink():raise ValueError('Unresolved deployment pointer')
