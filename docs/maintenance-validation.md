@@ -211,3 +211,7 @@ The [pre-commit promotion helper](maintenance-promotion.md) captures both live
 validation results before stopping either candidate. It binds and switches the
 release pointers while services remain held, and supports restoration before
 cancellation. It does not authorize normal startup or rollback after activation.
+
+Ordinary startup uses the separate [paired activation protocol](maintenance-activation.md),
+with mutual durable decisions and fresh normal-runtime checks. Candidate-validation
+readiness is never substituted for those checks.

@@ -8,10 +8,10 @@ held. It also restores the unchanged original pair before cancellation.
 
 This helper has no activation command. A promoted pointer does not authorize SMTP,
 Web administration, timers or background workers to start. Do not remove the hold
-manually. Ordinary startup, a durable pair-wide commit decision, post-start policy
-and replica checks, and rollback after the new runtime has written data still
-require the complete coordinated activation controller. This preparation is not
-an unattended production updater or an accuracy qualification.
+manually. The separate [activation helper](maintenance-activation.md) records the
+pair decision before ordinary startup and verifies fresh policy/replica operation.
+Rollback after the new runtime has written data remains a separate qualification.
+This preparation is not an unattended updater or an accuracy qualification.
 
 ## Prerequisites and trust boundary
 
@@ -156,6 +156,7 @@ exercises both actual Linux/systemd installations: validation, promotion, indepe
 restart refusal, repeated commands after helper exit, refusal to release just one
 restored node, original-pair restoration and fresh policy synchronization. It checks
 unchanged selected authority, policy, PostgreSQL rows and queued body/recipient
-state during pre-commit work. Normal message acceptance remains tested separately
-with the published archives. Production activation and architecture-specific
-release qualification are separate gates.
+state during pre-commit work. Normal message acceptance is also exercised after
+the separate [activation protocol](maintenance-activation.md) commits the candidate
+pair; held promotion alone does not provide that evidence. Production activation
+and architecture-specific release qualification remain separate gates.

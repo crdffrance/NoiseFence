@@ -137,3 +137,8 @@ A [prepared pair](maintenance-promotion.md) adds a durable promotion receipt and
 marker. Cancellation refuses both an active marker and an unreleased receipt,
 including a crash between their publication. Restore both originals and exchange
 their restored reports before releasing this stage and cancelling the reservation.
+
+A [durable activation](maintenance-activation.md) supersedes ordinary cancellation.
+Only its abort decision can restore the pair; an activation decision requires
+forward recovery. A completed activation records the reservation as `upgraded`,
+which cannot be cancelled back to the old installation.

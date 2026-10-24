@@ -22,14 +22,14 @@ from migration_protocol import atomic, canonical, identity, require, sha
 PROTOCOL = 'noisefence-upgrade-promotion-1'
 PREPARED = 'noisefence-upgrade-prepared-1'
 REPORT = 'noisefence-upgrade-promotion-report-1'
-PHASES = ('prepared', 'promoting', 'promoted', 'restoring', 'restored', 'released')
+PHASES = ('prepared', 'promoting', 'promoted', 'restoring', 'restored', 'released', 'activated')
 
 
 def fingerprint(value):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def service_fingerprint():
+def service_fingerprint(ignored_dropin=None):
     """Bind the installed definitions of every writer, including optional jobs."""
     result = {}
     for unit in reservation.FENCED:
@@ -48,6 +48,8 @@ def service_fingerprint():
             result[unit] = None
             continue
         require(fields['LoadState'] == 'loaded' and fields['FragmentPath'], 'Unknown installed service state')
+        if ignored_dropin is not None:
+            fields['DropInPaths'] = ' '.join(p for p in fields['DropInPaths'].split(' ') if p and Path(p).name != ignored_dropin)
         paths = [fields['FragmentPath'], *fields['DropInPaths'].split(' ')]
         files = {}
         for name in filter(None, paths):
@@ -156,6 +158,7 @@ class Promotion:
 
     def report(self):
         state = self.state()
+        reservation.sync_directory(self.path.parent)
         return {'protocol': REPORT, 'operation': self.operation, 'phase': state['phase'],
                 'descriptor': state['descriptor'], 'pair_sha256': state['pair_sha256']}
 
@@ -186,6 +189,7 @@ class Promotion:
         return current, expected
 
     def prepare(self):
+        reservation.require_no_activation(self.operation)
         validation.held(self.operation)
         self.owner(allow_missing=True)
         saved = reservation.exists(self.path)
@@ -215,6 +219,7 @@ class Promotion:
         return self.report()
 
     def promote(self, peer_report):
+        reservation.require_no_activation(self.operation)
         state = self.state(); self.owner()
         peer = checked_report(peer_report)
         require(state['phase'] in ('prepared', 'promoting', 'promoted')
@@ -248,6 +253,7 @@ class Promotion:
         return self.report()
 
     def abandon(self, peer_report):
+        reservation.require_no_activation(self.operation)
         """Allow safe pair cancellation if this peer never completed validation."""
         peer = checked_report(peer_report)
         self.owner(allow_missing=True)
@@ -281,13 +287,11 @@ class Promotion:
                     'Unowned candidate validation requires recovery')
         require(reservation.unit_state(validation.SERVICE) in ('inactive', 'failed', 'unknown'), 'Validation still running')
 
-    def restore(self):
+    def restore(self, *, activation_abort=False):
+        reservation.require_no_activation(self.operation, abort=activation_abort)
         state = self.state(); self.owner()
         require(state['phase'] != 'released', 'Promotion already released')
         self.frozen(state)
-        # Only pre-commit restoration exists here. Future activation must own a
-        # different durable phase/marker and irrevocably disable this path.
-        require(not reservation.exists(reservation.STATE/'activation.json'), 'Activation already owns recovery')
         state = self.save(state, 'restoring')
         self.stop_validation()
         current, _ = self.frozen(state)
@@ -310,7 +314,8 @@ class Promotion:
         self.save(state, 'restored')
         return self.report()
 
-    def release(self, peer_report):
+    def release(self, peer_report, *, activation_abort=False):
+        reservation.require_no_activation(self.operation, abort=activation_abort)
         state = self.state(); self.owner(allow_missing=state['phase'] == 'released')
         peer = checked_report(peer_report)
         require(state['phase'] in ('restored', 'released') and peer['phase'] in ('restored', 'released'),

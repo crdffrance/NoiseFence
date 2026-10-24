@@ -75,7 +75,7 @@ class Host:
                 (validation,'Validation',lambda operation:dummy), (validation,'held',lambda operation:self.hold),
                 (validation,'policy_epoch',lambda:self.policy),
                 (validation,'candidate',lambda p:copy.deepcopy(self.old_identity if p==self.old else self.own['candidate'])),
-                (promotion,'service_fingerprint',lambda:self.service_hash), (Path,'lstat',root_link)]:
+                (promotion,'service_fingerprint',lambda **kwargs:self.service_hash), (Path,'lstat',root_link)]:
                 stack.enter_context(patch.object(module,key,value))
             yield promotion.Promotion(OP)
 
@@ -200,7 +200,7 @@ class PromotionTests(unittest.TestCase):
         self.promote_pair()
         with self.a.enter() as operation:
             marker=self.a.state_dir/'activation.json';marker.write_text('{}')
-            with self.assertRaisesRegex(ValueError,'Activation'):operation.restore()
+            with self.assertRaisesRegex(ValueError,'activation'):operation.restore()
             marker.unlink();self.a.current.unlink();self.a.current.symlink_to(self.a.root/'unknown')
             with self.assertRaisesRegex(ValueError,'neither authorized'):operation.restore()
             self.assertTrue(operation.marker.exists())

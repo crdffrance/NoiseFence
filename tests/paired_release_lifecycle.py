@@ -89,6 +89,7 @@ class Lab:
         self.created = []; self.checks = []; self.accepted = []
         self.binary_hashes = {}
         self.helper_hashes = {}
+        self.final_release = old['version']
         self.validation_metadata = validation_candidate(args.validation_candidate, args.platform.split('/')[1], new['version']) if args.validation_candidate else None
         self.started = time.monotonic()
         (self.root/'operation.json').write_text(json.dumps({'operation': self.operation, 'containers': self.names, 'synthetic_only': True})+'\n')
@@ -152,6 +153,13 @@ class Lab:
                 for filename in ['noisefence', 'candidate.json']:
                     self.run('cp', str(self.args.validation_candidate/filename), self.names[node]+':/root/validation-candidate/'+filename)
             state = self.node(node, 'bootstrap')
+            # Exercise a real auxiliary timer without running training or feeds.
+            self.command(node,'python3','-c',
+                "from pathlib import Path; d=Path('/etc/systemd/system'); "
+                "(d/'noisefence-quality.service').write_text('[Service]\\nType=oneshot\\nUser=noisefence\\nExecStart=/bin/true\\n'); "
+                "(d/'noisefence-quality.timer').write_text('[Timer]\\nOnActiveSec=1d\\nUnit=noisefence-quality.service\\n'); "
+                "(d/'noisefence-quality.service').chmod(0o644); (d/'noisefence-quality.timer').chmod(0o644)")
+            self.command(node,'systemctl','daemon-reload');self.command(node,'systemctl','start','noisefence-quality.timer')
             machines.append(state['machine'])
             self.binary_hashes[node] = state['binary_sha256']
             self.helper_hashes[node] = json.loads(self.command(node, 'python3', '-c',
@@ -382,7 +390,7 @@ class Lab:
         return json.loads(self.command(node, 'python3', '/usr/local/libexec/noisefence-management/upgrade_promotion.py',
                                       action, '--operation', self.operation, *extra))
 
-    def precommit_promotion(self, abandon=False):
+    def precommit_promotion(self, abandon=False, activation_outcome=None):
         if not self.validation_metadata:
             return
         # A new authorization is mandatory after the earlier expiry test. The
@@ -449,6 +457,9 @@ class Lab:
                 if after[node][key] != before[node][key]:
                     raise RuntimeError('Pre-commit promotion changed queued state: '+key)
         self.record('prepared_pair_promoted_without_normal_activation', operation=self.operation, nodes=promoted, database=database)
+        if activation_outcome:
+            self.activate_pair(promoted, activation_outcome)
+            return
         restored = {'mx1': self.promotion('mx1', 'restore')}
         try:
             self.promotion('mx1', 'release', promoted['mx2'])
@@ -475,6 +486,108 @@ class Lab:
             self.ready(node, self.old['version'])
         self.invariant(); self.submit(label)
         self.record('prepared_pair_restored_and_released_before_cancellation', nodes=released)
+
+    def activation(self, node, action, peer=None, outcome=None):
+        extra = []
+        if peer is not None:
+            report = self.root/(node+'-activation-peer.json')
+            report.write_text(json.dumps(peer)+'\n')
+            remote = '/root/paired-test/activation-peer.json'
+            self.run('cp', str(report), self.names[node]+':'+remote)
+            self.command(node, 'chown', 'root:root', remote);self.command(node, 'chmod', '0600', remote)
+            extra = ['--peer-report',remote]
+        if outcome:extra += ['--outcome',outcome]
+        return json.loads(self.command(node,'python3','/usr/local/libexec/noisefence-management/upgrade_activation.py',
+                                     action,'--operation',self.operation,*extra))
+
+    def activate_pair(self, promoted, outcome):
+        armed = {'mx1':self.activation('mx1','arm',promoted['mx2'])}
+        if outcome == 'activate':
+            armed['mx2'] = self.activation('mx2','arm',armed['mx1'])
+        decision = self.activation('mx1','decide',armed.get('mx2'),outcome)
+        try:
+            self.promotion('mx1','restore')
+        except subprocess.CalledProcessError:pass
+        else:raise RuntimeError('Pre-commit restoration bypassed a durable decision')
+        if outcome == 'activate':
+            try:self.activation('mx1','start',armed['mx2'])
+            except subprocess.CalledProcessError:pass
+            else:raise RuntimeError('Normal daemon started before peer accepted the decision')
+        accepted = self.activation('mx2','accept',decision)
+        if accepted != self.activation('mx2','accept',decision):
+            raise RuntimeError('Lost decision response replaced its receipt')
+        if outcome == 'abort':
+            aborted={node:self.activation(node,'abort') for node in self.names}
+            since=int(time.time())
+            for node in self.names:
+                peer='mx2' if node=='mx1' else 'mx1'
+                done=self.activation(node,'cancel',aborted[peer])
+                if done!=self.activation(node,'cancel',aborted[peer]):raise RuntimeError('Aborted decision cleanup was not idempotent')
+            self.fresh_policy(self.old['version'],since)
+            for node in self.names:self.ready(node,self.old['version'])
+            self.invariant();self.submit('after_durable_pair_abort')
+            self.record('durable_abort_restored_unarmed_peer_and_original_pair')
+            return
+        started={'mx1':self.activation('mx1','start',accepted)}
+        self.node('mx1','deferred');self.verify_bodies()
+        # Force an actual candidate startup failure, without altering its unit,
+        # release or configuration. Forward recovery must retain the decision.
+        self.command('mx2','systemd-run','--unit=noisefence-test-port-blocker','--property=Type=exec',
+            '/usr/bin/python3','-c',
+            "import socket,time; from pathlib import Path; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(('127.0.0.1',2527)); s.listen(); Path('/run/nf-port-blocker-ready').touch(); time.sleep(120)")
+        for _ in range(30):
+            if self.command('mx2','python3','-c',"from pathlib import Path; print(Path('/run/nf-port-blocker-ready').exists())").strip()==b'True':break
+            time.sleep(.1)
+        else:
+            journal=self.command('mx2','journalctl','-u','noisefence-test-port-blocker.service','--no-pager','-n','40')
+            (self.root/'port-blocker-journal.log').write_bytes(journal)
+            raise RuntimeError('Synthetic port blocker did not listen; inspect port-blocker-journal.log')
+        try:self.activation('mx2','start',decision)
+        except subprocess.CalledProcessError:pass
+        deadline=time.monotonic()+30
+        while time.monotonic()<deadline:
+            status=self.command('mx2','systemctl','show','noisefence.service','--property=ExecMainStatus','--value').strip()
+            if status==b'1':break
+            time.sleep(.25)
+        else:raise RuntimeError('Candidate did not fail on the occupied SMTP port')
+        failed=self.activation('mx2','status')
+        if failed['decision']!=decision['decision']:raise RuntimeError('Startup failure replaced the activation decision')
+        try:self.activation('mx2','abort')
+        except subprocess.CalledProcessError:pass
+        else:raise RuntimeError('Committed candidate could silently abort after startup failure')
+        self.command('mx2','systemctl','stop','noisefence-test-port-blocker.service')
+        started['mx2']=self.activation('mx2','start',decision)
+        for node in self.names:
+            self.command(node,'systemctl','start','noisefence-quality.timer')
+            state=self.command(node,'systemctl','show','noisefence-quality.timer','--property=ActiveState,ConditionResult').decode()
+            if 'ActiveState=inactive' not in state or 'ConditionResult=no' not in state:
+                raise RuntimeError('Auxiliary timer escaped activation verification hold')
+        self.record('committed_start_failure_recovered_forward_and_auxiliary_jobs_held')
+        self.record('both_committed_normal_candidates_started',nodes=started)
+        for node in self.names:
+            self.binary_hashes[node]['qualification-candidate']=self.validation_metadata['binary_sha256']
+            self.ready(node,'qualification-candidate')
+        self.fresh_policy(self.new['version'],max(d['started_at'] for d in started.values()))
+        deadline=time.monotonic()+60
+        while time.monotonic()<deadline:
+            try:
+                proofs={node:self.activation(node,'check',started['mx2' if node=='mx1' else 'mx1']) for node in self.names}
+                break
+            except subprocess.CalledProcessError:time.sleep(.5)
+        else:raise RuntimeError('Fresh normal policy/replica proof did not converge')
+        verified={node:self.activation(node,'verify',proofs['mx2' if node=='mx1' else 'mx1']) for node in self.names}
+        completed={}
+        for node in self.names:
+            peer='mx2' if node=='mx1' else 'mx1'
+            completed[node]=self.activation(node,'finish',verified[peer])
+            if self.command(node,'systemctl','show','noisefence-quality.timer','--property=ActiveState','--value').strip()!=b'active':raise RuntimeError('Previously active timer did not resume')
+            if completed[node]!=self.activation(node,'finish',verified[peer]):raise RuntimeError('Completed activation response was not recoverable')
+            self.command(node,'python3','-c',
+                "from pathlib import Path; p=Path('/var/lib/noisefence-upgrade'); "
+                "assert not any((p/n).exists() for n in ['active.json','hold.json','activation.json','activation-jobs.json','promotion.json'])")
+        self.final_release='qualification-candidate'
+        self.invariant();self.submit('after_committed_candidate_activation')
+        self.record('normal_candidates_verified_and_operation_completed',proofs=proofs,nodes=completed)
 
     def failure_recovery(self):
         self.command('mx2', 'systemctl', 'stop', 'noisefence.service')
@@ -545,7 +658,7 @@ class Lab:
     def finish(self, metadata):
         self.invariant()
         snapshots = self.wait_replicas()
-        running = {node: self.ready(node, self.old['version']) for node in self.names}
+        running = {node: self.ready(node, self.final_release) for node in self.names}
         report = {'schema': 'noisefence-paired-lifecycle-1', 'status': 'validated_pending_cleanup',
                   'operation': self.operation, 'checks': self.checks, 'accepted': self.accepted,
                   'final_state': snapshots, 'final_running': running,
@@ -557,7 +670,7 @@ class Lab:
                   'network': 'shared_loopback_without_external_route', 'production_affected': False,
                   'scope': 'coordinated_stop_start_archive_pair_with_synthetic_selected_authority',
                   'sequence': 'both_stopped_before_switching_either_binary',
-                  'not_qualified': ['current_unreleased_binary', 'production_updater', 'external_delivery',
+                  'not_qualified': ['final_release_archives', 'production_updater', 'post_activation_rollback', 'external_delivery',
                                     'rolling_mixed_build_upgrade', 'live_models', 'failover_after_loss', 'performance', 'detection_accuracy']}
         (self.root/'paired-lifecycle-report.json').write_text(json.dumps(report, indent=2)+'\n')
 
@@ -618,7 +731,7 @@ def main():
     lab = Lab(args, old, new)
     try:
         lab.start(); lab.submit('before_migration'); lab.migrate(); lab.submit('selected_old_pair')
-        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.finish(metadata)
+        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.precommit_promotion(activation_outcome='abort'); lab.precommit_promotion(activation_outcome='activate'); lab.finish(metadata)
     except BaseException as error:
         (lab.root/'failed.json').write_text(json.dumps({'status': 'failed', 'error': type(error).__name__,
             'checks': lab.checks, 'accepted': lab.accepted})+'\n')

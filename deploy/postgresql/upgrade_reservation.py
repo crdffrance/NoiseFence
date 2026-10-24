@@ -45,6 +45,15 @@ def exists(path):
         return False
 
 
+def require_no_activation(operation, *, abort=False, cancellation=False):
+    if exists(STATE/'activation.json') or exists(STATE/(operation+'-activation.json')):
+        if abort:
+            from upgrade_activation import allow_abort
+            allow_abort(operation, cancellation=cancellation)
+        else:
+            raise ValueError('A durable activation owns this operation; use its decision and recovery path')
+
+
 def read_json(path):
     protected(path)
     with private_read(path, 65536) as source:
@@ -164,7 +173,7 @@ class Reservation:
         value = read_json(self.path)
         require(isinstance(value, dict) and set(value) == {'protocol', 'operation', 'created', 'phase', 'installation', 'units'}
                 and value['protocol'] == PROTOCOL and value['operation'] == self.operation
-                and value['phase'] in ('prepared', 'held', 'releasing', 'cancelled')
+                and value['phase'] in ('prepared', 'held', 'releasing', 'cancelled', 'upgraded')
                 and type(value['created']) is int and value['created'] > 0
                 and isinstance(value['installation'], dict) and isinstance(value['units'], dict)
                 and set(value['units']) == set(FENCED)
@@ -204,7 +213,8 @@ class Reservation:
     def stopped(self):
         return all(unit_state(unit) in ('inactive', 'failed', 'unknown') for unit in FENCED)
 
-    def begin(self):
+    def begin(self, *, activation_abort=False):
+        require_no_activation(self.operation, abort=activation_abort, cancellation=True)
         STATE.mkdir(mode=0o700, exist_ok=True)
         protected(STATE, True)
         if exists(ACTIVE):
@@ -242,7 +252,8 @@ class Reservation:
         state = self.save(state, 'held')
         return {'operation': self.operation, 'phase': state['phase'], 'node': state['installation']['node'], 'writers_stopped': True, 'reserved': True, 'service_hold': True}
 
-    def cancel(self):
+    def cancel(self, *, activation_abort=False):
+        require_no_activation(self.operation, abort=activation_abort, cancellation=True)
         require(not exists(STATE / 'promotion.json'), 'Restore and release the prepared pair before cancellation')
         promotion = STATE / (self.operation+'-promotion.json')
         if exists(promotion):
@@ -263,13 +274,13 @@ class Reservation:
                 require(installation() == state['installation'], 'Completed cancellation installation changed')
                 require(all(unit_state(unit) == 'active' for unit in RESUMABLE if state['units'][unit] == 'active'),
                         'Completed cancellation units changed; inspect before recovery')
-                remove(ACTIVE)
+                if not activation_abort:remove(ACTIVE)
             return {'operation': self.operation, 'phase': 'cancelled'}
         self.owner()
         require(installation() == state['installation'], 'Cannot cancel after installation changed; preserve the hold')
         if state['phase'] in ('prepared', 'held'):
             # Finish an interrupted stop before authorizing resumption.
-            self.begin()
+            self.begin(activation_abort=activation_abort)
             state = self.save(self.state(), 'releasing')
         # The durable cancellation intent precedes removal. ACTIVE remains until
         # every originally active service/timer is actually restored. A failed
@@ -284,7 +295,7 @@ class Reservation:
                 execute(['/usr/bin/systemctl', 'start', unit])
                 require(unit_state(unit) == 'active', 'Recorded unit could not resume; reservation remains')
         self.save(state, 'cancelled')
-        remove(ACTIVE)
+        if not activation_abort:remove(ACTIVE)
         return {'operation': self.operation, 'phase': 'cancelled'}
 
     def status(self):

@@ -7,7 +7,8 @@ thresholds, suspended providers, original queue identities and the mandatory
 second durable copy throughout an upgrade.
 
 The current development tree provides read-only local prerequisite reports,
-durable native reservations, bounded candidate validation and held pair promotion.
+durable native reservations, bounded candidate validation, held pair promotion
+and an operator-driven paired activation protocol.
 It also guards simple installation paths. It does **not** provide a qualified unattended
 paired updater or certify arbitrary release pairs for rollback. The disposable
 fixture below exercises a coordinated stop/start with exact published archives;
@@ -120,8 +121,10 @@ stopped-service hold and unchanged-installation cancellation primitive. The
 [validation host helper](maintenance-validation.md#supervised-host-procedure) can
 start a bounded candidate under that hold. The [pre-commit promotion helper](maintenance-promotion.md)
 binds both prepared releases and can switch or restore their pointers without
-starting normal services. Archive staging, pair activation and rollback after
-ordinary startup still require the complete coordinated controller.
+starting normal services. The [activation protocol](maintenance-activation.md)
+then records mutual promises and a durable coordinator decision, starts the pair
+and verifies fresh runtime state. Authenticated archive staging, automated report
+exchange and rollback after ordinary startup still need their full qualification.
 
 ## Reviewed maintenance sequence
 
