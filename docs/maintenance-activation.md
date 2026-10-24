@@ -42,6 +42,13 @@ remain bound to the prepared reports. Ordinary operation begins only after the
 durable decision, including normal Web APIs and in-process delivery/retention.
 Auxiliary systemd jobs remain stopped until both runtimes are verified.
 
+New promises and new `activate` decisions require a strictly newer candidate
+version on both nodes. Earlier uncommitted downgrade preparations can still be
+aborted and restored. An already durable `activate` decision remains immutable:
+recovery continues that exact committed pair, even if its receipt predates this
+version-direction check. This exception recovers existing state; it does not
+authorize a new downgrade or same-version replacement.
+
 ## Arm the pair
 
 First promote both release pointers under their existing holds, keeping both

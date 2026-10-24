@@ -263,6 +263,8 @@ class Activation:
     def arm(self, peer):
         state = self.promoted.state();self.promoted.owner()
         proposed = proposal(state)
+        for descriptor in proposed:
+            validation.require_forward_upgrade(descriptor['original'], descriptor['own']['candidate'])
         if state['descriptor']['own']['selection']['role'] == 'coordinator':
             peer = promotion.checked_report(peer)
             require(peer['phase'] == 'promoted' and peer['descriptor'] == state['peer']
@@ -290,6 +292,8 @@ class Activation:
             return self.report()
         require(state['phase'] == 'armed', 'Activation is not armed')
         if outcome == 'activate':
+            for descriptor in state['proposal']:
+                validation.require_forward_upgrade(descriptor['original'], descriptor['own']['candidate'])
             self.match_peer(state,peer)
             require(peer['phase'] == 'armed', 'Both nodes must promise to retain the promoted pair')
             current, expected = self.promoted.frozen(self.promoted.state())

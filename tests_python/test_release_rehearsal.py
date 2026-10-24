@@ -57,6 +57,7 @@ class RehearsalTests(unittest.TestCase):
             'final_running':{node:{'smtp_ready':True,'running_release':self.version,'binary_sha256':files['noisefence']} for node in ['mx1','mx2']},
             'accepted':[{'id':str(i),'node':'mx1' if i%2 else 'mx2','private':'never upload'} for i in range(24)],
             'checks':[{'check':name,'private':'never upload'} for name in [
+                'unqualified_downgrade_and_replacement_refused',
                 'candidate_expired_stopped_and_preserved_selected_data',
                 'candidate_peer_loss_invalidates_readiness','mandatory_peer_outage_deferred',
                 'committed_start_failure_recovered_forward_and_auxiliary_jobs_held',

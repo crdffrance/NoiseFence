@@ -12,6 +12,11 @@ manually. The separate [activation helper](maintenance-activation.md) records th
 pair decision before ordinary startup and verifies fresh policy/replica operation.
 Rollback after the new runtime has written data remains a separate qualification.
 This preparation is not an unattended updater or an accuracy qualification.
+New preparation and promotion require the candidate version to be strictly newer
+than the original, including prerelease ordering. Older receipts remain readable
+and can restore their unchanged original pair before cancellation; they cannot
+use a previously successful validation to authorize an unqualified downgrade.
+
 
 ## Prerequisites and trust boundary
 

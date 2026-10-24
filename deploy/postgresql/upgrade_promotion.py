@@ -209,6 +209,7 @@ class Promotion:
                 'own': own, 'peer': candidate['peer'], 'installation': installed,
                 'original': validation.candidate(Path(installed['release_directory'])),
                 'service_sha256': service_fingerprint(), 'prepared_at': now, 'validated_at': now})
+            validation.require_forward_upgrade(descriptor['original'], own['candidate'])
             require(validation.candidate(Path(own['candidate']['directory'])) == own['candidate'],
                     'Validated candidate files changed')
             state = {'protocol': PROTOCOL, 'operation': self.operation, 'descriptor': descriptor, 'peer': None, 'pair_sha256': None}
@@ -227,6 +228,8 @@ class Promotion:
         binding = paired(state['descriptor'], peer['descriptor'])
         require(all(state['descriptor']['original'][k] == peer['descriptor']['original'][k] for k in ('version', 'commit')),
                 'Promotion requires the same original version and source commit')
+        for descriptor in (state['descriptor'], peer['descriptor']):
+            validation.require_forward_upgrade(descriptor['original'], descriptor['own']['candidate'])
         require(state['descriptor']['validated_at'] is not None and peer['descriptor']['validated_at'] is not None,
                 'Both candidates must have completed live validation')
         require(peer['pair_sha256'] in (None, binding) and state['peer'] in (None, peer['descriptor']),
