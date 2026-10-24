@@ -17,10 +17,13 @@ from release_version import precedence
 sys.path.pop(0)
 
 BASELINE = ROOT/'tests/fixtures/release-baseline.json'
+RETAINED_BASELINE = ROOT/'tests/fixtures/retained-release-baseline.json'
 
 
-def baseline():
-    value = json.loads(BASELINE.read_text(), object_pairs_hook=bundle.pairs)
+def baseline(kind='historical'):
+    bundle.require(kind in ('historical','retained'), 'Unknown baseline kind')
+    path = BASELINE if kind == 'historical' else RETAINED_BASELINE
+    value = json.loads(path.read_text(), object_pairs_hook=bundle.pairs)
     bundle.require(value.get('schema') == 'noisefence-release-baseline-1'
         and set(value.get('archives', {})) == set(bundle.MACHINES), 'Invalid rehearsal baseline')
     for platform, digest in value['archives'].items():
@@ -34,8 +37,8 @@ def baseline_name(pin, platform):
     return bundle.identity(pin['version'], platform, pin['commit'])+'.tar.gz'
 
 
-def fetch_baseline(platform, directory):
-    pin = baseline(); name = baseline_name(pin, platform)
+def fetch_baseline(platform, directory, *, kind='historical'):
+    pin = baseline(kind); name = baseline_name(pin, platform)
     directory = Path(directory).resolve(); directory.mkdir(mode=0o700)
     environment = {**os.environ, 'GH_HOST': 'github.com', 'GH_PROMPT_DISABLED': '1'}
     bundle.bounded_command(['gh', 'release', 'download', 'v'+pin['version'],
@@ -45,8 +48,8 @@ def fetch_baseline(platform, directory):
     bundle.require(bundle.digest(archive) == pin['archives'][platform],
                    'Downloaded baseline differs from the reviewed checksum')
     bundle.inspect_archive(archive, pin['version'], platform, pin['commit'])
-    # This baseline predates attestations; a reviewed checksum pin is only a
-    # fixture dependency, never a substitute for new-release provenance.
+    # Reviewed checksum pins authenticate fixture dependencies. They never
+    # replace provenance verification for a newly published release.
     Path(str(archive)+'.sha256').write_text(pin['archives'][platform]+'  '+name+'\n')
     return archive
 
@@ -60,8 +63,8 @@ def read_report(path):
     return value
 
 
-def summarize(platform, archive, directory, *, version, commit):
-    pin = baseline(); directory = Path(directory); archive = Path(archive)
+def summarize(platform, archive, directory, *, version, commit, kind='historical'):
+    pin = baseline(kind); directory = Path(directory); archive = Path(archive)
     bundle.require(precedence(pin['version']) < precedence(version), 'Review the baseline before changing release order')
     inspected = bundle.inspect_archive(archive, version, platform, commit)
     actual = bundle.digest(archive)
@@ -83,7 +86,7 @@ def summarize(platform, archive, directory, *, version, commit):
         'Exact paired candidate or cleanup is unverified')
     helpers = {str(Path(name).relative_to('deploy/postgresql')): digest
                for name, digest in inspected['files'].items() if name.startswith('deploy/postgresql/')}
-    bundle.require({'upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py','rollback_validation.py'} <= set(helpers)
+    bundle.require({'upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py','rollback_validation.py','rollback_promotion.py','rollback_activation.py'} <= set(helpers)
         and paired.get('installed_helper_sha256') == {'mx1':helpers, 'mx2':helpers},
         'Installed native helpers must match the candidate archive')
     candidate = paired.get('validation_candidate', {})
@@ -122,9 +125,28 @@ def summarize(platform, archive, directory, *, version, commit):
     bundle.require(standalone_checks <= set(standalone['checks']), 'Standalone lifecycle coverage is missing')
     # Deliberate allowlist: no fixture credentials, messages, recipients, private
     # paths, raw observations, environment values or journal text in CI artifacts.
+    if kind == 'retained':
+        bundle.require({'retained_pair_activated_with_current_mail_and_lost_replies',
+                        'new_forward_operation_after_completed_rollback'} <= set(checks),
+                       'Positive retained activation and forward recovery are required')
+        probes=[row for row in paired['checks'] if row['check']=='retained_validation_keeps_normal_writers_held']
+        bundle.require(probes and all(row.get('validation_ready') is True
+                       and row.get('retained_command_supported') is True for row in probes),
+                       'Unsupported or skipped retained validation cannot qualify rollback')
+        activations=[row for row in paired['checks'] if row['check']=='retained_pair_activated_with_current_mail_and_lost_replies']
+        bundle.require(len(activations)==1 and activations[0].get('retained_version')==pin['version']
+                       and activations[0].get('source_version')==version
+                       and activations[0].get('database_restored') is False
+                       and activations[0].get('database_unchanged_before_start') is True
+                       and activations[0].get('protocol')=='noisefence-retained-activation-1'
+                       and activations[0].get('start_reply_lost') is True
+                       and activations[0].get('finish_reply_lost') is True
+                       and 'post_activation_rollback' not in paired['not_qualified'],
+                       'Incomplete retained activation evidence')
     return {'schema':'noisefence-release-rehearsal-1', 'status':'passed',
         'platform':platform, 'version':version, 'commit':commit,
         'archive_sha256':actual, 'binary_sha256':inspected['files']['noisefence'],
+        'baseline_kind':kind,
         'baseline':{'version':pin['version'], 'commit':pin['commit'], 'sha256':pin['archives'][platform]},
         'standalone_checks':standalone['checks'], 'paired_checks':checks,
         'accepted_synthetic_messages':len(accepted), 'cleanup':True,
@@ -139,16 +161,17 @@ def main():
     parser.add_argument('--platform', choices=list(bundle.MACHINES))
     parser.add_argument('--directory', type=Path)
     parser.add_argument('--archive', type=Path)
+    parser.add_argument('--baseline-kind', choices=['historical','retained'], default='historical')
     args = parser.parse_args(); os.umask(0o077)
     if args.action == 'baseline-version':
-        print(baseline()['version']); return
+        print(baseline(args.baseline_kind)['version']); return
     if args.platform is None or args.directory is None:
         parser.error('--platform and --directory are required')
     if args.action == 'fetch':
-        print(fetch_baseline(args.platform, args.directory)); return
+        print(fetch_baseline(args.platform, args.directory, kind=args.baseline_kind)); return
     if args.archive is None: parser.error('--archive is required for summarize')
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    result = summarize(args.platform, args.archive, args.directory, version=cargo_version(), commit=commit)
+    result = summarize(args.platform, args.archive, args.directory, version=cargo_version(), commit=commit, kind=args.baseline_kind)
     path = args.directory/'qualification.json'
     with path.open('x') as output: output.write(json.dumps(result, indent=2)+'\n')
     print(json.dumps(result))

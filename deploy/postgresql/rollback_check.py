@@ -46,6 +46,23 @@ def inspect_history(operation, previous_operation, peer):
     require(identity(operation) and identity(previous_operation) and operation != previous_operation,
             'A new operation distinct from the completed upgrade is required')
     held = validation.held(operation)
+    return inspect_bound_history(held, previous_operation, peer)
+
+
+def inspect_bound_history(held, previous_operation, peer):
+    """Recheck history for a held operation whose pointer is checked by its caller.
+
+    Pointer promotion must additionally validate that the current installation
+    is exactly one of its two authorized releases. This function never switches
+    a pointer or grants normal startup permission.
+    """
+    operation = held.operation
+    require(identity(operation) and identity(previous_operation) and operation != previous_operation,
+            'Distinct canonical operation identities required')
+    held.owner()
+    status = held.status()
+    require(status['phase'] == 'held' and all(status[key] for key in ('reserved', 'service_hold', 'writers_stopped')),
+            'Retained history requires stopped normal writers')
     previous = activation.Activation(previous_operation)
     state = previous.state()
     previous.match_peer(state, peer)

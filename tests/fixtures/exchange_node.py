@@ -40,6 +40,27 @@ def prepare(node, operation):
             'authorization': auth}
 
 
+
+def retire(node, operation):
+    """Retire only this completed synthetic authorization before another operation."""
+    require(identity(operation), 'Invalid synthetic operation')
+    report = activation.Activation(operation).report()
+    require(report['node'] == node and report['phase'] == 'complete',
+            'Complete the actual native exchange before retiring its authorization')
+    require(FOLDER.is_dir() and not FOLDER.is_symlink(), 'Missing fixture authorization directory')
+    authorization = json.loads((FOLDER/'exchange.json').read_text())
+    require(authorization.get('protocol') == exchange.PROTOCOL
+            and authorization.get('operation') == operation and authorization.get('node') == node,
+            'Do not retire another operation authorization')
+    retained = PRIVATE/('completed-exchange-'+operation)
+    require(not retained.exists() and not retained.is_symlink()
+            and not (PRIVATE/'drop-next-completion').exists(),
+            'Pending fault or already retired fixture authorization')
+    command('systemctl', 'stop', 'paired-upgrade-ssh.service')
+    FOLDER.rename(retained)
+    return {'node': node, 'operation': operation, 'phase': 'retired'}
+
+
 def setup(node):
     public = (PRIVATE/'exchange-controller.pub').read_text().strip()
     require(public.startswith('ssh-ed25519 ') and '\n' not in public, 'Invalid temporary client key')
@@ -96,14 +117,16 @@ def main():
             and os.environ.get('NOISEFENCE_DISPOSABLE_PAIRED_TEST')=='1'
             and Path('/run/systemd/container').read_text().strip()=='docker', 'Disposable paired container required')
     os.umask(0o077)
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['prepare','setup','proxy'])
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['prepare','setup','retire','proxy'])
     parser.add_argument('--node',choices=['mx1','mx2']);parser.add_argument('--operation')
     args=parser.parse_args()
     if args.action=='proxy':
         require(args.node is None and args.operation is None,'Unexpected proxy arguments');proxy();return
     require(args.node is not None and json.loads((PRIVATE/'identity.json').read_text())['node']==args.node,
             'Unexpected fixture node')
-    result=prepare(args.node,args.operation) if args.action=='prepare' else setup(args.node)
+    require((args.operation is not None) == (args.action in ('prepare','retire')), 'Unexpected fixture operation')
+    result=(prepare(args.node,args.operation) if args.action=='prepare' else
+            retire(args.node,args.operation) if args.action=='retire' else setup(args.node))
     print(json.dumps(result))
 
 

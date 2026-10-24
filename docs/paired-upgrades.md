@@ -222,7 +222,7 @@ zero means the identity inspection succeeded. Its status remains
 `false`. Reports are private observations, not signed publisher attestations or
 remote authorization. The ordinary downgrade guard remains active even when both
 identity reports match. A compatible reverse runtime validation, exact-pair
-rehearsal and explicit paired rollback protocol are still required. In particular,
+rehearsal and a fresh explicit paired rollback authorization are still required. In particular,
 a retained release without the native validation command cannot satisfy that
 runtime gate through this inspector.
 
@@ -286,9 +286,10 @@ its operation UUID cannot be reused for an ordinary upgrade.
 The native fixture tests that unsupported historical binaries remain unready,
 that normal writers and SMTP stay stopped, that ordinary promotion refuses these
 receipts and that revocation preserves accepted mail and the selected database.
-A supporting retained binary must pass the paired maintenance probes, but a full
-reverse activation, failure recovery and exact-archive rollback rehearsal remain
-required before any production rollback can be authorized.
+The development tree now includes an [explicit retained activation protocol](maintenance-rollback.md)
+with separate reports and decisions. A supporting retained binary must pass the
+paired maintenance probes, and its exact-archive reverse activation and failure
+recovery must pass before the pair is qualified for production rollback.
 
 ## Required installed-system rehearsal
 

@@ -259,8 +259,12 @@ class Reservation:
         if exists(promotion):
             # Import lazily: promotion uses this reservation primitive too.
             # A phase string alone is not a valid, fully bound release receipt.
-            from upgrade_promotion import Promotion
-            receipt = Promotion(self.operation).state()
+            from upgrade_promotion import Promotion, PROTOCOL as FORWARD_PROMOTION
+            from rollback_promotion import RetainedPromotion, PROTOCOL as RETAINED_PROMOTION
+            protocol = read_json(promotion).get('protocol')
+            require(protocol in (FORWARD_PROMOTION, RETAINED_PROMOTION), 'Unknown pair preparation receipt')
+            kind = Promotion if protocol == FORWARD_PROMOTION else RetainedPromotion
+            receipt = kind(self.operation).state()
             require(receipt['phase'] == 'released', 'Unreleased pair preparation prevents cancellation')
         require(not exists(STATE / 'validation.json'), 'Stop candidate validation before cancellation')
         require(unit_state('noisefence-validation.service') in ('inactive', 'failed', 'unknown'),

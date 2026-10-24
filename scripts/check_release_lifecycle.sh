@@ -6,14 +6,18 @@ platform=${1:?Usage: check_release_lifecycle.sh PLATFORM ARCHIVE FIXTURE OUTPUT}
 archive=${2:?Candidate archive required}
 fixture=${3:?Fresh synthetic baseline fixture required}
 output=${4:?New output directory required}
+baseline_kind=${5:-historical}
+case "$baseline_kind" in historical|retained) ;; *) exit 2;; esac
+set --
+if [ "$baseline_kind" = retained ]; then set -- --require-retained-activation; fi
 case "$platform" in linux-amd64|linux-arm64) ;; *) exit 2;; esac
 docker_platform="linux/${platform#linux-}"
 mkdir -p "$(dirname "$output")"
 mkdir -m 0700 "$output"
 phase=baseline
 printf 'Native lifecycle: %s\n' "$phase"
-python3 scripts/release_rehearsal.py fetch --platform "$platform" --directory "$output/baseline"
-baseline=$(python3 scripts/release_rehearsal.py baseline-version)
+python3 scripts/release_rehearsal.py fetch --baseline-kind "$baseline_kind" --platform "$platform" --directory "$output/baseline"
+baseline=$(python3 scripts/release_rehearsal.py baseline-version --baseline-kind "$baseline_kind")
 name="nf-release-test-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
 cleanup() {
     status=$?
@@ -33,7 +37,7 @@ printf 'Native lifecycle: %s\n' "$phase"
 python3 tests/release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-standalone" --platform "$docker_platform" --output "$output/standalone" > "$output/standalone.log" 2>&1
 phase=paired
 printf 'Native lifecycle: %s\n' "$phase"
-python3 tests/paired_release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
+python3 tests/paired_release_lifecycle.py "$@" --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
 phase=summary
 printf 'Native lifecycle: %s\n' "$phase"
-python3 scripts/release_rehearsal.py summarize --platform "$platform" --archive "$archive" --directory "$output"
+python3 scripts/release_rehearsal.py summarize --baseline-kind "$baseline_kind" --platform "$platform" --archive "$archive" --directory "$output"

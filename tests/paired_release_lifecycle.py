@@ -88,7 +88,7 @@ def archive_candidate(item, architecture, destination):
     required = ['deploy/noisefence.service', 'deploy/install.sh',
                 *('deploy/postgresql/'+name for name in ['upgrade_reservation.py',
                   'upgrade_validation.py', 'upgrade_validation.service', 'upgrade_promotion.py',
-                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py', 'rollback_check.py', 'rollback_validation.py'])]
+                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py', 'rollback_check.py', 'rollback_validation.py', 'rollback_promotion.py', 'rollback_activation.py'])]
     if any(name not in inspected['files'] for name in required):
         raise ValueError('Archive lacks the native candidate maintenance helpers')
     return {'origin': 'exact_archive', 'version': item['version'], 'commit': item['commit'],
@@ -702,6 +702,11 @@ class Lab:
         (self.root/'exchange-receipts.json').write_bytes(receipt_text)
         self.record('native_pair_completed_over_pinned_ssh_after_proof_expiry',nodes=completed,attempts=3,
                     helper='upgrade_exchange.py',proofs_reused=True)
+        for node in self.names:
+            retired=json.loads(self.command(node,'python3',helper,'retire','--node',node,
+                                            '--operation',self.operation))
+            if retired != {'node':node,'operation':self.operation,'phase':'retired'}:
+                raise RuntimeError('Completed temporary SSH authorization was not retired')
         return completed
 
     def failure_recovery(self):
@@ -854,9 +859,9 @@ class Lab:
                     source='exact_installed_archive_helpers' if self.args.archive_candidate else 'source_checkout_helpers',
                     foreign_peer_refused=True,downgrade_refused=True)
 
-    def validate_retained_release(self, operation, previous, before, database):
+    def validate_retained_release(self, operation, previous, before, database, *, keep_running=False):
         helper = '/usr/local/libexec/noisefence-management/rollback_validation.py'
-        expiry = int(time.time())+120
+        expiry = int(time.time())+(300 if keep_running else 120)
         common = ['--operation',operation,'--previous-operation',previous,
                   '--peer-completion','/root/paired-test/rollback-peer.json','--expires-at',str(expiry)]
         descriptors = {node:json.loads(self.command(node,'python3',helper,'describe',*common))
@@ -891,6 +896,8 @@ class Lab:
             ready = all(row.get('validation_ready') is True for row in statuses.values())
             if ready or time.monotonic() >= deadline:break
             time.sleep(.25)
+        if keep_running and not ready:
+            raise RuntimeError('Positive rollback requires capable retained runtimes on both nodes')
         if ready != all(capability.values()):
             raise RuntimeError('Retained runtime readiness differs from supported validation capability')
         for node in self.names:
@@ -904,8 +911,9 @@ class Lab:
                 "assert all(r[k] is True for k in ('reserved','service_hold','writers_stopped'));print('held')",
                 str(2525 if node=='mx1' else 2527),operation)
             if ready:self.validation_node(node,'disabled',node)
-            stopped = json.loads(self.command(node,'python3',helper,'stop','--operation',operation))
-            if stopped.get('phase') != 'stopped':raise RuntimeError('Retained validation did not stop')
+            if not keep_running:
+                stopped = json.loads(self.command(node,'python3',helper,'stop','--operation',operation))
+                if stopped.get('phase') != 'stopped':raise RuntimeError('Retained validation did not stop')
             self.command(node,'python3','-c',
                 "import subprocess,sys; p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_promotion.py',"
                 "'prepare','--operation',sys.argv[1]],capture_output=True,timeout=20);assert p.returncode!=0;print('refused')",operation)
@@ -915,6 +923,99 @@ class Lab:
                     retained_command_supported=all(capability.values()),activation_authorized=False,
                     ordinary_promotion_refused=True,accepted_mail_and_database_unchanged=True,
                     rollback_qualified=False)
+
+    def retained_call(self, node, helper, action, operation, peer=None, outcome=None, lose_reply=False):
+        if helper not in ('rollback_promotion.py','rollback_activation.py'):
+            raise ValueError('Unexpected retained fixture helper')
+        args=['python3','/usr/local/libexec/noisefence-management/'+helper,action,'--operation',operation]
+        if peer is not None:
+            local=self.root/(node+'-retained-report.json')
+            local.write_text(json.dumps(peer)+'\n')
+            remote='/root/paired-test/retained-report.json'
+            self.run('cp',str(local),self.names[node]+':'+remote)
+            self.command(node,'chown','root:root',remote);self.command(node,'chmod','0600',remote)
+            args+=['--peer-report',remote]
+        if outcome is not None:args+=['--outcome',outcome]
+        if lose_reply:
+            # Execute the real helper, verify success, then discard its reply.
+            # The next invocation must recover from its durable local receipt.
+            self.command(node,'python3','-c',
+                "import subprocess,sys; p=subprocess.run(sys.argv[1:],capture_output=True,timeout=60); "
+                "assert p.returncode==0,p.stderr[-2048:]; print('reply_discarded')",*args)
+            return None
+        return json.loads(self.command(node,*args))
+
+    def retained_activation_roundtrip(self):
+        if not self.args.archive_candidate:
+            raise RuntimeError('Positive rollback qualification requires exact archives')
+        previous=self.operation
+        completed={node:self.activation(node,'status') for node in self.names}
+        if any(row['phase']!='complete' for row in completed.values()):
+            raise RuntimeError('Complete the forward pair before rollback')
+        operation=str(uuid.uuid4())
+        helper='/usr/local/libexec/noisefence-management/upgrade_reservation.py'
+        for node in ('mx2','mx1'):
+            held=json.loads(self.command(node,'python3',helper,'begin','--operation',operation))
+            if held.get('writers_stopped') is not True:raise RuntimeError('Rollback writers not held')
+        before=self.inspect();database=self.validation_node('mx1','database')
+        for node in self.names:
+            peer='mx2' if node=='mx1' else 'mx1'
+            local=self.root/(node+'-retained-completion.json')
+            local.write_text(json.dumps(completed[peer])+'\n')
+            remote='/root/paired-test/rollback-peer.json'
+            self.run('cp',str(local),self.names[node]+':'+remote)
+            self.command(node,'chown','root:root',remote);self.command(node,'chmod','0600',remote)
+        self.validate_retained_release(operation,previous,before,database,keep_running=True)
+        promote=lambda node,action,peer=None:self.retained_call(node,'rollback_promotion.py',action,operation,peer)
+        activate=lambda node,action,peer=None,**kw:self.retained_call(node,'rollback_activation.py',action,operation,peer,**kw)
+        prepared={node:promote(node,'prepare') for node in self.names}
+        promoted={node:promote(node,'promote',prepared['mx2' if node=='mx1' else 'mx1']) for node in self.names}
+        armed={'mx1':activate('mx1','arm',promoted['mx2'])}
+        armed['mx2']=activate('mx2','arm',armed['mx1'])
+        decision=activate('mx1','decide',armed['mx2'],outcome='activate')
+        accepted=activate('mx2','accept',decision)
+        if accepted!=activate('mx2','accept',decision):raise RuntimeError('Retained decision retry changed')
+        # Compare the complete database while every normal writer is still held.
+        # Once started, legitimate peer heartbeats and delivery retries change it;
+        # then verify message generations, body copies and fresh policy instead.
+        if self.inspect()!=before or self.validation_node('mx1','database')!=database:
+            raise RuntimeError('Rollback preparation or decision changed mail or management data')
+        activate('mx1','start',accepted,lose_reply=True)
+        started={'mx1':activate('mx1','start',accepted)}
+        self.node('mx1','deferred');self.verify_bodies()
+        started['mx2']=activate('mx2','start',decision)
+        for node in self.names:self.ready(node,self.old['version'])
+        deadline=time.monotonic()+40
+        while time.monotonic()<deadline:
+            try:
+                proofs={node:activate(node,'check',started['mx2' if node=='mx1' else 'mx1']) for node in self.names}
+                break
+            except subprocess.CalledProcessError:time.sleep(.5)
+        else:raise RuntimeError('Retained pair has no fresh normal policy/replica proof')
+        verified={node:activate(node,'verify',proofs['mx2' if node=='mx1' else 'mx1']) for node in self.names}
+        activate('mx1','finish',verified['mx2'],lose_reply=True)
+        done={'mx1':activate('mx1','finish',verified['mx2'])}
+        done['mx2']=activate('mx2','finish',done['mx1'])
+        for node,peer in (('mx1',verified['mx2']),('mx2',done['mx1'])):
+            if done[node]!=activate(node,'finish',peer) or done[node]['phase']!='complete':
+                raise RuntimeError('Retained completion is not durable and idempotent')
+            if done[node]['decision']['protocol']!='noisefence-retained-decision-1':
+                raise RuntimeError('Rollback consumed an ordinary upgrade decision')
+            self.command(node,'python3','-c',
+                "from pathlib import Path; import subprocess; "
+                "assert not any((Path('/var/lib/noisefence-upgrade')/n).exists() for n in "
+                "['active.json','hold.json','activation.json','activation-jobs.json','promotion.json']); "
+                "assert subprocess.check_output(['systemctl','is-active','noisefence-quality.timer']).strip()==b'active'")
+        self.final_release=self.old['version']
+        self.invariant();self.submit('after_retained_activation')
+        self.record('retained_pair_activated_with_current_mail_and_lost_replies',
+                    retained_version=self.old['version'],source_version=self.new['version'],
+                    database_restored=False,database_unchanged_before_start=True,protocol='noisefence-retained-activation-1',
+                    start_reply_lost=True,finish_reply_lost=True,normal_runtime_proofs=proofs)
+        # Restore the exact newer pair through a NEW ordinary forward operation.
+        # This is not an attempt to undo the committed rollback decision.
+        self.precommit_promotion(activation_outcome='activate')
+        self.record('new_forward_operation_after_completed_rollback',version=self.new['version'])
 
     def rollout(self):
         # Published selected-management releases require equal peer builds.
@@ -952,7 +1053,7 @@ class Lab:
                   'network': 'shared_loopback_without_external_route', 'production_affected': False,
                   'scope': 'coordinated_stop_start_archive_pair_with_synthetic_selected_authority',
                   'sequence': 'both_stopped_before_switching_either_binary',
-                  'not_qualified': (['other_archive_pairs', 'archive_provenance'] if self.args.archive_candidate else ['final_release_archives']) + ['production_updater', 'post_activation_rollback', 'external_delivery',
+                  'not_qualified': (['other_archive_pairs', 'archive_provenance'] if self.args.archive_candidate else ['final_release_archives']) + (['post_activation_rollback'] if not getattr(self.args,'require_retained_activation',False) else []) + ['production_updater', 'external_delivery',
                                     'rolling_mixed_build_upgrade', 'live_models', 'failover_after_loss', 'performance', 'detection_accuracy']}
         (self.root/'paired-lifecycle-report.json').write_text(json.dumps(report, indent=2)+'\n')
 
@@ -1000,6 +1101,7 @@ def main():
     candidate = parser.add_mutually_exclusive_group()
     candidate.add_argument('--validation-candidate', type=Path, help='Optional locally built release-profile semantic binary plus candidate.json; never a production archive')
     candidate.add_argument('--archive-candidate', action='store_true', help='Exercise candidate activation using the exact new archive and its native helpers, without rewriting artifacts')
+    parser.add_argument('--require-retained-activation', action='store_true', help='Require a capable retained archive and a complete reverse activation; never accept a skipped probe')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(); os.umask(0o077)
     old, new = (archive(p, args.platform.split('/')[1]) for p in [args.old_archive, args.new_archive])
@@ -1017,7 +1119,9 @@ def main():
     lab = Lab(args, old, new)
     try:
         lab.start(); lab.submit('before_migration'); lab.migrate(); lab.submit('selected_old_pair')
-        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.precommit_promotion(activation_outcome='abort'); lab.precommit_promotion(activation_outcome='activate'); lab.rollback_identity_prerequisites(); lab.finish(metadata)
+        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.precommit_promotion(activation_outcome='abort'); lab.precommit_promotion(activation_outcome='activate'); lab.rollback_identity_prerequisites()
+        if args.require_retained_activation:lab.retained_activation_roundtrip()
+        lab.finish(metadata)
     except BaseException as error:
         (lab.root/'failed.json').write_text(json.dumps({'status': 'failed', 'error': type(error).__name__,
             'checks': lab.checks, 'accepted': lab.accepted})+'\n')
