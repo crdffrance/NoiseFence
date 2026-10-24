@@ -8,7 +8,9 @@ required. Release-origin authentication, archive staging, backup/restore and
 exact-release qualification remain prerequisites.
 
 This is an operator-driven protocol, not an unattended updater or a Web installer.
-Reports must move over authenticated channels with verified host identities. Keep
+Reports must move over authenticated channels with verified host identities. The
+[restricted SSH completion helper](maintenance-exchange.md) automates the final
+proof/verification/finish sequence after both normal daemons have started. Keep
 them in physical root-owned mode-0600 files under private directories. Their
 hashes bind identities and contents; they are not cryptographic signatures. Root
 is the trust boundary. Do not accept reports from messages or untrusted HTTP input.

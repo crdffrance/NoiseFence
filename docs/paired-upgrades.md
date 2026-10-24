@@ -125,8 +125,9 @@ starting normal services. The [activation protocol](maintenance-activation.md)
 then records mutual promises and a durable coordinator decision, starts the pair
 and verifies fresh runtime state. The [staging helper](release-staging.md)
 authenticates and extracts a release before reservation without executing it.
-The first attested-release round trip, automated report exchange and rollback
-after ordinary startup still need their full qualification.
+The [restricted SSH completion helper](maintenance-exchange.md) exchanges final
+proofs for an already-started pair. The first attested-release round trip, complete
+remote lifecycle and rollback after ordinary startup still need their full qualification.
 
 ## Reviewed maintenance sequence
 
