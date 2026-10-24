@@ -100,7 +100,7 @@ import { ReliabilityConsole } from './reliability';
 import type { QualityReport } from './quality-types';
 import { registerFeedbackTool } from './webmcp';
 const Diagnostics = lazy(() => import('./diagnostics'));
-type ConsoleDestination = {section: Section | 'account' | 'quality' | 'reliability' | 'preferences'; filter: string; domain?: string};
+type ConsoleDestination = {section: Section | 'account' | 'quality' | 'reliability' | 'preferences'; filter: string; domain?: string; returnMessageId?: string};
 type Mail = {
   recipient_decision?: RecipientDecision | null;
   rspamd?: RspamdReport | null;
@@ -274,6 +274,7 @@ export default function Page() {
 }
 function Home() {
   const detailTitle = useRef<HTMLHeadingElement>(null);
+  const returnMessageId = useRef<string | undefined>(undefined);
   const [showPassword, setShowPassword] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const [section, setSection] = useState<
@@ -338,8 +339,17 @@ function Home() {
     detailTitle.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [selectedMessageId]);
+  useEffect(() => {
+    if (selectedMessageId || !returnMessageId.current) return;
+    const id = returnMessageId.current;
+    returnMessageId.current = undefined;
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-message-id]'))
+      .find(element => element.dataset.messageId === id && element.getClientRects().length > 0);
+    (button ?? searchInput.current)?.focus();
+  }, [selectedMessageId]);
   const latestRequest = useRef(0);
   const changeSession = useCallback((next: User | null) => {
+    returnMessageId.current = undefined;
     activeUser.current = next;
     latestRequest.current += 1;
     setUser(next);
@@ -527,6 +537,7 @@ function Home() {
     completeNavigation(destination);
   }
   function completeNavigation(destination: ConsoleDestination) {
+    returnMessageId.current = destination.returnMessageId;
     if (adminDirty) setAdminDraftEpoch(epoch => epoch + 1);
     if (qualityDirty) setQualityDraftEpoch(epoch => epoch + 1);
     if (preferenceDirty) setPreferenceDraftEpoch(epoch => epoch + 1);
@@ -539,7 +550,7 @@ function Home() {
     setSection(destination.section);
     setFilter(destination.filter);
     if (destination.domain !== undefined) setDomain(destination.domain);
-    setOffset(0);
+    if (!destination.returnMessageId) setOffset(0);
     setSelected(null);
     setFeedbackFocusId(null);
     setNotice('');
@@ -1018,7 +1029,8 @@ function Home() {
                   variant="ghost"
                   disabled={busy}
                   onClick={() => {
-                    if (correctionDirty) { setPendingNavigation({section: 'messages', filter, domain}); return; }
+                    if (correctionDirty) { setPendingNavigation({section: 'messages', filter, domain, returnMessageId: selected.id}); return; }
+                    returnMessageId.current = selected.id;
                     setSelected(null);
                     setFeedbackFocusId(null);
                     setNotice('');
@@ -1380,8 +1392,8 @@ function Home() {
                     disabled={loading}
                     aria-label={
                       loading
-                        ? "Updating of current messages"
-                        : "Update Messages"
+                        ? "Refreshing…"
+                        : "Refresh messages"
                     }
                   >
                     <RefreshCw size={16} className={loading ? 'spin' : ''} />
@@ -1739,6 +1751,7 @@ function Home() {
                             <TableCell>
                               <button
                                 className="message-link"
+                                data-message-id={m.id}
                                 onClick={() => {
                                   setSelected(m);
                                   setNotice('');
@@ -1857,6 +1870,7 @@ function Home() {
                       <button
                         key={m.id}
                         className="mobile-message"
+                        data-message-id={m.id}
                         data-classification={
                           classification(m, stats?.threshold ?? 95).tone
                         }

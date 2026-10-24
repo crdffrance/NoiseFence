@@ -36,6 +36,8 @@ Annotation samples appear first. Create another sample or inspect **Data readine
 
 Choose an authorized domain or all accessible messages, then search subjects, sender/recipient addresses, rule identifiers or queue IDs. Filter by classification, partial analysis, score, delivery state, date or MX node. Score searches use the same risk value shown in the list. Bodies and attachments are not indexed. See [message search](message-search.md).
 
+Use **Tab** to move through search controls and **Enter** to apply advanced criteria. Opening a message focuses its title. **Back to messages** (or **Back to comparison**) returns focus to the same visible message, with search as a fallback if it is no longer listed. If an unsaved correction prompts for confirmation, **Escape** retains the draft and restores the back button; confirming the discard preserves the current result page.
+
 Open a message to inspect its NoiseFence verdict independently from the risk index and analysis coverage. A high index can coexist with Ham when a recorded safeguard or recipient policy takes precedence; the verdict banner explains that basis. The index is not a spam probability. Historical projections are identified separately from decisions saved at receipt.
 
 The message view separates five questions:
