@@ -226,6 +226,13 @@ rehearsal and explicit paired rollback protocol are still required. In particula
 a retained release without the native validation command cannot satisfy that
 runtime gate through this inspector.
 
+The native archive fixture runs this inspection on both nodes after a completed
+activation and new reservations. It checks the exact installed helper, refuses a
+self-report as counterpart evidence, confirms that downgrade validation remains
+blocked, compares accepted message and selected database snapshots, cancels the
+unchanged holds and verifies fresh policy synchronization and SMTP acceptance.
+This qualifies the inspection boundary only; it does not exercise rollback.
+
 If this is the end of the planned inspection, cancel each **unchanged new**
 reservation using the [reservation procedure](maintenance-reservations.md); verify
 normal readiness and the two-copy requirement on both nodes. Never cancel the

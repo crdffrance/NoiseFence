@@ -88,7 +88,7 @@ def archive_candidate(item, architecture, destination):
     required = ['deploy/noisefence.service', 'deploy/install.sh',
                 *('deploy/postgresql/'+name for name in ['upgrade_reservation.py',
                   'upgrade_validation.py', 'upgrade_validation.service', 'upgrade_promotion.py',
-                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py'])]
+                  'upgrade_activation.py', 'upgrade_exchange.py', 'release_version.py', 'rollback_check.py'])]
     if any(name not in inspected['files'] for name in required):
         raise ValueError('Archive lacks the native candidate maintenance helpers')
     return {'origin': 'exact_archive', 'version': item['version'], 'commit': item['commit'],
@@ -785,6 +785,74 @@ class Lab:
         self.record('unqualified_downgrade_and_replacement_refused', installed_version=current_version,
                     refused_versions=[self.old['version'],current_version], nodes=['mx1','mx2'])
 
+    def rollback_identity_prerequisites(self):
+        if not self.validation_metadata:
+            return
+        previous = self.operation
+        completed = {node:self.activation(node,'status') for node in self.names}
+        if any(row['phase'] != 'complete' for row in completed.values()):
+            raise RuntimeError('Rollback identity inspection requires a completed native pair')
+        operation = str(uuid.uuid4())
+        helper = '/usr/local/libexec/noisefence-management/upgrade_reservation.py'
+        for node in ('mx2','mx1'):
+            held = json.loads(self.command(node,'python3',helper,'begin','--operation',operation))
+            if held.get('phase') != 'held' or held.get('writers_stopped') is not True:
+                raise RuntimeError('Rollback identity inspection requires a fresh stopped-service hold')
+        before = self.inspect()
+        database = self.validation_node('mx1','database')
+        reports = {}
+        for node in self.names:
+            counterpart = 'mx2' if node == 'mx1' else 'mx1'
+            for label, receipt in [('peer',completed[counterpart]),('self',completed[node])]:
+                local = self.root/('rollback-'+node+'-'+label+'.json')
+                local.write_text(json.dumps(receipt)+'\n')
+                remote = '/root/paired-test/rollback-'+label+'.json'
+                self.run('cp',str(local),self.names[node]+':'+remote)
+                self.command(node,'chown','root:root',remote);self.command(node,'chmod','0600',remote)
+            command = ['python3','/usr/local/libexec/noisefence-management/rollback_check.py',
+                       '--operation',operation,'--previous-operation',previous,'--peer-completion']
+            reports[node] = json.loads(self.command(node,*command,'/root/paired-test/rollback-peer.json'))
+            result = reports[node]
+            if (result.get('status') != 'identity_checked_rollback_unqualified'
+                or result.get('activation_authorized') is not False
+                or result.get('node') != node or result.get('operation') != operation
+                or result.get('previous_operation') != previous
+                or result.get('current',{}).get('version') != self.new['version']
+                or result.get('current',{}).get('binary_sha256') != self.binary_hashes[node][self.candidate_release]
+                or result.get('retained',{}).get('version') != self.old['version']
+                or result.get('retained',{}).get('binary_sha256') != self.binary_hashes[node][self.old['version']]):
+                raise RuntimeError('Rollback identity report differs from the completed archive pair')
+            self.command(node,'python3','-c',
+                "import subprocess,sys,time;from pathlib import Path; "
+                "p=subprocess.run(sys.argv[1:],capture_output=True,timeout=30); "
+                "assert p.returncode!=0 and b'Unexpected activation counterpart' in p.stderr; print('refused')",
+                *command,'/root/paired-test/rollback-self.json')
+            self.command(node,'python3','-c',
+                "import subprocess,sys,time;from pathlib import Path; "
+                "p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_validation.py','describe',"
+                "'--operation',sys.argv[1],'--candidate','/opt/noisefence/releases/'+sys.argv[2],"
+                "'--expires-at',str(int(time.time())+120)],capture_output=True,timeout=30); "
+                "assert p.returncode!=0 and b'Candidate version must be newer' in p.stderr; "
+                "assert not (Path('/var/lib/noisefence-upgrade')/(sys.argv[1]+'-validation.json')).exists(); print('refused')",
+                operation,self.old['version'])
+            if self.command(node,'readlink','-f','/opt/noisefence/current').decode().strip() != '/opt/noisefence/releases/'+self.candidate_release:
+                raise RuntimeError('Rollback identity inspection changed the current release')
+        if (reports['mx1']['previous_proposal_sha256'] != reports['mx2']['previous_proposal_sha256']
+            or reports['mx1']['previous_decision_sha256'] != reports['mx2']['previous_decision_sha256']
+            or self.inspect() != before or self.validation_node('mx1','database') != database):
+            raise RuntimeError('Rollback inspection changed accepted mail, authority or paired decision')
+        since = int(time.time())
+        for node in ('mx1','mx2'):
+            cancelled = json.loads(self.command(node,'python3',helper,'cancel','--operation',operation))
+            if cancelled.get('phase') != 'cancelled':
+                raise RuntimeError('Rollback inspection left an unexpected reservation')
+        self.fresh_policy(self.new['version'],since)
+        for node in self.names:self.ready(node,self.candidate_release)
+        self.invariant();self.submit('after_rollback_identity_inspection')
+        self.record('rollback_identities_checked_without_downgrade_authority',nodes=reports,
+                    source='exact_installed_archive_helpers' if self.args.archive_candidate else 'source_checkout_helpers',
+                    foreign_peer_refused=True,downgrade_refused=True)
+
     def rollout(self):
         # Published selected-management releases require equal peer builds.
         # Stop both daemons before changing either pointer; cached health alone
@@ -886,7 +954,7 @@ def main():
     lab = Lab(args, old, new)
     try:
         lab.start(); lab.submit('before_migration'); lab.migrate(); lab.submit('selected_old_pair')
-        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.precommit_promotion(activation_outcome='abort'); lab.precommit_promotion(activation_outcome='activate'); lab.finish(metadata)
+        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.precommit_promotion(activation_outcome='abort'); lab.precommit_promotion(activation_outcome='activate'); lab.rollback_identity_prerequisites(); lab.finish(metadata)
     except BaseException as error:
         (lab.root/'failed.json').write_text(json.dumps({'status': 'failed', 'error': type(error).__name__,
             'checks': lab.checks, 'accepted': lab.accepted})+'\n')

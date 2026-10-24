@@ -32,7 +32,7 @@ class RehearsalTests(unittest.TestCase):
         patcher = patch.object(rehearsal, 'BASELINE', pin_file); patcher.start(); self.addCleanup(patcher.stop)
         self.archive = self.root/('noisefence-'+self.version+'-'+self.platform+'.tar.gz')
         def helpers(files):
-            for name in ['upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py']:
+            for name in ['upgrade_validation.py','upgrade_activation.py','upgrade_exchange.py','rollback_check.py']:
                 files['deploy/postgresql/'+name] = b'synthetic helper; never executed'
         with patch.object(archives,'VERSION',self.version), patch.object(archives,'COMMIT',self.commit), patch.object(archives,'TOP',self.archive.name.removesuffix('.tar.gz')):
             archives.fixture(self.archive, change=helpers)
@@ -63,6 +63,7 @@ class RehearsalTests(unittest.TestCase):
                 'committed_start_failure_recovered_forward_and_auxiliary_jobs_held',
                 'actual_ssh_completion_reply_lost_after_durable_finish',
                 'native_pair_completed_over_pinned_ssh_after_proof_expiry',
+                'rollback_identities_checked_without_downgrade_authority',
                 'normal_candidates_verified_and_operation_completed']],
             'not_qualified':['detection_accuracy','archive_provenance'],
             'final_state':{'password':'never upload','message':'never upload'}}
@@ -114,6 +115,12 @@ class RehearsalTests(unittest.TestCase):
         self.paired['final_running']['mx2']['smtp_ready']=True
         self.paired['installed_helper_sha256']['mx1']={}
         with self.assertRaises(ValueError): self.summarize()
+
+    def test_historical_run_without_rollback_identity_inspection_cannot_qualify(self):
+        self.paired['checks'] = [row for row in self.paired['checks']
+            if row['check'] != 'rollback_identities_checked_without_downgrade_authority']
+        with self.assertRaisesRegex(ValueError, 'Required native recovery coverage'):
+            self.summarize()
 
     def test_missing_recovery_and_standalone_coverage_cannot_create_success(self):
         self.paired['checks'].pop()
