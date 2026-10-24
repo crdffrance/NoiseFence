@@ -102,5 +102,72 @@ class RuntimeDiagnosticTests(unittest.TestCase):
         self.assertEqual(result['logs']['paired/mx1-journal.log']['indicators'],['central_sync_pending','replication_unavailable'])
         self.assertNotIn('PRIVATE',json.dumps(result));self.assertEqual(result['status'],'failed')
 
+    def test_management_health_accepts_only_aggregate_postgresql_success(self):
+        good = {'backend': 'postgresql', 'checked_at': 1000, 'workers': 2, 'stale_workers': 1}
+        for value, expected in [(good, 'query_ok'), ({**good, 'workers': True}, 'invalid'),
+                ({**good, 'stale_workers': 3}, 'invalid'), ({**good, 'secret': 'PRIVATE'}, 'invalid'),
+                ({'backend': 'coordinator', 'checked_at': 1000}, 'invalid'), ([], 'invalid')]:
+            result = runtime.management_result(SimpleNamespace(returncode=0, stdout=json.dumps(value).encode(), stderr=b''))
+            self.assertEqual(result, {'status': expected, 'indicators': []})
+            self.assertNotIn('PRIVATE', json.dumps(result))
+        result = runtime.management_result(SimpleNamespace(returncode=0, stdout=b'x'*16385, stderr=b''))
+        self.assertEqual(result['status'], 'invalid')
+
+    def test_management_errors_keep_categories_without_database_values(self):
+        for text, expected in [
+                ('Central health capacity unavailable: PRIVATE-DB', []),
+                ('Central database binding is unavailable or does not match PRIVATE-IDENTITY', ['binding_unavailable']),
+                ('Permission denied (os error 13) /PRIVATE-PATH', ['permission_denied']),
+                ('Connection refused (os error 111) PRIVATE-HOST', ['connection_refused']),
+                ('Timeout occurred while creating a new object PRIVATE', ['pool_timeout']),
+                ('password authentication failed for PRIVATE-USER', ['authentication_failed'])]:
+            result = runtime.management_result(SimpleNamespace(returncode=1, stdout=b'PRIVATE', stderr=text.encode()))
+            self.assertEqual(result, {'status': 'failed', 'indicators': expected})
+            self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_management_compares_same_archived_read_only_command_and_user(self):
+        profile = 'noisefence-test-0123456789ab'
+        good = SimpleNamespace(returncode=0, stdout=b'{"backend":"postgresql","checked_at":1000,"workers":2,"stale_workers":0}', stderr=b'')
+        denied = SimpleNamespace(returncode=1, stdout=b'', stderr=b'Permission denied PRIVATE')
+        with patch.dict(runtime.os.environ, {'NOISEFENCE_TEST_APPARMOR_PROFILE': profile}, clear=True), \
+                patch.object(runtime.subprocess, 'run', side_effect=[good, denied]) as run:
+            result = runtime.management()
+        first, second = run.call_args_list
+        common = ['/opt/noisefence/noisefence', '--config', '/etc/noisefence/config.toml', 'management-health']
+        self.assertEqual(first.args[0], ['runuser', '-u', 'noisefence', '--'] + common)
+        self.assertEqual(second.args[0], ['runuser', '-u', 'noisefence', '--', '/usr/bin/aa-exec', '-p', profile, '--'] + common)
+        self.assertEqual(first.kwargs, second.kwargs)
+        self.assertEqual(first.kwargs['timeout'], 8)
+        self.assertEqual(set(first.kwargs['env']), {'PATH', 'LANG'})
+        self.assertEqual(result['unconfined']['status'], 'query_ok')
+        self.assertEqual(result['confined']['indicators'], ['permission_denied'])
+        self.assertEqual(diag.management_observation(json.dumps(result)), result)
+
+    def test_management_absent_invalid_profile_and_timeout_do_not_change_service(self):
+        with patch.dict(runtime.os.environ, {}, clear=True), patch.object(runtime.subprocess, 'run', side_effect=OSError) as run:
+            result = runtime.management()
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(result['confined']['status'], 'not_configured')
+            self.assertEqual(result['unconfined']['status'], 'unavailable')
+        with patch.dict(runtime.os.environ, {'NOISEFENCE_TEST_APPARMOR_PROFILE': 'unconfined'}, clear=True), \
+                patch.object(runtime.subprocess, 'run') as run:
+            with self.assertRaises(ValueError): runtime.management()
+            run.assert_not_called()
+        with patch.dict(runtime.os.environ, {}, clear=True), \
+                patch.object(runtime.subprocess, 'run', side_effect=runtime.subprocess.TimeoutExpired('PRIVATE', 8)):
+            self.assertEqual(runtime.management()['unconfined']['status'], 'command_timeout')
+
+    def test_management_public_rendering_rejects_dynamic_or_inconsistent_fields(self):
+        good = {'schema': 'noisefence-fixture-management-diagnostic-1',
+                'unconfined': {'status': 'query_ok', 'indicators': []},
+                'confined': {'status': 'failed', 'indicators': ['binding_unavailable']}}
+        self.assertEqual(diag.management_observation(json.dumps(good)), good)
+        for bad in (None, 'broken', json.dumps({**good, 'secret': 'PRIVATE'}),
+                    json.dumps({**good, 'confined': {'status': [], 'indicators': []}}),
+                    json.dumps({**good, 'confined': {'status': 'failed', 'indicators': [{}]}}),
+                    json.dumps({**good, 'confined': {'status': 'failed', 'indicators': ['PRIVATE']}}),
+                    json.dumps({**good, 'confined': {'status': 'query_ok', 'indicators': ['permission_denied']}})):
+            self.assertEqual(diag.management_observation(bad), {'status': 'unavailable'})
+
 
 if __name__ == '__main__':unittest.main()

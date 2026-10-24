@@ -3,6 +3,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -83,6 +84,68 @@ def observe(node):
             'health': health(node), 'database': database()}
 
 
+
+MANAGEMENT_INDICATORS = {
+    'binding_unavailable': ('Central database binding is unavailable or does not match',),
+    'permission_denied': ('Permission denied', 'os error 13'),
+    'connection_refused': ('Connection refused', 'os error 111'),
+    'missing_socket_or_path': ('No such file or directory', 'os error 2'),
+    'pool_timeout': ('Timeout occurred while waiting', 'Timeout occurred while creating',
+                     'Timeout occurred while recycling', 'deadline has elapsed'),
+    'authentication_failed': ('authentication failed',),
+    'pool_closed': ('Pool has been closed',),
+}
+
+
+def management_result(result):
+    # Read only an existing CLI's aggregate health output. Never publish its
+    # stderr: database/driver errors can contain names or submitted values.
+    if len(result.stdout) + len(result.stderr) > 16384:
+        return {'status': 'invalid', 'indicators': []}
+    if result.returncode == 0:
+        try:
+            value = json.loads(result.stdout)
+            valid = (isinstance(value, dict)
+                     and set(value) == {'backend', 'checked_at', 'workers', 'stale_workers'}
+                     and value['backend'] == 'postgresql'
+                     and all(type(value[key]) is int for key in ('checked_at', 'workers', 'stale_workers'))
+                     and value['checked_at'] > 0 and 0 <= value['stale_workers'] <= value['workers'])
+        except (ValueError, UnicodeError):
+            valid = False
+        return {'status': 'query_ok' if valid else 'invalid', 'indicators': []}
+    text = result.stderr.decode(errors='replace')
+    return {'status': 'failed', 'indicators': [category for category, markers in MANAGEMENT_INDICATORS.items()
+                                              if any(marker in text for marker in markers)]}
+
+
+def management():
+    # The same archived executable, user, read-only command and config on each
+    # side of the AppArmor boundary. No archive editing, schema migration,
+    # models, listener, relay or service state changes.
+    profile = os.environ.get('NOISEFENCE_TEST_APPARMOR_PROFILE', '')
+    if profile and not re.fullmatch(r'noisefence-test-[a-f0-9]{12}', profile):
+        raise ValueError('Invalid fixture profile')
+    result = {'schema': 'noisefence-fixture-management-diagnostic-1'}
+    for mode in ('unconfined', 'confined'):
+        if mode == 'confined' and not profile:
+            result[mode] = {'status': 'not_configured', 'indicators': []}
+            continue
+        arguments = ['runuser', '-u', 'noisefence', '--']
+        if mode == 'confined':
+            arguments += ['/usr/bin/aa-exec', '-p', profile, '--']
+        arguments += ['/opt/noisefence/noisefence', '--config', '/etc/noisefence/config.toml',
+                      'management-health']
+        try:
+            completed = subprocess.run(arguments, capture_output=True, timeout=8,
+                env={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C'})
+            result[mode] = management_result(completed)
+        except subprocess.TimeoutExpired:
+            result[mode] = {'status': 'command_timeout', 'indicators': []}
+        except (OSError, UnicodeError):
+            result[mode] = {'status': 'unavailable', 'indicators': []}
+    return result
+
+
 def main():
     if not (os.geteuid() == 0 and Path('/.dockerenv').is_file()
             and os.environ.get('NOISEFENCE_DISPOSABLE_PAIRED_TEST') == '1'
@@ -90,7 +153,11 @@ def main():
         raise ValueError('Disposable native fixture required')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--node', choices=('mx1', 'mx2'), required=True)
-    print(json.dumps(observe(parser.parse_args().node), sort_keys=True))
+    parser.add_argument('--management', action='store_true')
+    args = parser.parse_args()
+    if args.management and args.node != 'mx1':
+        parser.error('Management database diagnostic is coordinator-only')
+    print(json.dumps(management() if args.management else observe(args.node), sort_keys=True))
 
 
 if __name__ == '__main__':

@@ -829,6 +829,13 @@ class Lab:
                 (self.root/(node+'-runtime-diagnostic.json')).write_bytes(runtime)
             except Exception:
                 pass
+            if node == 'mx1':
+                try:
+                    management = self.command(node, 'python3', '/root/source/tests/fixtures/runtime_diagnostics.py',
+                                              '--node', node, '--management', timeout=25)
+                    (self.root/'mx1-management-diagnostic.json').write_bytes(management)
+                except Exception:
+                    pass
             try:
                 journal = self.command(node, 'journalctl', '-u', 'noisefence.service', '--no-pager', '-n', '100', timeout=20)
                 (self.root/(node+'-journal.log')).write_bytes(journal)

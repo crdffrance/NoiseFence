@@ -160,6 +160,30 @@ def runtime_observation(text):
     return value
 
 
+def management_observation(text):
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        return {'status': 'unavailable'}
+    if (not isinstance(value, dict) or set(value) != {'schema', 'unconfined', 'confined'}
+            or value['schema'] != 'noisefence-fixture-management-diagnostic-1'):
+        return {'status': 'unavailable'}
+    states = {'query_ok', 'invalid', 'failed', 'not_configured', 'command_timeout', 'unavailable'}
+    indicators = {'binding_unavailable', 'permission_denied', 'connection_refused',
+                  'missing_socket_or_path', 'pool_timeout', 'authentication_failed', 'pool_closed'}
+    for mode in ('unconfined', 'confined'):
+        item = value[mode]
+        if (not isinstance(item, dict) or set(item) != {'status', 'indicators'}
+                or not isinstance(item['status'], str) or item['status'] not in states
+                or not isinstance(item['indicators'], list)
+                or len(item['indicators']) > len(indicators)
+                or any(not isinstance(i, str) or i not in indicators for i in item['indicators'])
+                or len(set(item['indicators'])) != len(item['indicators'])
+                or (item['status'] != 'failed' and item['indicators'])):
+            return {'status': 'unavailable'}
+    return value
+
+
 def diagnose(directory, phase):
     if phase not in PHASES:
         raise ValueError('Unknown rehearsal phase')
@@ -171,6 +195,7 @@ def diagnose(directory, phase):
             logs[relative] = describe(text, locations, assertions)
     return {'schema':'noisefence-rehearsal-failure-1', 'status':'failed', 'phase':phase,
             'raw_data_included':False, 'logs':logs,
+            'management':management_observation(tail(directory,'paired/mx1-management-diagnostic.json')),
             'runtime':{node:runtime_observation(tail(directory,'paired/'+node+'-runtime-diagnostic.json'))
                        for node in ('mx1','mx2')}}
 
