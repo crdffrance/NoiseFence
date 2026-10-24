@@ -113,7 +113,9 @@ def summarize(platform, archive, directory, *, version, commit):
     bundle.require(required <= set(checks), 'Required native recovery coverage is missing')
     standalone_checks = {'fresh_install_'+pin['version'], 'synthetic_smtp_acceptance',
         'upgrade_'+version, 'idempotent_reinstall',
-        'stopped_service_preserves_accepted_body_and_queue', 'unit_removed_data_retained'}
+        'stopped_service_preserves_accepted_body_and_queue', 'unit_removed_data_retained',
+        'disk_full_before_mail_temporarily_rejected', 'disk_full_after_data_temporarily_rejected',
+        'disk_full_recovery_preserves_accepted_messages'}
     bundle.require(standalone_checks <= set(standalone['checks']), 'Standalone lifecycle coverage is missing')
     # Deliberate allowlist: no fixture credentials, messages, recipients, private
     # paths, raw observations, environment values or journal text in CI artifacts.

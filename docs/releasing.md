@@ -114,7 +114,11 @@ unique temporary systemd fixture images, then runs the standalone installation
 and `--archive-candidate` pair scenarios on the matching architecture. It uses
 fresh synthetic accounts and mail, selected PostgreSQL management, bounded
 candidate validation, two-copy acceptance, peer loss, failed startup, forward
-recovery and interrupted SSH completion. Test containers have no external route;
+recovery and interrupted SSH completion. The standalone fixture also uses a bounded
+64 MiB tmpfs to provoke real kernel ENOSPC before MAIL and after DATA begins. It
+requires temporary SMTP failures, unchanged accepted bodies and queue state, and
+recovery after space is released. This checks storage-error handling, not power-loss
+persistence or full-disk recovery on a production filesystem. Test containers have no external route;
 run this only on a disposable test host, never a production MX. Release builds
 reuse dependencies only inside their own job, including offline fixture generation;
 no shared Actions dependency cache is restored or saved for official artifacts.

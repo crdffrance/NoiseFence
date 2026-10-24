@@ -43,7 +43,9 @@ class RehearsalTests(unittest.TestCase):
         self.standalone = {'status':'passed','cleanup':True,'production_affected':False,'platform':'linux/arm64',
             'archive_sha256':digests,'versions':[self.pin['version'],self.version],
             'checks':['fresh_install_0.31.9','synthetic_smtp_acceptance','upgrade_'+self.version,
-                      'idempotent_reinstall','stopped_service_preserves_accepted_body_and_queue','unit_removed_data_retained']}
+                      'idempotent_reinstall','stopped_service_preserves_accepted_body_and_queue','unit_removed_data_retained',
+                      'disk_full_before_mail_temporarily_rejected','disk_full_after_data_temporarily_rejected',
+                      'disk_full_recovery_preserves_accepted_messages']}
         helpers = {name.rsplit('/',1)[1]:digest for name,digest in files.items() if name.startswith('deploy/postgresql/')}
         self.paired = {'status':'passed','production_affected':False,'platform':'linux/arm64',
             'archive_sha256':digests,'cleanup':True,'candidate_mode':'exact_archive',
@@ -85,6 +87,12 @@ class RehearsalTests(unittest.TestCase):
                           ('platform','linux/amd64'),('production_affected',True),('archive_commits',{})]:
             self.paired = {**original,key:value}
             with self.subTest(key=key),self.assertRaises(ValueError): self.summarize()
+
+    def test_historical_standalone_run_without_storage_pressure_cannot_qualify(self):
+        self.standalone['checks'] = [check for check in self.standalone['checks']
+                                     if not check.startswith('disk_full_')]
+        with self.assertRaisesRegex(ValueError, 'Standalone lifecycle coverage'):
+            self.summarize()
 
     def test_standalone_cleanup_must_be_explicitly_verified(self):
         for value in [None, False, 'true']:
