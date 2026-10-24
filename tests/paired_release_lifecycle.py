@@ -88,6 +88,7 @@ class Lab:
         self.names = {node: 'nf-paired-'+self.operation[:8]+'-'+node for node in ('mx1', 'mx2')}
         self.created = []; self.checks = []; self.accepted = []
         self.binary_hashes = {}
+        self.helper_hashes = {}
         self.validation_metadata = validation_candidate(args.validation_candidate, args.platform.split('/')[1], new['version']) if args.validation_candidate else None
         self.started = time.monotonic()
         (self.root/'operation.json').write_text(json.dumps({'operation': self.operation, 'containers': self.names, 'synthetic_only': True})+'\n')
@@ -153,6 +154,9 @@ class Lab:
             state = self.node(node, 'bootstrap')
             machines.append(state['machine'])
             self.binary_hashes[node] = state['binary_sha256']
+            self.helper_hashes[node] = json.loads(self.command(node, 'python3', '-c',
+                "import hashlib,json; from pathlib import Path; root=Path('/usr/local/libexec/noisefence-management'); "
+                "print(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.iterdir() if p.is_file()}))"))
         if len(set(machines)) != 2:
             raise RuntimeError('Fixture nodes need distinct machine identities')
         for node in self.names:
@@ -365,6 +369,113 @@ class Lab:
                     raise RuntimeError('Candidate altered queued messages or policy: '+key)
         self.record('candidate_expired_stopped_and_preserved_selected_data', database=database)
 
+    def promotion(self, node, action, peer=None):
+        extra = []
+        if peer is not None:
+            report = self.root/(node+'-promotion-peer.json')
+            report.write_text(json.dumps(peer)+'\n')
+            remote = '/root/paired-test/promotion-peer.json'
+            self.run('cp', str(report), self.names[node]+':'+remote)
+            self.command(node, 'chown', 'root:root', remote)
+            self.command(node, 'chmod', '0600', remote)
+            extra = ['--peer-report', remote]
+        return json.loads(self.command(node, 'python3', '/usr/local/libexec/noisefence-management/upgrade_promotion.py',
+                                      action, '--operation', self.operation, *extra))
+
+    def precommit_promotion(self, abandon=False):
+        if not self.validation_metadata:
+            return
+        # A new authorization is mandatory after the earlier expiry test. The
+        # already staged candidate remains immutable and is verified again.
+        self.operation = str(uuid.uuid4())
+        helper = '/usr/local/libexec/noisefence-management/upgrade_reservation.py'
+        for node in ['mx2', 'mx1']:
+            self.command(node, 'python3', helper, 'begin', '--operation', self.operation)
+        before = self.inspect(); database = self.validation_node('mx1', 'database')
+        expires = int(time.time())+180
+        descriptors = {node: self.validation(node, 'describe', '--candidate',
+            '/opt/noisefence/releases/qualification-candidate', '--expires-at', str(expires)) for node in self.names}
+        for node in self.names:
+            peer = 'mx2' if node == 'mx1' else 'mx1'
+            report = self.root/(node+'-promotion-validation-peer.json')
+            report.write_text(json.dumps(descriptors[peer])+'\n')
+            remote = '/root/paired-test/validation-peer.json'
+            self.run('cp', str(report), self.names[node]+':'+remote)
+            self.command(node, 'chown', 'root:root', remote); self.command(node, 'chmod', '0600', remote)
+            self.validation(node, 'start', '--candidate', '/opt/noisefence/releases/qualification-candidate',
+                            '--expires-at', str(expires), '--peer-report', remote)
+        deadline = time.monotonic()+40
+        while time.monotonic() < deadline:
+            if all(self.validation(node, 'status').get('validation_ready') is True for node in self.names):
+                break
+            time.sleep(.5)
+        else:
+            raise RuntimeError('New promotion validation did not become ready')
+        if abandon:
+            prepared = self.promotion('mx1', 'prepare')
+            # Model a controller loss before the second prepare. Both host
+            # reservations and the first prepared receipt survive the process.
+            self.validation('mx2', 'stop')
+            restored = {'mx1': self.promotion('mx1', 'restore')}
+            restored['mx2'] = self.promotion('mx2', 'abandon', prepared)
+            if restored['mx2']['descriptor']['validated_at'] is not None:
+                raise RuntimeError('Abandonment fabricated a live-validation observation')
+            if database != self.validation_node('mx1', 'database'):
+                raise RuntimeError('Abandonment changed PostgreSQL rows')
+            self.record('interrupted_pair_preparation_restored_without_invented_validation', nodes=restored)
+            self.resume_precommit_original(restored, 'after_unprepared_pair_restore')
+            return
+        prepared = {node: self.promotion(node, 'prepare') for node in self.names}
+        promoted = {}
+        for node in self.names:
+            peer = 'mx2' if node == 'mx1' else 'mx1'
+            promoted[node] = self.promotion(node, 'promote', prepared[peer])
+            # Each helper has exited. A fresh root process must recover the same
+            # intent instead of relying on an in-memory controller connection.
+            if promoted[node] != self.promotion(node, 'promote', prepared[peer]):
+                raise RuntimeError('Lost promotion response changed the durable result')
+            self.command(node, 'systemctl', 'start', 'noisefence.service')
+            state = self.command(node, 'systemctl', 'show', 'noisefence.service', '--property=ActiveState', '--value').strip()
+            pointer = self.command(node, 'readlink', '-f', '/opt/noisefence/current').decode().strip()
+            if state != b'inactive' or pointer != '/opt/noisefence/releases/qualification-candidate':
+                raise RuntimeError('Prepared release activated or changed target')
+            self.command(node, 'python3', '-c',
+                "import subprocess; p=subprocess.run(['python3','/usr/local/libexec/noisefence-management/upgrade_reservation.py','cancel','--operation',"+repr(self.operation)+"],capture_output=True); assert p.returncode!=0 and b'Restore and release' in p.stderr")
+        after = self.inspect()
+        if database != self.validation_node('mx1', 'database'):
+            raise RuntimeError('Pointer promotion changed PostgreSQL rows')
+        for node in self.names:
+            for key in ['selection', 'policy_epoch', 'deliveries', 'replication_receipts', 'remote_receipts', 'bodies', 'replicas']:
+                if after[node][key] != before[node][key]:
+                    raise RuntimeError('Pre-commit promotion changed queued state: '+key)
+        self.record('prepared_pair_promoted_without_normal_activation', operation=self.operation, nodes=promoted, database=database)
+        restored = {'mx1': self.promotion('mx1', 'restore')}
+        try:
+            self.promotion('mx1', 'release', promoted['mx2'])
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise RuntimeError('One restored node incorrectly released the pair')
+        restored['mx2'] = self.promotion('mx2', 'restore')
+        self.resume_precommit_original(restored, 'after_precommit_pair_restore')
+
+    def resume_precommit_original(self, restored, label):
+        helper = '/usr/local/libexec/noisefence-management/upgrade_reservation.py'
+        released = {}
+        for node in self.names:
+            peer = 'mx2' if node == 'mx1' else 'mx1'
+            released[node] = self.promotion(node, 'release', restored[peer])
+            if released[node] != self.promotion(node, 'release', restored[peer]):
+                raise RuntimeError('Lost restoration release response was not idempotent')
+        since = int(time.time())
+        for node in self.names:
+            self.command(node, 'python3', helper, 'cancel', '--operation', self.operation)
+        self.fresh_policy(self.old['version'], since)
+        for node in self.names:
+            self.ready(node, self.old['version'])
+        self.invariant(); self.submit(label)
+        self.record('prepared_pair_restored_and_released_before_cancellation', nodes=released)
+
     def failure_recovery(self):
         self.command('mx2', 'systemctl', 'stop', 'noisefence.service')
         refused = self.node('mx1', 'deferred')
@@ -438,7 +549,7 @@ class Lab:
         report = {'schema': 'noisefence-paired-lifecycle-1', 'status': 'validated_pending_cleanup',
                   'operation': self.operation, 'checks': self.checks, 'accepted': self.accepted,
                   'final_state': snapshots, 'final_running': running,
-                  'staged_binary_sha256': self.binary_hashes,
+                  'staged_binary_sha256': self.binary_hashes, 'installed_helper_sha256': self.helper_hashes,
                   'validation_candidate': self.validation_metadata,
                   'archive_sha256': {i['version']: i['sha256'] for i in (self.old, self.new)},
                   'archive_commits': {i['version']: i['commit'] for i in (self.old, self.new)},
@@ -507,7 +618,7 @@ def main():
     lab = Lab(args, old, new)
     try:
         lab.start(); lab.submit('before_migration'); lab.migrate(); lab.submit('selected_old_pair')
-        lab.maintenance_reservation(); lab.failure_recovery(); lab.rollout(); lab.finish(metadata)
+        lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.finish(metadata)
     except BaseException as error:
         (lab.root/'failed.json').write_text(json.dumps({'status': 'failed', 'error': type(error).__name__,
             'checks': lab.checks, 'accepted': lab.accepted})+'\n')

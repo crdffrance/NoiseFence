@@ -204,3 +204,10 @@ This does not qualify a production paired controller, unattended upgrade,
 current-candidate archive installation on both architectures, schema-changing
 rollback or detection accuracy. Keep those gates in the
 [paired upgrade procedure](paired-upgrades.md) and [release checklist](releasing.md).
+
+## Continue under the service hold
+
+The [pre-commit promotion helper](maintenance-promotion.md) captures both live
+validation results before stopping either candidate. It binds and switches the
+release pointers while services remain held, and supports restoration before
+cancellation. It does not authorize normal startup or rollback after activation.

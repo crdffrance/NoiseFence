@@ -205,6 +205,9 @@ class Validation:
                 'Another operation owns candidate validation')
 
     def start(self, directory, peer, expires_at):
+        require(not reservation.exists(reservation.STATE / 'promotion.json')
+                and not reservation.exists(reservation.STATE / (self.operation+'-promotion.json')),
+                'Prepared promotion owns this operation; restore the pair before resuming')
         own = describe(self.operation, directory, expires_at)
         plan = authorize(own, peer)
         if reservation.exists(self.marker):

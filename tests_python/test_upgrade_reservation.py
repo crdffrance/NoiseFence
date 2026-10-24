@@ -109,6 +109,21 @@ class ReservationTests(unittest.TestCase):
         self.unit_states['noisefence-validation.service'] = 'inactive'
         self.hold.cancel()
 
+    def test_promotion_receipt_blocks_cancellation_even_before_marker_publication(self):
+        self.hold.begin(); self.events.clear()
+        path = reservation.STATE / (OPERATION+'-promotion.json')
+        path.write_bytes(protocol.canonical({'protocol':'noisefence-upgrade-promotion-1',
+                                           'operation':OPERATION,'phase':'prepared'}))
+        with self.assertRaisesRegex(ValueError, 'Invalid promotion'):self.hold.cancel()
+        path.write_bytes(protocol.canonical({'protocol':'noisefence-upgrade-promotion-1',
+                                           'operation':OPERATION,'phase':'released'}))
+        marker=reservation.STATE/'promotion.json';marker.write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'Restore and release'):self.hold.cancel()
+        marker.unlink()
+        with self.assertRaisesRegex(ValueError, 'Invalid promotion'):self.hold.cancel()
+        self.assertTrue(reservation.HOLD.exists());self.assertFalse(self.events)
+        path.unlink();self.hold.cancel()
+
     def test_start_failure_keeps_reservation_until_exact_retry_succeeds(self):
         self.hold.begin()
         actual = self.execute

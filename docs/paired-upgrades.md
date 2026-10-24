@@ -6,8 +6,9 @@ Keep these operations separate. Preserve observation, the installed model and
 thresholds, suspended providers, original queue identities and the mandatory
 second durable copy throughout an upgrade.
 
-The current release provides a read-only local prerequisite report and guards
-for simple installation paths. It does **not** provide a qualified unattended
+The current development tree provides read-only local prerequisite reports,
+durable native reservations, bounded candidate validation and held pair promotion.
+It also guards simple installation paths. It does **not** provide a qualified unattended
 paired updater or certify arbitrary release pairs for rollback. The disposable
 fixture below exercises a coordinated stop/start with exact published archives;
 it is not a production controller. A passing prerequisite report is not an
@@ -117,8 +118,10 @@ recovery or deployment operations. Those reservations remain required.
 A [durable native reservation](maintenance-reservations.md) now implements the
 stopped-service hold and unchanged-installation cancellation primitive. The
 [validation host helper](maintenance-validation.md#supervised-host-procedure) can
-start a bounded candidate under that hold. Archive promotion, pair activation and
-rollback still require the complete coordinated controller.
+start a bounded candidate under that hold. The [pre-commit promotion helper](maintenance-promotion.md)
+binds both prepared releases and can switch or restore their pointers without
+starting normal services. Archive staging, pair activation and rollback after
+ordinary startup still require the complete coordinated controller.
 
 ## Reviewed maintenance sequence
 

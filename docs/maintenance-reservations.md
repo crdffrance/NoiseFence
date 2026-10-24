@@ -130,3 +130,10 @@ The [candidate runtime validation mode](maintenance-validation.md) and its root
 host helper supply a separate bounded, authenticated probe router while these
 holds remain in force. The unchanged-installation cancellation contract remains
 in place; candidate activation is a separate operation.
+
+## Prepared release cancellation
+
+A [prepared pair](maintenance-promotion.md) adds a durable promotion receipt and
+marker. Cancellation refuses both an active marker and an unreleased receipt,
+including a crash between their publication. Restore both originals and exchange
+their restored reports before releasing this stage and cancelling the reservation.

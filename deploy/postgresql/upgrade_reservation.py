@@ -243,6 +243,14 @@ class Reservation:
         return {'operation': self.operation, 'phase': state['phase'], 'node': state['installation']['node'], 'writers_stopped': True, 'reserved': True, 'service_hold': True}
 
     def cancel(self):
+        require(not exists(STATE / 'promotion.json'), 'Restore and release the prepared pair before cancellation')
+        promotion = STATE / (self.operation+'-promotion.json')
+        if exists(promotion):
+            # Import lazily: promotion uses this reservation primitive too.
+            # A phase string alone is not a valid, fully bound release receipt.
+            from upgrade_promotion import Promotion
+            receipt = Promotion(self.operation).state()
+            require(receipt['phase'] == 'released', 'Unreleased pair preparation prevents cancellation')
         require(not exists(STATE / 'validation.json'), 'Stop candidate validation before cancellation')
         require(unit_state('noisefence-validation.service') in ('inactive', 'failed', 'unknown'),
                 'Candidate validation still running; preserve the hold')
