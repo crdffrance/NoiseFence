@@ -144,6 +144,19 @@ class RehearsalTests(unittest.TestCase):
         socket_path.write_text(json.dumps(socket))
         result=rehearsal.confinement_summary(self.root,paired,files)
         self.assertEqual(result['status'],'enforced');self.assertEqual(result['socket_boundary']['status'],'verified')
+        retained_binary='1'*64
+        with self.assertRaisesRegex(ValueError,'retained validation'):
+            rehearsal.confinement_summary(self.root,paired,files,retained_binary=retained_binary)
+        retained=copy.deepcopy(paired)
+        for node in ('mx1','mx2'):
+            for check in ('retained_candidate_apparmor_enforced','retained_runtime_apparmor_enforced'):
+                retained['checks'].append({'check':check,'node':node,**runtime,'binary_sha256':retained_binary})
+        self.assertEqual(rehearsal.confinement_summary(self.root,retained,files,retained_binary=retained_binary)['status'],'enforced')
+        for index in range(len(paired['checks']),len(retained['checks'])):
+            for key,value in [('binary_sha256',binary),('mode','complain'),('profile','wrong'),('node','mx3')]:
+                changed=copy.deepcopy(retained);changed['checks'][index][key]=value
+                with self.subTest(retained_check=index,key=key),self.assertRaisesRegex(ValueError,'retained validation'):
+                    rehearsal.confinement_summary(self.root,changed,files,retained_binary=retained_binary)
         for key,value in [('generator_sha256','0'*64),('renderer_sha256','0'*64),('service_sha256','0'*64),
                           ('container_removed',False),('profile_removed',False),('binary_sha256','bad'),
                           ('service_context',{'unconfined':'query_ok','confined':'socket_permission_denied'}),
@@ -174,6 +187,16 @@ class RehearsalTests(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,altered,files)
         with self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,{},files)
 
+
+    def test_both_archive_rehearsals_require_confinement_in_each_workflow(self):
+        for path in ('.github/workflows/check.yml','.github/workflows/release.yml'):
+            source=(ROOT/path).read_text()
+            steps=source.split('      - name: ')
+            rehearsals=[step for step in steps if 'sh scripts/check_release_lifecycle.sh' in step]
+            self.assertEqual(len(rehearsals),2)
+            for step in rehearsals:
+                with self.subTest(path=path,step=step.splitlines()[0]):
+                    self.assertIn("NOISEFENCE_REHEARSAL_APPARMOR: '1'",step)
 
     def test_native_confinement_requires_the_socket_positive_and_negative_stage(self):
         script=(ROOT/'scripts/check_release_lifecycle.sh').read_text()

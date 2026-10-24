@@ -57,9 +57,9 @@ Without paired HA, accepted mail waits on its owning node until delivery or reco
 <a id="stockage-et-retour-arrière"></a>
 ## Upgrades and recovery
 
-Upgrade the coordinator first within the explicit policy compatibility window, confirm old workers still synchronize, then upgrade workers one at a time. Compatibility is an audited list, not acceptance of arbitrary earlier or future releases. Never rewrite a cached bundle or its digest by hand.
+Follow the [paired upgrade procedure](paired-upgrades.md) for the installed management authority and exact old/new releases. Selected PostgreSQL management requires matching builds and coordinated maintenance: reserve both nodes, stop their writers, activate the matching pair and verify a fresh authenticated policy exchange. A coordinator-first rolling procedure applies only when the actual transport and release pair have been explicitly qualified for it. Never infer compatibility from a version prefix or rewrite a cached bundle or its digest by hand.
 
-Storage capabilities are: schema 3 for clustering, schema 4 for SMTP admission, and schema 5 for paired durability. A database retains its original node role and identity. Current release tooling supports schema 5; older binaries may refuse it. Never lower `user_version` to force a downgrade or run two instances with the same identity/data directory.
+The archive declares local format capabilities: 3 for clustering, 4 for SMTP admission, 5 for paired durability, 6 for management transport and 7 for selected PostgreSQL management. A database retains its original node role and identity. These format numbers do not establish policy or mixed-build compatibility; inspect the exact release manifests and maintenance receipts. Never lower `user_version` to force a downgrade or run two instances with the same identity/data directory.
 
 Keep a compatible prior release and consistent backups. After any new SMTP acceptance, restoring an old database can lose delivery responsibility or reuse spent credits. Stop/fence affected nodes, inventory accepted messages and reconcile accounting before recovery. See [installation](installation.md) and [HA recovery](high-availability.md).
 

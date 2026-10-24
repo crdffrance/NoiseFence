@@ -116,6 +116,15 @@ class ConfinedRunnerTests(unittest.TestCase):
         self.assertEqual(child.call_args.kwargs['timeout'],1800)
         self.assertIn('--apparmor-profile',child.call_args.args[0])
 
+    def test_retained_roundtrip_is_forwarded_without_losing_the_profile(self):
+        self.args.require_retained_activation=True
+        command,child=self.context()
+        proof=runner.run(self.args)
+        self.assertEqual(proof['status'],'passed')
+        arguments=child.call_args.args[0]
+        self.assertIn('--require-retained-activation',arguments)
+        self.assertEqual(arguments[arguments.index('--apparmor-profile')+1],NAME)
+
     def test_child_failure_is_preserved_after_cleanup(self):
         command,child = self.context(child_error=subprocess.CalledProcessError(7,['fixture']))
         with self.assertRaises(subprocess.CalledProcessError):runner.run(self.args)

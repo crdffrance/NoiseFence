@@ -41,6 +41,6 @@ positive_cache_seconds = 60
 negative_cache_seconds = 30
 ```
 
-Upgrade the coordinator first, then every worker, before enabling this setting. Older workers cannot silently ignore an enabled policy. Both fallback and verification are optional, disabled when absent, and mutually exclusive. Antispam observation does not disable this recipient authorization check.
+Install a compatible release on the coordinator and every worker before enabling this setting. Follow the [paired maintenance procedure](paired-upgrades.md) for the actual management authority; selected PostgreSQL management requires matching builds and coordinated maintenance. Older workers cannot silently ignore an enabled policy. Both fallback and verification are optional, disabled when absent, and mutually exclusive. Antispam observation does not disable this recipient authorization check.
 
 This is an envelope check, not a delivery guarantee: mailbox state can change after acceptance, a downstream catch-all can accept every address, and later content/quota policies can still refuse delivery. Previously accepted messages keep their queue responsibility and normal retry/DSN handling; disabling fallback does not recall messages already delivered. For an immediate mailbox deletion, disable positive caching or wait for its TTL.

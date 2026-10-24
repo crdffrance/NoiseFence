@@ -2,7 +2,10 @@
 
 Debian 13, systemd and AppArmor are required. Install and validate the SMTP gateway,
 Nginx, TLS certificates and local scanners first. These tools do not change mail
-classification or DNS. Apply to one node at a time while another receives mail.
+classification or DNS. Apply host hardening to one node at a time and verify it
+before proceeding. With mandatory two-copy replication, restarting either peer
+can defer new SMTP traffic with `451`; this procedure does not promise uninterrupted
+acceptance or authorize a mixed-version software upgrade.
 
 `deploy/ansible/harden.yml` installs the tools and executes separate network and
 confinement transactions. Copy `inventory.example.yml` outside the public checkout,

@@ -8,12 +8,13 @@ Use Docker Engine with Compose on Linux. Both Compose examples use host networki
 
 Requirements: Docker with Compose and enough disk space for the Rust/Node build. The runtime example limits memory to 2 GiB; model-heavy deployments need separate sizing. The image includes native semantic support but no model weights, OCR worker or ClamAV daemon.
 
-Use the source checkout for Docker builds; native release archives contain prebuilt binaries, not a Docker build context. Select a specific release:
+Use the source checkout for Docker builds; native release archives contain prebuilt binaries, not a Docker build context. Choose a published tag from [Releases](https://github.com/crdffrance/NoiseFence/releases) and set `NOISEFENCE_RELEASE_TAG` to that exact tag. Use a prerelease only for an explicitly planned evaluation. Follow the installation guide from the selected tag:
 
 ```sh
+: "${NOISEFENCE_RELEASE_TAG:?Set the exact published release tag}"
 git clone https://github.com/crdffrance/NoiseFence.git
 cd NoiseFence
-git checkout v0.29.4
+git checkout --detach "$NOISEFENCE_RELEASE_TAG"
 ```
 
 From the checkout root:
@@ -63,6 +64,8 @@ docker compose down
 ## Linux release installation
 
 Use Linux amd64 or arm64 with glibc 2.36 or newer, systemd and Python 3.11 or newer. Debian 12/13 are suitable baselines. Provide an explicit upstream route, authorized recipient/domain policy, public hostname, working forward/reverse DNS, a verified certificate and inbound/outbound TCP 25. Size storage for the maximum queue age and optional replicas.
+
+The optional [AppArmor hardening profile](../deploy/hardening/README.md#local-sockets-across-service-mount-namespaces) also requires a parser and kernel that support scoped disconnected socket paths. A distribution or parser version alone does not prove that capability. Validate the profile on the installed system before committing its hardening transaction; an unsupported profile must not be replaced by weaker isolation.
 
 1. Download the matching archive and `.sha256` file from a specific [NoiseFence release](https://github.com/crdffrance/NoiseFence/releases). Check the outer SHA-256 and [exact workflow/tag/commit attestation](release-staging.md#verify-before-a-first-installation) before extracting, then the archive's `SHA256SUMS` before installation. Historical releases without this proof cannot satisfy the strict provenance path.
 2. Copy `config/production.example.toml` to a private installation file. Set the actual hostname, domain and recipients, explicit next hops, certificate/key paths and console HTTPS origin. Keep `filter.mode = "observe"`. No catch-all is enabled by default.
@@ -120,7 +123,7 @@ Verify certificate validation, authorized recipients, relay-loop prevention, ret
 
 Build or install a specific release, retain its checksum and preserve current state. Stop the old process cleanly before replacing it. Check configuration, API health, SMTP readiness, queue age, pending deliveries, replication acknowledgements and upstream errors after restart.
 
-Start with the [paired upgrade checklist and read-only reports](paired-upgrades.md). On paired MX deployments, upgrade the coordinator first within the documented compatibility window and a rehearsed procedure, then workers. A temporary peer outage deliberately produces `451`; it must not fall back to one copy. Preserve the five-day retry responsibility and all accepted bodies.
+Start with the [paired upgrade checklist and read-only reports](paired-upgrades.md). A pair using selected PostgreSQL management requires coordinated maintenance and the same exact application build on both nodes. Reserve the pair, hold normal writers, validate both candidates, and complete the durable two-node activation protocol before resuming normal operation. Do not use a rolling mixed-build upgrade or the standalone installer on this authority. A temporary peer outage deliberately produces `451`; it must not fall back to one copy. Preserve the five-day retry responsibility and all accepted bodies.
 
 The archive declares maximum local format 7: paired replication uses format 5, management transport format 6, and selected PostgreSQL management format 7. A format number alone does not establish cluster or management compatibility. Never restore an old database over current accepted mail or downgrade past the recorded schema/policy compatibility. Binary rollback, restoring a Web policy revision and disaster recovery are different operations. Keep the previous verified release, current backups and the [HA recovery procedure](high-availability.md) available before upgrading.
 
@@ -130,7 +133,7 @@ After sign-in, the sidebar shows the running API version, serving node and abbre
 
 Administrators can open **Software updates** and choose **Check for updates**. Optionally enable automatic checks in this browser while the console is open and visible. The preference is local to that browser and account; no unattended server scheduler is installed. The Rust API contacts the fixed public [GitHub latest-release endpoint](https://docs.github.com/en/rest/releases/releases#get-the-latest-release), without credentials or message content. Checks have a five-second deadline, a 128 KiB response limit, no redirects, and a six-hour cache including failures. Only stable published `vX.Y.Z` releases are compared. Failure or absence of a release means unknown, never "up to date". Matching version numbers do not prove that a custom build matches the published artifact.
 
-There is no install or restart endpoint. Installation stays with the server operator. A future unattended updater must first provide authenticated release artifacts, version/schema compatibility checks, a backup and tested rollback policy, and a cluster-wide deployment lock. Drain and update one MX at a time; verify SMTP readiness and replication before moving to the other. With two required durable copies, SMTP may temporarily defer new mail while either MX restarts. Never reduce this guarantee to make an update appear uninterrupted. Database migrations require their own recovery procedure; swapping the binary does not undo them.
+There is no install or restart endpoint. Installation stays with the server operator. Any future unattended updater must preserve authenticated release artifacts, version/schema compatibility checks, backups, qualified rollback and the cluster-wide maintenance reservation. For selected PostgreSQL management, it must follow the same coordinated two-node protocol; a successful check on one node does not authorize restarting either node independently. Verify both runtimes, fresh policy synchronization and replication before releasing normal writers and auxiliary jobs. With two required durable copies, SMTP may temporarily defer new mail while either MX is unavailable. Never reduce this guarantee to make an update appear uninterrupted. Database migrations require their own recovery procedure; swapping the binary does not undo them.
 
 ## Remove the native service while preserving data
 

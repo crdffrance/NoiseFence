@@ -4,8 +4,11 @@
 
 The repository uses `master`, descriptive commits and annotated tags `vMAJOR.MINOR.PATCH`. Unsuffixed tags are the final releases; `-dev.N` and `-rc.N` are prereleases. The project remains in 0.x. An incompatible change requires a minor version as long as the project remains in 0.x; a compatible correction requires a patch version. The changelog specifies migrations and limits.
 
+On a review branch, select a new, unpublished version in `NOISEFENCE_RELEASE_VERSION`. Check existing tags and releases first; do not reuse a published version.
+
 ```sh
-python3 scripts/version.py --set 0.29.4
+: "${NOISEFENCE_RELEASE_VERSION:?Set the new unpublished release version}"
+python3 scripts/version.py --set "$NOISEFENCE_RELEASE_VERSION"
 # Update the corresponding section of CHANGELOG.md.
 python3 scripts/version.py --check
 cargo fmt --check
@@ -13,7 +16,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Also check the console as indicated in CONTRIBUTING.md. Merge changes into the protected default branch after CI passes, then create and push the corresponding annotated tag from that merged commit. The `scripts/version.py --check --tag v0.29.4` command refuses a different tag from the manifest version.
+Also check the console as indicated in CONTRIBUTING.md. Merge changes into the protected default branch after CI passes, then create and push the corresponding annotated tag from that merged commit. The `scripts/version.py --check --tag "v${NOISEFENCE_RELEASE_VERSION}"` command refuses a different tag from the manifest version.
 
 The `release.yml` workflow compiles into a Rust Bookworm image identified by its digest, on x86-64 and ARM64. It assembles binary, static frontend, licenses, examples, and documentation, then prepares a GitHub Release with the SHA-256 checksums. The workflow also calls the complete `check.yml` suite on the same tag; failure prohibits publication. Tests use `cargo test --release`, with the same profile as the distributed binary. This profile also avoids [gemm-f16's debug ARM64 compilation issue](https://github.com/sarah-quinones/gemm/issues/31). The main CI also checks the multilingual engine on an ARM64 runner. The exact sources are accessible from the release tag. Reports, trained models, keys and server-specific configurations remain outside Git, with the exception of explicitly versioned aggregated research reports.
 
@@ -30,15 +33,21 @@ using this workflow must qualify the complete attestation path.
 Unsuffixed versions become stable releases; suffixed versions remain prereleases.
 
 Release publication is triggered by a pushed tag, not by an ordinary commit to
-`master`. A successful branch build alone does not create a release. For example:
+`master`. A successful branch build alone does not create a release. From the clean checkout of the verified merged commit, re-read the version and create the new tag. Inspect local and remote tags and the release page before this step; if the version already exists, inspect its publication instead of moving the tag.
 
 ```sh
-git tag -a v0.29.4 -m "NoiseFence v0.29.4"
-git push origin v0.29.4
+set -eu
+NOISEFENCE_RELEASE_VERSION="$(python3 scripts/version.py)"
+python3 scripts/version.py --check --tag "v${NOISEFENCE_RELEASE_VERSION}"
+git fetch origin master --tags
+git merge-base --is-ancestor HEAD origin/master
+test -z "$(git status --porcelain)"
+git tag -a "v${NOISEFENCE_RELEASE_VERSION}" HEAD -m "NoiseFence v${NOISEFENCE_RELEASE_VERSION}"
+git push origin "v${NOISEFENCE_RELEASE_VERSION}"
 ```
 
 For a transient infrastructure failure, re-run the failed jobs in Actions, or run
-`gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.4`.
+`gh workflow run release.yml --repo crdffrance/NoiseFence --ref "v${NOISEFENCE_RELEASE_VERSION}"`. Set this variable to the exact existing version being resumed. Do not restart a healthy run.
 Manual dispatch must run on the version tag itself. Running it on a branch is
 refused before checkout. There is no alternate source-tag input: the workflow,
 validation, build and publication all use the immutable event commit. Preflight
@@ -285,7 +294,10 @@ Its summary checks the generator and service hashes against the candidate archiv
 requires the same renderer as the full pair, checks both socket outcomes and cleanup,
 and records the fixed probe binary digest. A missing or inconsistent boundary report
 prevents a confinement qualification. The full paired canary and runtime checks
-remain mandatory.
+remain mandatory. The historical upgrade and retained-release roundtrip
+both run with enforcement enabled. The retained validation process and the
+restarted retained daemon must each match the old archive's binary hash on both
+nodes; a successful current-version process cannot substitute for this evidence.
 
 This short diagnostic helps locate policy failures without rebuilding every
 optimized Rust integration test. It does not replace the required exact-archive

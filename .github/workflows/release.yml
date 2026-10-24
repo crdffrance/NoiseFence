@@ -132,6 +132,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           GH_TOKEN: ${{ github.token }}
+          NOISEFENCE_REHEARSAL_APPARMOR: '1'
         run: |
           version=$(python3 scripts/version.py)
           sh scripts/check_release_lifecycle.sh "$PLATFORM" "release/noisefence-$version-$PLATFORM.tar.gz" var/release-rehearsal/fixture-retained var/release-rehearsal/results-retained retained

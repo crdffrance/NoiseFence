@@ -135,6 +135,8 @@ def run(args):
             '--old-archive', str(args.old_archive.resolve()), '--new-archive', str(args.new_archive.resolve()),
             '--archive-candidate', '--image', args.image, '--platform', args.platform,
             '--fixture', str(args.fixture.resolve()), '--output', str(output), '--apparmor-profile', name]
+        if getattr(args, 'require_retained_activation', False):
+            arguments.append('--require-retained-activation')
         subprocess.run(arguments, timeout=1800, check=True,
             env={'PATH':PATH, 'HOME':str(evidence), 'LANG':'C', 'PYTHONDONTWRITEBYTECODE':'1'})
         proof['status'] = 'passed'
@@ -160,6 +162,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image',required=True)
     parser.add_argument('--platform',required=True,choices=['linux/amd64','linux/arm64'])
+    parser.add_argument('--require-retained-activation', action='store_true',
+                        help='Require the retained runtime roundtrip under the same confinement')
     for name in ('old-archive','new-archive','fixture','output','evidence'):
         parser.add_argument('--'+name,required=True,type=Path)
     args = parser.parse_args();os.umask(0o077)
