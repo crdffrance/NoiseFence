@@ -234,6 +234,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.runner == 'ubuntu-24.04-arm' && 'linux-arm64' || 'linux-amd64' }}
           GH_TOKEN: ${{ github.token }}
+          NOISEFENCE_REHEARSAL_APPARMOR: '1'
         run: |
           version=$(python3 scripts/version.py)
           sh scripts/check_release_lifecycle.sh "$PLATFORM" "release/noisefence-$version-$PLATFORM.tar.gz" var/native-rehearsal/fixture var/native-rehearsal/results

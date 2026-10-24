@@ -81,6 +81,41 @@ class RehearsalTests(unittest.TestCase):
         self.assertNotIn('never upload',json.dumps(result))
         self.assertNotIn('final_state',result); self.assertNotIn('accepted',result)
 
+    def test_unconfined_reports_make_no_confinement_claim(self):
+        self.assertEqual(self.summarize()['confinement'], {'status':'not_exercised'})
+
+    def test_confinement_needs_source_binding_both_canaries_runtimes_and_cleanup(self):
+        name = 'noisefence-test-0123456789ab'
+        binary = 'a'*64; generator = 'b'*64
+        files = {'noisefence':binary,'deploy/hardening/isolation.py':generator}
+        runtime = {'profile':name,'process_profile':name+' (enforce)','mode':'enforce','binary_sha256':binary}
+        paired = {'apparmor_profile':name,'confinement_scope':'named_profile_enforcement_with_dac_canary',
+            'platform':'linux/arm64','checks':[],
+            'final_running':{node:{'confinement':dict(runtime)} for node in ('mx1','mx2')}}
+        for node in ('mx1','mx2'):
+            paired['checks'].extend([
+                {'check':'apparmor_canary_enforced','node':node,'profile':name,
+                 'allowed_configuration':True,'unconfined_canary_read':True,'confined_canary_denied':True},
+                {'check':'candidate_apparmor_enforced','node':node,**runtime}])
+        proof = {'schema':'noisefence-confinement-rehearsal-1','status':'passed','profile':name,
+            'profile_removed':True,'production_affected':False,'platform':'linux/arm64',
+            'profile_sha256':'c'*64,'generator_sha256':generator,'renderer_sha256':'d'*64}
+        folder = self.root/'apparmor';folder.mkdir()
+        path = folder/'confinement.json';path.write_text(json.dumps(proof))
+        self.assertEqual(rehearsal.confinement_summary(self.root,paired,files)['status'],'enforced')
+        for key,value in [('profile_removed',False),('profile','other'),('generator_sha256','e'*64),
+                          ('profile_sha256','bad'),('status','failed'),('platform','linux/amd64')]:
+            path.write_text(json.dumps({**proof,key:value}))
+            with self.subTest(key=key),self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,paired,files)
+        path.write_text(json.dumps(proof))
+        for change in ('canary','candidate','final'):
+            altered = copy.deepcopy(paired)
+            if change == 'canary':altered['checks'][0]['confined_canary_denied'] = False
+            if change == 'candidate':altered['checks'][1]['binary_sha256'] = 'f'*64
+            if change == 'final':altered['final_running']['mx2']['confinement']['mode'] = 'complain'
+            with self.subTest(change=change),self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,altered,files)
+        with self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,{},files)
+
     def test_failed_partial_wrong_platform_and_local_binary_runs_are_refused(self):
         original = copy.deepcopy(self.paired)
         for key,value in [('status','failed'),('cleanup',False),('candidate_mode','local_binary'),

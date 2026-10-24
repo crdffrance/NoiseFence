@@ -306,6 +306,49 @@ records the exact candidate binary and the individual validation, activation and
 completion checks; it does not qualify another build or post-start downgrade.
 Keep these results distinct from the broader release gates.
 
+### Optional enforced AppArmor rehearsal
+
+The CI native lifecycle jobs on ephemeral GitHub-hosted Linux runners set
+`NOISEFENCE_REHEARSAL_APPARMOR=1`. Their controller generates the daemon policy in
+an isolated container, loads a unique policy with `--add` (never `--replace`),
+runs the paired lifecycle and verifies both container removal and profile removal.
+It refuses self-hosted runners and missing AppArmor support instead of reporting a
+skip as success. The anonymous qualification receipt binds the policy generator
+to the candidate archive and includes confinement digests only after both nodes'
+canaries and real process checks pass. A failed or interrupted run remains failed.
+
+The default manual Docker fixture does not establish AppArmor coverage. On a disposable
+Linux host with AppArmor enabled, the optional `--apparmor-profile` mode requires
+actual enforcement for both normal daemons and the reserved validation candidate.
+Use a unique `noisefence-test-` name followed by 12 lowercase hex digits. Never load
+these test policies on a production host or replace an existing profile.
+
+`tests/render_apparmor_fixture.py --name NAME` renders only the daemon profile from
+this checkout, changing its profile name and self-signal peer while preserving its
+allowed paths. Run that source-controlled generator inside an isolated, non-root,
+network-disabled fixture with read-only source. It does not load kernel policy.
+Record the exact source and resulting profile digest. On the disposable host,
+`apparmor_parser --add --skip-cache PROFILE` must successfully add the generated
+profile in enforce mode before starting the fixture. A missing profile is a failure,
+not a skipped check. The parser's [add/remove and no-cache options](https://manpages.ubuntu.com/manpages/noble/man8/apparmor_parser.8.html)
+are documented by Ubuntu.
+
+Add `--apparmor-profile NAME` to the paired command above. The fixture first proves
+that its ordinary user can read a synthetic configuration outside the allowed
+paths without AppArmor, that the normal configuration still works under the named
+profile, and that AppArmor denies the outside configuration. It then checks the
+running process profile and exact executable hash during normal readiness and
+candidate validation. A configured unit alone, complain mode, a generic startup
+error or the wrong binary cannot satisfy these assertions.
+
+Wait for fixture processes and both containers to stop before removing only the
+newly created policy with `apparmor_parser --remove --skip-cache PROFILE`. Preserve
+failures and verify removal. This mode never changes production profiles. Its
+scope is the tested named AppArmor policy on synthetic mail and state; it does not
+qualify other security drop-ins, live models, arbitrary kernels, production traffic
+or a complete production rollback. A mode implemented in source is not evidence
+of a successful run on a future release; retain the native report separately.
+
 See [candidate runtime validation](maintenance-validation.md) for the explicit
 temporary mode that loads a reserved candidate without starting normal mail or
 administrative services. Its probe readiness is separate from normal SMTP and
