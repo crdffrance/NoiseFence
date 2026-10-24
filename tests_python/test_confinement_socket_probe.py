@@ -34,7 +34,7 @@ class SocketProbeTests(unittest.TestCase):
                     probe.run(SimpleNamespace())
                 command.assert_not_called()
 
-    def exercise(self, confined_result):
+    def exercise(self, confined_result, service_confined=None):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);binary=root/'probe';binary.write_bytes(b'synthetic-never-executed')
             args=SimpleNamespace(binary=binary,image='synthetic',output=root/'result')
@@ -65,7 +65,9 @@ class SocketProbeTests(unittest.TestCase):
                  patch.object(probe.confined,'policy',return_value=b'synthetic profile'), \
                  patch.object(probe.confined,'command',side_effect=command), \
                  patch.object(probe.confined,'collect_denials',return_value='unavailable'), \
-                 patch.object(probe.subprocess,'run',side_effect=[SimpleNamespace(stdout=b'query_ok',returncode=0),confined_result]), \
+                 patch.object(probe.subprocess,'run',side_effect=[SimpleNamespace(stdout=b'query_ok',returncode=0),confined_result,
+                     SimpleNamespace(stdout=b'query_ok',returncode=0),
+                     service_confined or SimpleNamespace(stdout=b'query_ok',returncode=0)]), \
                  contextlib.redirect_stdout(io.StringIO()):
                 code=probe.run(args)
             result=json.loads((args.output/'probe.json').read_text())
@@ -87,6 +89,32 @@ class SocketProbeTests(unittest.TestCase):
         code,result=self.exercise(SimpleNamespace(stdout=b'permission_denied',stderr=b'PRIVATE',returncode=1))
         self.assertEqual(code,1);self.assertEqual(result['status'],'failed')
         self.assertEqual(result['confined'],'permission_denied')
+
+    def test_service_namespace_refusal_is_visible_even_when_runuser_queries_succeed(self):
+        code,result=self.exercise(SimpleNamespace(stdout=b'query_ok',returncode=0),
+                                 SimpleNamespace(stdout=b'permission_denied',returncode=1))
+        self.assertEqual(code,1)
+        self.assertEqual(result['unconfined'],result['confined'])
+        self.assertEqual(result['service_context'],{'unconfined':'query_ok','confined':'permission_denied'})
+
+    def test_service_context_copies_shipped_hardening_and_refuses_unknown_changes(self):
+        raw=(ROOT/'deploy/noisefence.service').read_text()
+        properties=probe.service_properties(raw)
+        self.assertIn('PrivateTmp=true',properties)
+        self.assertIn('ProtectSystem=strict',properties)
+        self.assertIn('NoNewPrivileges=true',properties)
+        self.assertIn('RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK',properties)
+        for mode in ('unconfined','confined'):
+            command=probe.service_command('synthetic',mode,'test-profile','/opt/noisefence/probe',properties)
+            self.assertEqual(command[-2:],['--','/opt/noisefence/probe'])
+            self.assertIn('--wait',command);self.assertIn('--collect',command)
+            self.assertIn('--property=TimeoutStartSec=8s',command)
+            self.assertEqual('--property=AppArmorProfile=test-profile' in command,mode=='confined')
+            for item in properties:self.assertIn('--property='+item,command)
+        for changed in (raw.replace('PrivateTmp=true','PrivateTmp=true\nPrivateDevices=true'),
+                        raw.replace('PrivateTmp=true',''),raw.replace('User=noisefence','User=root')):
+            with self.assertRaises(RuntimeError):probe.service_properties(changed)
+        with self.assertRaises(RuntimeError):probe.service_command('synthetic','invalid','x','y',[])
 
     def test_workflow_diagnostic_is_separate_from_required_exact_archive_checks(self):
         diagnostic=(ROOT/'.github/workflows/confinement-probe.yml').read_text()

@@ -224,7 +224,11 @@ models, provider consent or MX routing.
 The `confinement socket probe` workflow performs a fixed, peer-authenticated
 `SELECT 1` over the local PostgreSQL Unix socket, with and without the same
 AppArmor policy. Its PostgreSQL container has no external network route and no
-production credentials. The query program emits only fixed result categories.
+production credentials. It compares direct invocations and bounded systemd
+oneshot services that copy the shipped daemon's identity and isolation
+properties. Both contexts are tested with and without AppArmor. Unknown service
+properties stop the diagnostic until reviewed; it never starts the mail daemon
+or changes its policy. The query program emits only fixed result categories.
 Kernel diagnostics inspect both the journal and ring buffer, retain only the
 unique test profile's denials privately, and publish only resource categories.
 The probe removes its container before removing its own profile.

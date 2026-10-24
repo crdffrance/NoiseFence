@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'deploy/hardening/**'
+      - 'deploy/noisefence.service'
       - 'tests/confinement_socket_probe.py'
       - 'tests/confined_paired_release.py'
       - 'tests/fixtures/postgres_socket_probe.rs'
@@ -11,6 +12,7 @@ on:
   pull_request:
     paths:
       - 'deploy/hardening/**'
+      - 'deploy/noisefence.service'
       - 'tests/confinement_socket_probe.py'
       - 'tests/confined_paired_release.py'
       - 'tests/fixtures/postgres_socket_probe.rs'
@@ -41,7 +43,7 @@ jobs:
           mkdir -p var/confinement-socket
           rustc --edition=2024 tests/fixtures/postgres_socket_probe.rs -o var/confinement-socket/probe
           docker build --file tests/fixtures/paired.Dockerfile --tag nf-confinement-socket .
-      - name: Compare the same query with and without AppArmor
+      - name: Compare direct and systemd queries with and without AppArmor
         run: python3 tests/confinement_socket_probe.py --binary var/confinement-socket/probe --image nf-confinement-socket --output var/confinement-socket/result
       - name: Retain anonymous diagnostic result only
         if: always()

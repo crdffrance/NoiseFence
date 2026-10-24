@@ -5,6 +5,7 @@ This uses no production state, network route, credentials or candidate mail.
 A successful socket probe cannot qualify a complete archive or migration.
 """
 import argparse
+import configparser
 import hashlib
 import json
 import os
@@ -25,20 +26,67 @@ def classify(result):
     return text
 
 
+# Copy the actual shipped daemon isolation properties. Runtime commands and
+# restart behavior differ because this is a bounded, read-only oneshot probe.
+SERVICE_CONTEXT = frozenset({
+    'User', 'Group', 'WorkingDirectory', 'StateDirectory', 'StateDirectoryMode',
+    'UMask', 'AmbientCapabilities', 'CapabilityBoundingSet', 'NoNewPrivileges',
+    'ProtectSystem', 'ProtectHome', 'PrivateTmp', 'ProtectKernelTunables',
+    'ProtectKernelModules', 'ProtectControlGroups', 'RestrictSUIDSGID',
+    'RestrictAddressFamilies', 'LockPersonality', 'MemoryDenyWriteExecute',
+    'LimitNOFILE', 'MemoryMax',
+})
+PROBE_OVERRIDES = frozenset({
+    'Type', 'EnvironmentFile', 'Environment', 'ExecStartPre', 'ExecStart',
+    'Restart', 'RestartSec', 'TimeoutStopSec',
+})
+
+
+def service_properties(raw):
+    unit = configparser.RawConfigParser(interpolation=None, strict=True)
+    unit.optionxform = str
+    unit.read_string(raw)
+    values = dict(unit.items('Service'))
+    confined.require(set(values) == SERVICE_CONTEXT | PROBE_OVERRIDES,
+                     'Review changed daemon service properties before probing')
+    confined.require(values['User'] == values['Group'] == 'noisefence'
+                     and values['WorkingDirectory'] == '/opt/noisefence',
+                     'Unexpected daemon identity or working directory')
+    return [key+'='+values[key] for key in sorted(SERVICE_CONTEXT)]
+
+
+def service_command(container, mode, profile, binary, properties):
+    confined.require(mode in ('unconfined', 'confined'), 'Invalid diagnostic mode')
+    command = ['docker', 'exec', container, 'systemd-run', '--quiet', '--wait',
+               '--pipe', '--collect', '--unit=noisefence-socket-'+mode,
+               '--service-type=oneshot', '--property=TimeoutStartSec=8s',
+               '--property=RuntimeMaxSec=8s', '--property=Restart=no']
+    for item in properties:
+        command += ['--property='+item]
+    if mode == 'confined':
+        command += ['--property=AppArmorProfile='+profile]
+    return command + ['--', binary]
+
+
 def run(args):
     confined.require(sys.platform == 'linux' and os.environ.get('GITHUB_ACTIONS') == 'true'
         and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
         and os.environ.get('RUNNER_OS') == 'Linux', 'Use only an ephemeral GitHub-hosted Linux runner')
     confined.require(Path('/sys/module/apparmor/parameters/enabled').read_text().strip() == 'Y',
                      'The runner kernel does not enable AppArmor')
+    service_raw=(confined.SOURCE/'deploy/noisefence.service').read_text()
+    properties=service_properties(service_raw)
     root=args.output.resolve();root.mkdir(mode=0o700,parents=True,exist_ok=False)
     identity=uuid.uuid4().hex; name='nf-pg-probe-'+identity[:12]; profile='noisefence-test-'+identity[:12]
     raw=confined.policy(args.image,profile); policy=root/'profile';policy.write_bytes(raw);policy.chmod(0o600)
-    proof={'schema':'noisefence-postgres-confinement-probe-1','status':'running',
+    proof={'schema':'noisefence-postgres-confinement-probe-2','status':'running',
            'scope':'fixed_peer_authenticated_socket_query_only','production_affected':False,
            'binary_sha256':hashlib.sha256(args.binary.read_bytes()).hexdigest(),
            'profile_sha256':hashlib.sha256(raw).hexdigest(),'unconfined':None,'confined':None,
-           'container_removed':False,'profile_removed':False}
+           'container_removed':False,'profile_removed':False,
+           'service_sha256':hashlib.sha256(service_raw.encode()).hexdigest(),
+           'service_context':{'unconfined':None,'confined':None},
+           'service_probe_scope':'same_identity_and_isolation_read_only_oneshot_no_daemon_start'}
     confined.require(not any(x.split(' ',1)[0]==profile for x in confined.profiles()),'Profile already exists')
     loaded=False;created=False
     def docker(*cmd,timeout=30):return confined.command('docker',*cmd,timeout=timeout)
@@ -71,12 +119,17 @@ def run(args):
             command+=[directory+'/noisefence']
             result=subprocess.run(command,capture_output=True,timeout=12,env={'PATH':PATH,'LANG':'C'})
             proof[mode]=classify(result)
+        for mode in ('unconfined','confined'):
+            command=service_command(name,mode,profile,directory+'/noisefence',properties)
+            result=subprocess.run(command,capture_output=True,timeout=15,env={'PATH':PATH,'LANG':'C'})
+            proof['service_context'][mode]=classify(result)
         proof['denial_diagnostics']=confined.collect_denials(root,profile)
         from importlib.util import spec_from_file_location,module_from_spec
         spec=spec_from_file_location('rehearsal_diagnostics',confined.SOURCE/'scripts/rehearsal_diagnostics.py')
         module=module_from_spec(spec);spec.loader.exec_module(module)
         proof['denials']=module.denial_categories((root/'denials.log').read_text() if (root/'denials.log').exists() else '')
-        proof['status']='passed' if proof['unconfined']==proof['confined']=='query_ok' else 'failed'
+        checks=[proof['unconfined'],proof['confined'],*proof['service_context'].values()]
+        proof['status']='passed' if all(value=='query_ok' for value in checks) else 'failed'
     finally:
         if created:
             existing=set(docker('ps','-a','--format','{{.Names}}').decode().splitlines())
