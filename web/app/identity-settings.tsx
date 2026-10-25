@@ -540,8 +540,9 @@ export function IdentitySettings({
           These settings manage display-name observations. Use the directory
           section to collect and review identities from Entra ID, Google
           Workspace, Okta or AWS Identity Store. A connector becomes available
-          only after you configure authorized access. Active Directory and SCIM
-          collection are still under development.
+          only after you configure authorized access. Active Directory uses
+          signed imports; SCIM uses enrolled provisioning and reviewed inventories.
+          No provider is connected automatically.
         </p>
         <p>
           Domain authentication, relationship history and identity are separate

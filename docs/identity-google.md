@@ -3,8 +3,9 @@
 Status: native, read-only one-shot collection in development builds. Installing
 NoiseFence does not connect a Google customer. No live provider has been used in
 local validation. Optional [encrypted access](directory-credential-storage.md)
-can be retained for up to one hour. Scheduled refresh and delta collection are
-not implemented yet.
+can be retained for up to one hour. Optional scheduled collection requires a
+separate expiring administrator grant and stops when the saved token expires.
+Token renewal and delta collection are not implemented.
 
 The independent [automatic correspondent memory](contact-learning.md) learns
 recurrence from accepted authenticated messages without an identity provider.

@@ -99,8 +99,10 @@ access and durable reviewed candidates. A deterministic signature fixture was
 independently generated with botocore 1.42.59 using synthetic credentials and a
 fixed clock. No real AWS tenant validation or detection-rate claim follows from
 these tests. Saved AWS credentials are a new typed vault record: older builds
-cannot use them; downgrade with saved AWS access is not qualified. Delta reads, renewable workload access and provider protection-role
-editing remain future work.
+cannot use them; downgrade with saved AWS access is not qualified. Delta reads and
+renewable workload access remain future work. Local protection-role, group and
+delegation edits use the [reviewed source editor](identity-protection.md#protect-synchronized-identities);
+they do not modify AWS identities or renew the source's synchronization time.
 
 Protocol references: [ListUsers](https://docs.aws.amazon.com/singlesignon/latest/IdentityStoreAPIReference/API_ListUsers.html),
 [ListGroups](https://docs.aws.amazon.com/singlesignon/latest/IdentityStoreAPIReference/API_ListGroups.html),

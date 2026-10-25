@@ -49,7 +49,9 @@ New Web-created sources expire after 24 hours without a new completed collection
 An existing source keeps its authority, scopes and freshness settings; collection
 cannot rewrite them. Existing local protection assignments are preserved. A
 missing protected ID refuses preparation and requires explicit reconciliation.
-Provider role/delegation editing is not yet available in the console.
+Administrators can edit local protected roles, protected groups and sending
+delegations through the [reviewed source editor](identity-protection.md#protect-synchronized-identities).
+These assignments do not edit Okta data or renew the source's synchronization time.
 
 ![Reviewed Okta collection in the synthetic console](images/console-okta-sync.jpg)
 

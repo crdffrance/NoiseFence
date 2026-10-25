@@ -332,8 +332,8 @@ unfamiliar correspondent may be legitimate. Directory observations therefore do
 not authorize SMTP recipients, create console accounts, grant access, establish
 safe senders or override malware/authentication checks.
 
-The native observations will complement NoiseFence's HAM/PUB/SPAM decision.
-Rspamd remains an independent second opinion. Changes will start in observation;
+The native observations complement NoiseFence's HAM/PUB/SPAM decision.
+Rspamd remains an independent second opinion. Contributions default to observation;
 independent evaluation must precede any bounded contribution to the live score.
 
 ## Implemented foundation
@@ -351,7 +351,9 @@ Names and address collisions remain ambiguous, including collisions between
 sources. The in-memory publisher validates before atomically replacing its Arc;
 failed, stale-generation or partial input cannot erase the last good generation.
 Private persistence, authorized manual preparation and immutable policy artifacts
-use the existing activation gates. Scheduled provider jobs are not enabled. Corrupt/missing/stale data never proves spam or safety.
+use the existing activation gates. Optional scheduled collection requires a
+separate expiring grant; installing a connector does not enable a job.
+Corrupt/missing/stale data never proves spam or safety.
 
 The source-change preview flags removal or deactivation of at least 20% of active
 objects for review.
@@ -411,34 +413,43 @@ The example directory is synthetic and protects `Alice Finance` and `Finance
 Team`. Imported originals cannot supply trusted SMTP authentication. A detected
 name mismatch is a diagnostic signal, not a measured probability or live score.
 
-## Remaining delivery requirements
+## Evaluation, recovery and qualification
 
-1. Extend the implemented automatic inbound memory into a human-qualified,
-   reciprocal graph with installation-managed HMAC key lifecycle. Automatic
-   recurrence and per-message changes are implemented; outbound relationships
-   and graph exploration are not connected.
-2. Production key recovery and safe cleanup of unused prepared
-   catalogs. Manual preparation already uses the selected management authority,
-   audited operations and optimistic revision/digest checks. Immutable catalogs
-   already follow coordinated MX publication and activation.
-3. Extend the implemented Entra/Google/Okta/AWS scheduled Web collection with
-   renewable workload authorization and snapshot lifecycle; add verified delta persistence.
-   Qualify the [internal AD collector](identity-active-directory.md) against a real domain and qualify the reviewed [inbound SCIM](identity-scim.md) path with real provider mappings.
-   Bound pagination, time, response sizes and retries. Never publish a partially
-   fetched source. Never send credentials to a changed redirect/next-page host.
-4. Qualify the implemented [bounded identity contribution](identity-correlation.md)
-   on independent labels before activation. Automatic recurrence and current local
-   sensitive-request evidence are wired per recipient; human-qualified reciprocal
-   history remains separate work. Directory/network calls stay off the SMTP path.
-5. Authorized metadata connectors for otherwise invisible outbound/internal
-   relationships are optional, separately consented integrations. Do not claim
-   organization-wide Proton access from Bridge's IMAP/SMTP support.
-6. Temporal/campaign-separated evaluation, privacy/adversarial fixtures,
-   connector interoperability tests, two-node consistency, latency/coverage and
-   an independent false-positive/capture report. No efficacy claim yet.
+The [chronological replay](identity-evaluation.md) uses the same eligibility and
+assessment as SMTP, with separate labels and campaign-aware reports. Synthetic
+fixtures cover new legitimate contacts, forwarding, delegation, homonyms, supplier
+changes and compromised accounts. They also retain known false candidates and
+missed patterns. They do not establish production capture or false-positive rates.
+Qualify the proposed contribution on recent independent human labels before
+activating it. Recurrence alone never establishes trust.
 
-Console SSO (OIDC/SAML), identity-provider sign-in events and automatic response
-actions remain separate future extensions, as in the approved plan.
+The [vault recovery guide](directory-credential-storage.md#migration-backup-and-restore)
+and [memory-key guide](contact-memory-key.md) describe the implemented private
+backup and exact-key recovery checks. Exports include published keys and immutable
+catalogs and verify their selected-authority bindings. An offline archive check
+does not replace isolated PostgreSQL restoration, native authority verification or
+a site's recovery rehearsal. Console standby checkpoints are not installation-secret
+backups. Cleanup of unused prepared catalogs remains an explicit maintenance task.
+
+Before enabling provider access, qualify the intended tenant's permissions,
+complete mappings and interruption/retry behavior. The [internal AD collector](identity-active-directory.md)
+needs a real domain trial; the [SCIM profile](identity-scim.md) needs real provider
+mapping tests. Local fixtures prove the documented boundaries, not universal
+provider interoperability. Collection stays off the SMTP path and never activates
+a candidate automatically. The exact release must also pass the existing Linux
+installation, two-MX consistency and recovery checks.
+
+## Separately scoped extensions
+
+The implemented memory observes inbound mail visible to this gateway. A reciprocal
+contact graph, outbound/internal metadata connectors and graph exploration require
+separately authorized source data. Quoted headers and reply references cannot
+supply it; no organization-wide Proton visibility is implied by Bridge support.
+
+Delta synchronization, renewable workload authorization, additional directory
+providers, console SSO (OIDC/SAML), provider sign-in events and automatic response
+actions remain future extensions. They are not enabled by a directory import or
+by learning a recurring sender.
 
 ## Connector references
 
