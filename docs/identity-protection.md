@@ -16,6 +16,7 @@ the content index only after explicit configuration and reviewed activation.
 | Source freshness, search and people CSV import | Available; imported rows are reviewed before activation |
 | Protected names and expected sending domains | Separate domain-based check editor, with its own CSV format |
 | Immutable catalogs and per-recipient SMTP observations | Distributed with the versioned MX policy; displayed in message details |
+| Active Directory internal collection | Windows LDAPS/Kerberos collector, explicitly enrolled public key, signed export upload and reviewed activation; real AD qualification remains required |
 | Entra, Google Workspace, Okta and AWS Identity Store full directory collection | Read-only Web collection, optional encrypted access and expiring schedules; durable results require review |
 | Automatic correspondent memory | Recipient-scoped, retained SMTP observations with Web controls |
 | Corroborated identity contribution | Optional bounded, deduplicated content weight; observation by default |
@@ -375,7 +376,7 @@ name mismatch is a diagnostic signal, not a measured probability or live score.
    already follow coordinated MX publication and activation.
 3. Extend the implemented Entra/Google/Okta/AWS scheduled Web collection with
    renewable workload authorization and snapshot lifecycle; add verified delta persistence.
-   Implement an internal secure AD collector and inbound SCIM provisioning.
+   Qualify the [internal AD collector](identity-active-directory.md) against a real domain and implement inbound SCIM provisioning.
    Bound pagination, time, response sizes and retries. Never publish a partially
    fetched source. Never send credentials to a changed redirect/next-page host.
 4. Qualify the implemented [bounded identity contribution](identity-correlation.md)
@@ -410,3 +411,5 @@ does not synchronize an organization's people, aliases and group membership.
 Current local sensitive-request signals now feed directory checks and the separate
 [corroboration policy](identity-correlation.md). Automatic recurrence remains
 distinct from human-qualified or reciprocal relationships.
+
+Active Directory is available through a separate [signed internal collection workflow](identity-active-directory.md). The management server never opens LDAP connections. Public-key enrollment does not enable pull schedules.

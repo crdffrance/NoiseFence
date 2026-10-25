@@ -374,3 +374,10 @@ async fn sqlite_schedule_tampering_fails_closed_before_admission() {
         .await
         .unwrap();
 }
+#[path = "common/ad_connection_contract.rs"]
+mod ad_contract;
+#[tokio::test]
+async fn sqlite_ad_enrollment_survives_reload_and_requires_current_key_generation() {
+    let (root, store) = setup().await;
+    ad_contract::run(&store, root.path(), "a").await;
+}

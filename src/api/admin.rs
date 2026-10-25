@@ -32,6 +32,10 @@ pub(super) fn routes() -> Router<App> {
         )
         .route("/admin/identity", get(identity::view))
         .route("/admin/identity/prepare", post(identity::prepare))
+        .route(
+            "/admin/identity/sync/active_directory",
+            post(identity_connections::upload_ad),
+        )
         .route("/admin/identity/sync/entra", post(identity::synchronize))
         .route(
             "/admin/identity/sync/aws_identity_store",

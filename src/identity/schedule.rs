@@ -25,6 +25,10 @@ impl Grant {
     pub fn validate(&self, metadata: &Metadata) -> Result<()> {
         self.connection.validate()?;
         ensure!(
+            metadata.source.provider != super::directory::Provider::ActiveDirectory,
+            "AD public-key enrollment cannot authorize remote collection"
+        );
+        ensure!(
             self.protocol == PROTOCOL
                 && uuid(&self.id)
                 && self.connection.source_id == metadata.source.id

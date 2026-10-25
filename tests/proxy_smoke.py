@@ -69,6 +69,11 @@ for host in ('backend', 'nginx', 'caddy'):
         time.sleep(0.2)
 for proxy in ('nginx', 'caddy'):
     for path, size, expected in [('/api/v1/cluster/v1/sync', 262144, 200),
+                                 ('/api/v1/admin/identity/prepare', 16*1024*1024+65536, 200),
+                                 ('/api/v1/admin/identity/prepare', 18*1024*1024, 413),
+                                 ('/api/v1/admin/identity/sync/active_directory', 23*1024*1024+65536, 200),
+                                 ('/api/v1/admin/identity/sync/active_directory', 25*1024*1024, 413),
+                                 ('/api/v1/admin/identity/sync/active_directory/extra', 512*1024, 413),
                                  ('/api/v1/cluster/v2/sync', 262144, 200),
                                  ('/api/v1/cluster/v2/sync', 5*1024*1024, 413),
                                  ('/api/v1/cluster/v3/history', 3*1024*1024, 200),

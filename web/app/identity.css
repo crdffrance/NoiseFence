@@ -1203,5 +1203,15 @@
   min-width: 0;
 }
 @media (max-width: 700px) {
-  .identity-contribution-grid { grid-template-columns: minmax(0, 1fr); }
+  .identity-contribution-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.directory-key-fingerprint {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  margin-block: 0.5rem;
+  user-select: all;
 }

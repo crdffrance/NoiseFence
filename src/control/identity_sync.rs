@@ -5,7 +5,7 @@ use super::{
     identity::{PreparedDirectory, local_authorize},
 };
 use crate::identity::{
-    connectors::{aws, entra, google, okta},
+    connectors::{ad, aws, entra, google, okta},
     directory::{Provider, Source},
     management, runtime,
     sync::{self, Event, Failure, Outcome, Request},
@@ -15,6 +15,7 @@ use rusqlite::params;
 use serde::Serialize;
 use std::{collections::BTreeSet, sync::Arc};
 enum Collector {
+    Ad(Box<ad::VerifiedExport>),
     #[cfg(test)]
     Synthetic(tokio::sync::oneshot::Receiver<entra::Collected>),
     Aws(aws::Credentials),
@@ -239,12 +240,35 @@ impl Controller {
         )
         .await
     }
+    pub(super) async fn start_ad_directory_sync(
+        self: &Arc<Self>,
+        input: super::identity_connections::AdUpload,
+        source: Source,
+        export: ad::VerifiedExport,
+        actor: String,
+        session: String,
+    ) -> Result<Request> {
+        self.start_directory_sync(
+            export.id().into(),
+            input.revision,
+            input.catalog_sha256,
+            source,
+            Collector::Ad(Box::new(export)),
+            actor,
+            session,
+            Some(input.connection),
+        )
+        .await
+    }
     fn directory_collector(
         source: &Source,
         credential: crate::identity::connections::Credential,
     ) -> Result<Collector> {
         use crate::identity::connections::Credential;
         Ok(match credential {
+            Credential::AdCollectorPublicKey { .. } => {
+                anyhow::bail!("AD requires an internally collected signed export")
+            }
             Credential::AwsSession {
                 access_key_id,
                 secret_access_key,
@@ -429,6 +453,7 @@ impl Controller {
         tokio::spawn(async move {
             let result = tokio::time::timeout(std::time::Duration::from_secs(350), async {
                 let collection = async { match collector {
+                    Collector::Ad(export) => tokio::task::spawn_blocking(move || export.collect(generation, crate::now())).await.map_err(|_| anyhow::anyhow!("AD preparation worker failed")).and_then(|v|v),
                     #[cfg(test)]
                     Collector::Synthetic(receiver)=>receiver.await.context("Synthetic collector cancelled"),
                     Collector::Entra(credentials) => {

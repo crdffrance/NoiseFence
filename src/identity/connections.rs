@@ -35,6 +35,9 @@ impl Reference {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Credential {
+    AdCollectorPublicKey {
+        public_key: String,
+    },
     EntraApplication {
         client_id: String,
         client_secret: String,
@@ -56,6 +59,9 @@ impl Credential {
         #[derive(Serialize)]
         #[serde(tag = "kind", rename_all = "snake_case")]
         enum Wire<'a> {
+            AdCollectorPublicKey {
+                public_key: &'a str,
+            },
             EntraApplication {
                 client_id: &'a str,
                 client_secret: &'a str,
@@ -73,6 +79,7 @@ impl Credential {
             },
         }
         let wire = match self {
+            Self::AdCollectorPublicKey { public_key } => Wire::AdCollectorPublicKey { public_key },
             Self::EntraApplication {
                 client_id,
                 client_secret,
@@ -101,6 +108,14 @@ impl Credential {
             "Invalid directory credential lifetime"
         );
         let maximum = match self {
+            Self::AdCollectorPublicKey { public_key } => {
+                ensure!(
+                    source.provider == Provider::ActiveDirectory,
+                    "Credential provider mismatch"
+                );
+                connectors::ad::PublicKey::new(&source.authority, public_key)?;
+                90 * 86400
+            }
             Self::AwsSession {
                 access_key_id,
                 secret_access_key,
@@ -202,11 +217,18 @@ impl Metadata {
         ensure!(
             matches!(
                 self.source.provider,
-                Provider::Entra | Provider::Google | Provider::Okta | Provider::AwsIdentityStore
+                Provider::Entra
+                    | Provider::Google
+                    | Provider::Okta
+                    | Provider::AwsIdentityStore
+                    | Provider::ActiveDirectory
             ),
             "Unsupported stored directory provider"
         );
-        if self.source.provider != Provider::Entra {
+        if !matches!(
+            self.source.provider,
+            Provider::Entra | Provider::ActiveDirectory
+        ) {
             ensure!(
                 self.expires - self.created <= 3600,
                 "Stored access token lifetime exceeds one hour"

@@ -16,7 +16,66 @@ import {
   type SourceStatus,
   type DirectoryPrepared,
 } from './directory';
-type SyncProvider = 'entra' | 'okta' | 'google' | 'aws_identity_store';
+type SyncProvider =
+  | 'entra'
+  | 'okta'
+  | 'google'
+  | 'aws_identity_store'
+  | 'active_directory';
+export function adFormError(
+  source: Source,
+  domains: string[],
+  publicKey: string,
+) {
+  const [domain, guid, extra] = source.authority.split(':');
+  const host =
+    (domain ?? '').length <= 253 &&
+    (domain ?? '').includes('.') &&
+    (domain ?? '')
+      .split('.')
+      .every((l) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(l));
+  return source.provider !== 'active_directory'
+    ? 'Choose an Active Directory source.'
+    : sourceError({ ...source, provider: 'manual' }, domains) ||
+        (!host ||
+        extra !== undefined ||
+        !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(guid ?? '') ||
+        guid === '00000000-0000-0000-0000-000000000000'
+          ? 'Enter the AD DNS domain and its objectGUID, separated by a colon.'
+          : !/^B[A-P][A-Za-z0-9+/]{85}=$/.test(publicKey)
+            ? 'Enter the 88-character base64 P-256 public key from the internal collector. Never upload the private key.'
+            : null);
+}
+export function parseAdEnvelope(text: string) {
+  if (new TextEncoder().encode(text).length > 23 * 1024 * 1024)
+    throw new Error('Signed AD export exceeds 23 MiB.');
+  const v = JSON.parse(text);
+  if (
+    !v ||
+    typeof v !== 'object' ||
+    Array.isArray(v) ||
+    Object.keys(v).sort().join(',') !==
+      'id,key_id,payload,protocol,signature' ||
+    v.protocol !== 'noisefence-ad-export-1' ||
+    typeof v.id !== 'string' ||
+    !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(v.id) ||
+    v.id === '00000000-0000-0000-0000-000000000000' ||
+    typeof v.key_id !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(v.key_id) ||
+    typeof v.payload !== 'string' ||
+    typeof v.signature !== 'string'
+  )
+    throw new Error(
+      'Select an unmodified signed export from the internal AD collector.',
+    );
+  return v as {
+    protocol: string;
+    id: string;
+    key_id: string;
+    payload: string;
+    signature: string;
+  };
+}
 export function awsFormError(
   source: Source,
   domains: string[],
@@ -226,6 +285,10 @@ export function DirectorySync({
     [client, setClient] = useState(''),
     [secret, setSecret] = useState(''),
     [sessionToken, setSessionToken] = useState(''),
+    [adUpload, setAdUpload] = useState<SavedConnection | null>(null),
+    [adFile, setAdFile] = useState<File | null>(null),
+    [adFileEpoch, setAdFileEpoch] = useState(0),
+    [fingerprintResult, setFingerprint] = useState({ key: '', value: '' }),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [pollError, setPollError] = useState(''),
@@ -279,19 +342,28 @@ export function DirectorySync({
     stale_after_seconds: 86400,
   };
   const problem =
-    (provider === 'entra'
-      ? entraFormError(source, domains, client, secret)
-      : provider === 'google'
-        ? googleFormError(source, domains, secret)
-        : provider === 'aws_identity_store'
-          ? awsFormError(source, domains, client, secret, sessionToken)
-          : oktaFormError(source, domains, secret)) ||
+    (provider === 'active_directory'
+      ? adFormError(source, domains, secret)
+      : provider === 'entra'
+        ? entraFormError(source, domains, client, secret)
+        : provider === 'google'
+          ? googleFormError(source, domains, secret)
+          : provider === 'aws_identity_store'
+            ? awsFormError(source, domains, client, secret, sessionToken)
+            : oktaFormError(source, domains, secret)) ||
     (!selected && sources.some((s) => s.source.id === sourceId)
       ? 'This source ID already exists. Select the installed source or use a new ID.'
       : null);
+  const fingerprint =
+    provider === 'active_directory' && fingerprintResult.key === secret
+      ? fingerprintResult.value
+      : '';
   const saveProblem =
     problem ||
     connectionLifetimeError(provider, lifetime) ||
+    (provider === 'active_directory' && !/^[0-9a-f]{64}$/.test(fingerprint)
+      ? 'Wait for the public-key fingerprint before enrollment.'
+      : null) ||
     (!saved
       ? 'Reload saved access before saving.'
       : !editingAccess &&
@@ -317,8 +389,35 @@ export function DirectorySync({
     sourceId ||
     label ||
     tenant ||
-    scheduleDraft
+    scheduleDraft ||
+    adUpload
   );
+  useEffect(() => {
+    let current = true;
+    if (
+      provider === 'active_directory' &&
+      /^B[A-P][A-Za-z0-9+/]{85}=$/.test(secret)
+    ) {
+      const data = Uint8Array.from(atob(secret), (c) => c.charCodeAt(0));
+      void crypto.subtle
+        .digest('SHA-256', data)
+        .then((hash) => {
+          if (current)
+            setFingerprint({
+              key: secret,
+              value: Array.from(new Uint8Array(hash), (b) =>
+                b.toString(16).padStart(2, '0'),
+              ).join(''),
+            });
+        })
+        .catch(() => {
+          if (current) setFingerprint({ key: secret, value: 'Unavailable' });
+        });
+    }
+    return () => {
+      current = false;
+    };
+  }, [provider, secret]);
   useEffect(() => {
     onDirty(dirty);
     return () => onDirty(false);
@@ -387,7 +486,7 @@ export function DirectorySync({
     setEditingAccess(null);
     setExisting('');
     setOpen(false);
-    setRetain(false);
+    setRetain(provider === 'active_directory');
   }
   function rememberJob(operation: string) {
     setJobId(operation);
@@ -422,6 +521,41 @@ export function DirectorySync({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      setBusy(false);
+    }
+  }
+  async function uploadAd() {
+    if (disabled || busy || !adUpload || !adFile) return;
+    setBusy(true);
+    setError('');
+    try {
+      if (adFile.size > 23 * 1024 * 1024)
+        throw new Error('Signed AD export exceeds 23 MiB.');
+      const envelope = parseAdEnvelope(await adFile.text());
+      rememberJob(envelope.id);
+      const result = await api<{ id: string }>(
+        '/admin/identity/sync/active_directory',
+        {
+          revision,
+          catalog_sha256: installed,
+          connection: {
+            source_id: adUpload.source.id,
+            generation: adUpload.generation,
+          },
+          envelope,
+        },
+        user.csrf,
+      );
+      if (result.id !== envelope.id)
+        throw new Error(
+          'Unexpected collection receipt. Reload status before retrying.',
+        );
+      setAdUpload(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAdFile(null);
+      setAdFileEpoch((n) => n + 1);
       setBusy(false);
     }
   }
@@ -514,26 +648,28 @@ export function DirectorySync({
             source,
             expires: Math.floor(Date.now() / 1000) + lifetime * 60,
             credential:
-              provider === 'entra'
-                ? {
-                    kind: 'entra_application',
-                    client_id: client,
-                    client_secret: credential,
-                  }
-                : provider === 'aws_identity_store'
+              provider === 'active_directory'
+                ? { kind: 'ad_collector_public_key', public_key: credential }
+                : provider === 'entra'
                   ? {
-                      kind: 'aws_session',
-                      access_key_id: client,
-                      secret_access_key: credential,
-                      session_token: temporaryToken,
+                      kind: 'entra_application',
+                      client_id: client,
+                      client_secret: credential,
                     }
-                  : {
-                      kind:
-                        provider === 'google'
-                          ? 'google_access_token'
-                          : 'okta_access_token',
-                      access_token: credential,
-                    },
+                  : provider === 'aws_identity_store'
+                    ? {
+                        kind: 'aws_session',
+                        access_key_id: client,
+                        secret_access_key: credential,
+                        session_token: temporaryToken,
+                      }
+                    : {
+                        kind:
+                          provider === 'google'
+                            ? 'google_access_token'
+                            : 'okta_access_token',
+                        access_token: credential,
+                      },
           },
           user.csrf,
         );
@@ -559,7 +695,7 @@ export function DirectorySync({
     }
   }
   async function start() {
-    if (disabled || busy || problem) return;
+    if (disabled || busy || problem || provider === 'active_directory') return;
     setBusy(true);
     setError('');
     const operation = crypto.randomUUID();
@@ -622,7 +758,8 @@ export function DirectorySync({
           </h3>
           <p className="muted small">
             Collect identities from Microsoft Entra, Google Workspace, Okta or
-            AWS Identity Store. Review every candidate before activation.
+            AWS Identity Store, or import a signed Active Directory export.
+            Review every candidate before activation.
           </p>
         </div>
         <button
@@ -652,13 +789,21 @@ export function DirectorySync({
                 setProvider(e.target.value as SyncProvider);
                 setExisting('');
                 setEditingAccess(null);
-                setLifetime(e.target.value === 'entra' ? 1440 : 30);
+                setLifetime(
+                  ['entra', 'active_directory'].includes(e.target.value)
+                    ? 1440
+                    : 30,
+                );
+                setRetain(e.target.value === 'active_directory');
                 setTenant('');
                 setClient('');
                 setSecret('');
                 setSessionToken('');
               }}
             >
+              <option value="active_directory">
+                Active Directory — internal collector
+              </option>
               <option value="entra">Microsoft Entra ID</option>
               <option value="google">Google Workspace</option>
               <option value="okta">Okta</option>
@@ -682,13 +827,15 @@ export function DirectorySync({
               >
                 <option value="">
                   New{' '}
-                  {provider === 'entra'
-                    ? 'Entra'
-                    : provider === 'google'
-                      ? 'Google Workspace'
-                      : provider === 'aws_identity_store'
-                        ? 'AWS Identity Store'
-                        : 'Okta'}{' '}
+                  {provider === 'active_directory'
+                    ? 'Active Directory'
+                    : provider === 'entra'
+                      ? 'Entra'
+                      : provider === 'google'
+                        ? 'Google Workspace'
+                        : provider === 'aws_identity_store'
+                          ? 'AWS Identity Store'
+                          : 'Okta'}{' '}
                   source
                 </option>
                 {sources
@@ -727,26 +874,30 @@ export function DirectorySync({
                 />
               </label>
               <label>
-                {provider === 'entra'
-                  ? 'Tenant ID'
-                  : provider === 'google'
-                    ? 'Google customer ID'
-                    : provider === 'aws_identity_store'
-                      ? 'AWS region:identity store ID'
-                      : 'Okta org hostname'}
+                {provider === 'active_directory'
+                  ? 'AD DNS domain:objectGUID'
+                  : provider === 'entra'
+                    ? 'Tenant ID'
+                    : provider === 'google'
+                      ? 'Google customer ID'
+                      : provider === 'aws_identity_store'
+                        ? 'AWS region:identity store ID'
+                        : 'Okta org hostname'}
                 <input
                   value={tenant}
                   maxLength={
                     provider === 'entra' ? 36 : provider === 'google' ? 64 : 256
                   }
                   placeholder={
-                    provider === 'okta'
-                      ? 'company.okta.com'
-                      : provider === 'google'
-                        ? 'C01234567'
-                        : provider === 'aws_identity_store'
-                          ? 'eu-west-3:d-1234567890'
-                          : undefined
+                    provider === 'active_directory'
+                      ? 'corp.example:11111111-1111-4111-8111-111111111111'
+                      : provider === 'okta'
+                        ? 'company.okta.com'
+                        : provider === 'google'
+                          ? 'C01234567'
+                          : provider === 'aws_identity_store'
+                            ? 'eu-west-3:d-1234567890'
+                            : undefined
                   }
                   onChange={(e) => setTenant(e.target.value)}
                   autoComplete="off"
@@ -798,20 +949,24 @@ export function DirectorySync({
             </label>
           )}
           <label>
-            {provider === 'entra'
-              ? 'Application secret'
-              : provider === 'aws_identity_store'
-                ? 'AWS secret access key'
-                : 'OAuth access token'}
+            {provider === 'active_directory'
+              ? 'Collector public verification key (base64)'
+              : provider === 'entra'
+                ? 'Application secret'
+                : provider === 'aws_identity_store'
+                  ? 'AWS secret access key'
+                  : 'OAuth access token'}
             <input
-              type="password"
+              type={provider === 'active_directory' ? 'text' : 'password'}
               value={secret}
               maxLength={
-                provider === 'entra'
-                  ? 4096
-                  : provider === 'aws_identity_store'
-                    ? 40
-                    : 8192
+                provider === 'active_directory'
+                  ? 88
+                  : provider === 'entra'
+                    ? 4096
+                    : provider === 'aws_identity_store'
+                      ? 40
+                      : 8192
               }
               autoComplete="new-password"
               spellCheck={false}
@@ -832,21 +987,26 @@ export function DirectorySync({
             </label>
           )}
           <p className="muted small">
-            {provider === 'entra'
-              ? 'The Entra administrator must grant User.Read.All and GroupMember.Read.All application permissions with tenant admin consent. No mailbox access is requested.'
-              : provider === 'google'
-                ? 'Use a short-lived token with admin.directory.user.readonly, admin.directory.group.readonly and admin.directory.domain.readonly scopes. The administrator must have visibility of the intended directory. External and whole-customer memberships are reported as exclusions. No Gmail permission is requested.'
-                : provider === 'aws_identity_store'
-                  ? 'Use temporary STS access with identitystore:ListUsers, identitystore:ListGroups and identitystore:ListGroupMemberships for this store. UserStatus is imported when supplied; absent status remains unknown. Login names, permission sets, group mail aliases and delegation are not inferred. No AWS account administration or mailbox access is requested.'
-                  : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
+            {provider === 'active_directory'
+              ? 'Run the Windows collector inside your network using LDAPS and Kerberos. Enroll only its public P-256 key. NoiseFence never connects to LDAP. The DNS domain and domain objectGUID must match the local collector profile.'
+              : provider === 'entra'
+                ? 'The Entra administrator must grant User.Read.All and GroupMember.Read.All application permissions with tenant admin consent. No mailbox access is requested.'
+                : provider === 'google'
+                  ? 'Use a short-lived token with admin.directory.user.readonly, admin.directory.group.readonly and admin.directory.domain.readonly scopes. The administrator must have visibility of the intended directory. External and whole-customer memberships are reported as exclusions. No Gmail permission is requested.'
+                  : provider === 'aws_identity_store'
+                    ? 'Use temporary STS access with identitystore:ListUsers, identitystore:ListGroups and identitystore:ListGroupMemberships for this store. UserStatus is imported when supplied; absent status remains unknown. Login names, permission sets, group mail aliases and delegation are not inferred. No AWS account administration or mailbox access is requested.'
+                    : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
           </p>
           <label className="check">
             <input
               type="checkbox"
+              disabled={provider === 'active_directory'}
               checked={retain}
               onChange={(e) => setRetain(e.target.checked)}
             />
-            Store encrypted access for reuse
+            {provider === 'active_directory'
+              ? 'Enroll this verification key for signed imports'
+              : 'Store encrypted access for reuse'}
           </label>
           {retain && (
             <>
@@ -855,7 +1015,11 @@ export function DirectorySync({
                 <input
                   type="number"
                   min={1}
-                  max={provider === 'entra' ? 129600 : 60}
+                  max={
+                    ['entra', 'active_directory'].includes(provider)
+                      ? 129600
+                      : 60
+                  }
                   step={1}
                   value={lifetime}
                   onChange={(e) => setLifetime(Number(e.target.value))}
@@ -864,9 +1028,11 @@ export function DirectorySync({
               <p className="notice">
                 Stored only on the management server, bound to this source and
                 your administrator account version. Maximum{' '}
-                {provider === 'entra' ? '90 days' : 'one hour'}; an earlier
-                provider expiry still applies. This does not enable scheduled
-                collection.
+                {['entra', 'active_directory'].includes(provider)
+                  ? '90 days'
+                  : 'one hour'}
+                ; an earlier provider expiry still applies. This does not enable
+                scheduled collection.
               </p>
             </>
           )}
@@ -881,7 +1047,9 @@ export function DirectorySync({
             {busy
               ? 'Working…'
               : retain
-                ? 'Review encrypted access'
+                ? provider === 'active_directory'
+                  ? 'Review verification key'
+                  : 'Review encrypted access'
                 : 'Start read-only collection'}
           </button>
           <button type="button" className="secondary" onClick={clearForm}>
@@ -921,6 +1089,54 @@ export function DirectorySync({
           <code>{scheduleReceipt}</code>
         </output>
       )}
+      {adUpload && (
+        <fieldset className="directory-sync-form" disabled={disabled || busy}>
+          <legend>Upload signed Active Directory export</legend>
+          <p>
+            <strong>{adUpload.source.label}</strong> ·{' '}
+            {adUpload.source.authority}
+          </p>
+          <p className="notice">
+            Choose the complete export produced by your internal collector
+            within the last 15 minutes. The server verifies the enrolled key,
+            source, freshness and completeness. Existing identities stay active
+            until you review and apply the candidate.
+          </p>
+          <label>
+            Signed export (.json)
+            <input
+              key={adFileEpoch}
+              type="file"
+              accept=".json,application/json"
+              onChange={(e) => setAdFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          {adFile && (
+            <p className="small">
+              {adFile.name} · {(adFile.size / 1024).toFixed(1)} KiB
+            </p>
+          )}
+          <div className="actions">
+            <button
+              type="button"
+              disabled={!adFile || adFile.size > 23 * 1024 * 1024}
+              onClick={() => void uploadAd()}
+            >
+              Verify and prepare candidate
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setAdUpload(null);
+                setAdFile(null);
+              }}
+            >
+              Cancel upload
+            </button>
+          </div>
+        </fieldset>
+      )}
       <SavedConnections
         username={user.username}
         onSchedule={editSchedule}
@@ -928,7 +1144,11 @@ export function DirectorySync({
         onInspect={rememberJob}
         value={saved}
         busy={disabled || busy || dirty}
-        onCollect={(entry) => void startSaved(entry)}
+        onCollect={(entry) =>
+          entry.source.provider === 'active_directory'
+            ? setAdUpload(entry)
+            : void startSaved(entry)
+        }
         onReplace={(entry) => {
           setEditingAccess(entry);
           setExisting('');
@@ -940,7 +1160,11 @@ export function DirectorySync({
           setLabel('');
           setTenant('');
           setRetain(true);
-          setLifetime(entry.source.provider === 'entra' ? 1440 : 30);
+          setLifetime(
+            ['entra', 'active_directory'].includes(entry.source.provider)
+              ? 1440
+              : 30,
+          );
           setOpen(true);
         }}
         onRevoke={setConfirmAccess}
@@ -1032,11 +1256,17 @@ export function DirectorySync({
         <ConfirmDialog
           title={
             confirmAccess === 'save'
-              ? 'Store encrypted directory access?'
+              ? provider === 'active_directory'
+                ? 'Enroll AD verification key?'
+                : 'Store encrypted directory access?'
               : 'Revoke directory access?'
           }
           confirmLabel={
-            confirmAccess === 'save' ? 'Save encrypted access' : 'Revoke access'
+            confirmAccess === 'save'
+              ? provider === 'active_directory'
+                ? 'Enroll public key'
+                : 'Save encrypted access'
+              : 'Revoke access'
           }
           danger={confirmAccess !== 'save'}
           busy={busy}
@@ -1060,6 +1290,17 @@ export function DirectorySync({
           {confirmAccess === 'save' ? (
             <>
               <p>Receiving domains: {source.scopes.join(', ')}.</p>
+              {provider === 'active_directory' && (
+                <p className="notice">
+                  Verify this SHA-256 fingerprint against the internal collector
+                  before enrollment:{' '}
+                  <code className="directory-key-fingerprint">
+                    {fingerprint || 'Computing…'}
+                  </code>
+                  A signed export is still subject to candidate review. No
+                  private key or LDAP credential is stored here.
+                </p>
+              )}
               <p>
                 The credential will be encrypted and stored for at most{' '}
                 {lifetime.toLocaleString('en-US')} minutes.{' '}

@@ -849,3 +849,123 @@ async fn schedule_api_requires_explicit_owner_consent_and_recovers_metadata_with
     assert!(store.identity_schedule_due(0).await.unwrap().is_empty());
     assert_eq!(control.snapshot().revision, 0);
 }
+
+#[path = "common/ad_export.rs"]
+mod ad_export;
+#[tokio::test]
+async fn ad_signed_upload_requires_enrollment_authorization_and_review_and_refuses_replay() {
+    let root = tempfile::tempdir().unwrap();
+    let base = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let admin = account(&store, "admin", true).await;
+    let user = account(&store, "user", false).await;
+    let control = Controller::load(base.clone(), store.clone()).await.unwrap();
+    let router = api::router_controlled(base, store.clone(), Some(control.clone())).unwrap();
+    let now = noisefence::now();
+    let (public, envelope) = ad_export::signed("internal-ad", now);
+    let mut source = draft().source;
+    source.id = "internal-ad".into();
+    source.provider = directory::Provider::ActiveDirectory;
+    source.authority = "corp.example:2905b910-836f-4466-bba4-ae2a00661c74".into();
+    let generation = uuid::Uuid::new_v4().to_string();
+    let reference = json!({"source_id":source.id,"generation":generation});
+    let save = json!({"operation":generation,"revision":0,"catalog_sha256":null,"expected_generation":null,"source":source,"expires":now+86400,"credential":{"kind":"ad_collector_public_key","public_key":public}});
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            "/admin/identity/connections",
+            Some(save),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let body =
+        json!({"revision":0,"catalog_sha256":null,"connection":reference,"envelope":envelope});
+    let path = "/admin/identity/sync/active_directory";
+    for (actor, csrf) in [(&user, true), (&admin, false)] {
+        assert_eq!(
+            request(&router, actor, path, Some(body.clone()), csrf)
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let mut forged = body.clone();
+    forged["envelope"]["id"] = json!(uuid::Uuid::new_v4().to_string());
+    assert_eq!(
+        request(&router, &admin, path, Some(forged), true).await.0,
+        StatusCode::CONFLICT
+    );
+    let mut oversized = body.clone();
+    oversized["envelope"]["payload"] = json!("a".repeat(24 * 1024 * 1024));
+    assert_eq!(
+        request(&router, &user, path, Some(oversized.clone()), true)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&router, &admin, path, Some(oversized), true)
+            .await
+            .0,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    let pull = json!({"operation":uuid::Uuid::new_v4().to_string(),"revision":0,"catalog_sha256":null,"connection":reference});
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            "/admin/identity/sync/stored",
+            Some(pull),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (status, reply) = request(&router, &admin, path, Some(body.clone()), true).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{reply}");
+    assert_eq!(reply["id"], envelope["id"]);
+    let status_path = format!("/admin/identity/sync/{}", envelope["id"].as_str().unwrap());
+    let mut receipt = Value::Null;
+    for _ in 0..100 {
+        receipt = request(&router, &admin, &status_path, None, false).await.1;
+        if receipt["state"] != "running" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(receipt["state"], "ready", "{receipt}");
+    assert_eq!(receipt["prepared"]["active"], false);
+    assert!(control.snapshot().config.identity.is_none());
+    let reloaded = Controller::load(control.snapshot().config.clone(), store.clone())
+        .await
+        .unwrap();
+    let router =
+        api::router_controlled(control.snapshot().config.clone(), store, Some(reloaded)).unwrap();
+    assert_eq!(
+        request(&router, &admin, path, Some(body.clone()), true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            "/admin/identity/connections/revoke",
+            Some(reference),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&router, &admin, path, Some(body), true).await.0,
+        StatusCode::CONFLICT
+    );
+}

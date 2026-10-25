@@ -206,3 +206,5 @@ to inspect its people. Use `&directory=empty` for onboarding or
 synthetic identity observation in the initial message details. No mail is sent,
 no directory is contacted and these fixtures are excluded from the production
 build. Use `&providers=unavailable` to exercise the status failure and retry path.
+
+For Active Directory, select **Active Directory — internal collector**, enroll the public verification key after comparing its SHA-256 fingerprint, then use **Upload signed AD export** on the saved connection. Import within 15 minutes and review the candidate before activation. Private keys stay on Windows. See the [internal collector guide](identity-active-directory.md).

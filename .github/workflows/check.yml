@@ -34,6 +34,28 @@ jobs:
       - name: Explain non-PR execution
         if: github.event_name != 'pull_request'
         run: echo 'Dependency changes are reviewed on pull requests; Dependabot monitors the default branch.'
+  ad-collector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify locked collector dependencies and offline contracts
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        run: |
+          dotnet restore tools/ad-collector --locked-mode
+          dotnet build tools/ad-collector --no-restore -c Release
+          dotnet run --project tools/ad-collector --no-build -c Release -- self-test
   postgres:
     runs-on: ubuntu-latest
     services:

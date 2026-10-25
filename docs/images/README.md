@@ -106,3 +106,11 @@ capture on 25 October 2026. It shows the AWS read-only connection form with an
 example source and no credentials. The collection button remained disabled, the
 draft was discarded, and revision 25 stayed unchanged. No AWS account or real
 identity was connected.
+
+`console-ad-import.jpg` is an unedited 1280×720 integrated-browser capture on
+25 October 2026 from the local identity demo. It shows the signed AD upload form
+after simulated public-key enrollment. The source, authority, UUID and saved
+access state are synthetic browser-memory fixtures. No live AD connection or
+server-side key enrollment occurred. The upload draft was cancelled and policy
+revision 25 remained in observation. The Rust API is tested independently with
+signed synthetic exports; the screenshot does not prove Windows AD compatibility.

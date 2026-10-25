@@ -32,6 +32,8 @@ const {
   oktaFormError,
   googleFormError,
   awsFormError,
+  adFormError,
+  parseAdEnvelope,
   CollectionCoverage,
   DirectorySync,
 } = await import(
@@ -382,4 +384,79 @@ test('AWS form requires a fixed store, temporary key and separate session token'
       token,
     ),
   );
+});
+
+test('AD enrollment is source-bound, public-only and separate from pull schedules', async () => {
+  const fixture = JSON.parse(
+    await readFile(
+      new URL(
+        '../../tests/fixtures/identity/ad-signed-export.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  );
+  const ad = {
+    ...source,
+    provider: 'active_directory',
+    authority: 'corp.example:2905b910-836f-4466-bba4-ae2a00661c74',
+  };
+  assert.equal(adFormError(ad, ['example.test'], fixture.public_key), null);
+  for (const authority of [
+    'corp.example',
+    'https://dc.corp.example',
+    'corp.example:00000000-0000-0000-0000-000000000000',
+  ])
+    assert.ok(
+      adFormError({ ...ad, authority }, ['example.test'], fixture.public_key),
+    );
+  assert.ok(adFormError(ad, ['example.test'], 'PRIVATE KEY'));
+  assert.ok(
+    adFormError(
+      { ...ad, scopes: ['foreign.test'] },
+      ['example.test'],
+      fixture.public_key,
+    ),
+  );
+  assert.equal(connectionLifetimeError('active_directory', 129600), null);
+  assert.ok(connectionLifetimeError('active_directory', 129601));
+  const entry = {
+    source: ad,
+    generation: 'synthetic',
+    owner: 'admin',
+    created: 100,
+    expires: 1000,
+    status: 'configured',
+  };
+  assert.match(
+    scheduleError(entry, 'admin', 15, 1000, 200),
+    /cannot authorize a pull/,
+  );
+  const html = renderToStaticMarkup(
+    createElement(SavedConnections, {
+      value: { connections: [entry], vault: 'ready' },
+      busy: false,
+      username: 'admin',
+    }),
+  );
+  assert.match(html, /Upload signed AD export/);
+  assert.match(html, /Replace verification key/);
+  assert.doesNotMatch(
+    html,
+    /Set up automatic collection|Collect using saved access/,
+  );
+  assert.equal(
+    parseAdEnvelope(JSON.stringify(fixture.envelope)).id,
+    fixture.envelope.id,
+  );
+  for (const patch of [
+    { id: 'wrong' },
+    { protocol: 'other' },
+    { private_key: 'do-not-upload' },
+    { key_id: 'wrong' },
+    { payload: {} },
+  ])
+    assert.throws(() =>
+      parseAdEnvelope(JSON.stringify({ ...fixture.envelope, ...patch })),
+    );
 });

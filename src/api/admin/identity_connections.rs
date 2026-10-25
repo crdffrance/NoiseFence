@@ -145,3 +145,52 @@ pub(super) async fn stop_schedule(
         serde_json::to_value(view).map_err(anyhow::Error::from)?,
     ))
 }
+
+/// Uploads use the same administrator/Origin/CSRF and durable receipt boundaries
+/// as live collectors. Capacity is reserved before reading or decoding bytes.
+pub(super) async fn upload_ad(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let actor = administrator(&app, &h, true).await?;
+    let _permit = super::identity::capacity(&app)?;
+    let bytes = tokio::time::timeout(
+        Duration::from_secs(10),
+        axum::body::to_bytes(
+            request.into_body(),
+            crate::identity::connectors::ad::MAX_ENVELOPE_BYTES + 65536,
+        ),
+    )
+    .await
+    .map_err(|_| Error(StatusCode::REQUEST_TIMEOUT, "AD upload timed out.".into()))?
+    .map_err(|_| {
+        Error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "AD upload exceeds 23 MiB plus request metadata.".into(),
+        )
+    })?;
+    let input = tokio::task::spawn_blocking(move || {
+        serde_json::from_slice::<crate::control::identity_connections::AdUpload>(&bytes)
+    })
+    .await
+    .map_err(anyhow::Error::from)?
+    .map_err(|_| {
+        Error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Invalid signed AD export request.".into(),
+        )
+    })?;
+    let result = controller(&app)?
+        .upload_ad_directory(
+            input,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(refused)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"id":result.id,"deadline":result.deadline,"state":"running"})),
+    ))
+}

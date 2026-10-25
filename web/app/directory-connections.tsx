@@ -52,7 +52,9 @@ export function canCollectSaved(
   );
 }
 export function connectionLifetimeError(provider: string, minutes: number) {
-  const maximum = provider === 'entra' ? 90 * 24 * 60 : 60;
+  const maximum = ['entra', 'active_directory'].includes(provider)
+    ? 90 * 24 * 60
+    : 60;
   return !Number.isInteger(minutes) || minutes < 1 || minutes > maximum
     ? `Choose a whole number from 1 to ${maximum.toLocaleString('en-US')} minutes.`
     : null;
@@ -81,6 +83,8 @@ export function scheduleError(
   expires: number,
   now = Math.floor(Date.now() / 1000),
 ) {
+  if (entry.source.provider === 'active_directory')
+    return 'AD exports are collected internally and uploaded with a signature; a public key cannot authorize a pull.';
   if (!canCollectSaved(entry, now))
     return 'Reload or replace unavailable access before scheduling.';
   if (entry.owner !== username)
@@ -164,9 +168,11 @@ export function SavedConnections({
                     ? 'Google Workspace'
                     : entry.source.provider === 'aws_identity_store'
                       ? 'AWS Identity Store'
-                      : entry.source.provider === 'okta'
-                        ? 'Okta'
-                        : entry.source.provider}
+                      : entry.source.provider === 'active_directory'
+                        ? 'Active Directory'
+                        : entry.source.provider === 'okta'
+                          ? 'Okta'
+                          : entry.source.provider}
               </dd>
             </div>
             <div>
@@ -178,86 +184,95 @@ export function SavedConnections({
               <dd>{new Date(entry.expires * 1000).toLocaleString('en-GB')}</dd>
             </div>
           </dl>
-          <section
-            className="directory-schedule-status"
-            aria-label={`Collection schedule for ${entry.source.label}`}
-          >
-            <strong>
-              {entry.schedule
-                ? scheduleStatus(entry.schedule.state)
-                : 'Automatic collection off'}
-            </strong>
-            {entry.schedule && (
-              <>
-                <p className="small muted">
-                  Every {entry.schedule.interval_seconds / 60} minutes ·
-                  authorized until{' '}
-                  {new Date(entry.schedule.expires * 1000).toLocaleString(
-                    'en-GB',
-                  )}
-                </p>
-                {['scheduled', 'backoff', 'outcome_unknown'].includes(
-                  entry.schedule.state,
-                ) && (
-                  <p className="small">
-                    Next attempt no earlier than{' '}
-                    {new Date(entry.schedule.next_due * 1000).toLocaleString(
+          {entry.source.provider !== 'active_directory' && (
+            <section
+              className="directory-schedule-status"
+              aria-label={`Collection schedule for ${entry.source.label}`}
+            >
+              <strong>
+                {entry.schedule
+                  ? scheduleStatus(entry.schedule.state)
+                  : 'Automatic collection off'}
+              </strong>
+              {entry.schedule && (
+                <>
+                  <p className="small muted">
+                    Every {entry.schedule.interval_seconds / 60} minutes ·
+                    authorized until{' '}
+                    {new Date(entry.schedule.expires * 1000).toLocaleString(
                       'en-GB',
                     )}
-                    .
                   </p>
-                )}
-                {entry.schedule.state === 'awaiting_review' && (
-                  <p className="notice">
-                    Review the collected candidate before applying the policy.
-                    Nothing has been activated automatically.
-                  </p>
-                )}
-                {entry.schedule.last_run && (
+                  {['scheduled', 'backoff', 'outcome_unknown'].includes(
+                    entry.schedule.state,
+                  ) && (
+                    <p className="small">
+                      Next attempt no earlier than{' '}
+                      {new Date(entry.schedule.next_due * 1000).toLocaleString(
+                        'en-GB',
+                      )}
+                      .
+                    </p>
+                  )}
+                  {entry.schedule.state === 'awaiting_review' && (
+                    <p className="notice">
+                      Review the collected candidate before applying the policy.
+                      Nothing has been activated automatically.
+                    </p>
+                  )}
+                  {entry.schedule.last_run && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        onInspect(entry.schedule!.last_run!.request.id)
+                      }
+                    >
+                      View last collection
+                    </button>
+                  )}
+                </>
+              )}
+              <div className="actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    busy || !canCollectSaved(entry) || entry.owner !== username
+                  }
+                  onClick={() => onSchedule(entry)}
+                >
+                  {entry.schedule
+                    ? 'Review schedule settings'
+                    : 'Set up automatic collection'}
+                </button>
+                {entry.schedule && entry.schedule.revoked_at === null && (
                   <button
                     type="button"
                     className="secondary"
                     disabled={busy}
-                    onClick={() =>
-                      onInspect(entry.schedule!.last_run!.request.id)
-                    }
+                    onClick={() => onStopSchedule(entry)}
                   >
-                    View last collection
+                    Stop automatic collection
                   </button>
                 )}
-              </>
-            )}
-            <div className="actions">
-              <button
-                type="button"
-                className="secondary"
-                disabled={
-                  busy || !canCollectSaved(entry) || entry.owner !== username
-                }
-                onClick={() => onSchedule(entry)}
-              >
-                {entry.schedule
-                  ? 'Review schedule settings'
-                  : 'Set up automatic collection'}
-              </button>
-              {entry.schedule && entry.schedule.revoked_at === null && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => onStopSchedule(entry)}
-                >
-                  Stop automatic collection
-                </button>
+              </div>
+              {entry.owner !== username && (
+                <p className="small muted">
+                  The access owner can enable a schedule. Any administrator can
+                  stop it.
+                </p>
               )}
-            </div>
-            {entry.owner !== username && (
-              <p className="small muted">
-                The access owner can enable a schedule. Any administrator can
-                stop it.
-              </p>
-            )}
-          </section>
+            </section>
+          )}
+          {entry.source.provider === 'active_directory' && (
+            <p className="notice">
+              Public verification key only. Run the collector inside your
+              organization, then upload its signed export within 15 minutes.
+              Review is required before activation.
+            </p>
+          )}
           <details>
             <summary>Access generation</summary>
             <code>{entry.generation}</code>
@@ -271,7 +286,9 @@ export function SavedConnections({
               disabled={busy || !canCollectSaved(entry)}
               onClick={() => onCollect(entry)}
             >
-              Collect using saved access
+              {entry.source.provider === 'active_directory'
+                ? 'Upload signed AD export'
+                : 'Collect using saved access'}
             </button>
             <button
               type="button"
@@ -279,7 +296,9 @@ export function SavedConnections({
               disabled={busy || value.vault !== 'ready'}
               onClick={() => onReplace(entry)}
             >
-              Replace access
+              {entry.source.provider === 'active_directory'
+                ? 'Replace verification key'
+                : 'Replace access'}
             </button>
             <button
               type="button"

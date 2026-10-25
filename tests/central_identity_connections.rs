@@ -679,3 +679,20 @@ async fn central_aws_session_survives_restart_but_not_revocation_or_source_rebin
     );
     f.finish().await;
 }
+#[path = "common/ad_connection_contract.rs"]
+mod ad_contract;
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn central_ad_enrollment_is_encrypted_and_requires_current_key_generation() {
+    let f = postgres::Fixture::new().await;
+    let session = setup(&f).await;
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path())
+        .unwrap()
+        .with_management(f.central.clone())
+        .await
+        .unwrap();
+    ad_contract::run(&store, root.path(), &session).await;
+    drop(store);
+    f.finish().await;
+}

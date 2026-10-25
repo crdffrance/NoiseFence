@@ -245,3 +245,7 @@ records without schedules retain their canonical representation. A build predati
 schedule support cannot interpret records with schedules: use a qualified upgrade
 and recovery procedure, not a binary downgrade against the current management data.
 These tests do not establish live provider connectivity or email detection accuracy.
+
+## Active Directory verification-key enrollment
+
+The same vault can hold an explicitly enrolled AD public verification key for at most 90 days. It is bound to a fixed source, domain authority, administrator version and generation. The private signing key stays on the internal Windows host. AD records cannot authorize a pull schedule. Signed uploads reuse the durable job, revocation and candidate-review boundaries. See [Active Directory collection](identity-active-directory.md). A revoked pin does not remove an already installed snapshot, and an older binary cannot read this new credential type; downgrade remains unqualified.

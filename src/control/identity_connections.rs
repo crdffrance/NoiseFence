@@ -28,6 +28,14 @@ pub struct Collect {
     pub catalog_sha256: Option<String>,
     pub connection: Reference,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdUpload {
+    pub revision: i64,
+    pub catalog_sha256: Option<String>,
+    pub connection: Reference,
+    pub envelope: Option<crate::identity::connectors::ad::Envelope>,
+}
 #[derive(Serialize)]
 pub struct ConnectionView {
     pub schedule: Option<crate::identity::schedule::View>,
@@ -289,6 +297,48 @@ impl Controller {
             )
             .await?;
         Ok(())
+    }
+    pub async fn upload_ad_directory(
+        self: &Arc<Self>,
+        mut input: AdUpload,
+        actor: String,
+        session: String,
+    ) -> Result<crate::identity::sync::Request> {
+        input.connection.validate()?;
+        let record = self
+            .store
+            .identity_connection_get(
+                input.connection.source_id.clone(),
+                input.connection.generation.clone(),
+                actor.clone(),
+                session.clone(),
+            )
+            .await?;
+        let source = record.metadata.source.clone();
+        self.directory_context(input.revision, input.catalog_sha256.clone(), &source)
+            .await?;
+        let envelope = input
+            .envelope
+            .take()
+            .context("Signed AD envelope required")?;
+        let root = self.base.data_dir.clone();
+        let verified_source = source.clone();
+        let export = tokio::task::spawn_blocking(move || -> Result<_> {
+            let key = Key::load(&root)?;
+            let Credential::AdCollectorPublicKey { public_key } =
+                key.open(&record, crate::now())?
+            else {
+                anyhow::bail!("AD public-key enrollment required")
+            };
+            crate::identity::connectors::ad::PublicKey::new(
+                &verified_source.authority,
+                &public_key,
+            )?
+            .verify(&verified_source, envelope, crate::now())
+        })
+        .await??;
+        self.start_ad_directory_sync(input, source, export, actor, session)
+            .await
     }
     pub async fn collect_directory_connection(
         self: &Arc<Self>,

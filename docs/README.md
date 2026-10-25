@@ -43,6 +43,7 @@
 - [Okta collection, org scope and review](identity-okta.md)
 - [Google Workspace collection, customer scope and exclusions](identity-google.md)
 - [AWS Identity Store collection, temporary access and review](identity-aws.md)
+- [Active Directory internal collection, signed imports and key enrollment](identity-active-directory.md)
 - [Encrypted directory access: Web setup, rotation, revocation and backups](directory-credential-storage.md)
 - [URL redirect resolution](url-resolution.md)
 - [OCR and QR codes](vision.md)

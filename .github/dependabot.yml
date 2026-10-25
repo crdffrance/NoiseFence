@@ -5,3 +5,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  - package-ecosystem: nuget
+    directory: /tools/ad-collector
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
