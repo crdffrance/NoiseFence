@@ -10,6 +10,8 @@
   safeguard. Keep model weights, thresholds and Rspamd independence unchanged.
 - Add bounded, digest-verified offline context regression tooling and document the
   historical regression evidence and remaining qualification limits.
+- Preserve digest-verified retained rc.2 policies across the coordinated upgrade;
+  unknown builds and mixed credential-bound activation remain refused.
 - Pin the deployed rc.2 archives for the mandatory two-node upgrade and retained
   recovery rehearsals on amd64 and arm64. Filtering efficacy remains unqualified.
 
