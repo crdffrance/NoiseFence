@@ -444,6 +444,112 @@ pub fn assess(
     report
 }
 
+/// A read-only, timestamped replay uses the same eligibility and assessment as
+/// SMTP. Callers must provide gateway-recorded evidence, never authentication
+/// claims parsed from an imported message. This type has no storage side effects.
+pub struct ReplayContext<'a> {
+    pub secret: Option<&'a Key>,
+    pub settings: &'a Settings,
+    pub raw: &'a [u8],
+    pub scan: &'a Scan,
+    pub recipient: &'a str,
+    pub targets: &'a crate::protection::Targets,
+    pub envelope_sender: &'a str,
+}
+impl ReplayContext<'_> {
+    pub fn assess(&self, rows: &[Row], limited: bool, at: i64) -> Observation {
+        if at <= 0 || self.settings.validate().is_err() {
+            return Observation {
+                report: base(self.settings, "ineligible"),
+                sample: None,
+            };
+        }
+        if !self.settings.enabled {
+            return Observation {
+                report: base(self.settings, "disabled"),
+                sample: None,
+            };
+        }
+        let Some(key) = self
+            .secret
+            .filter(|k| Some(k.id()) == self.settings.key_id.as_deref())
+        else {
+            return Observation {
+                report: base(self.settings, "privacy_key_unavailable"),
+                sample: None,
+            };
+        };
+        let current = (!self.envelope_sender.is_empty())
+            .then(|| comparison_sample(key, self.raw, self.scan, self.recipient, self.targets))
+            .flatten();
+        let alignment = alignment(self.scan);
+        let mut observation = initial_observation(
+            self.settings,
+            current.as_ref(),
+            alignment,
+            self.scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware,
+        );
+        if let Some(current) = current {
+            let cutoff = (at - i64::from(self.settings.retention_days) * 86400)
+                .max(self.settings.learn_since);
+            let too_many = rows
+                .iter()
+                .filter(|r| r.sample.key == current.key && r.created >= cutoff && r.created < at)
+                .take(MAX_ROWS + 1)
+                .count()
+                > MAX_ROWS;
+            assess_observation(
+                &mut observation,
+                self.settings,
+                &current,
+                rows,
+                limited || too_many,
+                alignment,
+                at,
+            );
+        }
+        observation
+    }
+}
+fn initial_observation(
+    settings: &Settings,
+    comparison: Option<&Sample>,
+    alignment: Alignment,
+    clean: bool,
+) -> Observation {
+    let sample = comparison
+        .filter(|_| alignment == Alignment::Verified && clean)
+        .cloned();
+    let mut report = base(
+        settings,
+        if comparison.is_some() {
+            "unavailable"
+        } else {
+            "ineligible"
+        },
+    );
+    report.learning_eligible = Some(sample.is_some());
+    report.dkim_alignment = Some(alignment);
+    Observation { report, sample }
+}
+fn assess_observation(
+    observation: &mut Observation,
+    settings: &Settings,
+    current: &Sample,
+    rows: &[Row],
+    limited: bool,
+    alignment: Alignment,
+    at: i64,
+) {
+    let mut report = assess(settings, current, rows, limited, at);
+    report.learning_eligible = observation.report.learning_eligible;
+    report.dkim_alignment = Some(alignment);
+    if report.regular && alignment == Alignment::NotVerified {
+        report.changes.insert(0, "dkim_alignment".into());
+    }
+    observation.report = report;
+}
+
 /// Reuse the selected, short-lived runtime cache on central installations. Never
 /// fall back to a stale local database when the authority/cache is unavailable.
 fn read(
@@ -549,24 +655,18 @@ pub async fn prepare(
         })
         .collect();
     let current_alignment = alignment(scan);
-    let may_learn = current_alignment == Alignment::Verified
-        && scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware;
     let mut reports: Reports = recipients
         .iter()
         .map(|r| {
-            let comparison = current.get(&r.address);
-            let sample = comparison.filter(|_| may_learn).cloned();
-            let mut report = base(
-                settings,
-                if comparison.is_some() {
-                    "unavailable"
-                } else {
-                    "ineligible"
-                },
-            );
-            report.learning_eligible = Some(sample.is_some());
-            report.dkim_alignment = Some(current_alignment);
-            (r.address.clone(), Observation { report, sample })
+            (
+                r.address.clone(),
+                initial_observation(
+                    settings,
+                    current.get(&r.address),
+                    current_alignment,
+                    scan.antivirus.status != crate::antivirus::AntivirusStatus::Malware,
+                ),
+            )
         })
         .collect();
     let keys: Vec<_> = current.values().map(|s| s.key.clone()).collect();
@@ -606,13 +706,15 @@ pub async fn prepare(
     {
         for (recipient, observation) in &mut reports {
             if let Some(current) = current.get(recipient) {
-                let mut report = assess(settings, current, &rows, limited, at);
-                report.learning_eligible = observation.report.learning_eligible;
-                report.dkim_alignment = Some(current_alignment);
-                if report.regular && current_alignment == Alignment::NotVerified {
-                    report.changes.insert(0, "dkim_alignment".into());
-                }
-                observation.report = report;
+                assess_observation(
+                    observation,
+                    settings,
+                    current,
+                    &rows,
+                    limited,
+                    current_alignment,
+                    at,
+                );
             }
         }
     }

@@ -211,6 +211,16 @@ jobs:
                   raise SystemExit('Insufficient CI disk headroom for archive tests (3 GiB required)')
           PY
       - run: cargo test --locked ${{ matrix.profile }} ${{ matrix.features }}
+      - name: Verify chronological identity replay with separate labels
+        run: |
+          cargo test --locked ${{ matrix.profile }} ${{ matrix.features }} --example contact_memory_replay
+          cargo build --locked ${{ matrix.profile }} ${{ matrix.features }} --example contact_memory_replay
+          profile_dir=debug
+          if [ "${{ matrix.profile }}" = "--release" ]; then profile_dir=release; fi
+          mkdir -p var
+          "target/$profile_dir/examples/contact_memory_replay" --synthetic-fixture var/identity-replay
+          "target/$profile_dir/examples/contact_memory_replay" var/identity-replay/events.json > var/identity-replay/results.json
+          python3 research/evaluate_identity.py var/identity-replay/results.json var/identity-replay/labels.json > var/identity-replay/evaluation.json
       - name: Verify full-processing measurement controls
         run: |
           cargo build --locked ${{ matrix.profile }} ${{ matrix.features }} --example pipeline_probe

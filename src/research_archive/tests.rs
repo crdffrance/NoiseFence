@@ -53,6 +53,13 @@ fn ciphertext_authenticates_context_and_preserves_exact_original() {
     let raw = b"Subject: private\r\n\r\nDo not lose my bytes.\r\n";
     r.persist(raw.to_vec(), context(&id, crate::now()), 0)
         .unwrap();
+    let status = r.status().unwrap();
+    assert_eq!(
+        status.messages,
+        1,
+        "Archive was skipped: {status:?}; available bytes: {:?}",
+        crate::store::available_bytes(&r.root)
+    );
     let folder = r.root.join("objects").join(&id);
     let data = fs::read(folder.join("message.enc")).unwrap();
     assert!(!data.windows(7).any(|s| s == b"private"));

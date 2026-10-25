@@ -191,3 +191,5 @@ each other. Outbound/internal mailbox connectors, reciprocal graph exploration,
 scored novelty discounts and self-training model activation are outside this
 implementation. Any future scoring change needs independent, time-separated
 false-positive and capture evaluation; no accuracy improvement is claimed here.
+
+For chronological, campaign-separated research, use the [offline identity evaluation](identity-evaluation.md). It keeps labels out of memory and reports known false candidates and misses without claiming full-filter accuracy.

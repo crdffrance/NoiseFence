@@ -40,7 +40,8 @@ fn main() -> Result<()> {
     let directory = Catalog::new(vec![snapshot], at)?;
     let raw = read(&args.message, 2 * 1024 * 1024)?;
     // No invented authentication, labels, relationship history or demand signal.
-    // Live native detectors will supply those when pipeline wiring is completed.
+    // This standalone probe omits gateway receipts/history; use contact_memory_replay
+    // for chronological comparison of recorded SMTP evidence.
     let report = detection::inspect(
         &directory,
         &raw,

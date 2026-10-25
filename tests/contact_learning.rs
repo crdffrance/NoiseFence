@@ -290,7 +290,7 @@ async fn authentication_failure_is_compared_but_never_added_to_learned_history()
     let original =
         learning::capture(&key, common::MESSAGE, &known, &recipient.address, &targets).unwrap();
     let now = noisefence::now();
-    let rows = (1..=6)
+    let rows: Vec<Row> = (1..=6)
         .map(|day| {
             let mut sample = original.clone();
             sample.campaign =
@@ -302,6 +302,7 @@ async fn authentication_failure_is_compared_but_never_added_to_learned_history()
             }
         })
         .collect();
+    let replay_rows = rows.clone();
     noisefence::runtime_history::require(&store).await.unwrap();
     noisefence::runtime_history::install(
         root.path(),
@@ -366,6 +367,25 @@ async fn authentication_failure_is_compared_but_never_added_to_learned_history()
         )
         .await;
         let observation = &reports[&recipient.address];
+        let replay_settings = Settings {
+            key_id: Some(key.id().into()),
+            ..Default::default()
+        };
+        let replayed = learning::ReplayContext {
+            secret: Some(&key),
+            settings: &replay_settings,
+            raw: &raw,
+            scan: &current,
+            recipient: &recipient.address,
+            targets: &targets,
+            envelope_sender: "sender@example.org",
+        }
+        .assess(&replay_rows, false, now);
+        assert_eq!(
+            serde_json::to_value(&replayed).unwrap(),
+            serde_json::to_value(observation).unwrap(),
+            "Offline replay and SMTP preparation must agree on the same recorded evidence"
+        );
         assert!(observation.report.regular && observation.report.observation_only);
         assert_eq!(observation.report.learning_eligible, Some(false));
         assert_eq!(observation.report.dkim_alignment, Some(expected_alignment));
