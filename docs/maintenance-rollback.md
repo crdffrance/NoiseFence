@@ -9,8 +9,8 @@ This is an operator procedure, not an unattended updater. Production use require
 a passing native rehearsal for the exact two archives, architectures and installed
 security profiles. Unit tests or a shared storage format are insufficient. The
 published 0.31.9 binary lacks the maintenance command and cannot pass this gate.
-The development rc.2 candidate is intended for a positive rehearsal with the
-immutable rc.1 archive; that pair is not qualified merely by naming it here.
+The rc.3 candidate is intended for a positive rehearsal with the
+immutable rc.2 archive; that pair is not qualified merely by naming it here.
 
 ## Prerequisites
 

@@ -1624,7 +1624,14 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     expected_patch["digest"] = json!(prior_patch.digest);
     assert_eq!(serde_json::to_value(&prior_patch).unwrap(), expected_patch);
     prior_patch.validate().unwrap();
-    for version in ["0.31.6", "0.31.7", "0.31.8", "0.31.9", "0.32.0-rc.1"] {
+    for version in [
+        "0.31.6",
+        "0.31.7",
+        "0.31.8",
+        "0.31.9",
+        "0.32.0-rc.1",
+        "0.32.0-rc.2",
+    ] {
         let preceding = bundle.for_build(version).unwrap();
         let mut expected_preceding = serde_json::to_value(&bundle).unwrap();
         expected_preceding["build"] = json!(version);
@@ -1651,11 +1658,14 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     assert!(bundle.for_build("0.31.8").is_err());
     assert!(bundle.for_build("0.31.9").is_err());
     assert!(bundle.for_build("0.32.0-rc.1").is_err());
+    assert!(bundle.for_build("0.32.0-rc.2").is_err());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
-    let mut unknown = prior;
-    unknown.build = "0.29.1".into();
-    unknown.digest = unknown.hash().unwrap();
-    assert!(unknown.validate().is_err());
+    for unsupported_build in ["0.29.1", "0.32.0-rc.4", "0.32.0", "9.9.9"] {
+        let mut unknown = prior.clone();
+        unknown.build = unsupported_build.into();
+        unknown.digest = unknown.hash().unwrap();
+        assert!(unknown.validate().is_err());
+    }
 }
 
 #[test]

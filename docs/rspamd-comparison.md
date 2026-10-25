@@ -60,3 +60,47 @@ To roll back the comparison, disable it in the console and stop `noisefence-rspa
 Run `cargo test --locked rspamd --lib`, `cargo test --locked --test message_search rspamd`, the Web tests, and the isolated real-scanner smoke test in `tests/rspamd_smoke.py`. All test messages are synthetic and stay in the test container. The SMTP test deliberately holds the Rspamd response and verifies durable SMTP acceptance proceeds. Other tests cover malformed responses, bounded capacity, grant isolation, cancellation and metadata-only replication.
 
 In production, inspect `systemctl status noisefence-rspamd`, its journal, comparison coverage and the pending/unavailable filters. Check both MX identities and profile fingerprints. Validate a recent human-labeled sample before drawing conclusions about false positives or capture rate; an empty or old corpus cannot establish either.
+
+
+## Use second opinions to investigate native regressions
+
+`research/compare_quality.py` includes `rspamd_diagnostics` in its read-only
+report for a validated quality export. It covers every exported observation,
+keeps missing and nonfinal actions explicit, and groups symbol associations by
+both native artifact digest and Rspamd settings digest. Wanted HAM and PUB labels
+are the reference for false positives; an unlabelled disagreement is only an
+investigation candidate. Repeated symbols count once per message. Positive,
+negative and zero-point symbols remain distinct. See the paired campaign metrics
+before interpreting counts from repeated messages.
+
+These diagnostics do not produce training labels, choose weights or modify
+thresholds. A symbol seen in wanted mail is not automatically a safe-sender rule;
+a Rspamd rejection is not automatically a confirmed spam. The live engine never
+reads these diagnostics or the Rspamd verdict.
+
+For operator-authorized regression work with retained originals, use the bounded
+local example:
+
+```sh
+umask 077
+cargo run --locked --example context_regression -- private/observations.jsonl private/originals > private/replay.jsonl
+```
+
+Each input line contains `id` and `scan` (a recorded `Scan`). Originals are named
+`<id>.eml`. The tool verifies the original SHA-256, requires recorded decision
+settings, and reports unavailable, expired/missing or incompatible inputs instead
+of inventing observations. It runs no DNS lookups, provider requests, LLM calls,
+SMTP deliveries or database updates. Output contains message IDs and technical
+results, not message text; keep it private. Limits are 8 MiB per recorded row and
+2 MiB per original. This is a context-policy replay using stored detector results,
+not a fresh model score or an independent evaluation. Preserve a baseline binary
+and use the same originals and captured observations to compare source changes.
+
+Private regression evidence for the October 2026 context correction covered 434
+recipient-labelled messages with available digest-matching originals. At unchanged
+recorded scores and thresholds, false positives fell from 93 to 55; 84 of 87
+unwanted messages remained detected. Campaign grouping retained 261 representatives:
+false positives fell from 76 to 40, with 19 of 22 unwanted representatives detected
+in both runs. These are selected historical, mixed-version regressions with
+repeated campaigns, not production false-positive rates or release qualification.
+The remaining errors require further work and independent future labels.

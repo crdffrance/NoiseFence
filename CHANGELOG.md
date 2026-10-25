@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.32.0-rc.3 — Context filtering and independent comparison diagnostics
+
+- Add cohort-specific Rspamd symbol diagnostics to human-labelled quality comparisons;
+  missing/nonfinal opinions remain explicit and never become training labels.
+- Recognize status-first shipment confirmations and structured classification-dispute
+  reports under the existing authenticated-context safeguards (decision policy 14).
+- Prevent mandatory manual/security-update demands from borrowing a passive-notice
+  safeguard. Keep model weights, thresholds and Rspamd independence unchanged.
+- Add bounded, digest-verified offline context regression tooling and document the
+  historical regression evidence and remaining qualification limits.
+- Preserve digest-verified retained rc.2 policies across the coordinated upgrade;
+  unknown builds and mixed credential-bound activation remain refused.
+- Pin the deployed rc.2 archives for the mandatory two-node upgrade and retained
+  recovery rehearsals on amd64 and arm64. Filtering efficacy remains unqualified.
+
 ## 0.32.0-rc.2 — Paired recovery and scoped service confinement
 
 This candidate extends paired maintenance and native service confinement.
