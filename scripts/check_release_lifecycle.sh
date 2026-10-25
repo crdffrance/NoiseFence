@@ -11,6 +11,8 @@ case "$baseline_kind" in historical|retained) ;; *) exit 2;; esac
 set --
 if [ "$baseline_kind" = retained ]; then set -- --require-retained-activation; fi
 case "$platform" in linux-amd64|linux-arm64) ;; *) exit 2;; esac
+confinement=${NOISEFENCE_REHEARSAL_APPARMOR:-0}
+case "$confinement" in 0|1) ;; *) exit 2;; esac
 docker_platform="linux/${platform#linux-}"
 mkdir -p "$(dirname "$output")"
 mkdir -m 0700 "$output"
@@ -21,7 +23,10 @@ baseline=$(python3 scripts/release_rehearsal.py baseline-version --baseline-kind
 name="nf-release-test-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
 cleanup() {
     status=$?
-    if [ "$status" -ne 0 ]; then printf 'Native lifecycle failed: phase=%s exit=%s; raw fixture data was not uploaded.\n' "$phase" "$status" >&2; fi
+    if [ "$status" -ne 0 ]; then
+        printf 'Native lifecycle failed: phase=%s exit=%s; raw fixture data was not uploaded.\n' "$phase" "$status" >&2
+        python3 scripts/rehearsal_diagnostics.py "$output" "$phase" || true
+    fi
     docker image rm "$name-paired" "$name-standalone" >/dev/null 2>&1 || true
     exit "$status"
 }
@@ -32,12 +37,24 @@ docker build --platform "$docker_platform" --file tests/fixtures/paired.Dockerfi
 phase=standalone-image
 printf 'Native lifecycle: %s\n' "$phase"
 docker build --platform "$docker_platform" --file tests/fixtures/lifecycle.Dockerfile --tag "$name-standalone" . > "$output/standalone-image.log" 2>&1
+if [ "$confinement" = 1 ]; then
+    phase=socket-boundary
+    printf 'Native lifecycle: %s\n' "$phase"
+    rustc --edition=2024 --test tests/fixtures/postgres_socket_probe.rs -o "$output/socket-probe-tests" > "$output/socket-boundary.log" 2>&1
+    "$output/socket-probe-tests" >> "$output/socket-boundary.log" 2>&1
+    rustc --edition=2024 tests/fixtures/postgres_socket_probe.rs -o "$output/socket-probe" >> "$output/socket-boundary.log" 2>&1
+    python3 tests/confinement_socket_probe.py --binary "$output/socket-probe" --image "$name-paired" --output "$output/socket-boundary" >> "$output/socket-boundary.log" 2>&1
+fi
 phase=standalone
 printf 'Native lifecycle: %s\n' "$phase"
 python3 tests/release_lifecycle.py --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-standalone" --platform "$docker_platform" --output "$output/standalone" > "$output/standalone.log" 2>&1
 phase=paired
 printf 'Native lifecycle: %s\n' "$phase"
-python3 tests/paired_release_lifecycle.py "$@" --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
+if [ "$confinement" = 1 ]; then
+    python3 tests/confined_paired_release.py "$@" --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" --evidence "$output/apparmor" > "$output/paired.log" 2>&1
+else
+    python3 tests/paired_release_lifecycle.py "$@" --old-archive "$output/baseline/noisefence-$baseline-$platform.tar.gz" --new-archive "$archive" --archive-candidate --image "$name-paired" --platform "$docker_platform" --fixture "$fixture" --output "$output/paired" > "$output/paired.log" 2>&1
+fi
 phase=summary
 printf 'Native lifecycle: %s\n' "$phase"
 python3 scripts/release_rehearsal.py summarize --baseline-kind "$baseline_kind" --platform "$platform" --archive "$archive" --directory "$output"

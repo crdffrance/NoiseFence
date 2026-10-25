@@ -111,6 +111,101 @@ class RehearsalTests(unittest.TestCase):
         self.assertNotIn('never upload',json.dumps(result))
         self.assertNotIn('final_state',result); self.assertNotIn('accepted',result)
 
+    def test_unconfined_reports_make_no_confinement_claim(self):
+        self.assertEqual(self.summarize()['confinement'], {'status':'not_exercised'})
+
+    def test_confinement_needs_source_binding_both_canaries_runtimes_and_cleanup(self):
+        name = 'noisefence-test-0123456789ab'
+        binary = 'a'*64; generator = 'b'*64
+        files = {'noisefence':binary,'deploy/hardening/isolation.py':generator,'deploy/noisefence.service':'e'*64}
+        runtime = {'profile':name,'process_profile':name+' (enforce)','mode':'enforce','binary_sha256':binary}
+        paired = {'apparmor_profile':name,'confinement_scope':'named_profile_enforcement_with_dac_canary',
+            'platform':'linux/arm64','checks':[],
+            'final_running':{node:{'confinement':dict(runtime)} for node in ('mx1','mx2')}}
+        for node in ('mx1','mx2'):
+            paired['checks'].extend([
+                {'check':'apparmor_canary_enforced','node':node,'profile':name,
+                 'allowed_configuration':True,'unconfined_canary_read':True,'confined_canary_denied':True},
+                {'check':'candidate_apparmor_enforced','node':node,**runtime}])
+        proof = {'schema':'noisefence-confinement-rehearsal-1','status':'passed','profile':name,
+            'profile_removed':True,'production_affected':False,'platform':'linux/arm64',
+            'profile_sha256':'c'*64,'generator_sha256':generator,'renderer_sha256':'d'*64}
+        folder = self.root/'apparmor';folder.mkdir()
+        path = folder/'confinement.json';path.write_text(json.dumps(proof))
+        socket={'schema':'noisefence-postgres-confinement-probe-3','status':'passed','production_affected':False,
+            'container_removed':True,'profile_removed':True,'generator_sha256':generator,'renderer_sha256':'d'*64,
+            'service_sha256':'e'*64,'binary_sha256':'f'*64,'unconfined':'query_ok','confined':'query_ok',
+            'service_context':{'unconfined':'query_ok','confined':'query_ok'},
+            'scoped_attachment_diagnostic':{'result':'query_ok'},
+            'scope_boundary_diagnostic':{'scope':'query5432_with_only_disconnected5433_allowed_must_be_denied',
+                'verified':True,'result':'socket_permission_denied'}}
+        socket_folder=self.root/'socket-boundary';socket_folder.mkdir();socket_path=socket_folder/'probe.json'
+        with self.assertRaises(FileNotFoundError):rehearsal.confinement_summary(self.root,paired,files)
+        socket_path.write_text(json.dumps(socket))
+        result=rehearsal.confinement_summary(self.root,paired,files)
+        self.assertEqual(result['status'],'enforced');self.assertEqual(result['socket_boundary']['status'],'verified')
+        retained_binary='1'*64
+        with self.assertRaisesRegex(ValueError,'retained validation'):
+            rehearsal.confinement_summary(self.root,paired,files,retained_binary=retained_binary)
+        retained=copy.deepcopy(paired)
+        for node in ('mx1','mx2'):
+            for check in ('retained_candidate_apparmor_enforced','retained_runtime_apparmor_enforced'):
+                retained['checks'].append({'check':check,'node':node,**runtime,'binary_sha256':retained_binary})
+        self.assertEqual(rehearsal.confinement_summary(self.root,retained,files,retained_binary=retained_binary)['status'],'enforced')
+        for index in range(len(paired['checks']),len(retained['checks'])):
+            for key,value in [('binary_sha256',binary),('mode','complain'),('profile','wrong'),('node','mx3')]:
+                changed=copy.deepcopy(retained);changed['checks'][index][key]=value
+                with self.subTest(retained_check=index,key=key),self.assertRaisesRegex(ValueError,'retained validation'):
+                    rehearsal.confinement_summary(self.root,changed,files,retained_binary=retained_binary)
+        for key,value in [('generator_sha256','0'*64),('renderer_sha256','0'*64),('service_sha256','0'*64),
+                          ('container_removed',False),('profile_removed',False),('binary_sha256','bad'),
+                          ('service_context',{'unconfined':'query_ok','confined':'socket_permission_denied'}),
+                          ('scope_boundary_diagnostic',{'verified':True,'result':'query_ok'}),
+                          ('scoped_attachment_diagnostic',{'result':'socket_permission_denied'})]:
+            socket_path.write_text(json.dumps({**socket,key:value}))
+            with self.subTest(socket_key=key),self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,paired,files)
+        for invalid_digest in (None, '', 'not-a-digest'):
+            absent_binding={**files,'deploy/noisefence.service':invalid_digest}
+            socket_path.write_text(json.dumps({**socket,'service_sha256':invalid_digest}))
+            with self.subTest(service_digest=invalid_digest),self.assertRaises(ValueError):
+                rehearsal.confinement_summary(self.root,paired,absent_binding)
+        missing_binding=dict(files);missing_binding.pop('deploy/noisefence.service')
+        missing_socket=dict(socket);missing_socket.pop('service_sha256')
+        socket_path.write_text(json.dumps(missing_socket))
+        with self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,paired,missing_binding)
+        socket_path.write_text(json.dumps(socket))
+        for key,value in [('profile_removed',False),('profile','other'),('generator_sha256','e'*64),
+                          ('profile_sha256','bad'),('status','failed'),('platform','linux/amd64')]:
+            path.write_text(json.dumps({**proof,key:value}))
+            with self.subTest(key=key),self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,paired,files)
+        path.write_text(json.dumps(proof))
+        for change in ('canary','candidate','final'):
+            altered = copy.deepcopy(paired)
+            if change == 'canary':altered['checks'][0]['confined_canary_denied'] = False
+            if change == 'candidate':altered['checks'][1]['binary_sha256'] = 'f'*64
+            if change == 'final':altered['final_running']['mx2']['confinement']['mode'] = 'complain'
+            with self.subTest(change=change),self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,altered,files)
+        with self.assertRaises(ValueError):rehearsal.confinement_summary(self.root,{},files)
+
+
+    def test_both_archive_rehearsals_require_confinement_in_each_workflow(self):
+        for path in ('.github/workflows/check.yml','.github/workflows/release.yml'):
+            source=(ROOT/path).read_text()
+            steps=source.split('      - name: ')
+            rehearsals=[step for step in steps if 'sh scripts/check_release_lifecycle.sh' in step]
+            self.assertEqual(len(rehearsals),2)
+            for step in rehearsals:
+                with self.subTest(path=path,step=step.splitlines()[0]):
+                    self.assertIn("NOISEFENCE_REHEARSAL_APPARMOR: '1'",step)
+
+    def test_native_confinement_requires_the_socket_positive_and_negative_stage(self):
+        script=(ROOT/'scripts/check_release_lifecycle.sh').read_text()
+        self.assertIn('phase=socket-boundary',script)
+        self.assertIn('rustc --edition=2024 --test tests/fixtures/postgres_socket_probe.rs',script)
+        self.assertIn('tests/confinement_socket_probe.py --binary "$output/socket-probe"',script)
+        self.assertLess(script.index('phase=socket-boundary'),script.index('phase=paired\n'))
+        self.assertIn('set -eu',script)
+
     def test_failed_partial_wrong_platform_and_local_binary_runs_are_refused(self):
         original = copy.deepcopy(self.paired)
         for key,value in [('status','failed'),('cleanup',False),('candidate_mode','local_binary'),

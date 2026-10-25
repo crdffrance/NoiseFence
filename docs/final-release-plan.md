@@ -42,7 +42,7 @@ Measure CRDF timeouts and response parsing separately from provider listings. Pr
 
 Improve bounded URL processing from measured stop causes: prioritize action links, resolve HTTP redirects before final-body processing, distinguish oversized final pages from unresolved redirects, and expose client-side navigation as unsupported unless a separately isolated implementation is qualified. Never relax private-network/SSRF, response-size or deadline guards to improve coverage counts.
 
-Test queue persistence, required peer copies before SMTP acceptance, worker restart, lost SMTP responses, disk exhaustion, downstream temporary and permanent errors, unknown recipients, console failover and rolling upgrades. On the agreed 4-vCPU/8-GiB reference machine, report native warm-cache analysis and full external-service latency separately. Keep the native p95 target below 500 ms for messages up to 1 MiB and external checks within the configured five-second envelope; measure throughput, memory and queues under overload.
+Test queue persistence, required peer copies before SMTP acceptance, worker restart, lost SMTP responses, disk exhaustion, downstream temporary and permanent errors, unknown recipients, console failover and upgrades under the actual management authority. Selected PostgreSQL management needs coordinated maintenance with matching builds; test any claimed rolling compatibility separately. On the agreed 4-vCPU/8-GiB reference machine, report native warm-cache analysis and full external-service latency separately. Keep the native p95 target below 500 ms for messages up to 1 MiB and external checks within the configured five-second envelope; measure throughput, memory and queues under overload.
 
 ## 6. Release gates
 
@@ -91,7 +91,7 @@ No model is trained, promoted or enabled by these read-only counts.
 
 ### Operator procedure
 
-1. Keep **Filters → observation** and freeze detector/model/policy digests. Upgrade all MX software before collecting a new qualification cohort; mixed-version rolling-upgrade traffic is not one evaluation cohort.
+1. Keep **Filters → observation** and freeze detector/model/policy digests. Upgrade all MX software before collecting a new qualification cohort; traffic observed across different detector builds is not one evaluation cohort.
 2. Open **Quality & research → Samples & evaluation**, expand **Data readiness and release qualification**, and create distinct development and regression samples from the current cohort. Label messages without using engine scores as truth. Put previously corrected examples in regression, not the final holdout.
 3. Use the existing calibration workbench to export/train an observation-only candidate. Preserve rejected preparation reports when classes, campaigns, provenance or profiles are insufficient; do not force a fit or lower the statistical gates to obtain a model.
 4. Compare frozen NoiseFence and Rspamd results on the same human-labelled messages. Report missing analyses, unresolved actions, campaign denominators and results by mail kind/coverage. LLM-only regressions and reconstructed excerpts are separate experiments, never gateway accuracy results.

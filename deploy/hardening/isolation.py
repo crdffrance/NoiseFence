@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import stat
 import time
 import uuid
 
@@ -21,6 +22,35 @@ STATE=Path('/var/lib/noisefence-hardening/isolation')
 SELF=Path('/usr/local/libexec/noisefence-hardening/isolation.py')
 PROFILE=Path('/etc/apparmor.d/noisefence-services')
 SERVICES=['clamav-daemon','noisefence-signature-scanner','noisefence-vision','nginx','noisefence']
+DISCONNECTED_ROOT=Path('/att/noisefence')
+DISCONNECTED_FLAG='attach_disconnected.path=/att/noisefence/'
+
+
+def require_reserved_prefix():
+    """Prevent a real filesystem path from aliasing the virtual attachment root."""
+    parent=DISCONNECTED_ROOT.parent
+    try:info=parent.lstat()
+    except FileNotFoundError:return
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+        raise ValueError('Reserved AppArmor prefix has an unsafe parent')
+    try:DISCONNECTED_ROOT.lstat()
+    except FileNotFoundError:return
+    raise ValueError('Reserved AppArmor prefix must not exist')
+
+
+def enforcing_profiles(current):
+    """Remove complain mode only, preserving every path permission and flag."""
+    changed=current
+    for name in ('noisefence','noisefence-clamav','noisefence-vision','noisefence-nginx'):
+        suffixes=['']+([','+DISCONNECTED_FLAG] if name=='noisefence' else [])
+        matches=[suffix for suffix in suffixes if ('profile '+name+' flags=(complain'+suffix+') {\n') in changed]
+        if len(matches)!=1:raise ValueError('Unexpected learning profile header')
+        suffix=matches[0];before='profile '+name+' flags=(complain'+suffix+') {\n'
+        if changed.count(before)!=1:raise ValueError('Duplicate learning profile header')
+        after='profile '+name+(' flags=('+suffix[1:]+')' if suffix else '')+' {\n'
+        changed=changed.replace(before,after)
+    if 'flags=(complain' in changed:raise ValueError('Unreviewed learning profile flag')
+    return changed
 
 
 def profiles(mode):
@@ -133,7 +163,14 @@ def profiles(mode):
   /run/nginx/ rw,
   /run/nginx/** rw,
 '''
-    return header+'\n'.join('profile '+name+flag+' {\n'+base+body+'}\n' for name,body in [('noisefence',main),('noisefence-clamav',scanner),('noisefence-vision',vision),('noisefence-nginx',nginx)])
+    # A virtual prefix keeps disconnected sockets separate from ordinary paths.
+    # Mirror only the four existing local socket rules, never the filesystem.
+    sockets=['/run/postgresql/.s.PGSQL.[0-9]*','/run/clamav/clamd.ctl',
+             '/run/noisefence-signatures/clamd.ctl','/run/noisefence-vision/worker.sock']
+    main+='  # Reserved virtual paths for sockets outside the service mount namespace.\n'
+    main+=''.join('  '+str(DISCONNECTED_ROOT)+path+' rw,\n' for path in sockets)
+    main_flag=' flags=('+('complain,' if mode=='complain' else '')+DISCONNECTED_FLAG+')'
+    return header+'\n'.join('profile '+name+(main_flag if name=='noisefence' else flag)+' {\n'+base+body+'}\n' for name,body in [('noisefence',main),('noisefence-clamav',scanner),('noisefence-vision',vision),('noisefence-nginx',nginx)])
 
 
 def files(small,mode):
@@ -210,6 +247,7 @@ def read(ident):
 
 def apply(seconds):
     if not 300<=seconds<=1800:raise ValueError('Deadline must be 300..1800 seconds')
+    require_reserved_prefix()
     if any(json.loads(p.read_text()).get('status')=='pending' for p in STATE.glob('*.json')):raise ValueError('Pending isolation transaction')
     small=int(Path('/proc/meminfo').read_text().split('MemTotal:',1)[1].split()[0])<6*1024*1024
     content=files(small,'complain')
@@ -260,7 +298,8 @@ def enforce(ident):
     if state['mode']!='complain':raise ValueError('Already enforced')
     current=PROFILE.read_text()
     if hashlib.sha256(PROFILE.read_bytes()).hexdigest()!=state['applied_hashes'][str(PROFILE)]:raise ValueError('Profile changed outside transaction')
-    atomic(PROFILE,current.replace(' flags=(complain)','').encode())
+    require_reserved_prefix()
+    atomic(PROFILE,enforcing_profiles(current).encode())
     run('apparmor_parser','-r',str(PROFILE))
     state['mode']='enforce';state['applied_hashes'][str(PROFILE)]=hashlib.sha256(PROFILE.read_bytes()).hexdigest();save(state)
     return {'id':ident,'status':'pending','mode':'enforce'}
@@ -271,6 +310,7 @@ def revise(ident):
     state=read(ident)
     if state['status']!='pending' or state['mode']!='complain' or time.time()>state['deadline']-60:raise ValueError('Only live learning profiles can be revised')
     if hashlib.sha256(PROFILE.read_bytes()).hexdigest()!=state['applied_hashes'][str(PROFILE)]:raise ValueError('Profile changed outside transaction')
+    require_reserved_prefix()
     atomic(PROFILE,profiles('complain').encode())
     run('apparmor_parser','-Q',str(PROFILE));run('apparmor_parser','-r',str(PROFILE))
     state['applied_hashes'][str(PROFILE)]=hashlib.sha256(PROFILE.read_bytes()).hexdigest();save(state)
@@ -280,6 +320,7 @@ def revise(ident):
 def commit(ident):
     state=read(ident)
     if state['status']!='pending' or state['mode']!='enforce' or time.time()>state['deadline']-10:raise ValueError('Only a live enforced transaction can commit')
+    require_reserved_prefix()
     for name,digest in state['applied_hashes'].items():
         if hashlib.sha256(Path(name).read_bytes()).hexdigest()!=digest:raise ValueError('File changed: '+name)
     for service in SERVICES:run('systemctl','is-active','--quiet',service)

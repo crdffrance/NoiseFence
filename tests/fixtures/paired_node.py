@@ -25,6 +25,8 @@ CONFIG = Path('/etc/noisefence/config.toml')
 PRIVATE = Path('/root/paired-test')
 PG = '/usr/lib/postgresql/17/bin/'
 
+import confinement_node
+
 
 def require(value, message):
     if not value:
@@ -102,9 +104,11 @@ def bootstrap(node, old, new):
     Path('/var/lib/noisefence-hardening').mkdir(mode=0o700)
     PRIVATE.mkdir(mode=0o700)
     atomic(PRIVATE/'identity.json', json.dumps({'node': node, 'old': old, 'new': new}).encode())
+    confinement = confinement_node.install(BASE/'noisefence', CONFIG)
     run('systemctl', 'daemon-reload')
     run('runuser', '-u', 'noisefence', '--', str(BASE/'noisefence'), '--config', str(CONFIG), 'check-config')
     return {'node': node, 'bootstrapped': True, 'machine': digest('/etc/machine-id'),
+            'confinement': confinement,
             'binary_sha256': {v: digest(BASE/'releases'/v/'noisefence') for v in (old, new)}}
 
 
@@ -120,7 +124,8 @@ def readiness(node, expected=None, seconds=90):
             executable = Path(f'/proc/{pid}/exe').resolve()
             if healthy and (expected is None or executable == BASE/'releases'/expected/'noisefence'):
                 return {'node': node, 'smtp_ready': True, 'binary_sha256': digest(executable),
-                        'running_release': executable.parent.name}
+                        'running_release': executable.parent.name,
+                        'confinement': confinement_node.inspect('noisefence.service')}
         except Exception:
             pass
         time.sleep(.25)
@@ -260,7 +265,7 @@ def main():
             and Path('/run/systemd/container').read_text().strip() == 'docker', 'Disposable container required')
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['bootstrap', 'migration', 'ready', 'submit', 'inspect', 'switch', 'policy', 'deferred'])
+    parser.add_argument('action', choices=['bootstrap', 'migration', 'ready', 'submit', 'inspect', 'switch', 'policy', 'deferred', 'confinement'])
     parser.add_argument('--node', choices=['mx1', 'mx2'], required=True)
     parser.add_argument('--old', required=True); parser.add_argument('--new', required=True)
     parser.add_argument('--value')
@@ -272,6 +277,7 @@ def main():
     elif args.action == 'submit': result = submit(args.node, args.value)
     elif args.action == 'inspect': result = inspect(args.node)
     elif args.action == 'deferred': result = deferred(args.node)
+    elif args.action == 'confinement': result = confinement_node.inspect(args.value)
     elif args.action == 'policy':
         require(args.node == 'mx1', 'Policy snapshot requires the synthetic coordinator')
         result = policy_status()

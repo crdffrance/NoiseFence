@@ -1,8 +1,9 @@
 # Changelog
 
-## 0.32.0-rc.2 — Explicit retained-release recovery (unreleased)
+## 0.32.0-rc.2 — Paired recovery and scoped service confinement
 
-This candidate extends paired maintenance. It does not change filtering models,
+This candidate extends paired maintenance and native service confinement.
+It does not change filtering models,
 thresholds, provider activation or observation mode. Detection quality remains
 unqualified until an independent human-labelled evaluation passes.
 
@@ -20,6 +21,18 @@ unqualified until an independent human-labelled evaluation passes.
   the historical 0.31.9 refusal tests on amd64 and arm64. Qualification applies
   only after those exact-archive scenarios pass; unsupported probes cannot count
   as success. Document the operator procedure and current limits in English.
+- Restore the isolated daemon's local Unix-socket access with a reserved virtual
+  AppArmor attachment prefix and the four existing socket permissions. Refuse
+  conflicting host paths and preserve enforcement and systemd isolation.
+- Check permitted PostgreSQL access and a deliberately forbidden port under the
+  full service isolation on Ubuntu 24.04 and 26.04. Bind native paired rehearsal
+  evidence to the actual profiles, service definitions and archive binaries;
+  retained validation and restarted retained daemons must prove the old binary
+  identity on both nodes. Missing enforcement or cleanup fails qualification.
+- Align English installation, multi-MX and recipient-policy guides with the actual
+  management authority. Document coordinated PostgreSQL upgrades and temporary
+  SMTP deferral while either mandatory replica is unavailable. Use explicitly
+  selected versions in installation and publication commands.
 
 ## 0.32.0-rc.1 — Consistent decisions, reviewed administration and paired maintenance
 

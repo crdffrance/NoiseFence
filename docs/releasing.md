@@ -4,8 +4,11 @@
 
 The repository uses `master`, descriptive commits and annotated tags `vMAJOR.MINOR.PATCH`. Unsuffixed tags are the final releases; `-dev.N` and `-rc.N` are prereleases. The project remains in 0.x. An incompatible change requires a minor version as long as the project remains in 0.x; a compatible correction requires a patch version. The changelog specifies migrations and limits.
 
+On a review branch, select a new, unpublished version in `NOISEFENCE_RELEASE_VERSION`. Check existing tags and releases first; do not reuse a published version.
+
 ```sh
-python3 scripts/version.py --set 0.29.4
+: "${NOISEFENCE_RELEASE_VERSION:?Set the new unpublished release version}"
+python3 scripts/version.py --set "$NOISEFENCE_RELEASE_VERSION"
 # Update the corresponding section of CHANGELOG.md.
 python3 scripts/version.py --check
 cargo fmt --check
@@ -13,7 +16,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-Also check the console as indicated in CONTRIBUTING.md. Merge changes into the protected default branch after CI passes, then create and push the corresponding annotated tag from that merged commit. The `scripts/version.py --check --tag v0.29.4` command refuses a different tag from the manifest version.
+Also check the console as indicated in CONTRIBUTING.md. Merge changes into the protected default branch after CI passes, then create and push the corresponding annotated tag from that merged commit. The `scripts/version.py --check --tag "v${NOISEFENCE_RELEASE_VERSION}"` command refuses a different tag from the manifest version.
 
 The `release.yml` workflow compiles into a Rust Bookworm image identified by its digest, on x86-64 and ARM64. It assembles binary, static frontend, licenses, examples, and documentation, then prepares a GitHub Release with the SHA-256 checksums. The workflow also calls the complete `check.yml` suite on the same tag; failure prohibits publication. Tests use `cargo test --release`, with the same profile as the distributed binary. This profile also avoids [gemm-f16's debug ARM64 compilation issue](https://github.com/sarah-quinones/gemm/issues/31). The main CI also checks the multilingual engine on an ARM64 runner. The exact sources are accessible from the release tag. Reports, trained models, keys and server-specific configurations remain outside Git, with the exception of explicitly versioned aggregated research reports.
 
@@ -30,15 +33,21 @@ using this workflow must qualify the complete attestation path.
 Unsuffixed versions become stable releases; suffixed versions remain prereleases.
 
 Release publication is triggered by a pushed tag, not by an ordinary commit to
-`master`. A successful branch build alone does not create a release. For example:
+`master`. A successful branch build alone does not create a release. From the clean checkout of the verified merged commit, re-read the version and create the new tag. Inspect local and remote tags and the release page before this step; if the version already exists, inspect its publication instead of moving the tag.
 
 ```sh
-git tag -a v0.29.4 -m "NoiseFence v0.29.4"
-git push origin v0.29.4
+set -eu
+NOISEFENCE_RELEASE_VERSION="$(python3 scripts/version.py)"
+python3 scripts/version.py --check --tag "v${NOISEFENCE_RELEASE_VERSION}"
+git fetch origin master --tags
+git merge-base --is-ancestor HEAD origin/master
+test -z "$(git status --porcelain)"
+git tag -a "v${NOISEFENCE_RELEASE_VERSION}" HEAD -m "NoiseFence v${NOISEFENCE_RELEASE_VERSION}"
+git push origin "v${NOISEFENCE_RELEASE_VERSION}"
 ```
 
 For a transient infrastructure failure, re-run the failed jobs in Actions, or run
-`gh workflow run release.yml --repo crdffrance/NoiseFence --ref v0.29.4`.
+`gh workflow run release.yml --repo crdffrance/NoiseFence --ref "v${NOISEFENCE_RELEASE_VERSION}"`. Set this variable to the exact existing version being resumed. Do not restart a healthy run.
 Manual dispatch must run on the version tag itself. Running it on a branch is
 refused before checkout. There is no alternate source-tag input: the workflow,
 validation, build and publication all use the immutable event commit. Preflight
@@ -161,7 +170,22 @@ network access; the running mail fixtures do not. `qualification.json` is produc
 only after both reports pass and their archive, installed helper and running
 binary identities match. Each fixture must also confirm removal of its disposable
 container and anonymous volumes. Failed or incomplete cleanup cannot produce a
-successful qualification report. GitHub retains **only this anonymous summary**. Keep raw
+successful qualification report.
+
+On failure, the job log includes a bounded diagnostic containing only public source
+file/line references and fixed error or AppArmor operation/resource categories.
+It distinguishes the intentional denial canary from other resources and excludes
+raw exception values,
+command arguments, configuration and message data; the original failing exit code
+is preserved. Missing diagnostics never count as a successful rehearsal.
+The failure report also includes fixed service/HTTP states and query-only SQLite
+observations: authority selection present, two-copy requirement, outstanding
+replica work, and heartbeat/policy-sync freshness categories. It excludes queue
+identities, counts, timestamps, connection details and message content. These
+observations distinguish an unavailable probe from a service reporting not ready;
+they neither authorize recovery nor replace the normal native qualification.
+
+GitHub retains **only the anonymous qualification summary** as an artifact. Keep raw
 fixture logs, messages, addresses, test credentials and journals private; do not
 upload the result directory. A failure records its phase in the job log and stops
 publication. The publish job downloads only the `linux-*` archive artifacts, not
@@ -221,3 +245,62 @@ The Web release checker follows public stable releases and identifies an install
 RC as a development version. It never treats the RC as its future stable release
 or installs it automatically. Publishing the RC does not change server policies,
 models, provider consent or MX routing.
+
+### Short PostgreSQL confinement diagnostic
+
+The `confinement socket probe` workflow performs a fixed, peer-authenticated
+`SELECT 1` over the local PostgreSQL Unix socket, with and without the same
+AppArmor policy. Its PostgreSQL container has no external network route and no
+production credentials. It compares direct invocations and bounded systemd
+oneshot services that copy the shipped daemon's identity and isolation
+properties. Both contexts are tested with and without AppArmor. Unknown service
+properties stop the diagnostic until reviewed; it never starts the mail daemon
+or changes its policy. The query program emits only fixed result categories.
+Kernel diagnostics inspect the journal, ring buffer and a bounded auditd log
+suffix. They retain only the unique test profile's denials (including owned
+stacked/child labels) privately. Public results contain fixed operation/resource
+categories and a `disconnected_path` reason when the kernel reports that exact
+failure; they never contain raw paths or database error text. Socket access
+failures and PostgreSQL authentication refusals are separate categories.
+
+A separate, uniquely named debug profile tests `attach_disconnected` under the
+full service isolation to isolate cross-namespace path lookup failures. This
+flag can alias paths, as documented in the [AppArmor manual](https://manpages.ubuntu.com/manpages/noble/man5/apparmor.d.5.html),
+and is not a production policy recommendation. Success under this debug profile
+or a reduced namespace never satisfies the unchanged mandatory profile check.
+The probe removes its container before removing all of its own loaded profiles.
+
+A second diagnostic uses `attach_disconnected.path` with a unique `/att/` prefix
+and adds only the fixed PostgreSQL socket under that prefix. The fixture verifies
+that this prefix has no real directory or symlink before querying; the complete
+service isolation remains enabled. Parsing is checked without loading the policy.
+The result records a bounded public parser version when available, otherwise `null`.
+A parser rejection is recorded separately and never authorizes a fallback or a
+change to the shipped profile. The short workflow covers Ubuntu 24.04 and 26.04
+with separate result artifacts. Distribution backports mean the reported parser
+version alone is not a capability check; [upstream compatibility notes](https://gitlab.com/apparmor/apparmor/-/merge_requests/2171)
+are not a substitute for executing the boundary tests.
+
+A third profile permits only port 5433 under its separate virtual prefix, while
+the fixed program still queries port 5432. It must report `socket_permission_denied`.
+The normal PostgreSQL path permission is retained, so ignoring the prefix cannot
+produce a passing negative control. Qualification requires both the successful
+scoped query and this denial, in addition to the original profile's direct and
+full-service queries. Root attachment and reduced namespaces never substitute
+for those results. All owned profiles are removed after their container.
+
+The required native archive lifecycle runs this probe before the paired rehearsal.
+Its summary checks the generator and service hashes against the candidate archive,
+requires the same renderer as the full pair, checks both socket outcomes and cleanup,
+and records the fixed probe binary digest. A missing or inconsistent boundary report
+prevents a confinement qualification. The full paired canary and runtime checks
+remain mandatory. The historical upgrade and retained-release roundtrip
+both run with enforcement enabled. The retained validation process and the
+restarted retained daemon must each match the old archive's binary hash on both
+nodes; a successful current-version process cannot substitute for this evidence.
+
+This short diagnostic helps locate policy failures without rebuilding every
+optimized Rust integration test. It does not replace the required exact-archive
+lifecycle checks, test rollback or qualify delivery and filter accuracy. Only the
+anonymous `probe.json` is retained as a public artifact; raw logs and database
+state are not uploaded.

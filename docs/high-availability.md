@@ -49,7 +49,7 @@ For an existing pair, begin with the [upgrade preparation and rehearsal gates](p
 
 ## Installation
 
-1. Install a compatible HA release on both MX servers, coordinator first. Preserve current queues, observation mode, identities and budgets. HA requires at least 0.17.3; use the current release on both nodes after a rolling upgrade.
+1. For a new pair, install the same verified HA release on both MX servers before enabling replication. For an existing pair, follow the [paired upgrade procedure](paired-upgrades.md) for its actual management authority and exact release pair. Selected PostgreSQL management requires coordinated maintenance with matching builds; do not infer mixed-version compatibility from the historical minimum HA version. Preserve current queues, observation mode, identities and budgets.
 2. Generate a shared 32-byte random peer key encoded as 64 hexadecimal characters. Store it as `/etc/noisefence/replication.key`, owned by `noisefence`, mode 0600, on both hosts. Do not reuse a console secret or publish the key.
 3. Proxy `/api/v1/replication/` through verified HTTPS to the local API, without rewriting the path. Disable request buffering and bound request time and size to the SMTP maximum plus 256 KiB. Permit the service to read `/etc/machine-id` in AppArmor. No additional public API port is required.
 4. Apply `config/replication.example.toml`, reversing node identities and peer URLs on the second MX. Restart both. SMTP remains temporarily deferred until the first peer acknowledgement. Verify heartbeat, initial copies and pending updates in the infrastructure view. Once activated, removing replication causes startup to fail; never bypass the `ha_required` marker.

@@ -63,6 +63,69 @@ def read_report(path):
     return value
 
 
+def confinement_summary(directory, paired, files, *, retained_binary=None):
+    name = paired.get('apparmor_profile')
+    evidence = Path(directory)/'apparmor/confinement.json'
+    socket_evidence = Path(directory)/'socket-boundary/probe.json'
+    if not name:
+        bundle.require(not evidence.exists() and not socket_evidence.exists() and paired.get('confinement_scope') in (None, 'not_exercised'),
+                       'Unexpected confinement evidence without an enforced pair')
+        return {'status':'not_exercised'}
+    bundle.require(isinstance(name,str) and re.fullmatch(r'noisefence-test-[a-f0-9]{12}',name)
+        and paired.get('confinement_scope') == 'named_profile_enforcement_with_dac_canary',
+        'Unexpected confinement scope')
+    proof = read_report(evidence)
+    bundle.require(proof.get('schema') == 'noisefence-confinement-rehearsal-1'
+        and proof.get('profile') == name and proof.get('profile_removed') is True
+        and proof.get('platform') == paired.get('platform'),
+        'Confinement load or cleanup is not bound to this paired run')
+    for field in ('profile_sha256','generator_sha256','renderer_sha256'):
+        bundle.require(isinstance(proof.get(field),str) and re.fullmatch('[0-9a-f]{64}',proof[field]),
+                       'Missing confinement source digest')
+    bundle.require(proof['generator_sha256'] == files.get('deploy/hardening/isolation.py'),
+                   'Test policy generator differs from the candidate archive')
+    socket=read_report(socket_evidence)
+    boundary=socket.get('scope_boundary_diagnostic') or {}
+    bundle.require(socket.get('schema')=='noisefence-postgres-confinement-probe-3'
+        and socket.get('container_removed') is True and socket.get('profile_removed') is True
+        and socket.get('generator_sha256')==proof['generator_sha256']
+        and socket.get('renderer_sha256')==proof['renderer_sha256']
+        and isinstance(socket.get('service_sha256'),str) and re.fullmatch('[0-9a-f]{64}',socket['service_sha256'])
+        and socket.get('service_sha256')==files.get('deploy/noisefence.service')
+        and isinstance(socket.get('binary_sha256'),str) and re.fullmatch('[0-9a-f]{64}',socket['binary_sha256'])
+        and socket.get('unconfined')==socket.get('confined')=='query_ok'
+        and socket.get('service_context')=={'unconfined':'query_ok','confined':'query_ok'}
+        and (socket.get('scoped_attachment_diagnostic') or {}).get('result')=='query_ok'
+        and boundary.get('scope')=='query5432_with_only_disconnected5433_allowed_must_be_denied'
+        and boundary.get('result')=='socket_permission_denied' and boundary.get('verified') is True,
+        'Scoped socket boundary is missing, inconsistent or not enforced')
+    def runtime(row):
+        return (row.get('profile') == name and row.get('process_profile') == name+' (enforce)'
+                and row.get('mode') == 'enforce' and row.get('binary_sha256') == files['noisefence'])
+    events = paired.get('checks',[])
+    for node in ('mx1','mx2'):
+        bundle.require(any(row.get('check') == 'apparmor_canary_enforced' and row.get('node') == node
+            and row.get('profile') == name and all(row.get(key) is True for key in
+                ('allowed_configuration','unconfined_canary_read','confined_canary_denied')) for row in events),
+            'Both nodes need a real confinement canary')
+        bundle.require(any(row.get('check') == 'candidate_apparmor_enforced' and row.get('node') == node
+            and runtime(row) for row in events), 'Both validation candidates need runtime confinement')
+        bundle.require(runtime(paired.get('final_running',{}).get(node,{}).get('confinement',{})),
+                       'Both final daemons need runtime confinement')
+    if retained_binary is not None:
+        bundle.require(isinstance(retained_binary,str) and re.fullmatch('[0-9a-f]{64}',retained_binary),
+                       'Missing retained archive binary identity')
+        for node in ('mx1','mx2'):
+            for check in ('retained_candidate_apparmor_enforced','retained_runtime_apparmor_enforced'):
+                bundle.require(any(row.get('check') == check and row.get('node') == node
+                    and row.get('profile') == name and row.get('process_profile') == name+' (enforce)'
+                    and row.get('mode') == 'enforce' and row.get('binary_sha256') == retained_binary
+                    for row in events), 'Both retained validation and normal runtimes need confinement')
+    return {'status':'enforced', 'mode':'enforce', 'profile_removed':True,
+            'socket_boundary':{'status':'verified','probe_binary_sha256':socket['binary_sha256']},
+            **{key:proof[key] for key in ('profile_sha256','generator_sha256','renderer_sha256')}}
+
+
 def summarize(platform, archive, directory, *, version, commit, kind='historical'):
     pin = baseline(kind); directory = Path(directory); archive = Path(archive)
     bundle.require(precedence(pin['version']) < precedence(version), 'Review the baseline before changing release order')
@@ -123,6 +186,9 @@ def summarize(platform, archive, directory, *, version, commit, kind='historical
         'disk_full_before_mail_temporarily_rejected', 'disk_full_after_data_temporarily_rejected',
         'disk_full_recovery_preserves_accepted_messages'}
     bundle.require(standalone_checks <= set(standalone['checks']), 'Standalone lifecycle coverage is missing')
+    confinement = confinement_summary(directory, paired, inspected['files'], retained_binary=(
+            bundle.inspect_archive(old, pin['version'], platform, pin['commit'])['files']['noisefence']
+            if kind == 'retained' and paired.get('apparmor_profile') else None))
     # Deliberate allowlist: no fixture credentials, messages, recipients, private
     # paths, raw observations, environment values or journal text in CI artifacts.
     if kind == 'retained':
@@ -151,7 +217,7 @@ def summarize(platform, archive, directory, *, version, commit, kind='historical
         'standalone_checks':standalone['checks'], 'paired_checks':checks,
         'accepted_synthetic_messages':len(accepted), 'cleanup':True,
         'production_affected':False, 'provenance_verified':False,
-        'rehearsal_only':inspected['rehearsal_only'],
+        'rehearsal_only':inspected['rehearsal_only'], 'confinement':confinement,
         'not_qualified':paired['not_qualified']}
 
 
