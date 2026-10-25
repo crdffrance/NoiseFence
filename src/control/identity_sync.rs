@@ -15,6 +15,8 @@ use rusqlite::params;
 use serde::Serialize;
 use std::{collections::BTreeSet, sync::Arc};
 enum Collector {
+    #[cfg(test)]
+    Synthetic(tokio::sync::oneshot::Receiver<entra::Collected>),
     Entra(entra::Credentials),
     Okta(okta::Credentials),
     Google(google::Credentials),
@@ -117,6 +119,7 @@ impl Controller {
             Collector::Entra(credentials),
             actor,
             session,
+            None,
         )
         .await
     }
@@ -143,6 +146,7 @@ impl Controller {
             Collector::Okta(credentials),
             actor,
             session,
+            None,
         )
         .await
     }
@@ -172,8 +176,66 @@ impl Controller {
             Collector::Google(credentials),
             actor,
             session,
+            None,
         )
         .await
+    }
+    pub(super) async fn start_stored_directory_sync(
+        self: &Arc<Self>,
+        input: super::identity_connections::Collect,
+        source: Source,
+        credential: crate::identity::connections::Credential,
+        actor: String,
+        session: String,
+    ) -> Result<Request> {
+        use crate::identity::connections::Credential;
+        let collector = match credential {
+            Credential::EntraApplication {
+                client_id,
+                client_secret,
+            } => Collector::Entra(entra::Credentials::new(
+                &source.authority,
+                &client_id,
+                client_secret,
+            )?),
+            Credential::GoogleAccessToken { access_token } => {
+                Collector::Google(google::Credentials::new(&source.authority, access_token)?)
+            }
+            Credential::OktaAccessToken { access_token } => {
+                Collector::Okta(okta::Credentials::new(&source.authority, access_token)?)
+            }
+        };
+        self.start_directory_sync(
+            input.operation,
+            input.revision,
+            input.catalog_sha256,
+            source,
+            collector,
+            actor,
+            session,
+            Some(input.connection),
+        )
+        .await
+    }
+    async fn watch_directory_connection(
+        &self,
+        reference: Option<&crate::identity::connections::Reference>,
+        actor: &str,
+        session: &str,
+    ) -> Failure {
+        let Some(reference) = reference else {
+            return std::future::pending().await;
+        };
+        loop {
+            if self
+                .directory_connection_live(reference, actor, session)
+                .await
+                .is_err()
+            {
+                return Failure::Authorization;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
     }
     #[allow(clippy::too_many_arguments)]
     async fn start_directory_sync(
@@ -185,6 +247,7 @@ impl Controller {
         collector: Collector,
         actor: String,
         session: String,
+        connection: Option<crate::identity::connections::Reference>,
     ) -> Result<Request> {
         ensure!(
             uuid::Uuid::parse_str(&operation).is_ok() && operation.len() == 36,
@@ -196,48 +259,12 @@ impl Controller {
         );
         self.directory_authorize(actor.clone(), session.clone())
             .await?;
-        source.validate()?;
-        let current = self.snapshot();
-        ensure!(
-            revision == current.revision
-                && expected == current.config.identity.as_ref().map(|s| s.sha256.clone()),
-            "Directory changed; reload before synchronization"
-        );
-        let scopes: BTreeSet<_> = current
-            .config
-            .domains
-            .iter()
-            .map(|d| d.name.clone())
-            .collect();
-        ensure!(
-            source.scopes.iter().all(|s| scopes.contains(s)),
-            "Source scope is not a configured receiving domain"
-        );
-        let settings = current.config.identity.clone();
-        let previous = tokio::task::spawn_blocking(move || match settings {
-            Some(s) => runtime::read_document(&s, crate::now()),
-            None => Ok(runtime::Document {
-                schema: runtime::SCHEMA.into(),
-                sources: vec![],
-            }),
-        })
-        .await??;
-        let old = previous.sources.iter().find(|s| s.source.id == source.id);
-        ensure!(
-            old.is_none_or(|s| s.source == source),
-            "Source configuration changed; use a new ID for a different authority"
-        );
-        ensure!(
-            old.is_some() || previous.sources.len() < 16,
-            "Directory source limit reached"
-        );
-        let generation = old.map_or(Ok(1), |s| {
-            s.generation
-                .checked_add(1)
-                .context("Source generation exhausted")
-        })?;
+        let (previous, scopes, generation) = self
+            .directory_context(revision, expected.clone(), &source)
+            .await?;
         let now = crate::now();
         let request = Request {
+            connection,
             id: operation,
             runner: self.identity_sync_runner.clone(),
             source_id: source.id.clone(),
@@ -252,7 +279,9 @@ impl Controller {
         let receipt = request.clone();
         tokio::spawn(async move {
             let result = tokio::time::timeout(std::time::Duration::from_secs(350), async {
-                let collected = match collector {
+                let collection = async { match collector {
+                    #[cfg(test)]
+                    Collector::Synthetic(receiver)=>receiver.await.context("Synthetic collector cancelled"),
                     Collector::Entra(credentials) => {
                         entra::synchronize(
                             &source,
@@ -281,14 +310,19 @@ impl Controller {
                         .await
                     }
                 }
-                .map_err(|_| Failure::Collection)?;
+                .map_err(|_| Failure::Collection) };
+                let collected=tokio::select! {
+                    value=collection=>value?,
+                    failure=this.watch_directory_connection(receipt.connection.as_ref(),&actor,&session)=>return Err(failure),
+                };
+                if let Some(reference)=&receipt.connection {this.directory_connection_live(reference,&actor,&session).await.map_err(|_|Failure::Authorization)?;}
                 this.prepare_collected_directory(
                     &receipt,
                     previous,
                     collected,
                     scopes,
                     actor.clone(),
-                    session,
+                    session.clone(),
                 )
                 .await
             })
@@ -301,12 +335,13 @@ impl Controller {
                 Err(reason) => Outcome::Failed { reason },
             };
             if this
-                .identity_sync_finish(
+                .identity_sync_finish_authorized(
                     Event {
                         request: receipt.clone(),
                         outcome,
                     },
                     actor,
+                    Some(session),
                 )
                 .await
                 .is_err()
@@ -389,7 +424,8 @@ impl Controller {
         }
         let request = request.clone();
         self.store.run(move|db| {
-            let tx=db.transaction()?;local_authorize(&tx,&actor,&session)?;
+            let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;local_authorize(&tx,&actor,&session)?;
+            if let Some(reference)=&request.connection {crate::identity::connections::local::get(&tx,&reference.source_id,&reference.generation,&actor,&session,crate::now())?;}
             let raw={let mut q=tx.prepare("SELECT object_id FROM audit WHERE action='identity_sync' AND created>=?1 ORDER BY id LIMIT 129")?;q.query_map([request.created-3960],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?};
             sync::admit(&raw,&request,crate::now())?;
             let data=Event{request:request.clone(),outcome:Outcome::Running}.encode()?;
@@ -397,12 +433,28 @@ impl Controller {
             tx.commit()?;Ok(())
         }).await
     }
+    #[cfg(test)]
     pub(crate) async fn identity_sync_finish(&self, event: Event, actor: String) -> Result<()> {
+        self.identity_sync_finish_authorized(event, actor, None)
+            .await
+    }
+    pub(crate) async fn identity_sync_finish_authorized(
+        &self,
+        mut event: Event,
+        actor: String,
+        session: Option<String>,
+    ) -> Result<()> {
         if let Some(c) = self.store.management() {
-            return c.identity_sync_finish(&event, &actor).await;
+            return c
+                .identity_sync_finish_authorized(&event, &actor, session.as_deref())
+                .await;
         }
         self.store.run(move|db| {
-            let tx=db.transaction()?;
+            let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if let Some(reference)=&event.request.connection && matches!(event.outcome,Outcome::Ready{..}) {
+                let allowed=session.as_ref().is_some_and(|session|crate::identity::connections::local::get(&tx,&reference.source_id,&reference.generation,&actor,session,crate::now()).is_ok());
+                if !allowed { event.outcome=Outcome::Failed{reason:Failure::Authorization}; }
+            }
             let raw={let mut q=tx.prepare("SELECT object_id FROM audit WHERE action='identity_sync' AND object_id LIKE ?1 ORDER BY id LIMIT 129")?;q.query_map([format!("{};%",event.request.id)],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?};
             sync::finish(&raw,&event,crate::now())?;
             tx.execute("INSERT INTO audit(created,username,action,object_id) VALUES(?1,?2,'identity_sync',?3)",params![crate::now(),actor,event.encode()?])?;

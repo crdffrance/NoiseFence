@@ -516,3 +516,144 @@ async fn provider_sync_authorization(provider: &str) {
         .unwrap();
     assert_eq!(count, 0);
 }
+
+#[tokio::test]
+async fn saved_directory_access_api_is_private_explicit_bounded_and_recoverable() {
+    let root = tempfile::tempdir().unwrap();
+    let base = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let admin = account(&store, "admin", true).await;
+    let user = account(&store, "user", false).await;
+    let control = Controller::load(base.clone(), store.clone()).await.unwrap();
+    let router = api::router_controlled(base, store.clone(), Some(control.clone())).unwrap();
+    let mut source = draft().source;
+    source.provider = directory::Provider::Entra;
+    source.authority = "11111111-1111-4111-8111-111111111111".into();
+    let operation = uuid::Uuid::new_v4().to_string();
+    let secret = "SYNTHETIC-API-DIRECTORY-SECRET";
+    let body = json!({"operation":operation,"revision":0,"catalog_sha256":null,"expected_generation":null,"source":source,"expires":noisefence::now()+3600,"credential":{"kind":"entra_application","client_id":"22222222-2222-4222-8222-222222222222","client_secret":secret}});
+    let endpoint = "/admin/identity/connections";
+    assert_eq!(
+        request(&router, &user, endpoint, None, false).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&router, &user, endpoint, Some(body.clone()), true)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&router, &admin, endpoint, Some(body.clone()), false)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert!(!root.path().join("directory-vault").exists());
+    for bad in [
+        json!({"revision":99}),
+        json!({"expires":noisefence::now()-1}),
+        json!({"source":{ "scopes":["outside.test"] }}),
+    ] {
+        let mut invalid = body.clone();
+        for (key, value) in bad.as_object().unwrap() {
+            if key == "source" {
+                invalid["source"]["scopes"] = value["scopes"].clone();
+            } else {
+                invalid[key] = value.clone();
+            }
+        }
+        let (status, reply) = request(&router, &admin, endpoint, Some(invalid), true).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(!reply.to_string().contains(secret));
+    }
+    let mut huge = body.clone();
+    huge["credential"]["client_secret"] = "x".repeat(65536).into();
+    assert_eq!(
+        request(&router, &admin, endpoint, Some(huge), true).await.0,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    let (status, reply) = request(&router, &admin, endpoint, Some(body.clone()), true).await;
+    assert_eq!(status, StatusCode::OK, "{reply}");
+    assert_eq!(reply["connections"][0]["generation"], operation);
+    assert_eq!(reply["connections"][0]["status"], "configured");
+    assert!(
+        !reply.to_string().contains(secret)
+            && !reply.to_string().contains("sealed")
+            && !reply.to_string().contains("key_id")
+    );
+    // Simulate a lost POST response: the chosen generation is recoverable by GET
+    // after controller reconstruction, without resending the plaintext secret.
+    let reloaded = Controller::load(control.snapshot().config.clone(), store.clone())
+        .await
+        .unwrap();
+    let view = reloaded
+        .directory_connections(
+            "admin".into(),
+            noisefence::message::digest(admin.as_bytes()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(view.connections[0].generation, operation);
+    assert_eq!(
+        request(&router, &admin, endpoint, Some(body.clone()), true)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let next = uuid::Uuid::new_v4().to_string();
+    let mut rotated = body;
+    rotated["operation"] = next.clone().into();
+    rotated["expected_generation"] = operation.clone().into();
+    assert_eq!(
+        request(&router, &admin, endpoint, Some(rotated), true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let revoked = "/admin/identity/connections/revoke";
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            revoked,
+            Some(json!({"source_id":source.id,"generation":operation})),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let reference = json!({"source_id":source.id,"generation":next});
+    let vault = root.path().join("directory-vault");
+    std::fs::rename(vault.join("key"), vault.join("key.offline")).unwrap();
+    let (status, view) = request(&router, &admin, endpoint, None, false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["vault"], "unavailable");
+    assert_eq!(view["connections"][0]["status"], "key_unavailable");
+    let attempt = json!({"operation":uuid::Uuid::new_v4().to_string(),"revision":0,"catalog_sha256":null,"connection":reference});
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            "/admin/identity/sync/stored",
+            Some(attempt),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert!(!vault.join("key").exists());
+    std::fs::rename(vault.join("key.offline"), vault.join("key")).unwrap();
+    let (_, view) = request(&router, &admin, endpoint, None, false).await;
+    assert_eq!(view["connections"][0]["status"], "configured");
+    let (status, reply) = request(&router, &admin, revoked, Some(reference.clone()), true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reply["connections"][0]["status"], "revoked");
+    // Refused before any network work; no tenant is contacted by this test.
+    let (status,_)=request(&router,&admin,"/admin/identity/sync/stored",Some(json!({"operation":uuid::Uuid::new_v4().to_string(),"revision":0,"catalog_sha256":null,"connection":reference})),true).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(control.snapshot().revision, 0);
+    assert!(control.snapshot().config.identity.is_none());
+}

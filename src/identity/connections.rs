@@ -12,6 +12,23 @@ use serde::{Deserialize, Serialize};
 pub const MAX_CONNECTIONS: usize = 16;
 pub const MAX_RECORD_BYTES: usize = 65536;
 pub const PROTOCOL: &str = "identity-connection-1";
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Reference {
+    pub source_id: String,
+    pub generation: String,
+}
+impl Reference {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            super::text(&self.source_id, 100)
+                && uuid::Uuid::parse_str(&self.generation)
+                    .is_ok_and(|u| u.to_string() == self.generation),
+            "Invalid directory connection reference"
+        );
+        Ok(())
+    }
+}
 
 /// Typed secret. Neither Debug nor Serialize: only the private vault encoder
 /// may turn it into plaintext bytes, never an API response or diagnostic.

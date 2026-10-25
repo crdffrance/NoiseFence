@@ -72,6 +72,7 @@ export function directoryFixture(params, settings) {
   else sources = [];
   const candidates = new Map();
   const syncJobs = new Map();
+  const connections = new Map();
   let count = 0;
   const status = (s) => ({
     source: s.source,
@@ -110,6 +111,53 @@ export function directoryFixture(params, settings) {
           { status: 503 },
         );
       const currentHash = current.identity_directory?.sha256 ?? null;
+      const connectionView = () => ({
+        revision,
+        catalog_sha256: currentHash,
+        vault: connections.size ? 'ready' : 'not_initialized',
+        connections: [...connections.values()],
+      });
+      if (path === '/admin/identity/connections' && options?.method !== 'POST')
+        return Response.json(connectionView());
+      if (
+        path === '/admin/identity/connections' &&
+        options?.method === 'POST'
+      ) {
+        const body = JSON.parse(options.body),
+          old = connections.get(body.source.id);
+        if (
+          body.revision !== revision ||
+          body.catalog_sha256 !== currentHash ||
+          (old?.generation ?? null) !== body.expected_generation
+        )
+          return Response.json(
+            { error: 'Synthetic connection changed. Reload before saving.' },
+            { status: 409 },
+          );
+        connections.set(body.source.id, {
+          source: body.source,
+          generation: body.operation,
+          owner: 'admin',
+          created: Math.floor(Date.now() / 1000),
+          expires: body.expires,
+          status: 'configured',
+        });
+        return Response.json(connectionView());
+      }
+      if (
+        path === '/admin/identity/connections/revoke' &&
+        options?.method === 'POST'
+      ) {
+        const body = JSON.parse(options.body),
+          old = connections.get(body.source_id);
+        if (!old || old.generation !== body.generation)
+          return Response.json(
+            { error: 'Synthetic access generation changed.' },
+            { status: 409 },
+          );
+        old.status = 'revoked';
+        return Response.json(connectionView());
+      }
       if (path === '/admin/identity' && options?.method !== 'POST') {
         const selected = sources.find(
           (s) => s.source.id === url?.searchParams.get('source'),
@@ -134,10 +182,25 @@ export function directoryFixture(params, settings) {
           '/admin/identity/sync/entra',
           '/admin/identity/sync/okta',
           '/admin/identity/sync/google',
+          '/admin/identity/sync/stored',
         ].includes(path) &&
         options?.method === 'POST'
       ) {
         const body = JSON.parse(options.body);
+        if (path.endsWith('/stored')) {
+          const access = connections.get(body.connection.source_id);
+          if (
+            !access ||
+            access.generation !== body.connection.generation ||
+            access.status !== 'configured' ||
+            access.expires <= Math.floor(Date.now() / 1000)
+          )
+            return Response.json(
+              { error: 'Synthetic saved access unavailable.' },
+              { status: 409 },
+            );
+          body.source = access.source;
+        }
         if (body.revision !== revision || body.catalog_sha256 !== currentHash)
           return Response.json(
             { error: 'Synthetic revision conflict.' },

@@ -41,6 +41,7 @@
 - [Entra candidate collection, permissions and failure boundaries](identity-entra.md)
 - [Okta collection, org scope and review](identity-okta.md)
 - [Google Workspace collection, customer scope and exclusions](identity-google.md)
+- [Encrypted directory access: Web setup, rotation, revocation and backups](directory-credential-storage.md)
 - [URL redirect resolution](url-resolution.md)
 - [OCR and QR codes](vision.md)
 - [Antivirus and complementary signatures](antivirus.md)

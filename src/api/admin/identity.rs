@@ -11,7 +11,7 @@ struct Prepare {
     catalog_sha256: Option<String>,
     edit: crate::identity::management::Edit,
 }
-fn capacity(app: &App) -> ApiResult<tokio::sync::OwnedSemaphorePermit> {
+pub(super) fn capacity(app: &App) -> ApiResult<tokio::sync::OwnedSemaphorePermit> {
     app.identity_capacity
         .clone()
         .try_acquire_owned()

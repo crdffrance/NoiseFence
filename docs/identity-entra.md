@@ -5,19 +5,24 @@
 The native Rust connector collects a complete **candidate** directory from public
 Microsoft Graph. The Web console now supports an administrator-triggered one-shot
 collection, a durable result receipt and review before normal policy activation.
-No live tenant was contacted for development validation. Scheduled jobs, stored
-credential rotation and delta synchronization remain to be implemented.
+No live tenant was contacted for development validation. Optional encrypted
+credential storage, replacement and revocation are available; scheduled jobs
+and delta synchronization remain to be implemented.
 
 Open **Administration → Filters → Identity protection → Directory
 synchronization**. Select an existing Entra source or enter a new stable source ID,
 name, tenant UUID and receiving domains. New sources use a 24-hour freshness window.
 Supply the application UUID and secret directly in the HTTPS console, then start
-collection. The secret is used only in process memory for that request; it is not
-stored in policy exports, audit records, job receipts or browser storage.
+collection. By default the secret is used only for that request. Alternatively,
+select **Store encrypted access for reuse**, choose a lifetime (at most 90 days),
+review and save. Use **Collect using saved access** to start a job separately.
+See [credential storage](directory-credential-storage.md) for rotation, revocation
+and backup requirements. Secrets never enter policy exports, audit records, job
+receipts or browser storage.
 
 The browser retains only the operation UUID in session storage. It sets that ID
 before submission, so **Check status** can recover a response lost after acceptance.
-A server restart cannot resume collection without the secret: unfinished jobs show
+A server restart does not automatically resume collection: unfinished jobs show
 **No completion receipt**, not a fabricated success or proof that the provider
 failed. No result is automatically retried or activated.
 
@@ -86,9 +91,8 @@ and [application authentication](https://learn.microsoft.com/en-us/entra/identit
 
 The initial authentication implementation uses a client secret. Certificate and
 workload-identity credentials, sovereign Graph clouds and persisted delta cursors
-are not implemented here. Client secrets must eventually be configured through
-the existing private credential lifecycle, not embedded in source snapshots or
-public settings exports. There is no reason to paste a secret into chat.
+are not implemented here. Optional saved client secrets use the separate
+encrypted connection lifecycle, never source snapshots or public settings exports. There is no reason to paste a secret into chat.
 
 ## Mapping and authority
 
@@ -171,8 +175,8 @@ cargo clippy --locked --lib --example identity_probe -- -D warnings
 ```
 
 The job journal and local/API workflow are exercised with synthetic fixtures and
-a disposable PostgreSQL instance. Live tenant interoperability, stored credential
-rotation, scheduling, independent filtering evaluation and a live two-MX provider
+a disposable PostgreSQL instance. Live tenant interoperability, production key
+recovery, scheduling, independent filtering evaluation and a live two-MX provider
 publication remain to qualify.
 Passing these fixtures does not demonstrate phishing capture or a false-positive
 rate.

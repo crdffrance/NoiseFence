@@ -9,6 +9,8 @@ pub const MAX_EVENTS: usize = 128;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<super::connections::Reference>,
     pub id: String,
     pub source_id: String,
     pub runner: String,
@@ -19,6 +21,13 @@ pub struct Request {
 }
 impl Request {
     pub fn validate(&self) -> Result<()> {
+        if let Some(reference) = &self.connection {
+            reference.validate()?;
+            ensure!(
+                reference.source_id == self.source_id,
+                "Directory connection source mismatch"
+            );
+        }
         ensure!(
             uuid::Uuid::parse_str(&self.id).is_ok()
                 && self.id.len() == 36
@@ -267,6 +276,7 @@ mod tests {
     const NOW: i64 = 1800000000;
     fn request(source: &str) -> Request {
         Request {
+            connection: None,
             id: uuid::Uuid::new_v4().to_string(),
             source_id: source.into(),
             runner: uuid::Uuid::new_v4().to_string(),

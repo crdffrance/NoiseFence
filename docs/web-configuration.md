@@ -89,7 +89,9 @@ suspended; an unavailable opinion is not a spam detection.
 ### One-shot directory collection
 
 Use **Filters → Identity protection → Directory synchronization** to collect
-users and groups from Entra, Google Workspace or Okta with an administrator-supplied, request-only credential.
-The job result is persistent, but credentials are not saved. Review and activate
+users and groups from Entra, Google Workspace or Okta. Credentials are request-only
+by default. Administrators may explicitly save [encrypted access](directory-credential-storage.md),
+set its expiry, replace or revoke it. Collection and activation remain separate
+actions. Job receipts are durable and contain no secrets. Review and activate
 the prepared directory separately. See [Entra setup](identity-entra.md), [Google setup](identity-google.md) or [Okta setup](identity-okta.md) and their shared job states.
 Scheduled synchronization is not yet available.

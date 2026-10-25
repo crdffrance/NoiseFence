@@ -37,6 +37,11 @@ const {
   await moduleURL('../app/directory-sync.tsx', {
     './directory': directory,
     './client': client,
+    './directory-connections': await moduleURL(
+      '../app/directory-connections.tsx',
+    ),
+    './console-ui':
+      'data:text/javascript,export function ConfirmDialog({children}){return children};',
   })
 );
 const source = {
@@ -198,4 +203,66 @@ test('coverage makes omitted memberships visible without rendering provider-supp
     }),
   );
   assert.match(complete, /Provider permissions still determine/);
+});
+
+const {
+  connectionLifetimeError,
+  canCollectSaved,
+  connectionStatus,
+  SavedConnections,
+} = await import(await moduleURL('../app/directory-connections.tsx'));
+test('saved access keeps unknown, revoked and expired states unavailable', () => {
+  const row = {
+    source,
+    generation: 'synthetic',
+    owner: 'admin',
+    created: 100,
+    expires: 200,
+    status: 'configured',
+  };
+  assert.ok(canCollectSaved(row, 150));
+  assert.ok(!canCollectSaved(row, 99));
+  assert.ok(!canCollectSaved(row, 200));
+  for (const status of [
+    'revoked',
+    'expired',
+    'authorization_changed',
+    'not_yet_valid',
+    'key_unavailable',
+    'configuration_changed',
+    'unknown',
+  ])
+    assert.ok(!canCollectSaved({ ...row, status }, 150));
+  assert.equal(connectionStatus('unknown'), 'Unavailable');
+  assert.equal(connectionLifetimeError('entra', 129600), null);
+  assert.ok(connectionLifetimeError('entra', 129601));
+  for (const p of ['google', 'okta']) {
+    assert.equal(connectionLifetimeError(p, 60), null);
+    assert.ok(connectionLifetimeError(p, 61));
+    assert.ok(connectionLifetimeError(p, 1.5));
+  }
+});
+test('saved access display distinguishes persistence from provider success and escapes source metadata', () => {
+  const row = {
+    source: { ...source, label: '<ScRiPt>alert(1)</ScRiPt>' },
+    generation: 'synthetic',
+    owner: 'admin',
+    created: 100,
+    expires: 200,
+    status: 'revoked',
+  };
+  const html = renderToStaticMarkup(
+    createElement(SavedConnections, {
+      value: { connections: [row], vault: 'ready' },
+      busy: false,
+      onCollect() {},
+      onReplace() {},
+      onRevoke() {},
+    }),
+  );
+  assert.match(html, /Revoked/);
+  assert.match(html, /does not mean a provider login succeeded/);
+  assert.match(html, /The credential is never returned/);
+  assert.doesNotMatch(html, /<script\b/i);
+  assert.match(html, /disabled=""[^>]*>Collect using saved access/);
 });

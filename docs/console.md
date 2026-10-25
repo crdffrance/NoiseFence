@@ -50,7 +50,9 @@ contact-history or sensitive-request analysis stays explicit. This observation
 does not replace the saved verdict and is not backfilled onto historical mail.
 
 Entra, Google Workspace and Okta sources can be collected once through **Directory synchronization**
-in the same workspace. The credential is used only for that invocation.
+in the same workspace. One-time access is the default. Optional
+[encrypted saved access](directory-credential-storage.md) has explicit expiry,
+replacement and revocation; it does not enable background collection.
 A durable receipt separates collection from reviewed activation; failures and
 unknown outcomes preserve the installed directory. See the [Entra](identity-entra.md), [Google Workspace](identity-google.md) and [Okta](identity-okta.md) guides
 for permissions, limits and the remaining scheduled-sync boundary.

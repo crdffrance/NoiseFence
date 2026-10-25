@@ -1,5 +1,6 @@
 mod domain_setup;
 mod identity;
+mod identity_connections;
 mod preference_preview;
 mod providers;
 use super::*;
@@ -9,6 +10,18 @@ pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
+        .route(
+            "/admin/identity/connections",
+            get(identity_connections::list).post(identity_connections::save),
+        )
+        .route(
+            "/admin/identity/connections/revoke",
+            post(identity_connections::revoke),
+        )
+        .route(
+            "/admin/identity/sync/stored",
+            post(identity_connections::collect),
+        )
         .route("/admin/identity", get(identity::view))
         .route("/admin/identity/prepare", post(identity::prepare))
         .route("/admin/identity/sync/entra", post(identity::synchronize))

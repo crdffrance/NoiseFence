@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { CloudDownload, RefreshCw } from 'lucide-react';
 import { api, type User } from './client';
+import { ConfirmDialog } from './console-ui';
+import {
+  SavedConnections,
+  connectionLifetimeError,
+  type ConnectionsView,
+  type SavedConnection,
+} from './directory-connections';
 import {
   preparedMatches,
   sourceError,
@@ -189,8 +196,28 @@ export function DirectorySync({
     [secret, setSecret] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
+    [pollError, setPollError] = useState(''),
     [job, setJob] = useState<SyncStatus | null>(null),
-    [attempt, setAttempt] = useState(0);
+    [attempt, setAttempt] = useState(0),
+    [saved, setSaved] = useState<ConnectionsView | null>(null),
+    [savedError, setSavedError] = useState(''),
+    [editingAccess, setEditingAccess] = useState<SavedConnection | null>(null),
+    [retain, setRetain] = useState(false),
+    [lifetime, setLifetime] = useState(1440),
+    [confirmAccess, setConfirmAccess] = useState<
+      'save' | SavedConnection | null
+    >(null),
+    [saveReceipt, setSaveReceipt] = useState(() => {
+      try {
+        const value =
+          sessionStorage.getItem(
+            `noisefence-directory-access:${user.username}`,
+          ) ?? '';
+        return uuid.test(value) ? value : '';
+      } catch {
+        return '';
+      }
+    });
   const [jobId, setJobId] = useState(() => {
     try {
       const value = sessionStorage.getItem(storageKey) ?? '';
@@ -199,9 +226,11 @@ export function DirectorySync({
       return '';
     }
   });
-  const selected = sources.find(
-    (s) => s.source.id === existing && s.source.provider === provider,
-  );
+  const selected =
+    editingAccess ??
+    sources.find(
+      (s) => s.source.id === existing && s.source.provider === provider,
+    );
   const source: Source = selected?.source ?? {
     id: sourceId,
     label,
@@ -219,6 +248,15 @@ export function DirectorySync({
     (!selected && sources.some((s) => s.source.id === sourceId)
       ? 'This source ID already exists. Select the installed source or use a new ID.'
       : null);
+  const saveProblem =
+    problem ||
+    connectionLifetimeError(provider, lifetime) ||
+    (!saved
+      ? 'Reload saved access before saving.'
+      : !editingAccess &&
+          saved.connections.some((c) => c.source.id === source.id)
+        ? 'Saved access already exists for this ID. Use Replace access below.'
+        : null);
   const dirty = !!(client || secret || sourceId || label || tenant);
   useEffect(() => {
     onDirty(dirty);
@@ -242,11 +280,11 @@ export function DirectorySync({
         );
         if (abort.signal.aborted) return;
         setJob(next);
-        setError('');
+        setPollError('');
         if (next.state === 'running')
           timer = setTimeout(() => void poll(), 3000);
       } catch (e) {
-        if (!abort.signal.aborted) setError((e as Error).message);
+        if (!abort.signal.aborted) setPollError((e as Error).message);
       }
     }
     void poll();
@@ -255,6 +293,143 @@ export function DirectorySync({
       if (timer) clearTimeout(timer);
     };
   }, [jobId, attempt, visible, revision, busy]);
+  useEffect(() => {
+    if (!visible || busy) return;
+    const abort = new AbortController();
+    void api<ConnectionsView>(
+      '/admin/identity/connections',
+      undefined,
+      undefined,
+      { signal: abort.signal, cache: 'no-store' },
+    )
+      .then((value) => {
+        if (!abort.signal.aborted) {
+          setSaved(value);
+          setSavedError('');
+        }
+      })
+      .catch((e: Error) => {
+        if (!abort.signal.aborted) {
+          setSaved(null);
+          setSavedError(e.message);
+        }
+      });
+    return () => abort.abort();
+  }, [visible, busy, revision, attempt, user.username]);
+  function clearForm() {
+    setSecret('');
+    setClient('');
+    setSourceId('');
+    setLabel('');
+    setTenant('');
+    setEditingAccess(null);
+    setExisting('');
+    setOpen(false);
+    setRetain(false);
+  }
+  function rememberJob(operation: string) {
+    setJobId(operation);
+    setJob(null);
+    setPollError('');
+    try {
+      sessionStorage.setItem(storageKey, operation);
+    } catch {
+      /* Receipt only. */
+    }
+  }
+  async function startSaved(entry: SavedConnection) {
+    if (disabled || busy) return;
+    setBusy(true);
+    setError('');
+    const operation = crypto.randomUUID();
+    rememberJob(operation);
+    try {
+      await api(
+        '/admin/identity/sync/stored',
+        {
+          operation,
+          revision,
+          catalog_sha256: installed,
+          connection: {
+            source_id: entry.source.id,
+            generation: entry.generation,
+          },
+        },
+        user.csrf,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function mutateAccess() {
+    if (disabled || busy || !confirmAccess) return;
+    const action = confirmAccess;
+    setBusy(true);
+    setError('');
+    const credential = secret;
+    setSecret('');
+    try {
+      if (action === 'save') {
+        if (saveProblem) throw new Error(saveProblem);
+        const operation = crypto.randomUUID();
+        setSaveReceipt(operation);
+        try {
+          sessionStorage.setItem(
+            `noisefence-directory-access:${user.username}`,
+            operation,
+          );
+        } catch {
+          /* UUID only, no secret. */
+        }
+        const value = await api<ConnectionsView>(
+          '/admin/identity/connections',
+          {
+            operation,
+            revision,
+            catalog_sha256: installed,
+            expected_generation: editingAccess?.generation ?? null,
+            source,
+            expires: Math.floor(Date.now() / 1000) + lifetime * 60,
+            credential:
+              provider === 'entra'
+                ? {
+                    kind: 'entra_application',
+                    client_id: client,
+                    client_secret: credential,
+                  }
+                : {
+                    kind:
+                      provider === 'google'
+                        ? 'google_access_token'
+                        : 'okta_access_token',
+                    access_token: credential,
+                  },
+          },
+          user.csrf,
+        );
+        setSaved(value);
+        clearForm();
+      } else {
+        setSaved(
+          await api<ConnectionsView>(
+            '/admin/identity/connections/revoke',
+            { source_id: action.source.id, generation: action.generation },
+            user.csrf,
+          ),
+        );
+        if (editingAccess?.source.id === action.source.id) clearForm();
+      }
+    } catch (e) {
+      setError(
+        `${(e as Error).message} Check saved access before another attempt.`,
+      );
+    } finally {
+      setConfirmAccess(null);
+      setBusy(false);
+    }
+  }
   async function start() {
     if (disabled || busy || problem) return;
     setBusy(true);
@@ -262,6 +437,7 @@ export function DirectorySync({
     const operation = crypto.randomUUID();
     setJobId(operation);
     setJob(null);
+    setPollError('');
     try {
       sessionStorage.setItem(storageKey, operation);
     } catch {
@@ -285,11 +461,7 @@ export function DirectorySync({
       );
       setJob(null);
       setJobId(result.id);
-      setClient('');
-      setSourceId('');
-      setLabel('');
-      setTenant('');
-      setOpen(false);
+      clearForm();
       try {
         sessionStorage.setItem(storageKey, result.id);
       } catch {
@@ -328,9 +500,10 @@ export function DirectorySync({
         </button>
       </div>
       <p className="muted small">
-        This is a one-time collection. The credential is used in memory for this
-        request only; it is not saved in settings, history or browser storage.
-        Scheduled synchronization is not enabled.
+        Each action starts a one-time collection. By default the credential is
+        request-only and is not saved in settings, history or browser storage.
+        You can explicitly store encrypted access for reuse. Scheduled
+        synchronization is not enabled.
       </p>
       {open && (
         <fieldset disabled={disabled || busy} className="directory-sync-form">
@@ -342,6 +515,8 @@ export function DirectorySync({
               onChange={(e) => {
                 setProvider(e.target.value as 'entra' | 'okta' | 'google');
                 setExisting('');
+                setEditingAccess(null);
+                setLifetime(e.target.value === 'entra' ? 1440 : 30);
                 setTenant('');
                 setClient('');
                 setSecret('');
@@ -352,30 +527,43 @@ export function DirectorySync({
               <option value="okta">Okta</option>
             </select>
           </label>
-          <label>
-            Source
-            <select
-              value={existing}
-              onChange={(e) => setExisting(e.target.value)}
-            >
-              <option value="">
-                New{' '}
-                {provider === 'entra'
-                  ? 'Entra'
-                  : provider === 'google'
-                    ? 'Google Workspace'
-                    : 'Okta'}{' '}
-                source
-              </option>
-              {sources
-                .filter((s) => s.source.provider === provider)
-                .map((s) => (
-                  <option key={s.source.id} value={s.source.id}>
-                    {s.source.label}
-                  </option>
-                ))}
-            </select>
-          </label>
+          {!editingAccess && (
+            <label>
+              Source
+              <select
+                value={existing}
+                onChange={(e) => {
+                  setExisting(e.target.value);
+                  setEditingAccess(null);
+                  setSecret('');
+                  setClient('');
+                }}
+              >
+                <option value="">
+                  New{' '}
+                  {provider === 'entra'
+                    ? 'Entra'
+                    : provider === 'google'
+                      ? 'Google Workspace'
+                      : 'Okta'}{' '}
+                  source
+                </option>
+                {sources
+                  .filter((s) => s.source.provider === provider)
+                  .map((s) => (
+                    <option key={s.source.id} value={s.source.id}>
+                      {s.source.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+          {editingAccess && (
+            <p className="notice">
+              Replacing stored access for {editingAccess.source.label}. The
+              source and authority remain fixed.
+            </p>
+          )}
           {!selected && (
             <>
               <label>
@@ -478,30 +666,153 @@ export function DirectorySync({
                 ? 'Use a short-lived token with admin.directory.user.readonly, admin.directory.group.readonly and admin.directory.domain.readonly scopes. The administrator must have visibility of the intended directory. External and whole-customer memberships are reported as exclusions. No Gmail permission is requested.'
                 : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
           </p>
-          {problem && <p className="muted small">{problem}</p>}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={retain}
+              onChange={(e) => setRetain(e.target.checked)}
+            />
+            Store encrypted access for reuse
+          </label>
+          {retain && (
+            <>
+              <label>
+                Access lifetime (minutes)
+                <input
+                  type="number"
+                  min={1}
+                  max={provider === 'entra' ? 129600 : 60}
+                  step={1}
+                  value={lifetime}
+                  onChange={(e) => setLifetime(Number(e.target.value))}
+                />
+              </label>
+              <p className="notice">
+                Stored only on the management server, bound to this source and
+                your administrator account version. Maximum{' '}
+                {provider === 'entra' ? '90 days' : 'one hour'}; an earlier
+                provider expiry still applies. This does not enable scheduled
+                collection.
+              </p>
+            </>
+          )}
+          {(retain ? saveProblem : problem) && (
+            <p className="muted small">{retain ? saveProblem : problem}</p>
+          )}
           <button
             type="button"
-            disabled={!!problem}
-            onClick={() => void start()}
+            disabled={!!(retain ? saveProblem : problem)}
+            onClick={() => (retain ? setConfirmAccess('save') : void start())}
           >
-            {busy ? 'Starting…' : 'Start read-only collection'}
+            {busy
+              ? 'Working…'
+              : retain
+                ? 'Review encrypted access'
+                : 'Start read-only collection'}
           </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              setClient('');
-              setSecret('');
-              setSourceId('');
-              setLabel('');
-              setTenant('');
-              setExisting('');
-              setOpen(false);
-            }}
-          >
+          <button type="button" className="secondary" onClick={clearForm}>
             Discard connection draft
           </button>
         </fieldset>
+      )}
+      <div className="actions">
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() => setAttempt((n) => n + 1)}
+        >
+          <RefreshCw size={14} />
+          Reload saved access
+        </button>
+      </div>
+      {savedError && (
+        <p className="alert error" role="alert">
+          {savedError}
+        </p>
+      )}
+      {saveReceipt && (
+        <output className="notice directory-access-receipt">
+          {saved?.connections.some((c) => c.generation === saveReceipt)
+            ? 'Saved generation confirmed.'
+            : 'Save outcome not confirmed in the current list. Reload and inspect saved access before another attempt.'}{' '}
+          <code>{saveReceipt}</code>
+        </output>
+      )}
+      <SavedConnections
+        value={saved}
+        busy={disabled || busy || dirty}
+        onCollect={(entry) => void startSaved(entry)}
+        onReplace={(entry) => {
+          setEditingAccess(entry);
+          setExisting('');
+          setProvider(entry.source.provider as 'entra' | 'okta' | 'google');
+          setClient('');
+          setSecret('');
+          setSourceId('');
+          setLabel('');
+          setTenant('');
+          setRetain(true);
+          setLifetime(entry.source.provider === 'entra' ? 1440 : 30);
+          setOpen(true);
+        }}
+        onRevoke={setConfirmAccess}
+      />
+      {confirmAccess && (
+        <ConfirmDialog
+          title={
+            confirmAccess === 'save'
+              ? 'Store encrypted directory access?'
+              : 'Revoke directory access?'
+          }
+          confirmLabel={
+            confirmAccess === 'save' ? 'Save encrypted access' : 'Revoke access'
+          }
+          danger={confirmAccess !== 'save'}
+          busy={busy}
+          confirmDisabled={
+            disabled || (confirmAccess === 'save' && !!saveProblem)
+          }
+          onCancel={() => setConfirmAccess(null)}
+          onConfirm={() => void mutateAccess()}
+        >
+          <p>
+            <strong>
+              {confirmAccess === 'save'
+                ? source.label
+                : confirmAccess.source.label}
+            </strong>{' '}
+            ·{' '}
+            {confirmAccess === 'save'
+              ? source.authority
+              : confirmAccess.source.authority}
+          </p>
+          {confirmAccess === 'save' ? (
+            <>
+              <p>Receiving domains: {source.scopes.join(', ')}.</p>
+              <p>
+                The credential will be encrypted and stored for at most{' '}
+                {lifetime.toLocaleString('en-US')} minutes.{' '}
+                {editingAccess
+                  ? 'This replaces the currently displayed generation.'
+                  : 'This creates a saved connection.'}{' '}
+                No collection or policy activation starts automatically.
+              </p>
+            </>
+          ) : (
+            <p>
+              This blocks new collections and cancels an active collection when
+              its next authorization check fails. Already transmitted requests
+              cannot be recalled. Installed directory snapshots are retained;
+              revoke the secret at the provider too if it was compromised.
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+      {pollError && (
+        <p className="error" role="alert">
+          {pollError}
+        </p>
       )}
       {error && (
         <p className="alert error" role="alert">
@@ -514,7 +825,7 @@ export function DirectorySync({
           <p>
             {job
               ? syncMessage(job)
-              : error
+              : pollError || error
                 ? 'The receipt could not be read. Check status before starting another collection.'
                 : 'Loading synchronization status…'}
           </p>

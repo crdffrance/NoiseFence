@@ -15,7 +15,7 @@ scores, models, thresholds or delivery policy.
 | Source freshness, search and people CSV import | Available; imported rows are reviewed before activation |
 | Protected names and expected sending domains | Separate domain-based check editor, with its own CSV format |
 | Immutable catalogs and per-recipient SMTP observations | Distributed with the versioned MX policy; displayed in message details |
-| Entra, Google Workspace and Okta full directory collection | Read-only one-shot Web collection, durable result and review; scheduling and stored credentials pending |
+| Entra, Google Workspace and Okta full directory collection | Read-only one-shot Web collection, optional encrypted access and durable reviewed results; scheduling pending |
 | Automatic correspondent memory | Recipient-scoped, retained SMTP observations with Web controls; observation only |
 | Other directory providers, SSO and reciprocal contact graph | Further integration work; no connected tenant or outbound history is claimed |
 
@@ -27,9 +27,9 @@ not production data, a connected identity provider or evidence of detection accu
 See [Automatic correspondent memory](contact-learning.md) for learning from accepted,
 authenticated mail without manual labels. It works without a directory connection.
 
-The [directory credential storage groundwork](directory-credential-storage.md)
-documents encrypted persistence and its development boundary. The Web collectors
-still use request-only credentials; scheduled refresh is not enabled.
+The [directory credential guide](directory-credential-storage.md) describes
+optional encrypted access, expiry, replacement and revocation from the Web console.
+One-time request-only access remains the default; scheduled refresh is not enabled.
 
 ## Manage a manual directory
 
@@ -213,9 +213,9 @@ The native runtime can now load an immutable directory catalog during policy
 preparation, distribute it as part of a versioned MX policy, and record an
 observation for each actual SMTP recipient. Message details display this report
 when present. Manual source management and authenticated preparation/review are
-connected to the console. Entra, Google Workspace and Okta one-shot collection use request-only credentials
-and a durable receipt. **Stored credentials and scheduled synchronization remain
-separate implementation work.**
+connected to the console. Entra, Google Workspace and Okta one-shot collection use
+request-only or explicitly saved encrypted credentials and a durable receipt.
+**Scheduled synchronization remains separate implementation work.**
 The [Entra](identity-entra.md), [Google Workspace](identity-google.md) and [Okta](identity-okta.md) collectors return
 candidates without publishing them. No directory connector or new directory policy is enabled in production;
 the separately tagged release/deployment does not contain this development work.
@@ -365,12 +365,12 @@ name mismatch is a diagnostic signal, not a measured probability or live score.
    reciprocal graph with installation-managed HMAC key lifecycle. Automatic
    recurrence and per-message changes are implemented; outbound relationships
    and graph exploration are not connected.
-2. Scheduled provider jobs, stored credentials, expiry and safe cleanup of unused prepared
+2. Scheduled provider jobs, production key recovery and safe cleanup of unused prepared
    catalogs. Manual preparation already uses the selected management authority,
    audited operations and optimistic revision/digest checks. Immutable catalogs
    already follow coordinated MX publication and activation.
 3. Extend the implemented Entra/Google/Okta one-shot Web collection with scheduled sync,
-   private credentials and snapshot lifecycle; add verified delta persistence.
+   renewable workload authorization and snapshot lifecycle; add verified delta persistence.
    Implement an internal secure AD collector, AWS Identity Store and inbound SCIM provisioning.
    Bound pagination, time, response sizes and retries. Never publish a partially
    fetched source. Never send credentials to a changed redirect/next-page host.

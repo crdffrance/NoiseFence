@@ -36,6 +36,10 @@ requested. No live provider test is implied by the local fixture tests.
    source name, org hostname and the receiving domains it may inform.
 3. Enter the OAuth token and choose **Start read-only collection**. The browser
    clears its credential field. Only the operation UUID is kept in session storage.
+   Optional **Store encrypted access for reuse** retains the token for at most
+   one hour after confirmation. Use **Collect using saved access** separately;
+   see [credential storage](directory-credential-storage.md). Earlier provider
+   expiry applies, and no token refresh or scheduled collection is enabled.
 4. Read the completion receipt, then choose **Review collected changes**. Check
    additions, removals, inactive identities, scope and protected assignments.
 5. Add the candidate to the policy draft and use **Review and apply**. The normal
@@ -96,8 +100,9 @@ or Okta's rate-limit reset is honored only within a ten-second wait; longer or
 invalid values end this attempt. Authorization errors are not retried. Error
 bodies and URLs are not copied into logs, receipts or browser errors.
 
-The application uses the token only in memory for the bounded invocation.
-It is not written to settings, snapshots, queue records or audit receipts.
+The default form uses the token only for the bounded invocation. Explicitly
+saved access is encrypted in the management connection repository. Neither mode
+writes the token to settings, snapshots, queue records or audit receipts.
 Treat the server and browser as credential-handling systems nevertheless;
 short lifetime and restricted read access remain necessary.
 

@@ -67,3 +67,10 @@ message, identifier and result is synthetic; no production accuracy is implied.
 25 October 2026 from the local synthetic identity demo. It shows the Google
 candidate review and explicit membership coverage exclusions. Customer, names,
 counts, token and responses are fixtures; no external provider was contacted.
+
+`console-directory-access.jpg` is an unedited 1280×720 integrated-browser capture
+on 25 October 2026. The local identity demo shows explicitly saved access and a
+separate completed collection receipt. Source, tenant UUID, account, generation,
+expiry and provider response are synthetic; no real secret or identity provider
+was used. Saving, collection, replacement and revocation were verified in the
+browser-memory fixture. This image does not establish production readiness.

@@ -36,6 +36,7 @@ fn snapshot() -> directory::Snapshot {
 fn request(source: &str) -> Request {
     let now = crate::now();
     Request {
+        connection: None,
         id: uuid::Uuid::new_v4().to_string(),
         source_id: source.into(),
         runner: uuid::Uuid::new_v4().to_string(),
@@ -304,4 +305,165 @@ fn provider_refresh_preserves_protection_and_refuses_missing_protected_identity(
         )
         .is_err()
     );
+}
+
+async fn saved_access(
+    c: &Controller,
+    session: &str,
+    source: Source,
+) -> crate::identity::connections::Reference {
+    use crate::identity::connections::{Credential, Metadata, PROTOCOL, Reference};
+    let (key, version) = c
+        .store
+        .identity_connection_prepare("admin".into(), session.into())
+        .await
+        .unwrap();
+    let generation = uuid::Uuid::new_v4().to_string();
+    let reference = Reference {
+        source_id: source.id.clone(),
+        generation: generation.clone(),
+    };
+    let record = key
+        .seal(
+            Metadata {
+                protocol: PROTOCOL.into(),
+                source,
+                generation,
+                supersedes: None,
+                authority: c.store.directory_connection_authority(),
+                key_id: key.id(),
+                owner: "admin".into(),
+                owner_version: version,
+                created: crate::now(),
+                expires: crate::now() + 3600,
+            },
+            &Credential::EntraApplication {
+                client_id: "22222222-2222-4222-8222-222222222222".into(),
+                client_secret: "SYNTHETIC-SECRET-NEVER-LOG".into(),
+            },
+        )
+        .unwrap();
+    c.store
+        .identity_connection_save(None, record, "admin".into(), session.into())
+        .await
+        .unwrap();
+    reference
+}
+#[tokio::test]
+async fn stored_collection_cancellation_never_publishes_revoked_material() {
+    let (_root, c, session) = setup().await;
+    let snapshot = snapshot();
+    let reference = saved_access(&c, &session, snapshot.source.clone()).await;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let req = c
+        .start_directory_sync(
+            uuid::Uuid::new_v4().to_string(),
+            0,
+            None,
+            snapshot.source.clone(),
+            Collector::Synthetic(receiver),
+            "admin".into(),
+            session.clone(),
+            Some(reference.clone()),
+        )
+        .await
+        .unwrap();
+    // No provider request runs: the synthetic transport stays pending until the
+    // authorization watcher observes the persisted revocation and drops it.
+    c.store
+        .identity_connection_revoke(
+            reference.source_id.clone(),
+            reference.generation.clone(),
+            "admin".into(),
+            session.clone(),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let view = c
+                .identity_sync_status(req.id.clone(), "admin".into(), session.clone())
+                .await
+                .unwrap();
+            if view.state == "failed" {
+                assert!(matches!(view.reason, Some(Failure::Authorization)));
+                assert!(view.prepared.is_none());
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(sender.send(collected(snapshot)).is_err());
+    assert_eq!(c.snapshot().revision, 0);
+    assert!(c.snapshot().config.identity.is_none());
+}
+#[tokio::test]
+async fn stored_ready_receipt_rechecks_revocation_in_its_commit_transaction() {
+    let (_root, c, session) = setup().await;
+    let s = snapshot();
+    let reference = saved_access(&c, &session, s.source.clone()).await;
+    let mut req = request(&s.source.id);
+    req.runner = c.identity_sync_runner.clone();
+    req.connection = Some(reference.clone());
+    c.identity_sync_begin(&req, "admin".into(), session.clone())
+        .await
+        .unwrap();
+    let prepared = c
+        .prepare_collected_directory(
+            &req,
+            empty(),
+            collected(s.clone()),
+            s.source.scopes.clone(),
+            "admin".into(),
+            session.clone(),
+        )
+        .await
+        .unwrap();
+    c.store
+        .identity_connection_revoke(
+            reference.source_id.clone(),
+            reference.generation,
+            "admin".into(),
+            session.clone(),
+        )
+        .await
+        .unwrap();
+    c.identity_sync_finish_authorized(
+        Event {
+            request: req.clone(),
+            outcome: Outcome::Ready {
+                prepared: Box::new(prepared),
+            },
+        },
+        "admin".into(),
+        Some(session.clone()),
+    )
+    .await
+    .unwrap();
+    let view = c
+        .identity_sync_status(req.id, "admin".into(), session.clone())
+        .await
+        .unwrap();
+    assert_eq!(view.state, "failed");
+    assert!(matches!(view.reason, Some(Failure::Authorization)));
+    assert!(view.prepared.is_none());
+    let mut next = request(&s.source.id);
+    next.connection = req.connection;
+    assert!(
+        c.identity_sync_begin(&next, "admin".into(), session)
+            .await
+            .is_err()
+    );
+    c.store
+        .read(|db| {
+            let mut rows = db.prepare("SELECT object_id FROM audit")?;
+            for row in rows.query_map([], |r| r.get::<_, String>(0))? {
+                assert!(!row?.contains("SYNTHETIC-SECRET-NEVER-LOG"));
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
 }

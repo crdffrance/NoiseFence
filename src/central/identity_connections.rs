@@ -59,6 +59,25 @@ async fn read(tx: &Transaction<'_>, source: &str, authority: &str) -> Result<Opt
     .map(|r| Record::decode(&r.get::<_, String>(0), source, authority))
     .transpose()
 }
+pub(crate) async fn live(
+    tx: &Transaction<'_>,
+    reference: &connections::Reference,
+    authority: &str,
+) -> Result<Record> {
+    reference.validate()?;
+    check(tx).await?;
+    let record = read(tx, &reference.source_id, authority)
+        .await?
+        .context("Directory connection not found")?;
+    ensure!(
+        record.metadata.generation == reference.generation
+            && owner_current(tx, &record).await?
+            && record.view(crate::now(), true).status == "configured",
+        "Directory connection expired, revoked or authorization changed"
+    );
+    // The caller checks its administrator session in this same transaction.
+    Ok(record)
+}
 impl Central {
     pub async fn identity_connection_prepare(
         &self,

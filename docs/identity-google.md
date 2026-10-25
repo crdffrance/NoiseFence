@@ -2,7 +2,8 @@
 
 Status: native, read-only one-shot collection in development builds. Installing
 NoiseFence does not connect a Google customer. No live provider has been used in
-local validation. Scheduled refresh, delta collection and saved credentials are
+local validation. Optional [encrypted access](directory-credential-storage.md)
+can be retained for up to one hour. Scheduled refresh and delta collection are
 not implemented yet.
 
 The independent [automatic correspondent memory](contact-learning.md) learns
@@ -38,6 +39,9 @@ and [domain-list permissions](https://developers.google.com/workspace/admin/dire
 3. Enter the access token without the `Bearer` prefix, then start collection.
    The field clears on submission. Only the receipt UUID is retained in browser
    session storage; the token is not saved in settings, receipts or audit records.
+   For explicit reuse, select **Store encrypted access for reuse** and confirm
+   the lifetime, then use **Collect using saved access**. Earlier token expiry
+   still applies; this does not enable token refresh or scheduled collection.
 4. Open **Review collected changes**. Check additions, removals, inactive identities,
    protected assignments and **Collection coverage**, including excluded members.
 5. Add the candidate to the policy draft, then **Review and apply** through the
