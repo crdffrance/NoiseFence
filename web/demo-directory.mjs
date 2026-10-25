@@ -117,6 +117,45 @@ export function directoryFixture(params, settings) {
         vault: connections.size ? 'ready' : 'not_initialized',
         connections: [...connections.values()],
       });
+      if (
+        path === '/admin/identity/scim/enroll' &&
+        options?.method === 'POST'
+      ) {
+        const body = JSON.parse(options.body),
+          old = connections.get(body.source.id);
+        if (
+          body.revision !== revision ||
+          body.catalog_sha256 !== currentHash ||
+          (old?.generation ?? null) !== body.expected_generation
+        ) {
+          return Response.json(
+            { error: 'Synthetic enrollment changed. Reload saved access.' },
+            { status: 409 },
+          );
+        }
+        const generation = crypto.randomUUID();
+        connections.set(body.source.id, {
+          source: body.source,
+          generation,
+          owner: 'Alex',
+          created: Math.floor(Date.now() / 1000),
+          expires: body.expires,
+          status: 'configured',
+        });
+        if (params.get('scim') === 'lost-response')
+          return Response.json(
+            { error: 'Synthetic response lost after issuance.' },
+            { status: 503 },
+          );
+        return Response.json({
+          source: body.source,
+          generation,
+          expires: body.expires,
+          base_url:
+            'https://console.example.test/scim/' + body.source.id + '/v2',
+          bearer: 'synthetic-demo-token-not-valid-for-any-server',
+        });
+      }
       if (path === '/admin/identity/connections' && options?.method !== 'POST')
         return Response.json(connectionView());
       if (

@@ -10,7 +10,7 @@ use crate::identity::{
         access::{Access, UNAUTHORIZED},
         repository::{
             Command, Inventory, Reply,
-            database::{Cell, Database, Param, Row},
+            database::{Cell, Database, Deadline, Param, Row},
             engine,
         },
     },
@@ -65,6 +65,7 @@ pub(super) async fn check(tx: &Transaction<'_>) -> Result<()> {
 }
 struct Postgres<'a, 'tx> {
     tx: &'a Transaction<'tx>,
+    deadline: Deadline,
 }
 // SQL comes only from the private shared algorithm. Values are always bound,
 // never interpolated. All returned numeric columns use BIGINT in this schema.
@@ -83,6 +84,7 @@ fn values(params: &[Param]) -> Vec<&(dyn ToSql + Sync)> {
 }
 impl Database for Postgres<'_, '_> {
     async fn query<'a>(&'a mut self, sql: &'a str, params: &'a [Param]) -> Result<Vec<Row>> {
+        self.deadline.check()?;
         let rows = self
             .tx
             .query(&statement(sql), &values(params))
@@ -109,6 +111,7 @@ impl Database for Postgres<'_, '_> {
             .collect()
     }
     async fn execute<'a>(&'a mut self, sql: &'a str, params: &'a [Param]) -> Result<u64> {
+        self.deadline.check()?;
         self.tx
             .execute(&statement(sql), &values(params))
             .await
@@ -122,6 +125,7 @@ impl Central {
         access: Access,
         command: Command,
     ) -> Result<Reply> {
+        let deadline = Deadline::new();
         let key = tokio::task::spawn_blocking(move || Key::load(&root)).await??;
         let mut db = self
             .interactive
@@ -145,8 +149,13 @@ impl Central {
             crate::now(),
         )?;
         check(&tx).await?;
-        let result =
-            engine::execute(&mut Postgres { tx: &tx }, &record, command, crate::now()).await?;
+        let result = engine::execute(
+            &mut Postgres { tx: &tx, deadline },
+            &record,
+            command,
+            crate::now(),
+        )
+        .await?;
         let current = connections::read(
             &tx,
             &access.source_id,
@@ -160,8 +169,41 @@ impl Central {
             connections::owner_current(&tx, &current).await?,
             crate::now(),
         )?;
+        deadline.check()?;
         tx.commit().await.map_err(database_error)?;
         result.map_err(Into::into)
+    }
+    pub async fn scim_preflight(
+        &self,
+        root: PathBuf,
+        access: Access,
+    ) -> Result<(Access, crate::identity::directory::Source)> {
+        let deadline = Deadline::new();
+        let key = tokio::task::spawn_blocking(move || Key::load(&root)).await??;
+        let mut db = self
+            .interactive
+            .get()
+            .await
+            .context("SCIM management unavailable")?;
+        let tx = db.transaction().await.map_err(database_error)?;
+        management_lock(&tx).await?;
+        connections::check(&tx).await?;
+        let record = connections::read(
+            &tx,
+            &access.source_id,
+            &self.directory_connection_authority(),
+        )
+        .await?
+        .ok_or(UNAUTHORIZED)?;
+        access.bearer.verify(
+            &record,
+            &key,
+            connections::owner_current(&tx, &record).await?,
+            crate::now(),
+        )?;
+        deadline.check()?;
+        tx.commit().await.map_err(database_error)?;
+        Ok((access, record.metadata.source))
     }
     pub async fn scim_inventory(
         &self,
@@ -171,6 +213,7 @@ impl Central {
         session: &str,
     ) -> Result<Inventory> {
         reference.validate()?;
+        let deadline = Deadline::new();
         let key = tokio::task::spawn_blocking(move || Key::load(&root)).await??;
         let mut db = self
             .interactive
@@ -190,9 +233,11 @@ impl Central {
             "Not a SCIM source"
         );
         check(&tx).await?;
-        let result = engine::inventory(&mut Postgres { tx: &tx }, &record, crate::now()).await?;
+        let result =
+            engine::inventory(&mut Postgres { tx: &tx, deadline }, &record, crate::now()).await?;
         approval(&tx, actor, session, None).await?;
         connections::live(&tx, &reference, &self.directory_connection_authority()).await?;
+        deadline.check()?;
         tx.commit().await.map_err(database_error)?;
         Ok(result)
     }

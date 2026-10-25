@@ -1,11 +1,11 @@
 # SCIM provisioning: development profile
 
-**Status: protocol, durable staging and bearer-verification components implemented.**
-This branch does not yet expose a SCIM HTTP endpoint or an administrator enrollment
-and inventory-review workflow. Do not configure an identity provider to send
-provisioning traffic yet. No live Entra/Okta SCIM interoperability is claimed.
+**Status: authenticated HTTP provisioning, durable staging and Web token enrollment
+implemented in the development branch.** Inventory attestation and activation are
+still pending. Use synthetic qualification data only; do not connect a production
+identity provider yet. No live Entra/Okta SCIM interoperability is claimed.
 The existing [correspondent memory](contact-learning.md) works independently of
-this connector.
+this connector and requires no directory enrollment.
 
 The implemented Rust module is `src/identity/scim`. It prepares bounded,
 source-scoped identity data for the existing directory review workflow. It has
@@ -66,10 +66,87 @@ This restriction must be disclosed in provider attribute mappings.
   duplicate/unsupported query parameters. Negative counts become zero and
   start indices below one become one.
 
-These are library behaviors, **not currently advertised HTTP capabilities**.
 General boolean filters, sorting, attribute projection, bulk requests, schema
 extensions, password changes and arbitrary PATCH expressions are unsupported.
-The future discovery endpoints must accurately describe this restricted profile.
+Authenticated discovery describes this restricted profile; it is not a claim of
+complete SCIM conformance.
+
+## Management console and one-time access
+
+In **Administration → Filters → Identity protection → Directory synchronization**,
+choose **Set up SCIM provisioning**. Supply a stable source ID, display name, provider
+tenant identifier and explicit receiving-domain scope. Choose a lifetime of 1–90
+days and a directory freshness limit. These assignments remain fixed on rotation.
+Review the grant before issuing it. Existing administrator, MFA, Origin/CSRF,
+configuration revision and saved-generation checks apply on the server.
+
+The response contains a configured HTTPS base URL and one server-generated bearer
+token. The console masks it initially and keeps it only in component memory. Copy
+it into the intended provider; closing the view discards it. No browser storage,
+policy snapshot or status response contains this token. **Rotate provisioning
+token** immediately invalidates the previous token while preserving staged users
+and groups. **Revoke access** stops future authorized requests. Neither operation
+deletes the installed identity catalog or changes filtering.
+
+If the issuance response is lost, the access may already exist. Reload saved access,
+then rotate its current generation explicitly. The console disables replay from
+the uncertain form. It cannot recover the old bearer from its encrypted verifier.
+The generic saved-credential endpoint refuses caller-supplied SCIM credentials.
+
+## HTTP profile
+
+Base URL: `https://<configured-console-origin>/scim/<source-id>/v2` on the management
+server. Worker-only routers expose no provisioning service. The source ID must be
+1–100 ASCII letters, digits, underscores or hyphens and start with a letter or
+digit. URLs are derived from the configured public HTTPS origin, never Host,
+Forwarded or provider-supplied reference headers. Explicit loopback development
+may use `http://127.0.0.1:<port>`.
+
+Send one `Authorization: Bearer <token>` header. Console cookies cannot authorize
+provisioning. The source, owner, expiry and generation are checked before reading
+the body and again inside the transaction. JSON writes accept `application/scim+json`
+or `application/json`, with optional UTF-8 charset. Compressed bodies are refused.
+Responses use SCIM JSON, `Cache-Control: no-store` and constant error explanations.
+
+| Endpoint | Methods |
+| --- | --- |
+| `/Users`, `/Groups` | GET, HEAD, POST |
+| `/Users/{id}`, `/Groups/{id}` | GET, HEAD, PUT, PATCH, DELETE |
+| `/ServiceProviderConfig` | GET, HEAD |
+| `/ResourceTypes`, `/ResourceTypes/{User,Group}` | GET, HEAD |
+| `/Schemas`, `/Schemas/{schema-URN}` | GET, HEAD |
+
+Create returns 201 with Location and ETag; reads and updates return 200; deletion
+returns 204. Exact version or `*` If-Match preconditions guard item mutations;
+stale versions return 412. Item GET/HEAD supports If-None-Match and 304. ETag lists
+are outside this profile. Unsupported methods return 405 with Allow. Duplicate or
+unsupported query parameters, invalid UTF-8 and malformed escaping fail explicitly.
+Discovery advertises PATCH, restricted equality filtering and ETags; bulk, sorting
+and password changes are disabled. `.search`, `/Me`, attribute projection, general
+boolean filters and schema extensions are not implemented.
+
+Read the resource after a lost or uncertain write response before retrying.
+`externalId` is not a unique idempotency key; a repeated POST can create a duplicate.
+Use source-scoped matching and exact version preconditions when reconciling state.
+
+## Transport and execution bounds
+
+- Four concurrent provisioning tasks and a fixed global window of 1,200 admission
+  attempts per minute, including unauthenticated attempts. Admission state has no
+  unbounded map keyed by attacker-controlled addresses. Exhaustion returns 429
+  with Retry-After. Console enrollment uses separate administrator capacity.
+- Body limit 1 MiB and body-read deadline 10 seconds; query limit 4 KiB and three
+  parameters. Disconnected requests retain their capacity until the work finishes.
+- Each storage operation has a 10-second deadline. SQLite runs on a dedicated
+  blocking connection with a 250 ms busy timeout, interrupt on expiry and a
+  pre-commit deadline check. Completion is awaited after interrupt: this is not a
+  hard upper bound on uninterruptible operating-system I/O. PostgreSQL also applies
+  its pool, statement and lock timeouts. SMTP does not await a provisioning request,
+  although both can still compete for disk or database resources.
+- Reverse proxy templates admit 1 MiB only under `/scim/`; ordinary console limits
+  remain narrower. Nginx disables request buffering and access logs for that path.
+  Keep provisioning query strings, Authorization headers and bodies out of any
+  additional operator-managed tracing or access logs.
 
 ## Bounds and candidate integrity
 
@@ -111,8 +188,8 @@ SQLite and selected PostgreSQL use the same transaction algorithm. Each request
 checks its source, enrollment generation, current owner authorization and expiry
 inside the transaction, then checks authorization again before commit. PostgreSQL
 requests share the management mutation lock with revocation and account changes;
-SQLite uses an immediate transaction on a blocking worker. SMTP does not acquire
-these locks. When PostgreSQL is selected, an outage fails the operation instead of
+SQLite uses an immediate transaction on a dedicated blocking connection, without
+locking the SMTP writer mutex. Writes still share the underlying SQLite database. When PostgreSQL is selected, an outage fails the operation instead of
 reading or writing a local shadow.
 
 Resources are stored individually, with indexed source-scoped identifiers and
@@ -126,8 +203,8 @@ the enrollment generation used by inventory reviews.
 The repository currently admits 600 authenticated operations per source per
 60-second window. Rejected resource mutations still consume that allowance while
 all partial resource changes are rolled back. Infrastructure errors abort the whole
-transaction. This repository limit is not a substitute for the HTTP admission,
-unauthenticated-request and body-reading limits still required before exposure.
+transaction. Pre-body authorization does not consume this source quota; the actual operation
+charges it once. The separate transport limit also bounds anonymous requests.
 
 The bearer component generates 256 random bits and binds each token to a new
 server-generated enrollment UUID. The token has no logging/serialization interface;
@@ -137,10 +214,9 @@ source/installation binding, current administrator account version, generation a
 expiry all gate access. The maximum lifetime is 90 days. Rotation and revocation
 invalidate the old access; a missing vault key never creates a replacement.
 
-These are internal components, **not an enrollment API**. The generic saved-access
-endpoint rejects SCIM credentials, and SCIM access cannot authorize an outbound
-collection schedule. The dedicated administrator enrollment flow must issue and
-display the bearer once; provider-supplied tokens must not be accepted there.
+The dedicated enrollment endpoint generates the bearer on the server; status
+returns metadata only. The generic saved-access endpoint rejects SCIM credentials.
+SCIM access cannot authorize an outbound collection schedule.
 
 Administrative inventory reads require a current authorized session and a live
 connection. They return a consistent revision and validate resource/edge accounting.
@@ -166,23 +242,21 @@ missing keys, schema tampering, selected-backend outages and refusal to silently
 lose credentials during account migration. These synthetic tests do not establish
 live provider compatibility, high-volume latency or production recovery readiness.
 
-Before enabling provisioning:
+Before connecting a production provider:
 
-1. Add authenticated HTTPS routes and accurate service/schema discovery, capacity
-   and time bounds, and safe proxy limits. Authenticate before reading a potentially
-   large body. Never log a token or provisioning payload.
-2. Add the authorized server-generated enrollment, one-time disclosure, rotation,
-   revocation and status flows to the Web interface.
-3. Provide stage counts, freshness, explicit inventory attestation, exact candidate
+1. Provide stage counts, freshness, explicit inventory attestation, exact candidate
    diff and reviewed activation with a revision recheck. Provisioning alone must
    not activate a catalog or change SMTP acceptance or scoring.
-4. Qualify real provider mappings and retries, large directories, interrupted
+2. Qualify real provider mappings and retries, large directories, interrupted
    transactions, backup/restore, migration and two-MX publication.
 
-Do not enable a `ServiceProviderConfig` feature merely because its protocol
-primitive passes a unit test. The entire authenticated persistence and review
-path must pass its integration checks first. No production setting, model,
-threshold, provider connection or access token is changed by this increment.
+The shared HTTP suite covers administrator enrollment, one-time disclosure,
+source-token isolation, discovery, conditional requests and safe public URLs on
+both selected backends. Additional SQLite HTTP tests exercise authorization before
+body read, concurrent revocation, timeouts and cancellation capacity. Proxy and
+console fixtures use synthetic data.
+These checks do not qualify the still-pending inventory review/activation path.
+No production provider, access token, model or threshold is changed by this work.
 
 ## References
 

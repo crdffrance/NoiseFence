@@ -1,5 +1,11 @@
+#[allow(dead_code)]
+mod common_config {
+    include!("common/mod.rs");
+}
 #[path = "common/scim.rs"]
 mod common;
+#[path = "common/scim_http.rs"]
+mod http;
 #[path = "common/postgres.rs"]
 mod postgres;
 use noisefence::{identity::scim::Command, store::Store};
@@ -171,6 +177,59 @@ async fn selected_postgres_scim_group_membership_batches_preserve_accounting() {
     let f = postgres::Fixture::new().await;
     let (_root, store) = setup(&f).await;
     common::membership_batches(&store).await;
+    drop(store);
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn selected_postgres_scim_http_uses_authoritative_sessions_and_storage() {
+    let f = postgres::Fixture::new().await;
+    let db = f.connect().await;
+    for (name, token, admin) in [
+        ("admin", http::ADMIN, true),
+        ("reader", http::READER, false),
+    ] {
+        db.execute(
+            "INSERT INTO noisefence.users(username,password,admin) VALUES($1,'unused',$2)",
+            &[&name, &admin],
+        )
+        .await
+        .unwrap();
+        db.execute("INSERT INTO noisefence.sessions(token_hash,username,csrf,expires) VALUES($1,$2,'csrf-http',$3)",&[&noisefence::message::digest(token.as_bytes()),&name,&(noisefence::now()+3600)]).await.unwrap();
+    }
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path())
+        .unwrap()
+        .with_management(f.central.clone())
+        .await
+        .unwrap();
+    let mut config = (*common_config::config(root.path())).clone();
+    config.web.public_origin = http::ORIGIN.into();
+    config.web.secure_cookies = true;
+    let identity = store
+        .run(|db| noisefence::central::outbox::initialize(db, "mx1"))
+        .await
+        .unwrap();
+    f.central.register_source(&identity).await.unwrap();
+    let publication = noisefence::cluster::artifacts::bind_credentials(
+        noisefence::cluster::artifacts::capture(
+            &config,
+            noisefence::control::Settings::from_config(&config),
+            0,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    noisefence::cluster::artifacts::freeze(root.path(), &publication, 0).unwrap();
+    f.central
+        .initialize_policy(&identity, publication.bundle)
+        .await
+        .unwrap();
+    let (router, control) = http::router(std::sync::Arc::new(config), store.clone()).await;
+    http::exercise(&router, &control).await;
+    drop(router);
+    drop(control);
     drop(store);
     f.finish().await;
 }

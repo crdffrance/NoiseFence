@@ -52,7 +52,7 @@ export function canCollectSaved(
   );
 }
 export function connectionLifetimeError(provider: string, minutes: number) {
-  const maximum = ['entra', 'active_directory'].includes(provider)
+  const maximum = ['entra', 'active_directory', 'scim'].includes(provider)
     ? 90 * 24 * 60
     : 60;
   return !Number.isInteger(minutes) || minutes < 1 || minutes > maximum
@@ -83,6 +83,8 @@ export function scheduleError(
   expires: number,
   now = Math.floor(Date.now() / 1000),
 ) {
+  if (entry.source.provider === 'scim')
+    return 'SCIM accepts inbound provisioning; it cannot authorize a pull schedule.';
   if (entry.source.provider === 'active_directory')
     return 'AD exports are collected internally and uploaded with a signature; a public key cannot authorize a pull.';
   if (!canCollectSaved(entry, now))
@@ -172,7 +174,9 @@ export function SavedConnections({
                         ? 'Active Directory'
                         : entry.source.provider === 'okta'
                           ? 'Okta'
-                          : entry.source.provider}
+                          : entry.source.provider === 'scim'
+                            ? 'SCIM provisioning'
+                            : entry.source.provider}
               </dd>
             </div>
             <div>
@@ -184,7 +188,7 @@ export function SavedConnections({
               <dd>{new Date(entry.expires * 1000).toLocaleString('en-GB')}</dd>
             </div>
           </dl>
-          {entry.source.provider !== 'active_directory' && (
+          {!['active_directory', 'scim'].includes(entry.source.provider) && (
             <section
               className="directory-schedule-status"
               aria-label={`Collection schedule for ${entry.source.label}`}
@@ -273,6 +277,13 @@ export function SavedConnections({
               Review is required before activation.
             </p>
           )}
+          {entry.source.provider === 'scim' && (
+            <p className="notice">
+              Inbound provisioning only. Staged users and groups are not active
+              in the filter. Inventory attestation and activation are not yet
+              available for this connector.
+            </p>
+          )}
           <details>
             <summary>Access generation</summary>
             <code>{entry.generation}</code>
@@ -281,15 +292,17 @@ export function SavedConnections({
             </p>
           </details>
           <div className="actions">
-            <button
-              type="button"
-              disabled={busy || !canCollectSaved(entry)}
-              onClick={() => onCollect(entry)}
-            >
-              {entry.source.provider === 'active_directory'
-                ? 'Upload signed AD export'
-                : 'Collect using saved access'}
-            </button>
+            {entry.source.provider !== 'scim' && (
+              <button
+                type="button"
+                disabled={busy || !canCollectSaved(entry)}
+                onClick={() => onCollect(entry)}
+              >
+                {entry.source.provider === 'active_directory'
+                  ? 'Upload signed AD export'
+                  : 'Collect using saved access'}
+              </button>
+            )}
             <button
               type="button"
               className="secondary"
@@ -298,7 +311,9 @@ export function SavedConnections({
             >
               {entry.source.provider === 'active_directory'
                 ? 'Replace verification key'
-                : 'Replace access'}
+                : entry.source.provider === 'scim'
+                  ? 'Rotate provisioning token'
+                  : 'Replace access'}
             </button>
             <button
               type="button"

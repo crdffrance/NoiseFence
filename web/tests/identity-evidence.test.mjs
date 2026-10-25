@@ -187,6 +187,16 @@ const { DirectoryReview } = await import(
   await moduleURL('../app/directory-settings.tsx', {
     './directory-sync': await moduleURL('../app/directory-sync.tsx', {
       './directory': await moduleURL('../app/directory.ts'),
+      './directory-scim': await moduleURL('../app/directory-scim.tsx', {
+        './client': await moduleURL('../app/client.ts'),
+        './directory': await moduleURL('../app/directory.ts'),
+        './directory-connections': await moduleURL(
+          '../app/directory-connections.tsx',
+        ),
+        './console-ui': await moduleURL('../app/console-ui.tsx', {
+          '@/components/ui/button': button,
+        }),
+      }),
       './client': await moduleURL('../app/client.ts'),
       './directory-connections': await moduleURL(
         '../app/directory-connections.tsx',

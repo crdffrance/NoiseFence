@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CloudDownload, RefreshCw } from 'lucide-react';
 import { api, type User } from './client';
 import { ConfirmDialog } from './console-ui';
+import { ScimEnrollment } from './directory-scim';
 import {
   SavedConnections,
   connectionLifetimeError,
@@ -273,6 +274,10 @@ export function DirectorySync({
   onBusy: (value: boolean) => void;
 }) {
   const storageKey = `noisefence-directory-sync:${user.username}`;
+  const [scimEdit, setScimEdit] = useState<SavedConnection | 'new' | null>(
+    null,
+  );
+  const [scimBusy, setScimBusy] = useState(false);
   const [open, setOpen] = useState(false),
     [existing, setExisting] = useState(''),
     [provider, setProvider] = useState<SyncProvider>('entra'),
@@ -419,13 +424,13 @@ export function DirectorySync({
     };
   }, [provider, secret]);
   useEffect(() => {
-    onDirty(dirty);
+    onDirty(dirty || scimEdit !== null);
     return () => onDirty(false);
-  }, [dirty, onDirty]);
+  }, [dirty, scimEdit, onDirty]);
   useEffect(() => {
-    onBusy(busy);
+    onBusy(busy || scimBusy);
     return () => onBusy(false);
-  }, [busy, onBusy]);
+  }, [busy, scimBusy, onBusy]);
   useEffect(() => {
     if (!visible || !jobId || busy) return;
     const abort = new AbortController();
@@ -499,7 +504,7 @@ export function DirectorySync({
     }
   }
   async function startSaved(entry: SavedConnection) {
-    if (disabled || busy) return;
+    if (disabled || busy || scimEdit !== null || scimBusy) return;
     setBusy(true);
     setError('');
     const operation = crypto.randomUUID();
@@ -525,7 +530,15 @@ export function DirectorySync({
     }
   }
   async function uploadAd() {
-    if (disabled || busy || !adUpload || !adFile) return;
+    if (
+      disabled ||
+      busy ||
+      scimEdit !== null ||
+      scimBusy ||
+      !adUpload ||
+      !adFile
+    )
+      return;
     setBusy(true);
     setError('');
     try {
@@ -577,7 +590,15 @@ export function DirectorySync({
     });
   }
   async function mutateSchedule() {
-    if (disabled || busy || !scheduleDraft || scheduleProblem) return;
+    if (
+      disabled ||
+      busy ||
+      scimEdit !== null ||
+      scimBusy ||
+      !scheduleDraft ||
+      scheduleProblem
+    )
+      return;
     const draft = scheduleDraft,
       operation = crypto.randomUUID();
     setBusy(true);
@@ -617,7 +638,8 @@ export function DirectorySync({
     }
   }
   async function mutateAccess() {
-    if (disabled || busy || !confirmAccess) return;
+    if (disabled || busy || scimEdit !== null || scimBusy || !confirmAccess)
+      return;
     const action = confirmAccess;
     setBusy(true);
     setError('');
@@ -695,7 +717,15 @@ export function DirectorySync({
     }
   }
   async function start() {
-    if (disabled || busy || problem || provider === 'active_directory') return;
+    if (
+      disabled ||
+      busy ||
+      scimEdit !== null ||
+      scimBusy ||
+      problem ||
+      provider === 'active_directory'
+    )
+      return;
     setBusy(true);
     setError('');
     const operation = crypto.randomUUID();
@@ -765,7 +795,7 @@ export function DirectorySync({
         <button
           type="button"
           className="secondary"
-          disabled={disabled || busy}
+          disabled={disabled || busy || scimEdit !== null || scimBusy}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -779,7 +809,10 @@ export function DirectorySync({
         collection requires a separate, expiring authorization below.
       </p>
       {open && (
-        <fieldset disabled={disabled || busy} className="directory-sync-form">
+        <fieldset
+          disabled={disabled || busy || scimEdit !== null || scimBusy}
+          className="directory-sync-form"
+        >
           <legend>Read-only connection</legend>
           <label>
             Provider
@@ -1090,7 +1123,10 @@ export function DirectorySync({
         </output>
       )}
       {adUpload && (
-        <fieldset className="directory-sync-form" disabled={disabled || busy}>
+        <fieldset
+          className="directory-sync-form"
+          disabled={disabled || busy || scimEdit !== null || scimBusy}
+        >
           <legend>Upload signed Active Directory export</legend>
           <p>
             <strong>{adUpload.source.label}</strong> ·{' '}
@@ -1137,19 +1173,57 @@ export function DirectorySync({
           </div>
         </fieldset>
       )}
+      <div className="actions">
+        <button
+          type="button"
+          className="secondary"
+          disabled={
+            disabled ||
+            busy ||
+            dirty ||
+            scimEdit !== null ||
+            !saved ||
+            !['ready', 'not_initialized'].includes(saved.vault) ||
+            saved.connections.length >= 16
+          }
+          onClick={() => setScimEdit('new')}
+        >
+          Set up SCIM provisioning
+        </button>
+      </div>
+      {(visible || scimBusy) && scimEdit !== null && (
+        <ScimEnrollment
+          user={user}
+          revision={revision}
+          installed={installed}
+          domains={domains}
+          existing={scimEdit === 'new' ? null : scimEdit}
+          disabled={disabled || busy || dirty}
+          onBusy={setScimBusy}
+          onClose={() => {
+            setScimEdit(null);
+            setAttempt((v) => v + 1);
+          }}
+          onChanged={() => setAttempt((v) => v + 1)}
+        />
+      )}
       <SavedConnections
         username={user.username}
         onSchedule={editSchedule}
         onStopSchedule={(entry) => editSchedule(entry, true)}
         onInspect={rememberJob}
         value={saved}
-        busy={disabled || busy || dirty}
+        busy={disabled || busy || scimEdit !== null || scimBusy || dirty}
         onCollect={(entry) =>
           entry.source.provider === 'active_directory'
             ? setAdUpload(entry)
             : void startSaved(entry)
         }
         onReplace={(entry) => {
+          if (entry.source.provider === 'scim') {
+            setScimEdit(entry);
+            return;
+          }
           setEditingAccess(entry);
           setExisting('');
           setProvider(entry.source.provider as SyncProvider);
@@ -1352,7 +1426,7 @@ export function DirectorySync({
             {job && canReviewSync(job, revision, installed) && (
               <button
                 type="button"
-                disabled={disabled || busy}
+                disabled={disabled || busy || scimEdit !== null || scimBusy}
                 onClick={() => onPrepared(job.prepared!)}
               >
                 Review collected changes

@@ -25,6 +25,16 @@ async function moduleURL(file, bindings = {}) {
 const directory = await moduleURL('../app/directory.ts');
 const client =
   'data:text/javascript,export async function api(){throw new Error("No live requests in tests")};';
+const scim = await moduleURL('../app/directory-scim.tsx', {
+  './client': client,
+  './directory': directory,
+  './directory-connections': await moduleURL(
+    '../app/directory-connections.tsx',
+  ),
+  './console-ui':
+    'data:text/javascript,export function ConfirmDialog({children}){return children};',
+});
+const { scimFormError, ScimEnrollment } = await import(scim);
 const {
   syncMessage,
   canReviewSync,
@@ -39,6 +49,7 @@ const {
 } = await import(
   await moduleURL('../app/directory-sync.tsx', {
     './directory': directory,
+    './directory-scim': scim,
     './client': client,
     './directory-connections': await moduleURL(
       '../app/directory-connections.tsx',
@@ -459,4 +470,79 @@ test('AD enrollment is source-bound, public-only and separate from pull schedule
     assert.throws(() =>
       parseAdEnvelope(JSON.stringify({ ...fixture.envelope, ...patch })),
     );
+});
+
+test('SCIM enrollment binds safe source paths, receiving domains and finite lifetime', () => {
+  const scimSource = { ...source, provider: 'scim' };
+  assert.equal(scimFormError(scimSource, ['example.test'], 90), null);
+  for (const patch of [
+    { id: '../Users' },
+    { id: 'a/b' },
+    { id: '_x' },
+    { id: '' },
+    { id: 'x'.repeat(101) },
+    { authority: '' },
+    { label: '' },
+    { provider: 'okta' },
+    { scopes: [] },
+    { scopes: ['other.test'] },
+    { stale_after_seconds: 1 },
+  ]) {
+    assert.ok(scimFormError({ ...scimSource, ...patch }, ['example.test'], 30));
+  }
+  for (const days of [0, 91, NaN, 1.5])
+    assert.ok(scimFormError(scimSource, ['example.test'], days));
+  assert.equal(connectionLifetimeError('scim', 90 * 1440), null);
+  assert.ok(connectionLifetimeError('scim', 90 * 1440 + 1));
+});
+test('SCIM saved access offers rotation and revoke, never a pull or inferred activation', () => {
+  const entry = {
+    source: { ...source, provider: 'scim' },
+    generation: 'synthetic',
+    owner: 'admin',
+    created: 100,
+    expires: 1000,
+    status: 'configured',
+  };
+  assert.match(
+    scheduleError(entry, 'admin', 15, 1000, 200),
+    /cannot authorize a pull/,
+  );
+  const html = renderToStaticMarkup(
+    createElement(SavedConnections, {
+      value: { connections: [entry], vault: 'ready' },
+      busy: false,
+      username: 'admin',
+    }),
+  );
+  assert.match(html, /Rotate provisioning token/);
+  assert.match(html, /Revoke access/);
+  assert.match(html, /not active in the filter/);
+  assert.doesNotMatch(
+    html,
+    /Set up automatic collection|Collect using saved access|Upload signed AD export/,
+  );
+});
+test('SCIM form explains staging and never asks for a provider password', () => {
+  const html = renderToStaticMarkup(
+    createElement(ScimEnrollment, {
+      user: { username: 'admin', csrf: 'synthetic' },
+      revision: 0,
+      installed: null,
+      domains: ['example.test'],
+      existing: null,
+      disabled: false,
+      onBusy() {},
+      onClose() {},
+      onChanged() {},
+    }),
+  );
+  assert.match(html, /Development profile/);
+  assert.match(
+    html,
+    /Inventory attestation and activation are not yet available/,
+  );
+  assert.match(html, /No provider password is required/);
+  assert.match(html, /Review enrollment/);
+  assert.doesNotMatch(html, /type="password"|nfscim1_/);
 });

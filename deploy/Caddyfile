@@ -13,7 +13,12 @@ noisefence.example.org {
     request_body @ad_export {
         max_size 25165824
     }
-    @console not path /api/v1/cluster/* /api/v1/admin/identity/prepare /api/v1/admin/identity/sync/active_directory
+    # Keep provisioning tokens and filter queries out of any operator-added logs.
+    @scim path /scim/*
+    request_body @scim {
+        max_size 1048576
+    }
+    @console not path /scim/* /api/v1/cluster/* /api/v1/admin/identity/prepare /api/v1/admin/identity/sync/active_directory
     request_body @console {
         max_size 128KB
     }

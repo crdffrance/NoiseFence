@@ -1,6 +1,6 @@
 use super::{
     Command, Inventory, Reply,
-    database::{Cell, Database, Param, Row},
+    database::{Cell, Database, Deadline, Param, Row},
     engine,
 };
 use crate::identity::{
@@ -40,6 +40,7 @@ fn migrate(tx: &Transaction<'_>) -> Result<()> {
 }
 struct Local<'a, 'tx> {
     tx: &'a Transaction<'tx>,
+    deadline: Deadline,
 }
 fn values(params: &[Param]) -> Vec<Value> {
     params
@@ -57,9 +58,10 @@ impl Database for Local<'_, '_> {
         sql: &'a str,
         params: &'a [Param],
     ) -> impl Future<Output = Result<Vec<Row>>> + Send + 'a {
-        // Executes entirely on Store::run's blocking worker. The shared async
+        // Executes entirely on the dedicated SCIM blocking worker. The shared async
         // algorithm never moves a SQLite transaction onto an async worker.
         ready((|| {
+            self.deadline.check()?;
             let values = values(params);
             let mut stmt = self.tx.prepare(sql)?;
             let columns = stmt.column_count();
@@ -85,12 +87,12 @@ impl Database for Local<'_, '_> {
         sql: &'a str,
         params: &'a [Param],
     ) -> impl Future<Output = Result<u64>> + Send + 'a {
-        ready(
-            self.tx
-                .execute(sql, rusqlite::params_from_iter(values(params)))
-                .map(|n| n as u64)
-                .map_err(Into::into),
-        )
+        ready((|| {
+            self.deadline.check()?;
+            Ok(self
+                .tx
+                .execute(sql, rusqlite::params_from_iter(values(params)))? as u64)
+        })())
     }
 }
 fn authorized(tx: &Transaction<'_>, root: &Path, access: &Access) -> Result<Record> {
@@ -110,11 +112,12 @@ pub(super) fn request(
     root: &Path,
     access: Access,
     command: Command,
+    deadline: Deadline,
 ) -> Result<super::super::Result<Reply>> {
     let record = authorized(tx, root, &access)?;
     migrate(tx)?;
     let result = tokio::runtime::Handle::current().block_on(engine::execute(
-        &mut Local { tx },
+        &mut Local { tx, deadline },
         &record,
         command,
         crate::now(),
@@ -129,6 +132,7 @@ pub(super) fn inventory(
     reference: &Reference,
     actor: &str,
     session: &str,
+    deadline: Deadline,
 ) -> Result<Inventory> {
     reference.validate()?;
     let record = connections::get(
@@ -148,7 +152,7 @@ pub(super) fn inventory(
     );
     migrate(tx)?;
     let result = tokio::runtime::Handle::current().block_on(engine::inventory(
-        &mut Local { tx },
+        &mut Local { tx, deadline },
         &record,
         crate::now(),
     ))?;
@@ -161,4 +165,49 @@ pub(super) fn inventory(
         crate::now(),
     )?;
     Ok(result)
+}
+
+pub(super) fn preflight(
+    tx: &Transaction<'_>,
+    root: &Path,
+    access: Access,
+) -> Result<(Access, crate::identity::directory::Source)> {
+    let source = authorized(tx, root, &access)?.metadata.source;
+    Ok((access, source))
+}
+/// Dedicated SQLite connection: no provisioning work waits on the SMTP writer
+/// mutex. The task keeps ownership until interrupted SQL has actually stopped.
+pub(super) async fn run<T, F>(root: std::path::PathBuf, f: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut rusqlite::Connection, &Path, Deadline) -> Result<T> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let deadline = Deadline::new();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let mut task = tokio::task::spawn_blocking(move || {
+            let mut db = rusqlite::Connection::open_with_flags(
+                root.join("state.sqlite3"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            )?;
+            db.busy_timeout(std::time::Duration::from_millis(250))?;
+            let _ = send.send(db.get_interrupt_handle());
+            db.execute_batch(
+                "PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;",
+            )?;
+            deadline.check()?;
+            f(&mut db, &root, deadline)
+        });
+        match receive.await {
+            Ok(interrupt) => tokio::select! {
+                result = &mut task => result?,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                    interrupt.interrupt();
+                    task.await?
+                }
+            },
+            Err(_) => task.await?,
+        }
+    })
+    .await?
 }

@@ -57,3 +57,19 @@ pub(crate) async fn scalar(db: &mut impl Database, sql: &str, params: &[Param]) 
     let rows = db.query(sql, params).await?;
     rows.first().context("Missing SCIM aggregate")?.integer(0)
 }
+
+/// A whole-operation bound, not a fresh timeout for every SQL statement.
+#[derive(Clone, Copy)]
+pub(crate) struct Deadline(std::time::Instant);
+impl Deadline {
+    pub fn new() -> Self {
+        Self(std::time::Instant::now() + std::time::Duration::from_secs(10))
+    }
+    pub fn check(self) -> Result<()> {
+        anyhow::ensure!(
+            std::time::Instant::now() < self.0,
+            "SCIM operation deadline exceeded"
+        );
+        Ok(())
+    }
+}

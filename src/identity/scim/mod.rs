@@ -1,8 +1,9 @@
 //! Bounded SCIM protocol and transactional staging for both management backends.
-//! Source-scoped bearer verification precedes each read or mutation. HTTP exposure,
-//! administrator enrollment and reviewed directory publication remain separate
-//! integration steps. See docs/identity-scim.md.
+//! Source-scoped bearer verification precedes each read or mutation. HTTP routes
+//! and administrator enrollment live in api/control. Reviewed inventory publication
+//! remains a separate integration step. See docs/identity-scim.md.
 pub mod access;
+pub mod endpoint;
 mod json;
 mod patch;
 mod query;
@@ -78,7 +79,7 @@ pub(crate) const MUTABILITY: Error = Error::new(
 );
 pub(crate) const STALE: Error = Error::new(
     412,
-    "invalidVers",
+    "",
     "SCIM resource version changed; read the resource again.",
 );
 

@@ -194,3 +194,26 @@ pub(super) async fn upload_ad(
         Json(json!({"id":result.id,"deadline":result.deadline,"state":"running"})),
     ))
 }
+
+/// A lost enrollment response cannot disclose the token again. Read status and
+/// explicitly rotate the recorded generation instead of replaying enrollment.
+pub(super) async fn enroll_scim(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<Json<Value>> {
+    let actor = administrator(&app, &h, true).await?;
+    let _permit = super::identity::capacity(&app)?;
+    let input: crate::control::identity_scim::Enroll = body(request).await?;
+    let result = controller(&app)?
+        .enroll_scim(
+            input,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(refused)?;
+    Ok(Json(
+        serde_json::to_value(result).map_err(anyhow::Error::from)?,
+    ))
+}

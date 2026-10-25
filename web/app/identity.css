@@ -1215,3 +1215,37 @@
   margin-block: 0.5rem;
   user-select: all;
 }
+
+/* One-time provisioning values stay selectable without stretching small screens. */
+.directory-scim-receipt {
+  display: grid;
+  gap: 0.875rem;
+}
+.directory-scim-receipt > label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+}
+.directory-scim-receipt input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: monospace;
+}
+.directory-scim-receipt > button {
+  justify-self: start;
+}
+.directory-scim-receipt > p {
+  margin: 0;
+}
+.directory-scim > header {
+  margin-bottom: 0.75rem;
+}
+.directory-scim > header h4 {
+  font-weight: 600;
+}

@@ -20,7 +20,7 @@ the content index only after explicit configuration and reviewed activation.
 | Entra, Google Workspace, Okta and AWS Identity Store full directory collection | Read-only Web collection, optional encrypted access and expiring schedules; durable results require review |
 | Automatic correspondent memory | Recipient-scoped, retained SMTP observations with Web controls |
 | Corroborated identity contribution | Optional bounded, deduplicated content weight; observation by default |
-| Inbound SCIM provisioning | [Protocol, durable staging and bearer verification](identity-scim.md); HTTP enrollment/provisioning and Web review remain pending |
+| Inbound SCIM provisioning | [Authenticated HTTP staging and Web token enrollment](identity-scim.md); inventory attestation and reviewed activation remain pending |
 | Other directory providers, SSO and reciprocal contact graph | Further integration work; no connected tenant or outbound history is claimed |
 
 ![Manual directory workspace with synthetic identities](images/console-directory.jpg)
@@ -377,7 +377,7 @@ name mismatch is a diagnostic signal, not a measured probability or live score.
    already follow coordinated MX publication and activation.
 3. Extend the implemented Entra/Google/Okta/AWS scheduled Web collection with
    renewable workload authorization and snapshot lifecycle; add verified delta persistence.
-   Qualify the [internal AD collector](identity-active-directory.md) against a real domain and finish the authenticated HTTP service and Web enrollment/review for [inbound SCIM](identity-scim.md).
+   Qualify the [internal AD collector](identity-active-directory.md) against a real domain and finish inventory attestation and reviewed activation for [inbound SCIM](identity-scim.md).
    Bound pagination, time, response sizes and retries. Never publish a partially
    fetched source. Never send credentials to a changed redirect/next-page host.
 4. Qualify the implemented [bounded identity contribution](identity-correlation.md)

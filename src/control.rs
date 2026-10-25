@@ -4,6 +4,7 @@ mod activation_authority;
 pub(crate) mod identity;
 pub(crate) mod identity_connections;
 pub(crate) mod identity_schedule;
+pub(crate) mod identity_scim;
 mod identity_sync;
 use crate::{
     config::{Config, Domain, Mode},

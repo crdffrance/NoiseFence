@@ -79,6 +79,9 @@ for proxy in ('nginx', 'caddy'):
                                  ('/api/v1/cluster/v3/history', 3*1024*1024, 200),
                                  ('/api/v1/cluster/v3/logs', 3*1024*1024, 200),
                                  ('/api/v1/cluster/v3/history', 5*1024*1024, 413),
+                                 ('/scim/source/v2/Users', 1048576, 200),
+                                 ('/scim/source/v2/Users', 1048577, 413),
+                                 ('/scim-other/source/v2/Users', 262144, 413),
                                  ('/api/v1/settings', 262144, 413)]:
         deadline = time.monotonic() + 15
         while True:

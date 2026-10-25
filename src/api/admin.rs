@@ -30,6 +30,10 @@ pub(super) fn routes() -> Router<App> {
             "/admin/identity/sync/stored",
             post(identity_connections::collect),
         )
+        .route(
+            "/admin/identity/scim/enroll",
+            post(identity_connections::enroll_scim),
+        )
         .route("/admin/identity", get(identity::view))
         .route("/admin/identity/prepare", post(identity::prepare))
         .route(
