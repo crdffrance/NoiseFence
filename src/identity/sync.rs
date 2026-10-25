@@ -11,6 +11,8 @@ pub const MAX_EVENTS: usize = 128;
 pub struct Request {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<super::connections::Reference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<super::schedule::Binding>,
     pub id: String,
     pub source_id: String,
     pub runner: String,
@@ -21,6 +23,13 @@ pub struct Request {
 }
 impl Request {
     pub fn validate(&self) -> Result<()> {
+        if let Some(binding) = &self.scheduled {
+            binding.validate()?;
+            ensure!(
+                self.connection.is_some(),
+                "Scheduled collection requires saved access"
+            );
+        }
         if let Some(reference) = &self.connection {
             reference.validate()?;
             ensure!(
@@ -276,6 +285,7 @@ mod tests {
     const NOW: i64 = 1800000000;
     fn request(source: &str) -> Request {
         Request {
+            scheduled: None,
             connection: None,
             id: uuid::Uuid::new_v4().to_string(),
             source_id: source.into(),

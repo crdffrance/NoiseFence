@@ -86,7 +86,7 @@ saving a new date. A current date does not guarantee capacity, credentials or
 budget availability. If external analysis is intentionally suspended, leave it
 suspended; an unavailable opinion is not a spam detection.
 
-### One-shot directory collection
+### Directory collection
 
 Use **Filters → Identity protection → Directory synchronization** to collect
 users and groups from Entra, Google Workspace or Okta. Credentials are request-only
@@ -95,3 +95,9 @@ set its expiry, replace or revoke it. Collection and activation remain separate
 actions. Job receipts are durable and contain no secrets. Review and activate
 the prepared directory separately. See [Entra setup](identity-entra.md), [Google setup](identity-google.md) or [Okta setup](identity-okta.md) and their shared job states.
 Scheduled synchronization is not yet available.
+
+Optional background collection is configured in **Saved directory access → Set up
+automatic collection**. Only the access owner can authorize it, with a 15-minute to
+24-hour interval and an end time bounded by credential expiry. Administrators can
+stop it and inspect the last durable receipt. Each candidate still requires the
+normal review and MX policy activation; see [schedule semantics](directory-credential-storage.md#automatic-collection).

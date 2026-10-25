@@ -188,8 +188,25 @@ impl Controller {
         actor: String,
         session: String,
     ) -> Result<Request> {
+        let collector = Self::directory_collector(&source, credential)?;
+        self.start_directory_sync(
+            input.operation,
+            input.revision,
+            input.catalog_sha256,
+            source,
+            collector,
+            actor,
+            session,
+            Some(input.connection),
+        )
+        .await
+    }
+    fn directory_collector(
+        source: &Source,
+        credential: crate::identity::connections::Credential,
+    ) -> Result<Collector> {
         use crate::identity::connections::Credential;
-        let collector = match credential {
+        Ok(match credential {
             Credential::EntraApplication {
                 client_id,
                 client_secret,
@@ -204,31 +221,40 @@ impl Controller {
             Credential::OktaAccessToken { access_token } => {
                 Collector::Okta(okta::Credentials::new(&source.authority, access_token)?)
             }
-        };
-        self.start_directory_sync(
-            input.operation,
-            input.revision,
-            input.catalog_sha256,
-            source,
-            collector,
-            actor,
-            session,
-            Some(input.connection),
-        )
-        .await
+        })
+    }
+    async fn collection_authorize(
+        &self,
+        request: &Request,
+        actor: &str,
+        session: Option<&str>,
+    ) -> Result<()> {
+        if request.scheduled.is_some() {
+            return self
+                .store
+                .identity_schedule_authorized(request.clone())
+                .await;
+        }
+        let session = session.context("Administrative session required")?;
+        if let Some(reference) = &request.connection {
+            self.directory_connection_live(reference, actor, session)
+                .await
+        } else {
+            self.directory_authorize(actor.into(), session.into()).await
+        }
     }
     async fn watch_directory_connection(
         &self,
-        reference: Option<&crate::identity::connections::Reference>,
+        request: &Request,
         actor: &str,
-        session: &str,
+        session: Option<&str>,
     ) -> Failure {
-        let Some(reference) = reference else {
+        if request.connection.is_none() {
             return std::future::pending().await;
-        };
+        }
         loop {
             if self
-                .directory_connection_live(reference, actor, session)
+                .collection_authorize(request, actor, session)
                 .await
                 .is_err()
             {
@@ -236,6 +262,56 @@ impl Controller {
             }
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
+    }
+    pub(super) async fn start_scheduled_directory_sync(
+        self: &Arc<Self>,
+        record: crate::identity::connections::Record,
+    ) -> Result<(Request, tokio::task::JoinHandle<()>)> {
+        let current = self.snapshot();
+        let expected = current.config.identity.as_ref().map(|s| s.sha256.clone());
+        let source = record.metadata.source.clone();
+        let (previous, scopes, generation) = self
+            .directory_context(current.revision, expected.clone(), &source)
+            .await?;
+        let schedule = record.schedule.as_ref().context("No directory schedule")?;
+        let now = crate::now();
+        let request = Request {
+            scheduled: Some(schedule.binding(&record.metadata)?),
+            connection: Some(schedule.grant.connection.clone()),
+            id: uuid::Uuid::new_v4().to_string(),
+            source_id: source.id.clone(),
+            runner: self.identity_sync_runner.clone(),
+            revision: current.revision,
+            catalog_sha256: expected,
+            created: now,
+            deadline: now + 360,
+        };
+        let root = self.base.data_dir.clone();
+        let actor = record.metadata.owner.clone();
+        let (key, credential) = tokio::task::spawn_blocking(move || -> Result<_> {
+            let key = crate::identity::connections::vault::Key::load(&root)?;
+            key.verify_schedule(&record)?;
+            let credential = key.open(&record, crate::now())?;
+            Ok((key, credential))
+        })
+        .await??;
+        let collector = Self::directory_collector(&source, credential)?;
+        // Recheck the signed grant and claim under the same authority lock as
+        // manual jobs. No provider request is sent before a durable intent.
+        self.store
+            .identity_schedule_claim(request.clone(), key)
+            .await?;
+        let task = self.launch_directory_collection(
+            request.clone(),
+            previous,
+            source,
+            scopes,
+            generation,
+            collector,
+            actor,
+            None,
+        );
+        Ok((request, task))
     }
     #[allow(clippy::too_many_arguments)]
     async fn start_directory_sync(
@@ -264,6 +340,7 @@ impl Controller {
             .await?;
         let now = crate::now();
         let request = Request {
+            scheduled: None,
             connection,
             id: operation,
             runner: self.identity_sync_runner.clone(),
@@ -275,8 +352,32 @@ impl Controller {
         };
         self.identity_sync_begin(&request, actor.clone(), session.clone())
             .await?;
+        self.launch_directory_collection(
+            request.clone(),
+            previous,
+            source,
+            scopes,
+            generation,
+            collector,
+            actor,
+            Some(session),
+        );
+        Ok(request)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn launch_directory_collection(
+        self: &Arc<Self>,
+        request: Request,
+        previous: runtime::Document,
+        source: Source,
+        scopes: BTreeSet<String>,
+        generation: u64,
+        collector: Collector,
+        actor: String,
+        session: Option<String>,
+    ) -> tokio::task::JoinHandle<()> {
         let this = self.clone();
-        let receipt = request.clone();
+        let receipt = request;
         tokio::spawn(async move {
             let result = tokio::time::timeout(std::time::Duration::from_secs(350), async {
                 let collection = async { match collector {
@@ -313,9 +414,9 @@ impl Controller {
                 .map_err(|_| Failure::Collection) };
                 let collected=tokio::select! {
                     value=collection=>value?,
-                    failure=this.watch_directory_connection(receipt.connection.as_ref(),&actor,&session)=>return Err(failure),
+                    failure=this.watch_directory_connection(&receipt,&actor,session.as_deref())=>return Err(failure),
                 };
-                if let Some(reference)=&receipt.connection {this.directory_connection_live(reference,&actor,&session).await.map_err(|_|Failure::Authorization)?;}
+                this.collection_authorize(&receipt,&actor,session.as_deref()).await.map_err(|_|Failure::Authorization)?;
                 this.prepare_collected_directory(
                     &receipt,
                     previous,
@@ -341,7 +442,7 @@ impl Controller {
                         outcome,
                     },
                     actor,
-                    Some(session),
+                    session,
                 )
                 .await
                 .is_err()
@@ -349,8 +450,7 @@ impl Controller {
                 // No provider response, secret or directory data in logs.
                 tracing::warn!(job=%receipt.id,"Directory synchronization outcome was not recorded; inspect the receipt before retrying");
             }
-        });
-        Ok(request)
+        })
     }
     async fn prepare_collected_directory(
         &self,
@@ -359,14 +459,14 @@ impl Controller {
         collected: entra::Collected,
         scopes: BTreeSet<String>,
         actor: String,
-        session: String,
+        session: Option<String>,
     ) -> Result<PreparedDirectory, Failure> {
         let _permit = self
             .applying
             .clone()
             .try_acquire_owned()
             .map_err(|_| Failure::Stale)?;
-        self.directory_authorize(actor.clone(), session.clone())
+        self.collection_authorize(request, &actor, session.as_deref())
             .await
             .map_err(|_| Failure::Authorization)?;
         let current = self.snapshot();
@@ -388,9 +488,21 @@ impl Controller {
         let reserve = self.base.smtp.minimum_free_bytes;
         let bytes = serde_json::to_vec(&candidate.document).map_err(|_| Failure::Preparation)?;
         let mut selection = if let Some(c) = self.store.management() {
-            c.prepare_identity_directory(root, bytes, reserve, &actor, &session)
+            if request.scheduled.is_some() {
+                c.prepare_scheduled_identity_directory(root, bytes, reserve, request)
+                    .await
+                    .map_err(|_| Failure::Preparation)?
+            } else {
+                c.prepare_identity_directory(
+                    root,
+                    bytes,
+                    reserve,
+                    &actor,
+                    session.as_deref().ok_or(Failure::Authorization)?,
+                )
                 .await
                 .map_err(|_| Failure::Preparation)?
+            }
         } else {
             // The durable sync intent already records authorization; artifact
             // creation never activates it, and the result is journalled below.
@@ -401,7 +513,7 @@ impl Controller {
             .map_err(|_| Failure::Preparation)?
             .map_err(|_| Failure::Preparation)?
         };
-        self.directory_authorize(actor, session)
+        self.collection_authorize(request, &actor, session.as_deref())
             .await
             .map_err(|_| Failure::Authorization)?;
         selection.reviewed_from = request.catalog_sha256.clone();
@@ -419,6 +531,10 @@ impl Controller {
         actor: String,
         session: String,
     ) -> Result<()> {
+        ensure!(
+            request.scheduled.is_none(),
+            "Use the scheduled collection claim"
+        );
         if let Some(c) = self.store.management() {
             return c.identity_sync_begin(request, &actor, &session).await;
         }
@@ -444,6 +560,9 @@ impl Controller {
         actor: String,
         session: Option<String>,
     ) -> Result<()> {
+        if event.request.scheduled.is_some() {
+            return self.store.identity_schedule_finish(event, actor).await;
+        }
         if let Some(c) = self.store.management() {
             return c
                 .identity_sync_finish_authorized(&event, &actor, session.as_deref())

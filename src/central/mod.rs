@@ -10,6 +10,7 @@ pub mod diagnostics;
 pub mod feedback;
 pub mod history;
 pub mod identity_connections;
+pub mod identity_schedule;
 pub mod identity_sync;
 pub mod import;
 pub mod invitations;

@@ -36,6 +36,7 @@ fn snapshot() -> directory::Snapshot {
 fn request(source: &str) -> Request {
     let now = crate::now();
     Request {
+        scheduled: None,
         connection: None,
         id: uuid::Uuid::new_v4().to_string(),
         source_id: source.into(),
@@ -116,7 +117,7 @@ async fn candidate_survives_restart(provider: directory::Provider) {
             collected(s),
             BTreeSet::from(["example.test".into()]),
             "admin".into(),
-            session.clone(),
+            Some(session.clone()),
         )
         .await
         .unwrap();
@@ -220,7 +221,7 @@ async fn synchronization_refuses_revoked_authorization_stale_policy_and_ambiguou
             collected(s.clone()),
             BTreeSet::from(["example.test".into()]),
             "admin".into(),
-            session.clone()
+            Some(session.clone())
         )
         .await,
         Err(Failure::Stale)
@@ -248,7 +249,7 @@ async fn synchronization_refuses_revoked_authorization_stale_policy_and_ambiguou
             collected(s),
             BTreeSet::from(["example.test".into()]),
             "admin".into(),
-            session.clone()
+            Some(session.clone())
         )
         .await,
         Err(Failure::Authorization)
@@ -417,7 +418,7 @@ async fn stored_ready_receipt_rechecks_revocation_in_its_commit_transaction() {
             collected(s.clone()),
             s.source.scopes.clone(),
             "admin".into(),
-            session.clone(),
+            Some(session.clone()),
         )
         .await
         .unwrap();
@@ -466,4 +467,214 @@ async fn stored_ready_receipt_rechecks_revocation_in_its_commit_transaction() {
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn scheduled_collection_survives_logout_but_requires_review_and_live_grant() {
+    use crate::identity::{
+        connections::vault::Key,
+        schedule::{Grant, PROTOCOL},
+    };
+    let (root, c, session) = setup().await;
+    let snapshot = snapshot();
+    let reference = saved_access(&c, &session, snapshot.source.clone()).await;
+    let grant = Grant {
+        protocol: PROTOCOL.into(),
+        id: uuid::Uuid::new_v4().to_string(),
+        connection: reference.clone(),
+        created: crate::now(),
+        expires: crate::now() + 1800,
+        interval_seconds: 900,
+    };
+    c.store
+        .identity_schedule_save(
+            reference.clone(),
+            None,
+            grant.clone(),
+            Key::load(root.path()).unwrap(),
+            "admin".into(),
+            session.clone(),
+        )
+        .await
+        .unwrap();
+    let record = c.store.identity_schedule_due(0).await.unwrap().remove(0);
+    let mut req = request(&snapshot.source.id);
+    req.runner = c.identity_sync_runner.clone();
+    req.connection = Some(reference.clone());
+    req.scheduled = Some(
+        record
+            .schedule
+            .as_ref()
+            .unwrap()
+            .binding(&record.metadata)
+            .unwrap(),
+    );
+    assert!(
+        c.identity_sync_begin(&req, "admin".into(), session.clone())
+            .await
+            .is_err()
+    );
+    c.store
+        .identity_schedule_claim(req.clone(), Key::load(root.path()).unwrap())
+        .await
+        .unwrap();
+    c.store
+        .run(|db| {
+            db.execute("DELETE FROM sessions", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let prepared = c
+        .prepare_collected_directory(
+            &req,
+            empty(),
+            collected(snapshot.clone()),
+            snapshot.source.scopes.clone(),
+            "admin".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(!prepared.active && c.snapshot().config.identity.is_none());
+    // Grant revocation between preparation and terminal commit forbids Ready.
+    c.store
+        .run(|db| {
+            db.execute(
+                "INSERT INTO sessions VALUES('again','admin','csrf',?1)",
+                [crate::now() + 3600],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    c.store
+        .identity_schedule_stop(reference, grant.id, "admin".into(), "again".into())
+        .await
+        .unwrap();
+    c.identity_sync_finish_authorized(
+        Event {
+            request: req.clone(),
+            outcome: Outcome::Ready {
+                prepared: Box::new(prepared),
+            },
+        },
+        "admin".into(),
+        None,
+    )
+    .await
+    .unwrap();
+    let view = c
+        .identity_sync_status(req.id, "admin".into(), "again".into())
+        .await
+        .unwrap();
+    assert_eq!(view.state, "failed");
+    assert!(matches!(view.reason, Some(Failure::Authorization)));
+    assert!(view.prepared.is_none());
+    assert_eq!(c.snapshot().revision, 0);
+}
+
+#[tokio::test]
+async fn scheduled_worker_shares_one_shot_admission_and_cancels_on_stop() {
+    use crate::identity::{
+        connections::vault::Key,
+        schedule::{Grant, PROTOCOL},
+    };
+    let (root, c, session) = setup().await;
+    let snapshot = snapshot();
+    let reference = saved_access(&c, &session, snapshot.source.clone()).await;
+    let grant = Grant {
+        protocol: PROTOCOL.into(),
+        id: uuid::Uuid::new_v4().to_string(),
+        connection: reference.clone(),
+        created: crate::now(),
+        expires: crate::now() + 1800,
+        interval_seconds: 900,
+    };
+    c.store
+        .identity_schedule_save(
+            reference.clone(),
+            None,
+            grant.clone(),
+            Key::load(root.path()).unwrap(),
+            "admin".into(),
+            session.clone(),
+        )
+        .await
+        .unwrap();
+    let record = c.store.identity_schedule_due(0).await.unwrap().remove(0);
+    let mut req = request(&snapshot.source.id);
+    req.runner = c.identity_sync_runner.clone();
+    req.connection = Some(reference.clone());
+    req.scheduled = Some(
+        record
+            .schedule
+            .as_ref()
+            .unwrap()
+            .binding(&record.metadata)
+            .unwrap(),
+    );
+    let mut manual = req.clone();
+    manual.id = uuid::Uuid::new_v4().to_string();
+    manual.scheduled = None;
+    c.identity_sync_begin(&manual, "admin".into(), session.clone())
+        .await
+        .unwrap();
+    assert!(
+        c.store
+            .identity_schedule_claim(req.clone(), Key::load(root.path()).unwrap())
+            .await
+            .is_err()
+    );
+    c.identity_sync_finish_authorized(
+        Event {
+            request: manual,
+            outcome: Outcome::Failed {
+                reason: Failure::Collection,
+            },
+        },
+        "admin".into(),
+        Some(session.clone()),
+    )
+    .await
+    .unwrap();
+    c.store
+        .identity_schedule_claim(req.clone(), Key::load(root.path()).unwrap())
+        .await
+        .unwrap();
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let task = c.launch_directory_collection(
+        req.clone(),
+        empty(),
+        snapshot.source.clone(),
+        snapshot.source.scopes.clone(),
+        1,
+        Collector::Synthetic(receive),
+        "admin".into(),
+        None,
+    );
+    c.store
+        .identity_schedule_stop(reference, grant.id, "admin".into(), session.clone())
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(send.send(collected(snapshot)).is_err());
+    let view = c
+        .identity_sync_status(req.id, "admin".into(), session)
+        .await
+        .unwrap();
+    assert_eq!(view.state, "failed");
+    assert!(matches!(view.reason, Some(Failure::Authorization)));
+    assert!(view.prepared.is_none());
+    assert_eq!(c.snapshot().revision, 0);
+}
+#[tokio::test]
+async fn stopped_schedule_daemon_does_not_initialize_a_vault() {
+    let (root, c, _) = setup().await;
+    let (_stop, rx) = tokio::sync::watch::channel(true);
+    c.run_directory_schedules(rx).await.unwrap();
+    assert!(!root.path().join("directory-vault").exists());
 }

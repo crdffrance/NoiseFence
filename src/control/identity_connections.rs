@@ -30,6 +30,7 @@ pub struct Collect {
 }
 #[derive(Serialize)]
 pub struct ConnectionView {
+    pub schedule: Option<crate::identity::schedule::View>,
     pub source: Source,
     pub generation: String,
     pub owner: String,
@@ -160,7 +161,20 @@ impl Controller {
                     status = "configuration_changed".into();
                 }
             }
+            let mut schedule = view.schedule;
+            if let Some(s) = schedule.as_mut() {
+                if !matches!(s.state.as_str(), "stopped" | "expired") && status != "configured" {
+                    s.state = "access_unavailable".into();
+                } else if s.state == "awaiting_review"
+                    && s.last_run
+                        .as_ref()
+                        .is_some_and(|r| r.request.revision != snapshot.revision)
+                {
+                    s.state = "scheduled".into();
+                }
+            }
             connections.push(ConnectionView {
+                schedule,
                 source: view.metadata.source,
                 generation: view.metadata.generation,
                 owner: view.metadata.owner,

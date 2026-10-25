@@ -74,3 +74,11 @@ separate completed collection receipt. Source, tenant UUID, account, generation,
 expiry and provider response are synthetic; no real secret or identity provider
 was used. Saving, collection, replacement and revocation were verified in the
 browser-memory fixture. This image does not establish production readiness.
+
+`console-directory-schedule.jpg` is an unedited 1280×720 integrated-browser capture
+from the local identity demo on 25 October 2026. It shows the separate finite
+background-collection authorization. Tenant, owner and credential are synthetic;
+the browser-memory fixture does not run a provider scheduler or contact an IdP.
+The authorize → recorded → stop → stopped flow was checked visually while the
+installed policy remained revision 25. Actual durable scheduling is covered by
+SQLite/PostgreSQL and synthetic collector tests, not established by this screenshot.

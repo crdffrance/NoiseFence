@@ -137,7 +137,7 @@ export function directoryFixture(params, settings) {
         connections.set(body.source.id, {
           source: body.source,
           generation: body.operation,
-          owner: 'admin',
+          owner: 'Alex',
           created: Math.floor(Date.now() / 1000),
           expires: body.expires,
           status: 'configured',
@@ -156,6 +156,55 @@ export function directoryFixture(params, settings) {
             { status: 409 },
           );
         old.status = 'revoked';
+        return Response.json(connectionView());
+      }
+      if (
+        [
+          '/admin/identity/schedules',
+          '/admin/identity/schedules/stop',
+        ].includes(path) &&
+        options?.method === 'POST'
+      ) {
+        const body = JSON.parse(options.body),
+          old = connections.get(body.connection.source_id),
+          now = Math.floor(Date.now() / 1000);
+        if (
+          !old ||
+          old.generation !== body.connection.generation ||
+          (old.schedule?.id ?? null) !== body.expected_grant
+        )
+          return Response.json(
+            { error: 'Synthetic schedule changed; reload.' },
+            { status: 409 },
+          );
+        if (path.endsWith('/stop')) {
+          old.schedule.revoked_at = now;
+          old.schedule.state = 'stopped';
+        } else {
+          if (
+            body.revision !== revision ||
+            body.catalog_sha256 !== currentHash ||
+            old.status !== 'configured' ||
+            body.expires > old.expires ||
+            body.expires <= now ||
+            body.interval_seconds < 900 ||
+            body.interval_seconds > 86400
+          )
+            return Response.json(
+              { error: 'Synthetic schedule authorization refused.' },
+              { status: 409 },
+            );
+          // Browser-memory fixture only: no server timer or provider request.
+          old.schedule = {
+            id: body.operation,
+            expires: body.expires,
+            interval_seconds: body.interval_seconds,
+            next_due: now,
+            revoked_at: null,
+            last_run: null,
+            state: 'scheduled',
+          };
+        }
         return Response.json(connectionView());
       }
       if (path === '/admin/identity' && options?.method !== 'POST') {

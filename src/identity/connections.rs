@@ -190,10 +190,15 @@ pub struct Record {
     pub metadata: Metadata,
     pub sealed: Option<Vec<u8>>,
     pub revoked_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<super::schedule::Schedule>,
 }
 impl Record {
     pub fn validate(&self) -> Result<()> {
         self.metadata.validate()?;
+        if let Some(schedule) = &self.schedule {
+            schedule.validate(&self.metadata)?;
+        }
         ensure!(
             match (&self.sealed, self.revoked_at) {
                 (Some(s), None) => (29..=vault::MAX_SEALED_BYTES).contains(&s.len()),
@@ -230,6 +235,7 @@ impl Record {
     pub fn view(&self, now: i64, owner_current: bool) -> View {
         View {
             metadata: self.metadata.clone(),
+            schedule: self.schedule.as_ref().map(|s| s.view(now, None)),
             status: if self.revoked_at.is_some() {
                 "revoked"
             } else if !owner_current {
@@ -247,6 +253,7 @@ impl Record {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
+    pub schedule: Option<super::schedule::View>,
     pub metadata: Metadata,
     pub status: String,
 }
@@ -264,7 +271,8 @@ pub(crate) fn replacement(
 ) -> Result<()> {
     next.validate()?;
     ensure!(
-        next.sealed.is_some()
+        next.schedule.is_none()
+            && next.sealed.is_some()
             && next.revoked_at.is_none()
             && next.metadata.owner == actor
             && next.metadata.owner_version == version

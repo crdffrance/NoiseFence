@@ -34,9 +34,9 @@ with the recorded generation. No credential is stored in browser storage or retu
 to the page, and no secret-bearing request is automatically retried. A restarted
 server retains connections and receipts, but does not resume an interrupted job.
 
-Scheduled collection, OAuth refresh and automatic snapshot activation are not
-implemented. Saving a credential is not permission to reuse an administrator's
-browser session indefinitely.
+Saved access can be used by an explicitly authorized [collection schedule](#automatic-collection).
+OAuth refresh and automatic snapshot activation are not implemented. Saving a
+credential does not authorize a schedule or retain a browser session.
 
 Credentials are unrelated to SMTP authentication, mailbox routing, console login
 or recipient permissions. Directory records do not grant any of those rights.
@@ -50,6 +50,52 @@ credential generation, never its encrypted payload.
 
 *Unedited local demonstration with synthetic connection metadata and provider
 responses. This is not a connected tenant or a production credential.*
+
+## Automatic collection
+
+After saving access, its owner can select **Set up automatic collection** (or
+**Review schedule settings**), choose 15–1,440 whole minutes and an end time no
+later than the access expiry, then confirm **Authorize schedule**. This permits
+background directory reads after sign-out. Every grant is bound to the source,
+full authority/scope, owner account version, exact credential generation and
+expiry, and is authenticated using a domain-separated HMAC with the installation
+vault key. No grant signature is returned to the browser.
+
+The serving management daemon checks due work every 30 seconds. It shares the
+one-shot collector's maximum two active jobs, one active lease per source, 20
+starts per hour and 360-second durable leases. SMTP workers never run this loop.
+Each request still has the provider's bounded paging, TLS and total deadline.
+Failures use exponential backoff, capped at 24 hours. An interrupted collection
+keeps an unknown outcome until its lease expires; a restart never manufactures a
+successful receipt or immediately replays that request.
+
+A completed candidate pauses that schedule while its base policy revision remains
+current. Select **View last collection**, inspect the result, then review/apply it
+through the normal policy workflow. A changed policy revision permits a fresh
+collection; it does not install the prior candidate. To explicitly discard a pending
+candidate and collect afresh without changing policy, authorize a replacement
+grant using **Review schedule settings**. This still respects active leases and
+hourly admission limits. A schedule never changes a score, model, threshold or
+installed snapshot.
+
+**Stop automatic collection** is available to any current administrator and
+requires the displayed credential generation and grant ID. Revocation is durable.
+Rotating or revoking access, changing the owner's account version/rights, or reaching
+either expiry invalidates the grant. Active work checks authorization every two
+seconds and again at preparation and terminal commit. Transmitted provider requests
+cannot be recalled. Sign-out alone does not revoke the explicitly authorized grant.
+The status distinguishes scheduled, collecting, retry delayed, candidate awaiting
+review, expired, stopped, unavailable access and unknown prior outcome.
+
+If an authorization response is lost, **Reload saved access** and compare the
+operation UUID with the stored grant ID. The browser does not replay it automatically.
+Google and Okta saved access tokens still expire in at most one hour; this feature
+does not implement token renewal or delta synchronization. A schedule whose credential
+is unusable does not contact a provider, replace the key or change installed data.
+
+![Explicit collection schedule in the synthetic console](images/console-directory-schedule.jpg)
+
+*Local browser-memory demonstration; no provider is connected.*
 
 ## Encryption and key handling
 
@@ -86,8 +132,8 @@ unavailability fails the operation; it never falls back to a stale SQLite record
 The repository rechecks the administrator session and MFA for each administrative
 operation. A saved credential also records its owner's account version. Disabling
 that account, removing administrator rights or changing its version prevents reuse
-of the saved connection. These checks are not a reusable scheduler grant: a future
-background worker will need its own explicitly configured, revocable authorization.
+of the saved connection. Background work additionally requires a finite, signed collection grant; it never
+uses a saved browser session.
 
 At most 16 source connections can be stored. A rotation must reference the current
 generation and preserve the source configuration. Competing rotations cannot both
@@ -160,6 +206,8 @@ response bodies, credentials and ciphertext.
 | `POST /admin/identity/connections` | Explicit save or replacement |
 | `POST /admin/identity/connections/revoke` | Revoke the exact source/generation |
 | `POST /admin/identity/sync/stored` | Start a bounded one-time collection using the exact saved generation |
+| `POST /admin/identity/schedules` | Owner authorizes a finite schedule for the exact access generation |
+| `POST /admin/identity/schedules/stop` | Administrator revokes the displayed grant |
 
 Save fields: `operation` (UUID), `revision`, `catalog_sha256`, `expected_generation`
 (null for a new source), `source`, Unix-seconds `expires`, and a typed `credential`.
@@ -174,6 +222,13 @@ HTTP 202 with the ordinary synchronization receipt. Use
 `GET /admin/identity/sync/{id}` to read the result. No endpoint returns a credential
 or activates a collected snapshot. Workers refuse these management operations.
 
+Schedule authorization accepts `operation` (new grant UUID), `revision`,
+`catalog_sha256`, `connection: {source_id, generation}`, `expected_grant` (null
+for first setup), `interval_seconds` (900–86,400), and Unix-seconds `expires`.
+Stopping accepts `connection` and `expected_grant`. The status response includes
+schedule metadata and the last request ID, never the signed authorization or
+credential. The ordinary one-shot admission endpoint cannot create a scheduled lease.
+
 ## Validation
 
 Synthetic tests cover encryption randomness and metadata tampering; expiry and
@@ -183,4 +238,10 @@ persistence, selected-authority dispatch and component migration; authenticated
 API limits and lost-response reads; cancellation during collection and transactional
 revocation checks before ready receipts. Web checks cover expiry, unavailable
 states, escaped metadata and the separate collection/review flow.
+Schedule tests additionally exercise signed-grant binding, competing claims, restart,
+logout versus owner revocation, backoff, review pauses, schedule replacement,
+transactional cancellation and public metadata. Old one-shot receipts and connection
+records without schedules retain their canonical representation. A build predating
+schedule support cannot interpret records with schedules: use a qualified upgrade
+and recovery procedure, not a binary downgrade against the current management data.
 These tests do not establish live provider connectivity or email detection accuracy.

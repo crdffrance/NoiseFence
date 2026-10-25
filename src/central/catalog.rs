@@ -19,6 +19,10 @@ impl Action {
     }
 }
 
+enum Permit<'a> {
+    Session { actor: &'a str, session: &'a str },
+    Scheduled(&'a crate::identity::sync::Request),
+}
 impl Central {
     pub async fn prepare_identity_directory(
         &self,
@@ -45,11 +49,43 @@ impl Central {
         target: &str,
         operation: impl FnOnce() -> Result<T> + Send + 'static,
     ) -> Result<T> {
+        self.catalog_authorized(
+            Permit::Session { actor, session },
+            action,
+            target,
+            operation,
+        )
+        .await
+    }
+    pub async fn prepare_scheduled_identity_directory(
+        &self,
+        root: PathBuf,
+        bytes: Vec<u8>,
+        reserve: u64,
+        request: &crate::identity::sync::Request,
+    ) -> Result<crate::identity::runtime::Selection> {
+        let hash = crate::message::digest(&bytes);
+        self.catalog_authorized(
+            Permit::Scheduled(request),
+            Action::IdentityPrepare,
+            &hash,
+            move || crate::identity::runtime::prepare(&root, &bytes, crate::now(), reserve),
+        )
+        .await
+    }
+    async fn catalog_authorized<T: Send + 'static>(
+        &self,
+        permit: Permit<'_>,
+        action: Action,
+        target: &str,
+        operation: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<T> {
         ensure!(
             crate::compatibility::valid_hash(target),
             "Invalid catalog identity"
         );
         let object = format!("{}:{target}", uuid::Uuid::new_v4());
+        let actor;
         {
             let mut db = self
                 .interactive
@@ -58,7 +94,26 @@ impl Central {
                 .context("Central catalog capacity unavailable")?;
             let tx = db.transaction().await.map_err(database_error)?;
             management_lock(&tx).await?;
-            super::policies::approval(&tx, actor, session, None).await?;
+            actor = match permit {
+                Permit::Session { actor, session } => {
+                    super::policies::approval(&tx, actor, session, None).await?;
+                    actor.to_owned()
+                }
+                Permit::Scheduled(request) => {
+                    ensure!(
+                        matches!(action, Action::IdentityPrepare),
+                        "A directory grant cannot mutate model artifacts"
+                    );
+                    super::identity_schedule::authorized(
+                        &tx,
+                        request,
+                        &self.directory_connection_authority(),
+                    )
+                    .await?
+                    .metadata
+                    .owner
+                }
+            };
             tx.execute("INSERT INTO noisefence.audit(created,username,action,object_id) VALUES($1,$2,$3,$4)",
                 &[&crate::now(), &actor, &format!("{}_started", action.name()), &object]).await.map_err(database_error)?;
             tx.commit().await.map_err(database_error)?;

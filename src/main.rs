@@ -1707,6 +1707,8 @@ async fn main() -> Result<()> {
                 noisefence::control::Controller::load(config.clone(), store.clone()).await?;
             let listener = tokio::net::TcpListener::bind(config.web.listen).await?;
             let (stop, rx) = tokio::sync::watch::channel(false);
+            let mut directory_schedules =
+                tokio::spawn(control.clone().run_directory_schedules(rx.clone()));
             let mut api = tokio::spawn(noisefence::api::serve_controlled(
                 listener,
                 config,
@@ -1716,9 +1718,12 @@ async fn main() -> Result<()> {
             ));
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-            tokio::select! { _=tokio::signal::ctrl_c()=>{},_=term.recv()=>{},r=&mut api=>{r??;anyhow::bail!("Recovery console stopped unexpectedly");} }
+            tokio::select! { _=tokio::signal::ctrl_c()=>{},_=term.recv()=>{},r=&mut api=>{r??;anyhow::bail!("Recovery console stopped unexpectedly");},r=&mut directory_schedules=>{r??;anyhow::bail!("Directory scheduler stopped unexpectedly");} }
             stop.send(true)?;
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), api).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                let _ = tokio::join!(api, directory_schedules);
+            })
+            .await;
         }
         Command::Serve => {
             let _lock = store.daemon_lock()?;
@@ -1732,6 +1737,8 @@ async fn main() -> Result<()> {
             let listener = tokio::net::TcpListener::bind(config.smtp.listen).await?;
             let web = tokio::net::TcpListener::bind(config.web.listen).await?;
             let (stop, rx) = tokio::sync::watch::channel(false);
+            let mut directory_schedules =
+                tokio::spawn(control.clone().run_directory_schedules(rx.clone()));
             tracing::info!(smtp=%listener.local_addr()?,web=%web.local_addr()?,mode=?config.filter.mode,processing=config.smtp.max_processing,relay_workers=config.relay.workers,"gateway started");
             let state = noisefence::smtp::State {
                 config: config.clone(),
@@ -1772,6 +1779,7 @@ async fn main() -> Result<()> {
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             tokio::select! {
                 _=tokio::signal::ctrl_c()=>{},_ = term.recv()=>{},
+                r=&mut directory_schedules=>{r??;anyhow::bail!("Directory scheduler stopped unexpectedly");},
                 r=&mut sender_verification=>{r??;anyhow::bail!("Sender verification worker stopped unexpectedly");},
                 r=&mut smtp=>{r??;anyhow::bail!("SMTP stopped unexpectedly");},
                 r=&mut relay=>{r??;anyhow::bail!("relay stopped unexpectedly");},
@@ -1788,7 +1796,8 @@ async fn main() -> Result<()> {
                     cluster,
                     replication,
                     archive,
-                    sender_verification
+                    sender_verification,
+                    directory_schedules
                 );
             })
             .await;

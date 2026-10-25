@@ -5,6 +5,7 @@ import { ConfirmDialog } from './console-ui';
 import {
   SavedConnections,
   connectionLifetimeError,
+  scheduleError,
   type ConnectionsView,
   type SavedConnection,
 } from './directory-connections';
@@ -45,7 +46,7 @@ export function syncMessage(job: SyncStatus) {
     preparation:
       'The candidate could not be prepared. Check storage, source consistency and protected identities that may be missing.',
     authorization:
-      'The administrator session expired or its privileges changed. Sign in again.',
+      'Collection authorization is no longer valid. Check the administrator session, stored access and any scheduled grant.',
     deadline:
       'The synchronization deadline expired. No result has been activated.',
   };
@@ -201,6 +202,13 @@ export function DirectorySync({
     [attempt, setAttempt] = useState(0),
     [saved, setSaved] = useState<ConnectionsView | null>(null),
     [savedError, setSavedError] = useState(''),
+    [scheduleDraft, setScheduleDraft] = useState<{
+      entry: SavedConnection;
+      stop: boolean;
+      minutes: number;
+      expires: string;
+    } | null>(null),
+    [scheduleReceipt, setScheduleReceipt] = useState(''),
     [editingAccess, setEditingAccess] = useState<SavedConnection | null>(null),
     [retain, setRetain] = useState(false),
     [lifetime, setLifetime] = useState(1440),
@@ -257,7 +265,26 @@ export function DirectorySync({
           saved.connections.some((c) => c.source.id === source.id)
         ? 'Saved access already exists for this ID. Use Replace access below.'
         : null);
-  const dirty = !!(client || secret || sourceId || label || tenant);
+  const scheduleEnd = scheduleDraft
+    ? Math.floor(new Date(scheduleDraft.expires).getTime() / 1000)
+    : 0;
+  const scheduleProblem =
+    scheduleDraft && !scheduleDraft.stop
+      ? scheduleError(
+          scheduleDraft.entry,
+          user.username,
+          scheduleDraft.minutes,
+          scheduleEnd,
+        )
+      : null;
+  const dirty = !!(
+    client ||
+    secret ||
+    sourceId ||
+    label ||
+    tenant ||
+    scheduleDraft
+  );
   useEffect(() => {
     onDirty(dirty);
     return () => onDirty(false);
@@ -360,6 +387,63 @@ export function DirectorySync({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      setBusy(false);
+    }
+  }
+  function editSchedule(entry: SavedConnection, stop = false) {
+    const end = new Date(
+      Math.min(entry.expires, Math.floor(Date.now() / 1000) + 86400) * 1000,
+    );
+    // datetime-local displays local time; the submitted value is an epoch timestamp.
+    const local = new Date(end.getTime() - end.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setScheduleDraft({
+      entry,
+      stop,
+      minutes: entry.schedule?.interval_seconds
+        ? entry.schedule.interval_seconds / 60
+        : 60,
+      expires: local,
+    });
+  }
+  async function mutateSchedule() {
+    if (disabled || busy || !scheduleDraft || scheduleProblem) return;
+    const draft = scheduleDraft,
+      operation = crypto.randomUUID();
+    setBusy(true);
+    setError('');
+    if (!draft.stop) setScheduleReceipt(operation);
+    try {
+      const connection = {
+        source_id: draft.entry.source.id,
+        generation: draft.entry.generation,
+      };
+      setSaved(
+        await api<ConnectionsView>(
+          draft.stop
+            ? '/admin/identity/schedules/stop'
+            : '/admin/identity/schedules',
+          draft.stop
+            ? { connection, expected_grant: draft.entry.schedule?.id }
+            : {
+                operation,
+                revision,
+                catalog_sha256: installed,
+                connection,
+                expected_grant: draft.entry.schedule?.id ?? null,
+                interval_seconds: draft.minutes * 60,
+                expires: scheduleEnd,
+              },
+          user.csrf,
+        ),
+      );
+    } catch (e) {
+      setError(
+        `${(e as Error).message} Reload saved access to check the schedule before another attempt.`,
+      );
+    } finally {
+      setScheduleDraft(null);
       setBusy(false);
     }
   }
@@ -503,7 +587,7 @@ export function DirectorySync({
         Each action starts a one-time collection. By default the credential is
         request-only and is not saved in settings, history or browser storage.
         You can explicitly store encrypted access for reuse. Scheduled
-        synchronization is not enabled.
+        collection requires a separate, expiring authorization below.
       </p>
       {open && (
         <fieldset disabled={disabled || busy} className="directory-sync-form">
@@ -739,7 +823,19 @@ export function DirectorySync({
           <code>{saveReceipt}</code>
         </output>
       )}
+      {scheduleReceipt && (
+        <output className="notice directory-access-receipt">
+          {saved?.connections.some((c) => c.schedule?.id === scheduleReceipt)
+            ? 'Schedule authorization recorded. Check the collection status below; this does not confirm provider access or activate a candidate.'
+            : 'Schedule outcome not confirmed. Reload saved access before another attempt.'}{' '}
+          <code>{scheduleReceipt}</code>
+        </output>
+      )}
       <SavedConnections
+        username={user.username}
+        onSchedule={editSchedule}
+        onStopSchedule={(entry) => editSchedule(entry, true)}
+        onInspect={rememberJob}
         value={saved}
         busy={disabled || busy || dirty}
         onCollect={(entry) => void startSaved(entry)}
@@ -758,6 +854,89 @@ export function DirectorySync({
         }}
         onRevoke={setConfirmAccess}
       />
+      {scheduleDraft && (
+        <ConfirmDialog
+          title={
+            scheduleDraft.stop
+              ? 'Stop automatic collection?'
+              : 'Authorize automatic collection?'
+          }
+          confirmLabel={
+            scheduleDraft.stop ? 'Stop collection' : 'Authorize schedule'
+          }
+          danger={scheduleDraft.stop}
+          busy={busy}
+          confirmDisabled={disabled || !!scheduleProblem}
+          onCancel={() => setScheduleDraft(null)}
+          onConfirm={() => void mutateSchedule()}
+        >
+          <p>
+            <strong>{scheduleDraft.entry.source.label}</strong> ·{' '}
+            {scheduleDraft.entry.source.authority}
+          </p>
+          {scheduleDraft.stop ? (
+            <p>
+              New scheduled reads will stop. An active collection is cancelled
+              at its next authorization check; transmitted requests cannot be
+              recalled. Stored access and installed snapshots remain available.
+            </p>
+          ) : (
+            <>
+              <p>
+                The management service may read this directory after you sign
+                out, until the authorization expires or is stopped. Only the
+                stored source and domains are covered. Changing the credential
+                or the owner’s account authorization stops this grant.
+              </p>
+              <fieldset disabled={busy} className="directory-schedule-fields">
+                <label>
+                  Collection interval (minutes)
+                  <input
+                    type="number"
+                    min={15}
+                    max={1440}
+                    step={1}
+                    value={scheduleDraft.minutes}
+                    onChange={(e) =>
+                      setScheduleDraft({
+                        ...scheduleDraft,
+                        minutes: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Authorization ends (local time)
+                  <input
+                    type="datetime-local"
+                    value={scheduleDraft.expires}
+                    onChange={(e) =>
+                      setScheduleDraft({
+                        ...scheduleDraft,
+                        expires: e.target.value,
+                      })
+                    }
+                  />
+                </label>
+              </fieldset>
+              <p className="notice">
+                First collection may start within 30 seconds. Each completed
+                candidate waits for review and policy activation. Failures delay
+                retries; no snapshot is activated automatically.
+              </p>
+              <p className="small muted">
+                Stored access expires{' '}
+                {new Date(scheduleDraft.entry.expires * 1000).toLocaleString(
+                  'en-GB',
+                )}
+                . Provider expiry may be earlier; tokens are not refreshed
+                automatically.
+              </p>
+              {scheduleProblem && <p className="error">{scheduleProblem}</p>}
+            </>
+          )}
+        </ConfirmDialog>
+      )}
       {confirmAccess && (
         <ConfirmDialog
           title={

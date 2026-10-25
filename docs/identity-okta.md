@@ -39,7 +39,7 @@ requested. No live provider test is implied by the local fixture tests.
    Optional **Store encrypted access for reuse** retains the token for at most
    one hour after confirmation. Use **Collect using saved access** separately;
    see [credential storage](directory-credential-storage.md). Earlier provider
-   expiry applies, and no token refresh or scheduled collection is enabled.
+   expiry applies. Saving alone does not enable a schedule or token refresh.
 4. Read the completion receipt, then choose **Review collected changes**. Check
    additions, removals, inactive identities, scope and protected assignments.
 5. Add the candidate to the policy draft and use **Review and apply**. The normal
@@ -113,7 +113,7 @@ request is detached from collection. An unknown outcome after restart is not a
 successful collection and does not activate an artifact. A retry must check the
 existing receipt and wait for any outstanding lease. Token expiry, failed reads
 or exhausted limits leave the installed directory in place; stale installed data
-is reported as unavailable. There is no autonomous retry or scheduled refresh yet.
+is reported as unavailable. Optional [expiring schedules](directory-credential-storage.md#automatic-collection) reuse stored access with bounded backoff; they do not refresh the token.
 
 ## API
 

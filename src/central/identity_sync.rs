@@ -1,6 +1,6 @@
 use super::{Central, admin::management_lock, database_error};
 use crate::identity::sync::{self, Event, Outcome, Request};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 impl Central {
     pub async fn identity_sync_begin(
         &self,
@@ -8,6 +8,10 @@ impl Central {
         actor: &str,
         session: &str,
     ) -> Result<()> {
+        ensure!(
+            request.scheduled.is_none(),
+            "Use the scheduled collection claim"
+        );
         let mut db = self
             .interactive
             .get()
@@ -46,6 +50,10 @@ impl Central {
         actor: &str,
         session: Option<&str>,
     ) -> Result<()> {
+        ensure!(
+            result.request.scheduled.is_none(),
+            "Use the scheduled result transaction"
+        );
         let mut result = result.clone();
         let mut db = self
             .interactive

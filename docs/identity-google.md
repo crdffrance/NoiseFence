@@ -41,7 +41,7 @@ and [domain-list permissions](https://developers.google.com/workspace/admin/dire
    session storage; the token is not saved in settings, receipts or audit records.
    For explicit reuse, select **Store encrypted access for reuse** and confirm
    the lifetime, then use **Collect using saved access**. Earlier token expiry
-   still applies; this does not enable token refresh or scheduled collection.
+   still applies; saving alone does not enable token refresh or a schedule. For optional expiring collection, see [automatic collection](directory-credential-storage.md#automatic-collection).
 4. Open **Review collected changes**. Check additions, removals, inactive identities,
    protected assignments and **Collection coverage**, including excluded members.
 5. Add the candidate to the policy draft, then **Review and apply** through the

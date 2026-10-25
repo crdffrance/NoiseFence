@@ -28,7 +28,7 @@ pub fn migrate(tx: &Transaction<'_>) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn authorize(tx: &Transaction<'_>, actor: &str, session: &str) -> Result<i64> {
+pub(crate) fn authorize(tx: &Transaction<'_>, actor: &str, session: &str) -> Result<i64> {
     crate::control::identity::local_authorize(tx, actor, session)?;
     Ok(tx.query_row(
         "SELECT coalesce((SELECT version FROM console_user_versions WHERE username=?1),0)",
@@ -36,10 +36,10 @@ pub(super) fn authorize(tx: &Transaction<'_>, actor: &str, session: &str) -> Res
         |r| r.get(0),
     )?)
 }
-fn owner_current(tx: &Transaction<'_>, record: &Record) -> Result<bool> {
+pub(crate) fn owner_current(tx: &Transaction<'_>, record: &Record) -> Result<bool> {
     Ok(tx.query_row("SELECT EXISTS(SELECT 1 FROM users u LEFT JOIN console_user_versions v ON v.username=u.username WHERE u.username=?1 AND u.admin=1 AND u.disabled=0 AND coalesce(v.version,0)=?2)",params![record.metadata.owner,record.metadata.owner_version],|r|r.get(0))?)
 }
-fn read(tx: &Transaction<'_>, source: &str) -> Result<Option<Record>> {
+pub(crate) fn read(tx: &Transaction<'_>, source: &str) -> Result<Option<Record>> {
     tx.query_row(
         "SELECT record FROM identity_connections WHERE source_id=?1",
         [source],

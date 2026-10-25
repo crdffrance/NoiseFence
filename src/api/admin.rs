@@ -11,6 +11,14 @@ pub(super) fn routes() -> Router<App> {
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
         .route(
+            "/admin/identity/schedules",
+            post(identity_connections::schedule),
+        )
+        .route(
+            "/admin/identity/schedules/stop",
+            post(identity_connections::stop_schedule),
+        )
+        .route(
             "/admin/identity/connections",
             get(identity_connections::list).post(identity_connections::save),
         )

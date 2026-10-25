@@ -6,8 +6,7 @@ The native Rust connector collects a complete **candidate** directory from publi
 Microsoft Graph. The Web console now supports an administrator-triggered one-shot
 collection, a durable result receipt and review before normal policy activation.
 No live tenant was contacted for development validation. Optional encrypted
-credential storage, replacement and revocation are available; scheduled jobs
-and delta synchronization remain to be implemented.
+credential storage, replacement and revocation are available. Explicit [expiring schedules](directory-credential-storage.md#automatic-collection) reuse saved access; delta synchronization remains to be implemented.
 
 Open **Administration → Filters → Identity protection → Directory
 synchronization**. Select an existing Entra source or enter a new stable source ID,
@@ -176,7 +175,7 @@ cargo clippy --locked --lib --example identity_probe -- -D warnings
 
 The job journal and local/API workflow are exercised with synthetic fixtures and
 a disposable PostgreSQL instance. Live tenant interoperability, production key
-recovery, scheduling, independent filtering evaluation and a live two-MX provider
+recovery, independent filtering evaluation and a live two-MX provider
 publication remain to qualify.
 Passing these fixtures does not demonstrate phishing capture or a false-positive
 rate.

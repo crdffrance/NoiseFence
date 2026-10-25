@@ -101,6 +101,31 @@ impl Key {
         file.read_exact(&mut bytes)?;
         Ok(Self(bytes))
     }
+    pub fn sign_schedule(
+        &self,
+        metadata: &Metadata,
+        grant: &crate::identity::schedule::Grant,
+    ) -> Result<String> {
+        ensure!(metadata.key_id == self.id(), "Directory vault key mismatch");
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &self.0);
+        Ok(hex::encode(
+            ring::hmac::sign(&key, &grant.signed_bytes(metadata)?).as_ref(),
+        ))
+    }
+    pub fn verify_schedule(&self, record: &Record) -> Result<()> {
+        record.validate()?;
+        ensure!(
+            record.metadata.key_id == self.id(),
+            "Directory vault key mismatch"
+        );
+        let schedule = record.schedule.as_ref().context("No collection grant")?;
+        ring::hmac::verify(
+            &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &self.0),
+            &schedule.grant.signed_bytes(&record.metadata)?,
+            &hex::decode(&schedule.signature)?,
+        )
+        .map_err(|_| anyhow::anyhow!("Collection grant authentication failed"))
+    }
     pub fn id(&self) -> String {
         crate::message::digest(&self.0)
     }
@@ -132,6 +157,7 @@ impl Key {
         sealed.extend(data);
         let record = Record {
             metadata,
+            schedule: None,
             sealed: Some(sealed),
             revoked_at: None,
         };

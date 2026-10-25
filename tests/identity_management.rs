@@ -657,3 +657,124 @@ async fn saved_directory_access_api_is_private_explicit_bounded_and_recoverable(
     assert_eq!(control.snapshot().revision, 0);
     assert!(control.snapshot().config.identity.is_none());
 }
+
+#[tokio::test]
+async fn schedule_api_requires_explicit_owner_consent_and_recovers_metadata_without_collecting() {
+    let root = tempfile::tempdir().unwrap();
+    let base = common::config(root.path());
+    let store = Store::open(root.path()).unwrap();
+    let admin = account(&store, "admin", true).await;
+    let other = account(&store, "other", true).await;
+    let user = account(&store, "user", false).await;
+    let control = Controller::load(base.clone(), store.clone()).await.unwrap();
+    let router = api::router_controlled(base, store.clone(), Some(control.clone())).unwrap();
+    let mut source = draft().source;
+    source.provider = directory::Provider::Entra;
+    source.authority = "11111111-1111-4111-8111-111111111111".into();
+    let generation = uuid::Uuid::new_v4().to_string();
+    let data = json!({"operation":generation,"revision":0,"catalog_sha256":null,"expected_generation":null,"source":source,"expires":noisefence::now()+3600,"credential":{"kind":"entra_application","client_id":"22222222-2222-4222-8222-222222222222","client_secret":"SYNTHETIC-NO-NETWORK"}});
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            "/admin/identity/connections",
+            Some(data),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let reference = json!({"source_id":source.id,"generation":generation});
+    let operation = uuid::Uuid::new_v4().to_string();
+    let data = json!({"operation":operation,"revision":0,"catalog_sha256":null,"connection":reference,"expected_grant":null,"interval_seconds":900,"expires":noisefence::now()+1800});
+    let path = "/admin/identity/schedules";
+    for (actor, csrf, status) in [
+        (&user, true, StatusCode::FORBIDDEN),
+        (&admin, false, StatusCode::FORBIDDEN),
+        (&other, true, StatusCode::CONFLICT),
+    ] {
+        assert_eq!(
+            request(&router, actor, path, Some(data.clone()), csrf)
+                .await
+                .0,
+            status
+        );
+    }
+    for (key, value) in [
+        ("revision", json!(99)),
+        ("interval_seconds", json!(899)),
+        ("expires", json!(noisefence::now() + 7200)),
+    ] {
+        let mut invalid = data.clone();
+        invalid[key] = value;
+        assert_eq!(
+            request(&router, &admin, path, Some(invalid), true).await.0,
+            StatusCode::CONFLICT
+        );
+    }
+    let (status, view) = request(&router, &admin, path, Some(data), true).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["connections"][0]["schedule"]["id"], operation);
+    assert_eq!(view["connections"][0]["schedule"]["state"], "scheduled");
+    assert!(
+        !view.to_string().contains("signature")
+            && !view.to_string().contains("SYNTHETIC-NO-NETWORK")
+    );
+    // Controller load/GET must not start collection or implicitly activate policy.
+    let loaded = Controller::load(control.snapshot().config.clone(), store.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        loaded
+            .directory_connections(
+                "admin".into(),
+                noisefence::message::digest(admin.as_bytes())
+            )
+            .await
+            .unwrap()
+            .connections[0]
+            .schedule
+            .as_ref()
+            .unwrap()
+            .id,
+        operation
+    );
+    store
+        .run(|db| {
+            let count: i64 = db.query_row(
+                "SELECT count(*) FROM audit WHERE action='identity_sync'",
+                [],
+                |r| r.get(0),
+            )?;
+            assert_eq!(count, 0);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let stop = json!({"connection":reference,"expected_grant":operation});
+    assert_eq!(
+        request(
+            &router,
+            &admin,
+            "/admin/identity/schedules/stop",
+            Some(stop.clone()),
+            false
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, view) = request(
+        &router,
+        &other,
+        "/admin/identity/schedules/stop",
+        Some(stop),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["connections"][0]["schedule"]["state"], "stopped");
+    assert!(store.identity_schedule_due(0).await.unwrap().is_empty());
+    assert_eq!(control.snapshot().revision, 0);
+}

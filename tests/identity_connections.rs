@@ -272,3 +272,105 @@ async fn sqlite_import_refuses_to_silently_discard_authority_bound_connections()
         .await
         .unwrap();
 }
+
+#[path = "common/directory_schedule.rs"]
+mod schedule_contract;
+#[tokio::test]
+async fn sqlite_schedules_share_durable_leases_and_revoke_without_browser_sessions() {
+    let (root, store) = setup().await;
+    let (key, version) = store
+        .identity_connection_prepare("admin".into(), "a".into())
+        .await
+        .unwrap();
+    let record = common::record(&key, "sqlite", version, None);
+    save(&store, &record, None).await.unwrap();
+    schedule_contract::exercise(&store, root.path(), "a", &record).await;
+    let old = get(&store, &record)
+        .await
+        .unwrap()
+        .schedule
+        .unwrap()
+        .grant
+        .id;
+    schedule_contract::enable(&store, root.path(), "a", &record, Some(old)).await;
+    // Logging out is not revocation of the explicit finite grant.
+    store
+        .run(|db| {
+            db.execute("DELETE FROM sessions WHERE username='admin'", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let restarted = Store::open(root.path()).unwrap();
+    let row = restarted.identity_schedule_due(0).await.unwrap().remove(0);
+    let request = schedule_contract::request(&row);
+    restarted
+        .identity_schedule_claim(request.clone(), Key::load(root.path()).unwrap())
+        .await
+        .unwrap();
+    restarted
+        .identity_schedule_authorized(request.clone())
+        .await
+        .unwrap();
+    store
+        .run(|db| {
+            db.execute("INSERT INTO console_user_versions VALUES('admin',1)", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(
+        restarted
+            .identity_schedule_authorized(request)
+            .await
+            .is_err()
+    );
+    assert!(restarted.identity_schedule_due(0).await.unwrap().is_empty());
+}
+#[tokio::test]
+async fn sqlite_schedule_tampering_fails_closed_before_admission() {
+    let (root, store) = setup().await;
+    let (key, version) = store
+        .identity_connection_prepare("admin".into(), "a".into())
+        .await
+        .unwrap();
+    let record = common::record(&key, "sqlite", version, None);
+    save(&store, &record, None).await.unwrap();
+    schedule_contract::enable(&store, root.path(), "a", &record, None).await;
+    store
+        .run(|db| {
+            let raw: String =
+                db.query_row("SELECT record FROM identity_connections", [], |r| r.get(0))?;
+            let mut value: Record = serde_json::from_str(&raw)?;
+            value.schedule.as_mut().unwrap().grant.interval_seconds = 1800;
+            db.execute(
+                "UPDATE identity_connections SET record=?1",
+                [value.encode()?],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let row = store.identity_schedule_due(0).await.unwrap().remove(0);
+    assert!(
+        store
+            .identity_schedule_claim(
+                schedule_contract::request(&row),
+                Key::load(root.path()).unwrap()
+            )
+            .await
+            .is_err()
+    );
+    store
+        .run(|db| {
+            let count: i64 = db.query_row(
+                "SELECT count(*) FROM audit WHERE action='identity_sync'",
+                [],
+                |r| r.get(0),
+            )?;
+            assert_eq!(count, 0);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

@@ -104,3 +104,44 @@ pub(super) async fn collect(
         Json(json!({"id":result.id,"deadline":result.deadline,"state":"running"})),
     ))
 }
+
+pub(super) async fn schedule(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<Json<Value>> {
+    let actor = administrator(&app, &h, true).await?;
+    let _permit = super::identity::capacity(&app)?;
+    let input: crate::control::identity_schedule::Save = body(request).await?;
+    let view = controller(&app)?
+        .save_directory_schedule(
+            input,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(refused)?;
+    Ok(Json(
+        serde_json::to_value(view).map_err(anyhow::Error::from)?,
+    ))
+}
+pub(super) async fn stop_schedule(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<Json<Value>> {
+    let actor = administrator(&app, &h, true).await?;
+    let _permit = super::identity::capacity(&app)?;
+    let input: crate::control::identity_schedule::Stop = body(request).await?;
+    let view = controller(&app)?
+        .stop_directory_schedule(
+            input,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(refused)?;
+    Ok(Json(
+        serde_json::to_value(view).map_err(anyhow::Error::from)?,
+    ))
+}

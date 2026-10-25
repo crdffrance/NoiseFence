@@ -46,10 +46,14 @@ pub(crate) async fn check(tx: &Transaction<'_>) -> Result<()> {
     );
     Ok(())
 }
-async fn owner_current(tx: &Transaction<'_>, record: &Record) -> Result<bool> {
+pub(super) async fn owner_current(tx: &Transaction<'_>, record: &Record) -> Result<bool> {
     Ok(tx.query_one("SELECT EXISTS(SELECT 1 FROM noisefence.users WHERE username=$1 AND admin AND NOT disabled AND version=$2)",&[&record.metadata.owner,&record.metadata.owner_version]).await.map_err(database_error)?.get(0))
 }
-async fn read(tx: &Transaction<'_>, source: &str, authority: &str) -> Result<Option<Record>> {
+pub(super) async fn read(
+    tx: &Transaction<'_>,
+    source: &str,
+    authority: &str,
+) -> Result<Option<Record>> {
     tx.query_opt(
         "SELECT record::text FROM noisefence.identity_connections WHERE source_id=$1",
         &[&source],

@@ -11,6 +11,7 @@ async fn central_sync_receipts_are_authorized_durable_and_serialize_competing_co
     db.execute("INSERT INTO noisefence.users(username,password,admin) VALUES('admin','unused',true),('user','unused',false)",&[]).await.unwrap();
     db.execute("INSERT INTO noisefence.sessions(token_hash,username,csrf,expires) VALUES($1,'admin','csrf',$2)",&[&session,&(now+3600)]).await.unwrap();
     let req = Request {
+        scheduled: None,
         connection: None,
         id: uuid::Uuid::new_v4().to_string(),
         runner: uuid::Uuid::new_v4().to_string(),
@@ -124,6 +125,7 @@ async fn central_sync_receipts_are_authorized_durable_and_serialize_competing_co
         .await
         .unwrap();
     let req = Request {
+        scheduled: None,
         id: uuid::Uuid::new_v4().to_string(),
         source_id: source.id,
         ..req
@@ -234,6 +236,7 @@ async fn stored_receipt_case(invalidation: &str) {
         .unwrap();
     let source = record.metadata.source.clone();
     let request = Request {
+        scheduled: None,
         id: uuid::Uuid::new_v4().to_string(),
         runner: uuid::Uuid::new_v4().to_string(),
         source_id: source.id.clone(),

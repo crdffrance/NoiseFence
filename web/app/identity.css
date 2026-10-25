@@ -1176,3 +1176,21 @@
 .directory-access-receipt {
   display: block;
 }
+
+.directory-schedule-status {
+  border-block-start: 1px solid var(--border);
+  padding-block: 1rem;
+  margin-block-start: 0.75rem;
+}
+.directory-schedule-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1rem;
+  border: 0;
+  padding: 0;
+  margin-block: 1rem;
+}
+.directory-schedule-fields label {
+  display: grid;
+  gap: 0.4rem;
+}

@@ -118,7 +118,7 @@ test('initial sync interface identifies one-shot collection and secret non-persi
   );
   assert.match(html, /one-time collection/);
   assert.match(html, /not saved in settings/);
-  assert.match(html, /Scheduled synchronization is not enabled/);
+  assert.match(html, /Scheduled collection requires a separate, expiring authorization/);
   assert.doesNotMatch(html, /Connected|Successfully synchronized/);
 });
 
@@ -209,6 +209,8 @@ const {
   connectionLifetimeError,
   canCollectSaved,
   connectionStatus,
+  scheduleError,
+  scheduleStatus,
   SavedConnections,
 } = await import(await moduleURL('../app/directory-connections.tsx'));
 test('saved access keeps unknown, revoked and expired states unavailable', () => {
@@ -265,4 +267,69 @@ test('saved access display distinguishes persistence from provider success and e
   assert.match(html, /The credential is never returned/);
   assert.doesNotMatch(html, /<script\b/i);
   assert.match(html, /disabled=""[^>]*>Collect using saved access/);
+});
+
+test('automatic collection requires the access owner and a bounded finite authorization', () => {
+  const entry = {
+    source,
+    status: 'configured',
+    owner: 'admin',
+    created: 100,
+    expires: 4000,
+  };
+  assert.equal(scheduleError(entry, 'admin', 15, 1000, 200), null);
+  for (const [user, interval, end] of [
+    ['other', 15, 1000],
+    ['admin', 14, 1000],
+    ['admin', 1441, 1000],
+    ['admin', 15.5, 1000],
+    ['admin', 15, 200],
+    ['admin', 15, 4001],
+    ['admin', 15, NaN],
+  ])
+    assert.ok(scheduleError(entry, user, interval, end, 200));
+  assert.ok(
+    scheduleError({ ...entry, status: 'revoked' }, 'admin', 15, 1000, 200),
+  );
+  assert.equal(scheduleStatus('awaiting_review'), 'Candidate awaiting review');
+  assert.equal(scheduleStatus('invented'), 'Unavailable');
+});
+test('schedule summary distinguishes candidate review and does not imply activation', () => {
+  const html = renderToStaticMarkup(
+    createElement(SavedConnections, {
+      value: {
+        vault: 'ready',
+        connections: [
+          {
+            source,
+            owner: 'admin',
+            created: 100,
+            expires: 4000,
+            status: 'configured',
+            generation: 'generation',
+            schedule: {
+              id: 'grant',
+              interval_seconds: 900,
+              expires: 2000,
+              next_due: 1000,
+              revoked_at: null,
+              state: 'awaiting_review',
+              last_run: { request: { id: 'job' }, state: 'ready' },
+            },
+          },
+        ],
+      },
+      username: 'admin',
+      onCollect() {},
+      onReplace() {},
+      onRevoke() {},
+      onSchedule() {},
+      onStopSchedule() {},
+      onInspect() {},
+    }),
+  );
+  assert.match(html, /Candidate awaiting review/);
+  assert.match(html, /Nothing has been activated automatically/);
+  assert.match(html, /View last collection/);
+  assert.match(html, /Stop automatic collection/);
 });
