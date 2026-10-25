@@ -5,7 +5,7 @@ use super::{
     identity::{PreparedDirectory, local_authorize},
 };
 use crate::identity::{
-    connectors::{entra, okta},
+    connectors::{entra, google, okta},
     directory::{Provider, Source},
     management, runtime,
     sync::{self, Event, Failure, Outcome, Request},
@@ -17,6 +17,7 @@ use std::{collections::BTreeSet, sync::Arc};
 enum Collector {
     Entra(entra::Credentials),
     Okta(okta::Credentials),
+    Google(google::Credentials),
 }
 #[derive(Serialize)]
 pub struct SyncView {
@@ -145,6 +146,35 @@ impl Controller {
         )
         .await
     }
+    pub async fn synchronize_google(
+        self: &Arc<Self>,
+        input: sync::GoogleInput,
+        actor: String,
+        session: String,
+    ) -> Result<Request> {
+        let sync::GoogleInput {
+            operation,
+            revision,
+            catalog_sha256,
+            source,
+            access_token,
+        } = input;
+        ensure!(
+            source.provider == Provider::Google,
+            "Expected a Google source"
+        );
+        let credentials = google::Credentials::new(&source.authority, access_token)?;
+        self.start_directory_sync(
+            operation,
+            revision,
+            catalog_sha256,
+            source,
+            Collector::Google(credentials),
+            actor,
+            session,
+        )
+        .await
+    }
     #[allow(clippy::too_many_arguments)]
     async fn start_directory_sync(
         self: &Arc<Self>,
@@ -232,6 +262,15 @@ impl Controller {
                         )
                         .await
                     }
+                    Collector::Google(credentials) => {
+                        google::synchronize(
+                            &source,
+                            generation,
+                            &credentials,
+                            google::Limits::default(),
+                        )
+                        .await
+                    }
                     Collector::Okta(credentials) => {
                         okta::synchronize(
                             &source,
@@ -246,7 +285,7 @@ impl Controller {
                 this.prepare_collected_directory(
                     &receipt,
                     previous,
-                    collected.snapshot,
+                    collected,
                     scopes,
                     actor.clone(),
                     session,
@@ -282,7 +321,7 @@ impl Controller {
         &self,
         request: &Request,
         previous: runtime::Document,
-        collected: crate::identity::directory::Snapshot,
+        collected: entra::Collected,
         scopes: BTreeSet<String>,
         actor: String,
         session: String,
@@ -301,12 +340,15 @@ impl Controller {
         {
             return Err(Failure::Stale);
         }
-        let candidate = tokio::task::spawn_blocking(move || {
-            management::preview_collected(&previous, collected, &scopes, crate::now())
+        let collection = sync::CollectionSummary::from_collected(&collected)
+            .map_err(|_| Failure::Preparation)?;
+        let mut candidate = tokio::task::spawn_blocking(move || {
+            management::preview_collected(&previous, collected.snapshot, &scopes, crate::now())
         })
         .await
         .map_err(|_| Failure::Preparation)?
         .map_err(|_| Failure::Preparation)?;
+        candidate.review.requires_attention |= !collection.excluded_members.is_empty();
         let root = self.base.data_dir.clone();
         let reserve = self.base.smtp.minimum_free_bytes;
         let bytes = serde_json::to_vec(&candidate.document).map_err(|_| Failure::Preparation)?;
@@ -333,6 +375,7 @@ impl Controller {
             selection,
             review: candidate.review,
             active: false,
+            collection: Some(collection),
         })
     }
     pub(crate) async fn identity_sync_begin(

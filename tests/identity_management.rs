@@ -449,6 +449,10 @@ async fn entra_sync_is_authenticated_csrf_protected_bounded_and_not_an_import_en
 async fn okta_sync_is_authenticated_csrf_protected_bounded_and_not_an_import_endpoint() {
     provider_sync_authorization("okta").await;
 }
+#[tokio::test]
+async fn google_sync_is_authenticated_csrf_protected_bounded_and_not_an_import_endpoint() {
+    provider_sync_authorization("google").await;
+}
 async fn provider_sync_authorization(provider: &str) {
     let root = tempfile::tempdir().unwrap();
     let base = common::config(root.path());
@@ -459,7 +463,7 @@ async fn provider_sync_authorization(provider: &str) {
     let router = api::router_controlled(base, store.clone(), Some(control)).unwrap();
     let path = format!("/admin/identity/sync/{provider}");
     let mut data = json!({"revision":0,"catalog_sha256":null,"source":draft().source,"client_id":"invalid","client_secret":"dummy","operation":uuid::Uuid::new_v4().to_string()});
-    if provider == "okta" {
+    if provider != "entra" {
         let object = data.as_object_mut().unwrap();
         object.remove("client_id");
         object.remove("client_secret");

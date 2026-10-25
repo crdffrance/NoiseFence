@@ -21,6 +21,8 @@ pub struct PreparedDirectory {
     pub selection: runtime::Selection,
     pub review: management::Review,
     pub active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<crate::identity::sync::CollectionSummary>,
 }
 impl Controller {
     pub(super) async fn directory_authorize(&self, actor: String, session: String) -> Result<()> {
@@ -148,7 +150,7 @@ impl Controller {
             // Preparation grants no activation; a later settings save rechecks
             // the session, administrator role, base revision and both digests.
             this.directory_authorize(actor,session).await?;
-            Ok(PreparedDirectory{revision,selection,review:candidate.review,active:false})
+            Ok(PreparedDirectory{revision,selection,review:candidate.review,active:false,collection:None})
         }).await?
     }
 }

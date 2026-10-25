@@ -30,6 +30,8 @@ const {
   canReviewSync,
   entraFormError,
   oktaFormError,
+  googleFormError,
+  CollectionCoverage,
   DirectorySync,
 } = await import(
   await moduleURL('../app/directory-sync.tsx', {
@@ -137,4 +139,63 @@ test('Okta form pins the org and rejects scopes, token prefixes and secret injec
     ),
   );
   assert.ok(oktaFormError(source, ['example.test'], 'token'));
+});
+
+test('Google form pins the customer and requires explicitly scoped domains and safe tokens', () => {
+  const google = { ...source, provider: 'google', authority: 'C01234567' };
+  assert.equal(
+    googleFormError(google, ['example.test'], 'short-lived-token'),
+    null,
+  );
+  for (const authority of [
+    'my_customer',
+    'https://admin.googleapis.com',
+    'C',
+    'c123',
+    'C123/path',
+    'C123\n',
+  ])
+    assert.ok(
+      googleFormError({ ...google, authority }, ['example.test'], 'token'),
+    );
+  for (const token of ['', 'Bearer token', 'token\nsecret', 'x'.repeat(8193)])
+    assert.ok(googleFormError(google, ['example.test'], token));
+  assert.ok(
+    googleFormError(
+      { ...google, scopes: ['foreign.test'] },
+      ['example.test'],
+      'token',
+    ),
+  );
+  assert.ok(googleFormError(source, ['example.test'], 'token'));
+});
+
+test('coverage makes omitted memberships visible without rendering provider-supplied labels', () => {
+  const value = {
+    pages: 5,
+    requests: 6,
+    bytes: 2000,
+    excluded_members: {
+      external_membership: 2,
+      customer_wide_membership: 1,
+      '<ScRiPt>': 4,
+    },
+  };
+  const html = renderToStaticMarkup(
+    createElement(CollectionCoverage, { value }),
+  );
+  assert.match(html, /5 pages/);
+  assert.match(html, /6 requests/);
+  assert.match(html, /External group members/);
+  assert.match(html, /Whole-customer memberships/);
+  assert.match(html, /Other excluded memberships/);
+  assert.doesNotMatch(html, /<script\b/i);
+  assert.match(html, /not represented/);
+  assert.equal(renderToStaticMarkup(createElement(CollectionCoverage, {})), '');
+  const complete = renderToStaticMarkup(
+    createElement(CollectionCoverage, {
+      value: { ...value, excluded_members: {} },
+    }),
+  );
+  assert.match(complete, /Provider permissions still determine/);
 });

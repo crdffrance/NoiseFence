@@ -62,3 +62,8 @@ from `http://127.0.0.1:3013/demo.html?contacts=1&case=spam` on 25 October 2026.
 It demonstrates a recurring claimed address whose current DKIM alignment failed,
 excluded from automatic learning but compared with authenticated history. Every
 message, identifier and result is synthetic; no production accuracy is implied.
+
+`console-google-sync.jpg` is an unedited 1280×720 integrated-browser capture on
+25 October 2026 from the local synthetic identity demo. It shows the Google
+candidate review and explicit membership coverage exclusions. Customer, names,
+counts, token and responses are fixtures; no external provider was contacted.

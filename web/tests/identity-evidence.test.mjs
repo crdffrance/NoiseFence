@@ -69,7 +69,7 @@ test('untrusted findings are escaped, and other signal families are not duplicat
       {
         id: '<img>',
         family: 'identity',
-        detail: '<script>bad</script>',
+        detail: '<ScRiPt>bad</ScRiPt>',
         sources: ['<svg>'],
       },
       {
@@ -80,8 +80,8 @@ test('untrusted findings are escaped, and other signal families are not duplicat
       },
     ],
   });
-  assert.match(html, /&lt;script&gt;/);
-  assert.doesNotMatch(html, /<script>|<img>|other family/);
+  assert.match(html, /&lt;script&gt;/i);
+  assert.doesNotMatch(html, /<script\b|<img\b|other family/i);
 });
 test('a non-observation historical report is not relabelled observation-only', () => {
   const html = render({ ...report, observation_only: false });
@@ -176,8 +176,8 @@ test('directory addresses and provenance remain observations, and identifiers ar
   assert.match(html, /Protected name, different address/);
   assert.match(html, /does not prove who wrote the message/);
   assert.match(html, /DMARC alignment confirmed/);
-  assert.match(html, /&lt;script&gt;/);
-  assert.doesNotMatch(html, /<script>|<img src/);
+  assert.match(html, /&lt;script&gt;/i);
+  assert.doesNotMatch(html, /<script\b|<img\b/i);
 });
 
 const input = await moduleURL('../components/ui/input.tsx', {
@@ -223,9 +223,9 @@ test('directory review escapes source data and distinguishes preparation from ac
     createElement(DirectoryReview, { prepared }),
   );
   assert.ok(html.includes('&lt;script&gt;Example&lt;/script&gt;'));
-  assert.ok(!html.includes('<script>Example'));
+  assert.doesNotMatch(html, /<script\b/i);
   assert.match(html, /No change is active yet/);
   assert.match(html, /Active identities removed or disabled/);
   assert.match(html, /Protected identity changes/);
-  assert.match(html, /check the intended removals/i);
+  assert.match(html, /check source coverage, intended removals/i);
 });

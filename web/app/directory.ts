@@ -81,6 +81,12 @@ export type DirectoryPrepared = {
   revision: number;
   selection: DirectorySelection;
   active: false;
+  collection?: {
+    requests: number;
+    pages: number;
+    bytes: number;
+    excluded_members: Record<string, number>;
+  };
   review: {
     operation: string;
     source_id: string;

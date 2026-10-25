@@ -90,6 +90,12 @@ async fn check_incident_authority(
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL on 127.0.0.1:15432 and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
 async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
+    // This long transaction scenario retains several complete policy journals
+    // across awaits. Keep its aggregate future off the test worker's 2 MiB stack;
+    // each production operation still runs on the normal bounded stack.
+    Box::pin(policy_commit_scenario()).await;
+}
+async fn policy_commit_scenario() {
     let f = postgres::Fixture::new().await;
     let c = &f.central;
     let db = f.connect().await;

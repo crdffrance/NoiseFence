@@ -59,11 +59,27 @@ async fn entra_candidate_survives_restart_without_implicit_activation() {
 async fn okta_candidate_survives_restart_without_implicit_activation() {
     candidate_survives_restart(directory::Provider::Okta).await;
 }
+#[tokio::test]
+async fn google_candidate_survives_restart_without_implicit_activation() {
+    candidate_survives_restart(directory::Provider::Google).await;
+}
+fn collected(snapshot: directory::Snapshot) -> entra::Collected {
+    entra::Collected {
+        snapshot,
+        requests: 5,
+        pages: 4,
+        bytes: 1200,
+        excluded_members: std::collections::BTreeMap::from([("external_membership".into(), 2)]),
+    }
+}
 async fn candidate_survives_restart(provider: directory::Provider) {
     let (_root, c, session) = setup().await;
     let mut s = snapshot();
     if provider == directory::Provider::Okta {
         s.source.authority = "example.okta.com".into();
+    }
+    if provider == directory::Provider::Google {
+        s.source.authority = "C01234567".into();
     }
     s.source.provider = provider;
     let mut req = request(&s.source.id);
@@ -96,7 +112,7 @@ async fn candidate_survives_restart(provider: directory::Provider) {
         .prepare_collected_directory(
             &req,
             empty(),
-            s,
+            collected(s),
             BTreeSet::from(["example.test".into()]),
             "admin".into(),
             session.clone(),
@@ -124,7 +140,44 @@ async fn candidate_survives_restart(provider: directory::Provider) {
         .unwrap();
     assert_eq!(view.state, "ready");
     assert!(!view.stale);
-    assert_eq!(view.prepared.unwrap().selection, prepared.selection);
+    let restored = view.prepared.unwrap();
+    assert_eq!(restored.selection, prepared.selection);
+    assert_eq!(restored.collection, prepared.collection);
+    assert!(restored.review.requires_attention);
+    assert_eq!(
+        restored.collection.unwrap().excluded_members["external_membership"],
+        2
+    );
+    // Old terminal receipts omitted collection accounting. They remain readable.
+    let mut legacy = prepared.clone();
+    legacy.collection = None;
+    let old = Event {
+        request: req.clone(),
+        outcome: Outcome::Ready {
+            prepared: Box::new(legacy),
+        },
+    }
+    .encode()
+    .unwrap();
+    assert!(!old.contains("collection"));
+    assert_eq!(Event::decode(&old).unwrap().encode().unwrap(), old);
+    let mut invalid = prepared.clone();
+    invalid
+        .collection
+        .as_mut()
+        .unwrap()
+        .excluded_members
+        .insert("raw provider text".into(), 1);
+    assert!(
+        Event {
+            request: req.clone(),
+            outcome: Outcome::Ready {
+                prepared: Box::new(invalid)
+            }
+        }
+        .encode()
+        .is_err()
+    );
     assert!(restarted.snapshot().config.identity.is_none());
     let next = prepared
         .selection
@@ -163,7 +216,7 @@ async fn synchronization_refuses_revoked_authorization_stale_policy_and_ambiguou
         c.prepare_collected_directory(
             &req,
             empty(),
-            s.clone(),
+            collected(s.clone()),
             BTreeSet::from(["example.test".into()]),
             "admin".into(),
             session.clone()
@@ -191,7 +244,7 @@ async fn synchronization_refuses_revoked_authorization_stale_policy_and_ambiguou
         c.prepare_collected_directory(
             &req,
             empty(),
-            s,
+            collected(s),
             BTreeSet::from(["example.test".into()]),
             "admin".into(),
             session.clone()

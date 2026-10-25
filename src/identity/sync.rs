@@ -54,6 +54,59 @@ pub enum Outcome {
         reason: Failure,
     },
 }
+/// Bounded coverage accounting; no raw provider text or member identifiers.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CollectionSummary {
+    pub requests: usize,
+    pub pages: usize,
+    pub bytes: usize,
+    pub excluded_members: BTreeMap<String, usize>,
+}
+impl CollectionSummary {
+    pub fn from_collected(value: &super::connectors::entra::Collected) -> Result<Self> {
+        let result = Self {
+            requests: value.requests,
+            pages: value.pages,
+            bytes: value.bytes,
+            excluded_members: value.excluded_members.clone(),
+        };
+        result.validate()?;
+        Ok(result)
+    }
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            (1..=10000).contains(&self.requests)
+                && self.pages > 0
+                && self.pages <= self.requests
+                && self.bytes <= 128 * 1024 * 1024,
+            "Invalid collection accounting"
+        );
+        let mut total = 0usize;
+        for (kind, count) in &self.excluded_members {
+            ensure!(
+                matches!(
+                    kind.as_str(),
+                    "device"
+                        | "servicePrincipal"
+                        | "orgContact"
+                        | "external_membership"
+                        | "customer_wide_membership"
+                        | "inactive_or_unknown_membership"
+                ) && *count > 0,
+                "Invalid excluded membership accounting"
+            );
+            total = total
+                .checked_add(*count)
+                .context("Excluded membership count overflow")?;
+        }
+        ensure!(
+            total <= super::directory::MAX_MEMBERSHIPS,
+            "Excluded membership limit exceeded"
+        );
+        Ok(())
+    }
+}
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
@@ -73,6 +126,13 @@ impl Event {
     pub fn encode(&self) -> Result<String> {
         self.request.validate()?;
         if let Outcome::Ready { prepared } = &self.outcome {
+            if let Some(summary) = &prepared.collection {
+                summary.validate()?;
+                ensure!(
+                    summary.excluded_members.is_empty() || prepared.review.requires_attention,
+                    "Excluded memberships require review"
+                );
+            }
             ensure!(
                 !prepared.active
                     && prepared.revision == self.request.revision
@@ -292,6 +352,17 @@ pub struct EntraInput {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OktaInput {
+    pub operation: String,
+    pub revision: i64,
+    pub catalog_sha256: Option<String>,
+    pub source: super::directory::Source,
+    pub access_token: String,
+}
+
+/// Short-lived Google token, request-only; never persisted or debug formatted.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GoogleInput {
     pub operation: String,
     pub revision: i64,
     pub catalog_sha256: Option<String>,

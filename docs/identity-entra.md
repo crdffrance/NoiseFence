@@ -8,7 +8,7 @@ collection, a durable result receipt and review before normal policy activation.
 No live tenant was contacted for development validation. Scheduled jobs, stored
 credential rotation and delta synchronization remain to be implemented.
 
-Open **Administration → Filters → Identity protection → Microsoft Entra
+Open **Administration → Filters → Identity protection → Directory
 synchronization**. Select an existing Entra source or enter a new stable source ID,
 name, tenant UUID and receiving domains. New sources use a 24-hour freshness window.
 Supply the application UUID and secret directly in the HTTPS console, then start
@@ -176,3 +176,12 @@ rotation, scheduling, independent filtering evaluation and a live two-MX provide
 publication remain to qualify.
 Passing these fixtures does not demonstrate phishing capture or a false-positive
 rate.
+
+## Collection coverage
+
+The review receipt includes request, page and byte totals, plus excluded member
+counts. Devices, service principals and organization contacts are not imported as
+people or group edges. Exclusions require attention in the review. These counts
+are preserved in the selected authority's durable receipt and remain visible after
+a restart. A receipt from an older build can lack coverage details; absence is not
+a claim of complete coverage. Provider permissions still bound visible records.

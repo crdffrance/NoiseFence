@@ -15,7 +15,7 @@ scores, models, thresholds or delivery policy.
 | Source freshness, search and people CSV import | Available; imported rows are reviewed before activation |
 | Protected names and expected sending domains | Separate domain-based check editor, with its own CSV format |
 | Immutable catalogs and per-recipient SMTP observations | Distributed with the versioned MX policy; displayed in message details |
-| Entra and Okta full directory collection | Read-only one-shot Web collection, durable result and review; scheduling and stored credentials pending |
+| Entra, Google Workspace and Okta full directory collection | Read-only one-shot Web collection, durable result and review; scheduling and stored credentials pending |
 | Automatic correspondent memory | Recipient-scoped, retained SMTP observations with Web controls; observation only |
 | Other directory providers, SSO and reciprocal contact graph | Further integration work; no connected tenant or outbound history is claimed |
 
@@ -209,10 +209,10 @@ The native runtime can now load an immutable directory catalog during policy
 preparation, distribute it as part of a versioned MX policy, and record an
 observation for each actual SMTP recipient. Message details display this report
 when present. Manual source management and authenticated preparation/review are
-connected to the console. Entra and Okta one-shot collection use request-only credentials
+connected to the console. Entra, Google Workspace and Okta one-shot collection use request-only credentials
 and a durable receipt. **Stored credentials and scheduled synchronization remain
 separate implementation work.**
-The [Entra](identity-entra.md) and [Okta](identity-okta.md) collectors return
+The [Entra](identity-entra.md), [Google Workspace](identity-google.md) and [Okta](identity-okta.md) collectors return
 candidates without publishing them. No directory connector or new directory policy is enabled in production;
 the separately tagged release/deployment does not contain this development work.
 
@@ -365,10 +365,9 @@ name mismatch is a diagnostic signal, not a measured probability or live score.
    catalogs. Manual preparation already uses the selected management authority,
    audited operations and optimistic revision/digest checks. Immutable catalogs
    already follow coordinated MX publication and activation.
-3. Extend the implemented Entra/Okta one-shot Web collection with scheduled sync,
+3. Extend the implemented Entra/Google/Okta one-shot Web collection with scheduled sync,
    private credentials and snapshot lifecycle; add verified delta persistence.
-   Implement Google Workspace synchronization, an internal secure AD
-   collector, AWS Identity Store and inbound SCIM provisioning.
+   Implement an internal secure AD collector, AWS Identity Store and inbound SCIM provisioning.
    Bound pagination, time, response sizes and retries. Never publish a partially
    fetched source. Never send credentials to a changed redirect/next-page host.
 4. Integrate relationship context and sensitive-request evidence with the existing

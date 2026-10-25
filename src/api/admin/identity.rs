@@ -102,20 +102,32 @@ pub(super) async fn synchronize(
     h: HeaderMap,
     request: Request,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    synchronize_provider(app, h, request, false).await
+    synchronize_provider(app, h, request, SyncProvider::Entra).await
 }
 pub(super) async fn synchronize_okta(
     State(app): State<App>,
     h: HeaderMap,
     request: Request,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    synchronize_provider(app, h, request, true).await
+    synchronize_provider(app, h, request, SyncProvider::Okta).await
+}
+pub(super) async fn synchronize_google(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    synchronize_provider(app, h, request, SyncProvider::Google).await
+}
+enum SyncProvider {
+    Entra,
+    Okta,
+    Google,
 }
 async fn synchronize_provider(
     app: App,
     h: HeaderMap,
     request: Request,
-    okta: bool,
+    provider: SyncProvider,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     let actor = administrator(&app, &h, true).await?;
     let _permit = capacity(&app)?;
@@ -144,12 +156,19 @@ async fn synchronize_provider(
     };
     let control = controller(&app)?;
     let session = message::digest(token(&h).unwrap().as_bytes());
-    let result = if okta {
-        let body: crate::identity::sync::OktaInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-        control.synchronize_okta(body, actor.username, session).await
-    } else {
-        let body: crate::identity::sync::EntraInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-        control.synchronize_entra(body, actor.username, session).await
+    let result = match provider {
+        SyncProvider::Okta => {
+            let body: crate::identity::sync::OktaInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+            control.synchronize_okta(body, actor.username, session).await
+        }
+        SyncProvider::Google => {
+            let body: crate::identity::sync::GoogleInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+            control.synchronize_google(body, actor.username, session).await
+        }
+        SyncProvider::Entra => {
+            let body: crate::identity::sync::EntraInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+            control.synchronize_entra(body, actor.username, session).await
+        }
     }.map_err(|_|Error(StatusCode::CONFLICT,"Synchronization refused. Check the source, configured domains, credentials format, current revision and existing jobs.".into()))?;
     Ok((
         StatusCode::ACCEPTED,

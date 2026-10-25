@@ -130,9 +130,11 @@ export function directoryFixture(params, settings) {
         });
       }
       if (
-        ['/admin/identity/sync/entra', '/admin/identity/sync/okta'].includes(
-          path,
-        ) &&
+        [
+          '/admin/identity/sync/entra',
+          '/admin/identity/sync/okta',
+          '/admin/identity/sync/google',
+        ].includes(path) &&
         options?.method === 'POST'
       ) {
         const body = JSON.parse(options.body);
@@ -168,6 +170,15 @@ export function directoryFixture(params, settings) {
           revision,
           selection: { sha256, reviewed_from: currentHash },
           active: false,
+          collection: {
+            requests: 5,
+            pages: 5,
+            bytes: 8192,
+            excluded_members:
+              body.source.provider === 'google'
+                ? { external_membership: 2, customer_wide_membership: 1 }
+                : {},
+          },
           review: {
             operation: 'create',
             source_id: body.source.id,
@@ -179,7 +190,7 @@ export function directoryFixture(params, settings) {
             removed_or_disabled: 0,
             protected_identity_changes: 0,
             source_configuration_changed: false,
-            requires_attention: false,
+            requires_attention: body.source.provider === 'google',
             before: null,
             after: status(after),
           },

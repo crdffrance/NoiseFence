@@ -34,7 +34,7 @@ The screen distinguishes installed data, local source edits, prepared artifacts
 and the pending configuration. Preparation alone never activates a change. Global
 **Review and apply** and the MX activation panel remain authoritative. Domain-based
 protected-name checks live in their own expandable section and retain their
-separate CSV format. Entra and Okta support reviewed one-shot collection. Scheduled provider
+separate CSV format. Entra, Google Workspace and Okta support reviewed one-shot collection. Scheduled provider
 synchronization, SSO and a reciprocal contact graph remain separate work.
 
 In message details, **Additional engine details → Complementary protection →
@@ -49,10 +49,10 @@ authentication, ambiguous matches and the exact directory snapshot. Missing
 contact-history or sensitive-request analysis stays explicit. This observation
 does not replace the saved verdict and is not backfilled onto historical mail.
 
-Entra and Okta sources can be collected once through **Directory synchronization**
+Entra, Google Workspace and Okta sources can be collected once through **Directory synchronization**
 in the same workspace. The credential is used only for that invocation.
 A durable receipt separates collection from reviewed activation; failures and
-unknown outcomes preserve the installed directory. See the [Entra](identity-entra.md) and [Okta](identity-okta.md) guides
+unknown outcomes preserve the installed directory. See the [Entra](identity-entra.md), [Google Workspace](identity-google.md) and [Okta](identity-okta.md) guides
 for permissions, limits and the remaining scheduled-sync boundary.
 
 ## Quality & research

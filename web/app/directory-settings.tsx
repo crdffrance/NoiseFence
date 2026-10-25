@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { DirectorySync } from './directory-sync';
+import { DirectorySync, CollectionCoverage } from './directory-sync';
 import {
   Building2,
   Users,
@@ -1555,12 +1555,12 @@ export function DirectoryReview({ prepared }: { prepared: DirectoryPrepared }) {
           <dd>{r.protected_identity_changes}</dd>
         </div>
       </dl>
+      <CollectionCoverage value={prepared.collection} />
       {r.requires_attention && (
         <p className="directory-attention">
           <ShieldCheck size={17} />
-          This change affects source configuration or existing identity
-          protection. Check the intended removals and assignments before
-          continuing.
+          This change requires attention. Check source coverage, intended
+          removals and protection assignments before continuing.
         </p>
       )}
       {r.after && (

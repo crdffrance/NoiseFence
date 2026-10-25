@@ -40,6 +40,7 @@
 - [Identity protection: manual directories, protected names and integration status](identity-protection.md)
 - [Entra candidate collection, permissions and failure boundaries](identity-entra.md)
 - [Okta collection, org scope and review](identity-okta.md)
+- [Google Workspace collection, customer scope and exclusions](identity-google.md)
 - [URL redirect resolution](url-resolution.md)
 - [OCR and QR codes](vision.md)
 - [Antivirus and complementary signatures](antivirus.md)

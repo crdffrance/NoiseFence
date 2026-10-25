@@ -103,7 +103,7 @@ test('changed patterns and human veto remain visible without promoting model lab
   });
   assert.match(html, /Reply destination differs/);
   assert.match(html, /Sensitive request is new/);
-  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<script\b/i);
   assert.match(
     render({
       ...report,

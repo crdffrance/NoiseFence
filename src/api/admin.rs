@@ -16,6 +16,10 @@ pub(super) fn routes() -> Router<App> {
             "/admin/identity/sync/okta",
             post(identity::synchronize_okta),
         )
+        .route(
+            "/admin/identity/sync/google",
+            post(identity::synchronize_google),
+        )
         .route("/admin/identity/sync/{id}", get(identity::sync_status))
         .route("/admin/rbl/test", post(test_rbl))
         .route("/admin/domains/check", post(domain_setup::check))

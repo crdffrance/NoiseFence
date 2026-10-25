@@ -83,6 +83,94 @@ async fn central_sync_receipts_are_authorized_durable_and_serialize_competing_co
         sync::latest(&raw).unwrap()[&req.id].outcome,
         Outcome::Failed { .. }
     ));
+    // A ready Google candidate carries bounded coverage through the same selected
+    // authority journal. It remains inactive after reconnection.
+    use noisefence::identity::{directory, management, runtime};
+    let root = tempfile::tempdir().unwrap();
+    let source = directory::Source {
+        id: "google".into(),
+        label: "Synthetic Google".into(),
+        provider: directory::Provider::Google,
+        authority: "C01234567".into(),
+        scopes: std::collections::BTreeSet::from(["example.test".into()]),
+        stale_after_seconds: 86400,
+    };
+    let snapshot = directory::Snapshot {
+        schema: directory::SCHEMA.into(),
+        source: source.clone(),
+        generation: 1,
+        completed_at: now,
+        people: vec![],
+        groups: vec![],
+        memberships: Default::default(),
+        delegations: Default::default(),
+    };
+    let empty = runtime::Document {
+        schema: runtime::SCHEMA.into(),
+        sources: vec![],
+    };
+    let mut candidate =
+        management::preview_collected(&empty, snapshot, &source.scopes, now).unwrap();
+    candidate.review.requires_attention = true;
+    let selection = new
+        .prepare_identity_directory(
+            root.path().into(),
+            serde_json::to_vec(&candidate.document).unwrap(),
+            0,
+            "admin",
+            &session,
+        )
+        .await
+        .unwrap();
+    let req = Request {
+        id: uuid::Uuid::new_v4().to_string(),
+        source_id: source.id,
+        ..req
+    };
+    new.identity_sync_begin(&req, "admin", &session)
+        .await
+        .unwrap();
+    let Outcome::Ready { prepared } = serde_json::from_value::<Outcome>(serde_json::json!({
+        "state": "ready", "prepared": { "revision": 0, "selection": selection, "review": candidate.review, "active": false,
+        "collection": { "requests": 3, "pages": 3, "bytes": 500, "excluded_members": { "external_membership": 2 } } }
+    })).unwrap() else { panic!("Expected prepared fixture") };
+    let mut invalid = prepared.clone();
+    invalid.collection.as_mut().unwrap().requests = 0;
+    assert!(
+        new.identity_sync_finish(
+            &Event {
+                request: req.clone(),
+                outcome: Outcome::Ready { prepared: invalid }
+            },
+            "admin"
+        )
+        .await
+        .is_err()
+    );
+    new.identity_sync_finish(
+        &Event {
+            request: req.clone(),
+            outcome: Outcome::Ready {
+                prepared: prepared.clone(),
+            },
+        },
+        "admin",
+    )
+    .await
+    .unwrap();
+    let reopened = noisefence::central::Central::new(&fixture.settings).unwrap();
+    let rows = reopened
+        .identity_sync_read(&req.id, "admin", &session)
+        .await
+        .unwrap();
+    let event = sync::latest(&rows).unwrap().remove(&req.id).unwrap();
+    let Outcome::Ready { prepared: stored } = event.outcome else {
+        panic!("Expected ready receipt")
+    };
+    assert_eq!(stored.collection, prepared.collection);
+    assert_eq!(stored.selection, prepared.selection);
+    assert!(!stored.active && stored.review.requires_attention);
+    drop(reopened);
     assert_eq!(
         db.query_one(
             "SELECT count(*) FROM noisefence.schema_migrations WHERE version=1",

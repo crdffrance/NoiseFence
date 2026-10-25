@@ -89,7 +89,7 @@ suspended; an unavailable opinion is not a spam detection.
 ### One-shot directory collection
 
 Use **Filters → Identity protection → Directory synchronization** to collect
-users and groups from Entra or Okta with an administrator-supplied, request-only credential.
+users and groups from Entra, Google Workspace or Okta with an administrator-supplied, request-only credential.
 The job result is persistent, but credentials are not saved. Review and activate
-the prepared directory separately. See [Entra setup](identity-entra.md) or [Okta setup](identity-okta.md) and their shared job states.
+the prepared directory separately. See [Entra setup](identity-entra.md), [Google setup](identity-google.md) or [Okta setup](identity-okta.md) and their shared job states.
 Scheduled synchronization is not yet available.

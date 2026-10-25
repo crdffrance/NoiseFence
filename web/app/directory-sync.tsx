@@ -92,6 +92,66 @@ export function oktaFormError(
             ? 'Enter a scoped OAuth access token of at most 8 KiB, without the Bearer prefix.'
             : null);
 }
+export function googleFormError(
+  source: Source,
+  domains: string[],
+  token: string,
+) {
+  return source.provider !== 'google'
+    ? 'Choose a Google Workspace source.'
+    : sourceError({ ...source, provider: 'manual' }, domains) ||
+        (!/^C[A-Za-z0-9]{1,63}$/.test(source.authority)
+          ? 'Enter the immutable Google customer ID, beginning with C. Do not use my_customer.'
+          : !/^[A-Za-z0-9._~+/=-]{1,8192}$/.test(token)
+            ? 'Enter a scoped OAuth access token of at most 8 KiB, without the Bearer prefix.'
+            : null);
+}
+export function CollectionCoverage({
+  value,
+}: {
+  value: DirectoryPrepared['collection'];
+}) {
+  if (!value) return null;
+  const labels: Record<string, string> = {
+    device: 'Devices',
+    servicePrincipal: 'Service principals',
+    orgContact: 'Organization contacts',
+    external_membership: 'External group members',
+    customer_wide_membership: 'Whole-customer memberships',
+    inactive_or_unknown_membership: 'Inactive or unknown-status memberships',
+  };
+  const excluded = Object.entries(value.excluded_members);
+  return (
+    <section aria-label="Collection coverage">
+      <h4>Collection coverage</h4>
+      <p className="small muted">
+        {value.pages} pages · {value.requests} requests ·{' '}
+        {Math.ceil(value.bytes / 1024)} KiB received
+      </p>
+      {excluded.length > 0 ? (
+        <>
+          <p className="directory-attention">
+            Some membership entries are not represented in this directory.
+            Review these exclusions before applying the candidate.
+          </p>
+          <dl>
+            {excluded.map(([kind, count]) => (
+              <div key={kind}>
+                <dt>{labels[kind] ?? 'Other excluded memberships'}</dt>
+                <dd>{count}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      ) : (
+        <p className="small muted">
+          No membership entries were excluded by the collector. Provider
+          permissions still determine which records are visible.
+        </p>
+      )}
+    </section>
+  );
+}
 export function DirectorySync({
   user,
   revision,
@@ -118,7 +178,7 @@ export function DirectorySync({
   const storageKey = `noisefence-directory-sync:${user.username}`;
   const [open, setOpen] = useState(false),
     [existing, setExisting] = useState(''),
-    [provider, setProvider] = useState<'entra' | 'okta'>('entra'),
+    [provider, setProvider] = useState<'entra' | 'okta' | 'google'>('entra'),
     [label, setLabel] = useState(''),
     [sourceId, setSourceId] = useState(''),
     [tenant, setTenant] = useState(''),
@@ -153,7 +213,9 @@ export function DirectorySync({
   const problem =
     (provider === 'entra'
       ? entraFormError(source, domains, client, secret)
-      : oktaFormError(source, domains, secret)) ||
+      : provider === 'google'
+        ? googleFormError(source, domains, secret)
+        : oktaFormError(source, domains, secret)) ||
     (!selected && sources.some((s) => s.source.id === sourceId)
       ? 'This source ID already exists. Select the installed source or use a new ID.'
       : null);
@@ -251,8 +313,8 @@ export function DirectorySync({
             synchronization
           </h3>
           <p className="muted small">
-            Collect identities from Microsoft Entra or Okta. Review every
-            candidate before activation.
+            Collect identities from Microsoft Entra, Google Workspace or Okta.
+            Review every candidate before activation.
           </p>
         </div>
         <button
@@ -278,7 +340,7 @@ export function DirectorySync({
             <select
               value={provider}
               onChange={(e) => {
-                setProvider(e.target.value as 'entra' | 'okta');
+                setProvider(e.target.value as 'entra' | 'okta' | 'google');
                 setExisting('');
                 setTenant('');
                 setClient('');
@@ -286,6 +348,7 @@ export function DirectorySync({
               }}
             >
               <option value="entra">Microsoft Entra ID</option>
+              <option value="google">Google Workspace</option>
               <option value="okta">Okta</option>
             </select>
           </label>
@@ -296,7 +359,13 @@ export function DirectorySync({
               onChange={(e) => setExisting(e.target.value)}
             >
               <option value="">
-                New {provider === 'entra' ? 'Entra' : 'Okta'} source
+                New{' '}
+                {provider === 'entra'
+                  ? 'Entra'
+                  : provider === 'google'
+                    ? 'Google Workspace'
+                    : 'Okta'}{' '}
+                source
               </option>
               {sources
                 .filter((s) => s.source.provider === provider)
@@ -327,12 +396,22 @@ export function DirectorySync({
                 />
               </label>
               <label>
-                {provider === 'entra' ? 'Tenant ID' : 'Okta org hostname'}
+                {provider === 'entra'
+                  ? 'Tenant ID'
+                  : provider === 'google'
+                    ? 'Google customer ID'
+                    : 'Okta org hostname'}
                 <input
                   value={tenant}
-                  maxLength={provider === 'entra' ? 36 : 256}
+                  maxLength={
+                    provider === 'entra' ? 36 : provider === 'google' ? 64 : 256
+                  }
                   placeholder={
-                    provider === 'okta' ? 'company.okta.com' : undefined
+                    provider === 'okta'
+                      ? 'company.okta.com'
+                      : provider === 'google'
+                        ? 'C01234567'
+                        : undefined
                   }
                   onChange={(e) => setTenant(e.target.value)}
                   autoComplete="off"
@@ -395,7 +474,9 @@ export function DirectorySync({
           <p className="muted small">
             {provider === 'entra'
               ? 'The Entra administrator must grant User.Read.All and GroupMember.Read.All application permissions with tenant admin consent. No mailbox access is requested.'
-              : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
+              : provider === 'google'
+                ? 'Use a short-lived token with admin.directory.user.readonly, admin.directory.group.readonly and admin.directory.domain.readonly scopes. The administrator must have visibility of the intended directory. External and whole-customer memberships are reported as exclusions. No Gmail permission is requested.'
+                : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
           </p>
           {problem && <p className="muted small">{problem}</p>}
           <button
