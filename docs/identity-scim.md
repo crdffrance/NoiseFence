@@ -1,9 +1,9 @@
 # SCIM provisioning: development profile
 
-**Status: protocol and candidate-validation primitives only.** This branch does
-not expose a SCIM HTTP endpoint, issue provisioning tokens or save SCIM resources
-in the selected management database. Do not configure an identity provider to
-send provisioning traffic yet. No live Entra/Okta SCIM interoperability is claimed.
+**Status: protocol, durable staging and bearer-verification components implemented.**
+This branch does not yet expose a SCIM HTTP endpoint or an administrator enrollment
+and inventory-review workflow. Do not configure an identity provider to send
+provisioning traffic yet. No live Entra/Okta SCIM interoperability is claimed.
 The existing [correspondent memory](contact-learning.md) works independently of
 this connector.
 
@@ -80,15 +80,21 @@ A request is limited to 1 MiB, 12 JSON nesting levels, 100 PATCH operations,
 A candidate also enforces the existing directory caps: 20,000 people, 5,000
 groups, 100,000 membership edges and a 16 MiB serialized snapshot. Source-bound
 resource encoding is limited to 1 MiB plus record overhead; total staged bytes
-examined during candidate preparation are capped at 64 MiB. Admission in the
-future repository must enforce these quotas before durable acknowledgement.
+examined during candidate preparation are capped at 64 MiB. Repository admission
+enforces resource and membership limits before committing a mutation. Its 64 MiB
+reservation counts the exact stored base-record bytes plus 128 bytes per membership
+edge; this is an admission budget, not a bound on physical database, index or WAL
+disk usage. Candidate preparation independently enforces its serialized limits.
 
 Every stored resource is bound to the full immutable source configuration digest,
 not just its visible source ID. A changed authority with the same ID cannot reuse
 it. Candidate preparation rejects duplicate resource IDs, conflicting login names,
 missing or wrong-kind references, self-membership, cycles and cross-source data.
-User deletion has a reference-removal primitive that advances affected group
-versions; the repository must commit these changes with the deletion atomically.
+Deleting a User or Group removes its outgoing and incoming membership references
+and advances affected group versions in the same transaction. References to unknown
+resources or to the wrong resource kind are rejected during writes. A staged cycle
+can temporarily exist while provisioning is in progress, but cannot become a runtime
+candidate.
 
 A SCIM stream does not prove that the provider completed a full synchronization.
 Candidate preparation therefore requires an **explicit administrator attestation**
@@ -99,25 +105,79 @@ to policy review, the repository must recheck the same revision. This detects a
 change since review and avoids presenting a partial provider run as a full census.
 The primitive does not itself record or authorize that attestation.
 
-## Required before enabling provisioning
+## Durable repository and provisioning access
 
-1. Implement per-resource durable staging in both SQLite and selected PostgreSQL,
-   with source-local transactions, normalized membership references, uniqueness
-   checks, quotas and restart tests. Never fall back to a local shadow when
-   PostgreSQL is selected. Avoid rewriting a whole directory for every PATCH.
-2. Enroll expiring, source-scoped, high-entropy bearer access through an authorized
-   administrator flow. Display it once, retain only a verifier, bind it to the
-   installation and current owner authorization, support rotation/revocation,
-   and recheck authorization inside every transaction.
-3. Add authenticated HTTPS routes, service/schema discovery, request capacity and
-   time bounds, per-source rate limits and safe proxy limits. Authenticate before
-   reading a potentially large body. Never log a token or provisioning payload.
-4. Provide Web status, stage counts, freshness, explicit inventory attestation,
-   exact candidate diff and reviewed activation. Provisioning alone must not
-   activate a catalog or change SMTP acceptance or scoring.
-5. Qualify real provider mappings and retry semantics, concurrent updates and
-   rotation, stale preconditions, interrupted transactions, source/tenant
-   isolation, deletion/cycle behavior, backup/restore and two-MX publication.
+SQLite and selected PostgreSQL use the same transaction algorithm. Each request
+checks its source, enrollment generation, current owner authorization and expiry
+inside the transaction, then checks authorization again before commit. PostgreSQL
+requests share the management mutation lock with revocation and account changes;
+SQLite uses an immediate transaction on a blocking worker. SMTP does not acquire
+these locks. When PostgreSQL is selected, an outage fails the operation instead of
+reading or writing a local shadow.
+
+Resources are stored individually, with indexed source-scoped identifiers and
+normalized membership references. Group updates write membership differences in
+bounded batches. A rename does not rebuild the group's membership. Login uniqueness,
+reference validity, counters and revision changes commit together. Concurrent writes
+with the same version precondition cannot both succeed. Deletion also updates every
+referencing group version atomically. Rotation preserves staged data while changing
+the enrollment generation used by inventory reviews.
+
+The repository currently admits 600 authenticated operations per source per
+60-second window. Rejected resource mutations still consume that allowance while
+all partial resource changes are rolled back. Infrastructure errors abort the whole
+transaction. This repository limit is not a substitute for the HTTP admission,
+unauthenticated-request and body-reading limits still required before exposure.
+
+The bearer component generates 256 random bits and binds each token to a new
+server-generated enrollment UUID. The token has no logging/serialization interface;
+only explicit issuance can disclose its value. Durable storage retains an encrypted
+verifier, never the bearer. Constant-time verifier comparison, the existing vault's
+source/installation binding, current administrator account version, generation and
+expiry all gate access. The maximum lifetime is 90 days. Rotation and revocation
+invalidate the old access; a missing vault key never creates a replacement.
+
+These are internal components, **not an enrollment API**. The generic saved-access
+endpoint rejects SCIM credentials, and SCIM access cannot authorize an outbound
+collection schedule. The dedicated administrator enrollment flow must issue and
+display the bearer once; provider-supplied tokens must not be accepted there.
+
+Administrative inventory reads require a current authorized session and a live
+connection. They return a consistent revision and validate resource/edge accounting.
+They do not attest completeness, activate a catalog or change filtering. The
+controller must still connect that revision to explicit attestation and reviewed
+publication without allowing a provisioning update to invalidate the reviewed data.
+
+The new storage component has its own immutable SQL checksum. An unknown version
+or changed checksum refuses operation. Offline account migration refuses existing
+directory connection records, including SCIM, rather than silently dropping staged
+identities or rebinding encrypted access. A populated PostgreSQL SCIM repository is
+not an empty import destination. Credential migration, downgrade compatibility and
+production backup/restore qualification remain release gates; follow the
+[directory vault guidance](directory-credential-storage.md#migration-backup-and-restore).
+
+## Validation and remaining integration
+
+The shared behavioral suite runs against SQLite and a disposable real PostgreSQL
+instance. It covers source isolation, indexed matching, atomic PATCH failure,
+concurrent version preconditions, membership changes and pruning, restart, rotation,
+revocation, owner authorization, quotas and rate accounting. Additional checks cover
+missing keys, schema tampering, selected-backend outages and refusal to silently
+lose credentials during account migration. These synthetic tests do not establish
+live provider compatibility, high-volume latency or production recovery readiness.
+
+Before enabling provisioning:
+
+1. Add authenticated HTTPS routes and accurate service/schema discovery, capacity
+   and time bounds, and safe proxy limits. Authenticate before reading a potentially
+   large body. Never log a token or provisioning payload.
+2. Add the authorized server-generated enrollment, one-time disclosure, rotation,
+   revocation and status flows to the Web interface.
+3. Provide stage counts, freshness, explicit inventory attestation, exact candidate
+   diff and reviewed activation with a revision recheck. Provisioning alone must
+   not activate a catalog or change SMTP acceptance or scoring.
+4. Qualify real provider mappings and retries, large directories, interrupted
+   transactions, backup/restore, migration and two-MX publication.
 
 Do not enable a `ServiceProviderConfig` feature merely because its protocol
 primitive passes a unit test. The entire authenticated persistence and review

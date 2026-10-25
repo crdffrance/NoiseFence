@@ -266,6 +266,9 @@ impl Controller {
     ) -> Result<Collector> {
         use crate::identity::connections::Credential;
         Ok(match credential {
+            Credential::ScimBearerVerifier { .. } => {
+                anyhow::bail!("SCIM access cannot collect upstream directories")
+            }
             Credential::AdCollectorPublicKey { .. } => {
                 anyhow::bail!("AD requires an internally collected signed export")
             }

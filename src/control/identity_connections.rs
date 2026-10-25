@@ -224,6 +224,10 @@ impl Controller {
             generation: input.operation.clone(),
         }
         .validate()?;
+        ensure!(
+            input.source.provider != crate::identity::directory::Provider::Scim,
+            "Use explicit server-generated SCIM enrollment"
+        );
         self.directory_context(input.revision, input.catalog_sha256.clone(), &input.source)
             .await?;
         input

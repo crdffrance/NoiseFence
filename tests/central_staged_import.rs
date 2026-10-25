@@ -282,3 +282,32 @@ async fn credential_registry_is_validated_and_connection_rows_are_not_overwritte
     );
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn staged_import_checks_scim_component_before_excluding_its_schema_row() {
+    let f = postgres::Fixture::new().await;
+    let pg = f.connect().await;
+    pg.execute(
+        "UPDATE noisefence.identity_scim_schema SET sha256='corrupt'",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(f.central.stage_import(prepared().await).await.is_err());
+    assert_eq!(
+        pg.query_one("SELECT count(*) FROM noisefence.users", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
+    assert_eq!(
+        pg.query_one("SELECT count(*) FROM noisefence.migration_state", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
+    f.finish().await;
+}

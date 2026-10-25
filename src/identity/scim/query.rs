@@ -11,6 +11,9 @@ pub struct Filter {
     value: Value,
 }
 impl Filter {
+    pub(crate) fn parts(&self) -> (&str, &Value) {
+        (&self.attribute, &self.value)
+    }
     pub fn parse(kind: ResourceType, value: &str) -> Result<Self> {
         let (attribute, raw) = equality(value)?;
         let value: Value = serde_json::from_str(raw).map_err(|_| FILTER)?;

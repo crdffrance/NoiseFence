@@ -11,6 +11,7 @@ pub mod feedback;
 pub mod history;
 pub mod identity_connections;
 pub mod identity_schedule;
+pub mod identity_scim;
 pub mod identity_sync;
 pub mod import;
 pub mod invitations;
@@ -216,6 +217,7 @@ impl Central {
         tx.batch_execute("CREATE INDEX IF NOT EXISTS identity_sync_time ON noisefence.audit(created,id) WHERE action='identity_sync'; CREATE INDEX IF NOT EXISTS identity_sync_object ON noisefence.audit(object_id text_pattern_ops,id) WHERE action='identity_sync'")
             .await.map_err(database_error)?;
         identity_connections::migrate(&tx).await?;
+        identity_scim::migrate(&tx).await?;
         tx.commit().await.map_err(database_error)?;
         Ok(())
     }

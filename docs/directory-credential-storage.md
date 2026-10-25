@@ -152,7 +152,14 @@ login or a synchronized directory. The collector rechecks the current generation
 use and before committing its result. A previously returned record is not an
 enduring grant.
 
-The maximum stored lifetime is 90 days for an Entra application secret and one hour
+The internal [SCIM staging components](identity-scim.md) reuse this vault for an
+encrypted bearer verifier. They do not yet provide an enrollment route; the generic
+saved-access endpoint refuses SCIM credentials. Rotation preserves staged identities
+but invalidates the former provisioning token. SCIM credentials cannot authorize
+a pull schedule.
+
+The maximum stored lifetime is 90 days for an Entra application secret (and the
+internal SCIM verifier) and one hour
 for a Google/Okta access token or AWS temporary session. An earlier provider expiry still applies. Refresh
 tokens, service-account keys, managed identities and renewable Google/Okta workload
 authorization are not implemented here. Expiry does not refresh or extend itself.

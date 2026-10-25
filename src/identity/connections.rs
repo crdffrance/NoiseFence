@@ -35,6 +35,9 @@ impl Reference {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Credential {
+    ScimBearerVerifier {
+        verifier: String,
+    },
     AdCollectorPublicKey {
         public_key: String,
     },
@@ -59,6 +62,9 @@ impl Credential {
         #[derive(Serialize)]
         #[serde(tag = "kind", rename_all = "snake_case")]
         enum Wire<'a> {
+            ScimBearerVerifier {
+                verifier: &'a str,
+            },
             AdCollectorPublicKey {
                 public_key: &'a str,
             },
@@ -79,6 +85,7 @@ impl Credential {
             },
         }
         let wire = match self {
+            Self::ScimBearerVerifier { verifier } => Wire::ScimBearerVerifier { verifier },
             Self::AdCollectorPublicKey { public_key } => Wire::AdCollectorPublicKey { public_key },
             Self::EntraApplication {
                 client_id,
@@ -108,6 +115,13 @@ impl Credential {
             "Invalid directory credential lifetime"
         );
         let maximum = match self {
+            Self::ScimBearerVerifier { verifier } => {
+                ensure!(
+                    source.provider == Provider::Scim && crate::compatibility::valid_hash(verifier),
+                    "Invalid SCIM verifier"
+                );
+                90 * 86400
+            }
             Self::AdCollectorPublicKey { public_key } => {
                 ensure!(
                     source.provider == Provider::ActiveDirectory,
@@ -222,12 +236,13 @@ impl Metadata {
                     | Provider::Okta
                     | Provider::AwsIdentityStore
                     | Provider::ActiveDirectory
+                    | Provider::Scim
             ),
             "Unsupported stored directory provider"
         );
         if !matches!(
             self.source.provider,
-            Provider::Entra | Provider::ActiveDirectory
+            Provider::Entra | Provider::ActiveDirectory | Provider::Scim
         ) {
             ensure!(
                 self.expires - self.created <= 3600,

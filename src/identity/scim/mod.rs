@@ -1,14 +1,17 @@
-//! Bounded SCIM provisioning primitives. These do not install an HTTP endpoint,
-//! authorize a client, persist a mutation or publish a directory. The selected
-//! management repository must transact source authorization, uniqueness and
-//! resource changes before acknowledging a request. See docs/identity-scim.md.
+//! Bounded SCIM protocol and transactional staging for both management backends.
+//! Source-scoped bearer verification precedes each read or mutation. HTTP exposure,
+//! administrator enrollment and reviewed directory publication remain separate
+//! integration steps. See docs/identity-scim.md.
+pub mod access;
 mod json;
 mod patch;
 mod query;
+pub(crate) mod repository;
 mod resource;
 mod staging;
 
 pub use query::{Filter, ListQuery};
+pub use repository::{Command, Inventory, Reply, Stage};
 pub use resource::{Data, Resource, ResourceType};
 pub use staging::{Candidate, Revision};
 
@@ -38,11 +41,17 @@ impl Error {
         }
     }
     pub fn body(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut body = serde_json::json!({
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
             "status": self.status.to_string(), "scimType": self.scim_type,
             "detail": self.detail
-        })
+        });
+        if self.scim_type.is_empty() {
+            body.as_object_mut()
+                .expect("error object")
+                .remove("scimType");
+        }
+        body
     }
 }
 impl std::fmt::Display for Error {

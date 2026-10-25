@@ -364,6 +364,43 @@ impl Resource {
         next.data = data;
         Ok(next)
     }
+    pub(crate) fn storage_base(&self, source: &Source) -> Result<String> {
+        let mut base = self.clone();
+        base.data.members.clear();
+        String::from_utf8(base.encode(source)?).map_err(|_| INVALID)
+    }
+    pub(crate) fn with_stored_members(
+        mut self,
+        source: &Source,
+        members: BTreeSet<Member>,
+    ) -> Result<Self> {
+        if !self.data.members.is_empty()
+            || members.len() > MAX_MEMBERS
+            || (self.data.kind == ResourceType::User && !members.is_empty())
+        {
+            return Err(INVALID);
+        }
+        self.data.members = members;
+        self.validate(source)?;
+        Ok(self)
+    }
+    pub(crate) fn membership_removed(&self, now: i64) -> Result<Self> {
+        if self.data.kind != ResourceType::Group
+            || !self.data.members.is_empty()
+            || now < self.modified
+            || now > 253402300799
+        {
+            return Err(INVALID);
+        }
+        let mut next = self.clone();
+        next.version = self
+            .version
+            .checked_add(1)
+            .filter(|v| *v <= i64::MAX as u64)
+            .ok_or(LIMIT)?;
+        next.modified = now;
+        Ok(next)
+    }
     pub fn document(&self) -> Value {
         let mut body = self.data.document();
         body["id"] = value!(self.id);
