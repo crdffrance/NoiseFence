@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add cohort-specific Rspamd symbol diagnostics to human-labelled quality comparisons;
+  missing/nonfinal opinions remain explicit and never become training labels.
+- Recognize status-first shipment confirmations and structured classification-dispute
+  reports under the existing authenticated-context safeguards (decision policy 14).
+- Prevent mandatory manual/security-update demands from borrowing a passive-notice
+  safeguard. Keep model weights, thresholds and Rspamd independence unchanged.
+- Add bounded, digest-verified offline context regression tooling and document the
+  historical regression evidence and remaining qualification limits.
+
 ## 0.32.0-rc.2 — Paired recovery and scoped service confinement
 
 This candidate extends paired maintenance and native service confinement.

@@ -143,10 +143,31 @@ impl Context {
                 && (body.contains("keep the url in your feed")
                     || body.contains("retain the url in your feed")))
             || body.matches("hxxp").take(3).count() >= 3;
-        self.threat_report = report_subject && report_body;
+        // Classification disputes quote reported malicious URLs as evidence.
+        // Require the reporting purpose and structured report fields together;
+        // a subject saying "dispute" or an isolated hostile URL is insufficient.
+        static DISPUTE_TITLE: OnceLock<Regex> = OnceLock::new();
+        static DISPUTE_PURPOSE: OnceLock<Regex> = OnceLock::new();
+        static DISPUTE_FIELDS: OnceLock<Regex> = OnceLock::new();
+        let dispute = DISPUTE_TITLE.get_or_init(|| Regex::new(
+            r"\b(?:new dispute|classification dispute|false positive review|contestation de classification)\b"
+        ).unwrap()).is_match(&subject)
+            && DISPUTE_PURPOSE.get_or_init(|| Regex::new(
+                r"\b(?:contestation de classification|classification dispute|false positive review)\b"
+            ).unwrap()).is_match(&body)
+            && DISPUTE_FIELDS.get_or_init(|| Regex::new(
+                r"\b(?:nombre d['’]urls signal[eé]es|reported url count)\s*:\s*[1-9][0-9]{0,3}\b"
+            ).unwrap()).is_match(&body)
+            && (body.contains("urls signalées") || body.contains("reported urls"))
+            && (body.contains("référence :") || body.contains("reference:"));
+        self.threat_report = (report_subject && report_body) || dispute;
         static TRANSACTION: OnceLock<Regex> = OnceLock::new();
         let shipment = TRANSACTION.get_or_init(|| Regex::new(r"(?i)\b(?:colis|commande|order|package|shipment)\b.*\b(?:re[cç]u|retir[eé]|exp[eé]di[eé]|en route|received|delivered|shipped)\b").unwrap()).is_match(&subject)
         && (body.contains("commande") || body.contains("order") || body.contains("colis") || body.contains("package"));
+        // Many transactional templates put the shipment status first and omit
+        // "order" from the subject. Require a completed event in the body and
+        // an order reference; a delivery-themed title alone is not evidence.
+        let shipment = shipment || status_first_shipment(&subject, &body);
         static RECEIPT: OnceLock<Regex> = OnceLock::new();
         let payment_subject = RECEIPT.get_or_init(|| Regex::new(r"(?i)\b(?:re[cç]u (?:pour|de|du)|r[eé]c[eé]piss[eé]|payment (?:receipt|confirmation|notification)|notification de paiement|paiement (?:effectu[eé]|re[cç]u)|automatic payment)\b").unwrap()).is_match(&subject);
         let payment_body = [
@@ -198,6 +219,22 @@ impl Context {
     }
 }
 
+fn status_first_shipment(subject: &str, body: &str) -> bool {
+    static TITLE: OnceLock<Regex> = OnceLock::new();
+    static EVENT: OnceLock<Regex> = OnceLock::new();
+    static REFERENCE: OnceLock<Regex> = OnceLock::new();
+    let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    TITLE.get_or_init(|| Regex::new(
+        r"^\s*(?:exp[eé]di[eé]|livr[eé]|en cours de livraison|shipped|dispatched|delivered|out for delivery)\s*:"
+    ).unwrap()).is_match(subject)
+        && EVENT.get_or_init(|| Regex::new(
+            r"\b(?:(?:votre|le) (?:colis|commande) (?:a [eé]t[eé]|est) (?:exp[eé]di[eé]e?|livr[eé]e?|en cours de livraison)|(?:your|the) (?:order|package|shipment) (?:has been|was|is) (?:shipped|dispatched|delivered|out for delivery))\b"
+        ).unwrap()).is_match(&body)
+        && REFERENCE.get_or_init(|| Regex::new(
+            r"\b(?:n[°o]\s*de commande|commande\s*(?:n[°o]|#)|order\s*(?:number|id|#))\s*[:#]?\s*[a-z0-9][a-z0-9-]{2,40}\b"
+        ).unwrap()).is_match(&body)
+}
+
 fn action_demand(body: &str) -> bool {
     static DEMAND: OnceLock<Regex> = OnceLock::new();
     DEMAND.get_or_init(|| Regex::new(r"(?i)\b(?:enter (?:your |the )?(?:password|credentials|card)|verify your (?:account|identity|payment)|send (?:money|bitcoin)|transfer .{0,35}(?:wallet|bitcoin)|pay .{0,20}(?:bitcoin|btc)|install .{0,25}(?:software|application)|saisissez (?:votre |vos )?(?:mot de passe|identifiants)|v[eé]rifiez votre (?:compte|identit[eé])|g[eé]rer mon abonnement|annuler votre commande)\b").unwrap()).is_match(body)
@@ -244,6 +281,7 @@ fn sensitive_service_demand(body: &str) -> bool {
     static CARD: OnceLock<Regex> = OnceLock::new();
     static ACTIVATE: OnceLock<Regex> = OnceLock::new();
     static CREDENTIAL: OnceLock<Regex> = OnceLock::new();
+    static MANUAL_UPDATE: OnceLock<Regex> = OnceLock::new();
     static URL: OnceLock<Regex> = OnceLock::new();
     // Indicator feeds quote hostile URLs. Their hostname/path tokens are data,
     // not prose asking this recipient to activate, call or disclose credentials.
@@ -265,7 +303,10 @@ fn sensitive_service_demand(body: &str) -> bool {
         let restriction = r"\b(?:bloqu[eé](?:e?s)?|blocage|suspendu(?:e?s)?|suspension|restreint(?:e?s)?|restricted|blocked|suspended)\b";
         Regex::new(&format!(r"(?:{action}.{{0,180}}{restriction}|{restriction}.{{0,180}}{action})")).unwrap()
     }).is_match(&text);
-    callback || activation || CREDENTIAL.get_or_init(|| Regex::new(
+    let manual_update = MANUAL_UPDATE.get_or_init(|| Regex::new(
+        r"\b(?:(?:you must|you need to|please) (?:complete|perform|install) (?:a |the |this )?(?:manual|security|firmware) update|(?:vous devez|veuillez) (?:effectuer|installer) (?:une |la |cette )?mise [aà] jour (?:manuelle|de s[eé]curit[eé]))\b"
+    ).unwrap()).is_match(&text);
+    callback || activation || manual_update || CREDENTIAL.get_or_init(|| Regex::new(
         r"\b(?:saisir|saisissez|renseignez|communiquez|confirmez|enter|provide|confirm)\b.{0,35}\b(?:identifiants|mot de passe|code de s[eé]curit[eé]|password|credentials|security code)\b"
     ).unwrap()).is_match(&text)
 }

@@ -1,6 +1,6 @@
 # Context, coverage and calibration
 
-NoiseFence records decision policy `decision-policy-13`. Recorded policy and detector versions distinguish new observations from historical results. The contextual safeguards described here do not activate the LLM or change its configured selection.
+NoiseFence records decision policy `decision-policy-14`. Recorded policy and detector versions distinguish new observations from historical results. The contextual safeguards described here do not activate the LLM or change its configured selection.
 
 ## Readable content survives independent failures
 
@@ -16,6 +16,16 @@ French and English receipts require matching completed-payment evidence in the
 body. Backup/integrity notifications require an operation and event in both the
 subject and body. Software-update notices require explicit automatic installation.
 An invoice title, a generic security alert or authentication alone is insufficient.
+
+Status-first shipment subjects (for example, “Shipped: two items”) require an
+explicit dispatched/delivered event and an order reference in the body. A title,
+a tracking link or an unshipped order does not satisfy this added path.
+Structured classification-dispute reports require a reporting title, a matching
+purpose, a nonzero reported-URL count and a reference. These fields explain why
+hostile indicators may occur in a report; they do not authenticate its sender or
+suppress confirmed threats. Mandatory manual/security-update instructions remain
+sensitive demands even when the template also promises an automatic update.
+
 
 A high legacy index conflicting with that context first becomes an internal
 abstention. The final policy accepts it as HAM (or PUB when a separate completed

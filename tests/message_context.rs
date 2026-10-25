@@ -762,3 +762,160 @@ fn completed_transfers_and_trip_receipts_supply_context_but_not_a_trust_override
     );
     assert!(!bare.transaction_notice);
 }
+
+#[test]
+fn status_first_shipping_requires_body_event_and_reference() {
+    for (subject, body) in [
+        (
+            "Expédié : deux articles",
+            "Votre colis a été expédié. N° de commande DEMO-012.",
+        ),
+        (
+            "En cours de livraison\u{a0}: article",
+            "Votre colis est en cours de livraison. N° de commande DEMO-012.",
+        ),
+        (
+            "Shipped: two items",
+            "Your order has been shipped. Order number DEMO-012.",
+        ),
+        (
+            "Out for delivery: two items",
+            "Your package is out for delivery. Order # DEMO-012.",
+        ),
+    ] {
+        let raw = format!(
+            "From: Shop <shop@example.org>\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+        );
+        let context = noisefence::message_context::inspect(raw.as_bytes());
+        assert!(context.transaction_notice, "{subject}");
+        let mut scan = candidate(raw.as_bytes());
+        aligned(&mut scan);
+        scan.llm = LlmResult::default();
+        scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Clean;
+        scan.signatures.status = noisefence::antivirus::AntivirusStatus::Clean;
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+        assert_eq!(scan.score, 99.); // Policy correction, not fabricated calibration.
+        // A sensitive demand defeats this context, even with aligned identity.
+        for demand in [
+            "Enter your password now.",
+            "Send bitcoin to release delivery.",
+            "Saisissez votre mot de passe.",
+        ] {
+            let attack = format!("{raw}\r\n{demand}");
+            let mut scan = candidate(attack.as_bytes());
+            aligned(&mut scan);
+            scan.llm = LlmResult::default();
+            scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Clean;
+            scan.signatures.status = noisefence::antivirus::AntivirusStatus::Clean;
+            decision::apply(&mut scan, false);
+            decision::finalize(&mut scan, 95.);
+            assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+        }
+    }
+    for (subject, body) in [
+        (
+            "Expédié : article",
+            "N° de commande DEMO-012. Votre colis n'a pas été expédié.",
+        ),
+        (
+            "Shipped: article",
+            "Your order has not been shipped. Order number DEMO-012.",
+        ),
+        ("Shipped: article", "Your order has been shipped."),
+        (
+            "Shipped: article",
+            "Order number DEMO-012. Claim your prize.",
+        ),
+        (
+            "Shipping update",
+            "Your order has been shipped. Order number DEMO-012.",
+        ),
+    ] {
+        let raw = format!("Subject: {subject}\r\n\r\n{body}");
+        assert!(
+            !noisefence::message_context::inspect(raw.as_bytes()).transaction_notice,
+            "{subject} {body}"
+        );
+    }
+}
+
+#[test]
+fn structured_classification_disputes_are_reporting_context_not_sender_trust() {
+    for (subject, body) in [
+        (
+            "New dispute - Submission #DEMO",
+            "Une contestation de classification a été soumise. Référence : DEMO. Nombre d'URLs signalées : 1. URLs signalées : https://reported.example/path",
+        ),
+        (
+            "False positive review",
+            "Classification dispute. Reference: DEMO. Reported URL count: 1. Reported URLs: https://reported.example/path",
+        ),
+    ] {
+        let raw = format!(
+            "From: Reports <reports@example.org>\r\nSubject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+        );
+        assert!(noisefence::message_context::inspect(raw.as_bytes()).threat_report);
+        for authenticated in [false, true] {
+            let mut scan = candidate(raw.as_bytes());
+            if authenticated {
+                aligned(&mut scan);
+            }
+            scan.llm = LlmResult::default();
+            scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Clean;
+            scan.signatures.status = noisefence::antivirus::AntivirusStatus::Clean;
+            decision::apply(&mut scan, false);
+            decision::finalize(&mut scan, 95.);
+            assert_eq!(
+                scan.decision.as_ref().unwrap().outcome,
+                if authenticated {
+                    Outcome::Legitimate
+                } else {
+                    Outcome::Unwanted
+                }
+            );
+        }
+        let attack = format!("{raw}\r\nEnter your password to verify your account.");
+        let mut scan = candidate(attack.as_bytes());
+        aligned(&mut scan);
+        assert!(!noisefence::message_context::needs_review(&scan));
+    }
+    for raw in [
+        "Subject: New dispute\r\n\r\nClick https://reported.example now.",
+        "Subject: New dispute\r\n\r\nClassification dispute. Reference: DEMO. Reported URLs: https://reported.example",
+        "Subject: Prize notification\r\n\r\nClassification dispute. Reference: DEMO. Reported URL count: 1. Reported URLs: https://reported.example",
+    ] {
+        assert!(!noisefence::message_context::inspect(raw.as_bytes()).threat_report);
+    }
+}
+
+#[test]
+fn mandatory_manual_updates_cannot_borrow_a_passive_service_guard() {
+    for demand in [
+        "You must complete a manual update before tomorrow to protect your wallet.",
+        "Please install this security update to keep access to your assets.",
+        "Vous devez effectuer une mise à jour manuelle avant demain.",
+    ] {
+        let raw = format!(
+            "Subject: Firmware update\r\n\r\nThe update will be installed automatically. {demand}"
+        );
+        let mut scan = candidate(raw.as_bytes());
+        aligned(&mut scan);
+        scan.llm = LlmResult::default();
+        scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Clean;
+        scan.signatures.status = noisefence::antivirus::AntivirusStatus::Clean;
+        assert!(scan.message_context.as_ref().unwrap().action_demand);
+        decision::apply(&mut scan, false);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    }
+    for body in [
+        "You must not complete a manual update. The update will be installed automatically.",
+        "No manual update is required. The update will be installed automatically.",
+        "The update will be installed automatically. Details: https://update.example/you-must-complete-a-manual-update",
+    ] {
+        let raw = format!("Subject: Firmware update\r\n\r\n{body}");
+        assert!(!noisefence::message_context::inspect(raw.as_bytes()).action_demand);
+    }
+}
