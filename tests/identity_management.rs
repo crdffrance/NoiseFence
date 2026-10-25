@@ -491,6 +491,10 @@ async fn okta_sync_is_authenticated_csrf_protected_bounded_and_not_an_import_end
 async fn google_sync_is_authenticated_csrf_protected_bounded_and_not_an_import_endpoint() {
     provider_sync_authorization("google").await;
 }
+#[tokio::test]
+async fn aws_sync_requires_admin_and_csrf_and_redacts_invalid_credentials() {
+    provider_sync_authorization("aws_identity_store").await;
+}
 async fn provider_sync_authorization(provider: &str) {
     let root = tempfile::tempdir().unwrap();
     let base = common::config(root.path());
@@ -506,6 +510,13 @@ async fn provider_sync_authorization(provider: &str) {
         object.remove("client_id");
         object.remove("client_secret");
         object.insert("access_token".into(), json!("dummy"));
+    }
+    if provider == "aws_identity_store" {
+        let object = data.as_object_mut().unwrap();
+        object.remove("access_token");
+        object.insert("access_key_id".into(), json!("invalid"));
+        object.insert("secret_access_key".into(), json!("dummy"));
+        object.insert("session_token".into(), json!("dummy"));
     }
     assert_eq!(
         request(&router, &user, &path, Some(data.clone()), true)
@@ -557,6 +568,13 @@ async fn provider_sync_authorization(provider: &str) {
 
 #[tokio::test]
 async fn saved_directory_access_api_is_private_explicit_bounded_and_recoverable() {
+    saved_access_api(false).await;
+}
+#[tokio::test]
+async fn aws_saved_session_api_is_private_bounded_and_recoverable() {
+    saved_access_api(true).await;
+}
+async fn saved_access_api(aws: bool) {
     let root = tempfile::tempdir().unwrap();
     let base = common::config(root.path());
     let store = Store::open(root.path()).unwrap();
@@ -568,8 +586,23 @@ async fn saved_directory_access_api_is_private_explicit_bounded_and_recoverable(
     source.provider = directory::Provider::Entra;
     source.authority = "11111111-1111-4111-8111-111111111111".into();
     let operation = uuid::Uuid::new_v4().to_string();
-    let secret = "SYNTHETIC-API-DIRECTORY-SECRET";
+    let secret = if aws {
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    } else {
+        "SYNTHETIC-API-DIRECTORY-SECRET"
+    };
+    if aws {
+        source.provider = directory::Provider::AwsIdentityStore;
+        source.authority = "eu-west-3:d-1234567890".into();
+    }
     let body = json!({"operation":operation,"revision":0,"catalog_sha256":null,"expected_generation":null,"source":source,"expires":noisefence::now()+3600,"credential":{"kind":"entra_application","client_id":"22222222-2222-4222-8222-222222222222","client_secret":secret}});
+    let body = if aws {
+        let mut b = body;
+        b["credential"] = json!({"kind":"aws_session","access_key_id":"ASIAAAAAAAAAAAAAAAAA","secret_access_key":secret,"session_token":"synthetic-session-token"});
+        b
+    } else {
+        body
+    };
     let endpoint = "/admin/identity/connections";
     assert_eq!(
         request(&router, &user, endpoint, None, false).await.0,

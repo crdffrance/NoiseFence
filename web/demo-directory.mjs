@@ -231,6 +231,7 @@ export function directoryFixture(params, settings) {
           '/admin/identity/sync/entra',
           '/admin/identity/sync/okta',
           '/admin/identity/sync/google',
+          '/admin/identity/sync/aws_identity_store',
           '/admin/identity/sync/stored',
         ].includes(path) &&
         options?.method === 'POST'

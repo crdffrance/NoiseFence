@@ -124,6 +124,15 @@ fn credential_limits_provider_expiry_and_revocation_are_enforced() {
     assert!(key.seal(too_long, &credential()).is_err());
     for (provider, authority, credential) in [
         (
+            Provider::AwsIdentityStore,
+            "eu-west-3:d-1234567890",
+            Credential::AwsSession {
+                access_key_id: "ASIAAAAAAAAAAAAAAAAA".into(),
+                secret_access_key: "a".repeat(40),
+                session_token: "synthetic-session-token".into(),
+            },
+        ),
+        (
             Provider::Google,
             "C01234567",
             Credential::GoogleAccessToken {

@@ -100,3 +100,9 @@ from `http://127.0.0.1:3013/demo.html?administration=identity&contacts=` on 25 O
 the synthetic memory fixture, after a disable/review draft was cancelled. Installed
 revision 25 and observation were retained. No real secret, message, provider or
 production host was used. The synthetic readiness label is not a deployment proof.
+
+`console-aws-directory.jpg` is an unedited 1280×720 local integrated-browser
+capture on 25 October 2026. It shows the AWS read-only connection form with an
+example source and no credentials. The collection button remained disabled, the
+draft was discarded, and revision 25 stayed unchanged. No AWS account or real
+identity was connected.

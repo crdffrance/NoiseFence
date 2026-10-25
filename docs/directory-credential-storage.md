@@ -1,7 +1,7 @@
 # Directory credential storage
 
 Development builds support **optional encrypted access** for Entra, Google
-Workspace and Okta under **Filters → Identity protection → Directory
+Workspace, Okta and AWS Identity Store under **Filters → Identity protection → Directory
 synchronization**. No provider is connected by installation. Automatic correspondent
 memory works without any directory credential; see [contact learning](contact-learning.md).
 
@@ -89,7 +89,7 @@ review, expired, stopped, unavailable access and unknown prior outcome.
 
 If an authorization response is lost, **Reload saved access** and compare the
 operation UUID with the stored grant ID. The browser does not replay it automatically.
-Google and Okta saved access tokens still expire in at most one hour; this feature
+Google/Okta saved access tokens and AWS temporary sessions expire in at most one hour; this feature
 does not implement token renewal or delta synchronization. A schedule whose credential
 is unusable does not contact a provider, replace the key or change installed data.
 
@@ -153,7 +153,7 @@ use and before committing its result. A previously returned record is not an
 enduring grant.
 
 The maximum stored lifetime is 90 days for an Entra application secret and one hour
-for a Google or Okta access token. An earlier provider expiry still applies. Refresh
+for a Google/Okta access token or AWS temporary session. An earlier provider expiry still applies. Refresh
 tokens, service-account keys, managed identities and renewable Google/Okta workload
 authorization are not implemented here. Expiry does not refresh or extend itself.
 

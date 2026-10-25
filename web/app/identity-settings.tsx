@@ -537,10 +537,11 @@ export function IdentitySettings({
       <details className="panel identity-boundaries">
         <summary>Coverage and directory integrations</summary>
         <p>
-          These settings manage display-name observations. Entra ID, Google
-          Workspace, Okta, Active Directory, AWS Identity Store and SCIM
-          synchronization are not connected in this version. There is no live
-          employee directory or contact graph in this view.
+          These settings manage display-name observations. Use the directory
+          section to collect and review identities from Entra ID, Google
+          Workspace, Okta or AWS Identity Store. A connector becomes available
+          only after you configure authorized access. Active Directory and SCIM
+          collection are still under development.
         </p>
         <p>
           Domain authentication, relationship history and identity are separate

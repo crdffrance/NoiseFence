@@ -31,6 +31,7 @@ const {
   entraFormError,
   oktaFormError,
   googleFormError,
+  awsFormError,
   CollectionCoverage,
   DirectorySync,
 } = await import(
@@ -118,7 +119,10 @@ test('initial sync interface identifies one-shot collection and secret non-persi
   );
   assert.match(html, /one-time collection/);
   assert.match(html, /not saved in settings/);
-  assert.match(html, /Scheduled collection requires a separate, expiring authorization/);
+  assert.match(
+    html,
+    /Scheduled collection requires a separate, expiring authorization/,
+  );
   assert.doesNotMatch(html, /Connected|Successfully synchronized/);
 });
 
@@ -332,4 +336,50 @@ test('schedule summary distinguishes candidate review and does not imply activat
   assert.match(html, /Nothing has been activated automatically/);
   assert.match(html, /View last collection/);
   assert.match(html, /Stop automatic collection/);
+});
+
+test('AWS form requires a fixed store, temporary key and separate session token', () => {
+  const aws = {
+    ...source,
+    provider: 'aws_identity_store',
+    authority: 'eu-west-3:d-1234567890',
+  };
+  const access = 'ASIA' + 'A'.repeat(16),
+    secret = 'a'.repeat(40),
+    token = 'fixture-token';
+  assert.equal(
+    awsFormError(aws, ['example.test'], access, secret, token),
+    null,
+  );
+  for (const authority of [
+    'https://example.test',
+    'eu-west-3:d-1234567890:evil',
+    'us-gov-east-1:d-1234567890',
+    'eu-west-3:00000000-0000-0000-0000-000000000000',
+  ])
+    assert.ok(
+      awsFormError(
+        { ...aws, authority },
+        ['example.test'],
+        access,
+        secret,
+        token,
+      ),
+    );
+  for (const [a, s, t] of [
+    ['AKIA' + 'A'.repeat(16), secret, token],
+    [access, secret, ''],
+    [access, secret, 'bad\ntoken'],
+    [access, 'a'.repeat(41), token],
+  ])
+    assert.ok(awsFormError(aws, ['example.test'], a, s, t));
+  assert.ok(
+    awsFormError(
+      { ...aws, scopes: ['other.test'] },
+      ['example.test'],
+      access,
+      secret,
+      token,
+    ),
+  );
 });

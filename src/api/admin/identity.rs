@@ -118,7 +118,15 @@ pub(super) async fn synchronize_google(
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     synchronize_provider(app, h, request, SyncProvider::Google).await
 }
+pub(super) async fn synchronize_aws(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    synchronize_provider(app, h, request, SyncProvider::Aws).await
+}
 enum SyncProvider {
+    Aws,
     Entra,
     Okta,
     Google,
@@ -157,6 +165,10 @@ async fn synchronize_provider(
     let control = controller(&app)?;
     let session = message::digest(token(&h).unwrap().as_bytes());
     let result = match provider {
+        SyncProvider::Aws => {
+            let body: crate::identity::sync::AwsInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+            control.synchronize_aws(body,actor.username,session).await
+        }
         SyncProvider::Okta => {
             let body: crate::identity::sync::OktaInput = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
             control.synchronize_okta(body, actor.username, session).await

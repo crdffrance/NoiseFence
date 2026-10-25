@@ -89,11 +89,11 @@ suspended; an unavailable opinion is not a spam detection.
 ### Directory collection
 
 Use **Filters → Identity protection → Directory synchronization** to collect
-users and groups from Entra, Google Workspace or Okta. Credentials are request-only
+users and groups from Entra, Google Workspace, Okta or AWS Identity Store. Credentials are request-only
 by default. Administrators may explicitly save [encrypted access](directory-credential-storage.md),
 set its expiry, replace or revoke it. Collection and activation remain separate
 actions. Job receipts are durable and contain no secrets. Review and activate
-the prepared directory separately. See [Entra setup](identity-entra.md), [Google setup](identity-google.md) or [Okta setup](identity-okta.md) and their shared job states.
+the prepared directory separately. See [Entra setup](identity-entra.md), [Google setup](identity-google.md), [Okta setup](identity-okta.md) or [AWS setup](identity-aws.md) and their shared job states.
 Scheduled synchronization is not yet available.
 
 Optional background collection is configured in **Saved directory access → Set up

@@ -5,7 +5,7 @@ use super::{
     identity::{PreparedDirectory, local_authorize},
 };
 use crate::identity::{
-    connectors::{entra, google, okta},
+    connectors::{aws, entra, google, okta},
     directory::{Provider, Source},
     management, runtime,
     sync::{self, Event, Failure, Outcome, Request},
@@ -17,6 +17,7 @@ use std::{collections::BTreeSet, sync::Arc};
 enum Collector {
     #[cfg(test)]
     Synthetic(tokio::sync::oneshot::Receiver<entra::Collected>),
+    Aws(aws::Credentials),
     Entra(entra::Credentials),
     Okta(okta::Credentials),
     Google(google::Credentials),
@@ -150,6 +151,43 @@ impl Controller {
         )
         .await
     }
+    pub async fn synchronize_aws(
+        self: &Arc<Self>,
+        input: sync::AwsInput,
+        actor: String,
+        session: String,
+    ) -> Result<Request> {
+        let sync::AwsInput {
+            operation,
+            revision,
+            catalog_sha256,
+            source,
+            access_key_id,
+            secret_access_key,
+            session_token,
+        } = input;
+        ensure!(
+            source.provider == Provider::AwsIdentityStore,
+            "Expected an AWS Identity Store source"
+        );
+        let credentials = aws::Credentials::new(
+            &source.authority,
+            access_key_id,
+            secret_access_key,
+            session_token,
+        )?;
+        self.start_directory_sync(
+            operation,
+            revision,
+            catalog_sha256,
+            source,
+            Collector::Aws(credentials),
+            actor,
+            session,
+            None,
+        )
+        .await
+    }
     pub async fn synchronize_google(
         self: &Arc<Self>,
         input: sync::GoogleInput,
@@ -207,6 +245,16 @@ impl Controller {
     ) -> Result<Collector> {
         use crate::identity::connections::Credential;
         Ok(match credential {
+            Credential::AwsSession {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            } => Collector::Aws(aws::Credentials::new(
+                &source.authority,
+                access_key_id,
+                secret_access_key,
+                session_token,
+            )?),
             Credential::EntraApplication {
                 client_id,
                 client_secret,
@@ -392,6 +440,7 @@ impl Controller {
                         )
                         .await
                     }
+                    Collector::Aws(credentials) => aws::synchronize(&source,generation,&credentials,aws::Limits::default()).await,
                     Collector::Google(credentials) => {
                         google::synchronize(
                             &source,

@@ -611,3 +611,71 @@ async fn scheduled_candidate(invalidation: &str) {
     drop(store);
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn central_aws_session_survives_restart_but_not_revocation_or_source_rebinding() {
+    use noisefence::identity::{connections::Credential, directory::Provider};
+    let f = postgres::Fixture::new().await;
+    let session = setup(&f).await;
+    let root = tempfile::tempdir().unwrap();
+    let (key, version) = f
+        .central
+        .identity_connection_prepare(root.path().into(), "admin", &session)
+        .await
+        .unwrap();
+    let mut metadata = common::record(
+        &key,
+        &f.central.directory_connection_authority(),
+        version,
+        None,
+    )
+    .metadata;
+    metadata.source.provider = Provider::AwsIdentityStore;
+    metadata.source.authority = "eu-west-3:d-1234567890".into();
+    let credential = Credential::AwsSession {
+        access_key_id: "ASIAAAAAAAAAAAAAAAAA".into(),
+        secret_access_key: "a".repeat(40),
+        session_token: "synthetic-session-token".into(),
+    };
+    let record = key.seal(metadata, &credential).unwrap();
+    f.central
+        .identity_connection_save(None, &record, "admin", &session)
+        .await
+        .unwrap();
+    let reopened = Central::new(&f.settings).unwrap();
+    let loaded = reopened
+        .identity_connection_get("synthetic", &record.metadata.generation, "admin", &session)
+        .await
+        .unwrap();
+    assert!(matches!(
+        Key::load(root.path())
+            .unwrap()
+            .open(&loaded, noisefence::now())
+            .unwrap(),
+        Credential::AwsSession { .. }
+    ));
+    let mut tampered = loaded.clone();
+    tampered.metadata.source.authority = "us-east-1:d-1234567890".into();
+    assert!(key.open(&tampered, noisefence::now()).is_err());
+    let rows = reopened
+        .identity_connection_list("admin", &session)
+        .await
+        .unwrap();
+    assert!(
+        !serde_json::to_string(&rows)
+            .unwrap()
+            .contains("synthetic-session-token")
+    );
+    reopened
+        .identity_connection_revoke("synthetic", &record.metadata.generation, "admin", &session)
+        .await
+        .unwrap();
+    assert!(
+        reopened
+            .identity_connection_get("synthetic", &record.metadata.generation, "admin", &session)
+            .await
+            .is_err()
+    );
+    f.finish().await;
+}

@@ -65,6 +65,10 @@ async fn okta_candidate_survives_restart_without_implicit_activation() {
 async fn google_candidate_survives_restart_without_implicit_activation() {
     candidate_survives_restart(directory::Provider::Google).await;
 }
+#[tokio::test]
+async fn aws_candidate_survives_restart_without_implicit_activation() {
+    candidate_survives_restart(directory::Provider::AwsIdentityStore).await;
+}
 fn collected(snapshot: directory::Snapshot) -> entra::Collected {
     entra::Collected {
         snapshot,
@@ -82,6 +86,9 @@ async fn candidate_survives_restart(provider: directory::Provider) {
     }
     if provider == directory::Provider::Google {
         s.source.authority = "C01234567".into();
+    }
+    if provider == directory::Provider::AwsIdentityStore {
+        s.source.authority = "eu-west-3:d-1234567890".into();
     }
     s.source.provider = provider;
     let mut req = request(&s.source.id);

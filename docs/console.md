@@ -36,7 +36,7 @@ The screen distinguishes installed data, local source edits, prepared artifacts
 and the pending configuration. Preparation alone never activates a change. Global
 **Review and apply** and the MX activation panel remain authoritative. Domain-based
 protected-name checks live in their own expandable section and retain their
-separate CSV format. Entra, Google Workspace and Okta support reviewed one-shot collection. Optional expiring schedules reuse encrypted access; SSO and a reciprocal contact graph remain separate work.
+separate CSV format. Entra, Google Workspace, Okta and AWS Identity Store support reviewed one-shot collection. Optional expiring schedules reuse encrypted access; SSO and a reciprocal contact graph remain separate work.
 
 In message details, **Additional engine details → Complementary protection →
 Identity observations** groups name/domain findings and explains why domain
@@ -50,12 +50,12 @@ authentication, ambiguous matches and the exact directory snapshot. Missing
 contact-history or sensitive-request analysis stays explicit. This observation
 does not replace the saved verdict and is not backfilled onto historical mail.
 
-Entra, Google Workspace and Okta sources can be collected once through **Directory synchronization**
+Entra, Google Workspace, Okta and AWS Identity Store sources can be collected once through **Directory synchronization**
 in the same workspace. One-time access is the default. Optional
 [encrypted saved access](directory-credential-storage.md) has explicit expiry,
 replacement and revocation. A separate **Set up automatic collection** authorization permits background reads until a chosen expiry; each candidate still needs review.
 A durable receipt separates collection from reviewed activation; failures and
-unknown outcomes preserve the installed directory. See the [Entra](identity-entra.md), [Google Workspace](identity-google.md) and [Okta](identity-okta.md) guides
+unknown outcomes preserve the installed directory. See the [Entra](identity-entra.md), [Google Workspace](identity-google.md), [Okta](identity-okta.md) and [AWS](identity-aws.md) guides
 for permissions, limits and the remaining provider boundaries.
 
 ## Quality & research

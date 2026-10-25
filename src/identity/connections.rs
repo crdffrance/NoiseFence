@@ -45,6 +45,11 @@ pub enum Credential {
     OktaAccessToken {
         access_token: String,
     },
+    AwsSession {
+        access_key_id: String,
+        secret_access_key: String,
+        session_token: String,
+    },
 }
 impl Credential {
     fn plaintext(&self) -> Result<Vec<u8>> {
@@ -61,6 +66,11 @@ impl Credential {
             OktaAccessToken {
                 access_token: &'a str,
             },
+            AwsSession {
+                access_key_id: &'a str,
+                secret_access_key: &'a str,
+                session_token: &'a str,
+            },
         }
         let wire = match self {
             Self::EntraApplication {
@@ -72,6 +82,15 @@ impl Credential {
             },
             Self::GoogleAccessToken { access_token } => Wire::GoogleAccessToken { access_token },
             Self::OktaAccessToken { access_token } => Wire::OktaAccessToken { access_token },
+            Self::AwsSession {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            } => Wire::AwsSession {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            },
         };
         serde_json::to_vec(&wire).map_err(|_| anyhow::anyhow!("Invalid directory credential"))
     }
@@ -82,6 +101,23 @@ impl Credential {
             "Invalid directory credential lifetime"
         );
         let maximum = match self {
+            Self::AwsSession {
+                access_key_id,
+                secret_access_key,
+                session_token,
+            } => {
+                ensure!(
+                    source.provider == Provider::AwsIdentityStore,
+                    "Credential provider mismatch"
+                );
+                connectors::aws::Credentials::new(
+                    &source.authority,
+                    access_key_id.clone(),
+                    secret_access_key.clone(),
+                    session_token.clone(),
+                )?;
+                3600
+            }
             Self::EntraApplication {
                 client_id,
                 client_secret,
@@ -166,7 +202,7 @@ impl Metadata {
         ensure!(
             matches!(
                 self.source.provider,
-                Provider::Entra | Provider::Google | Provider::Okta
+                Provider::Entra | Provider::Google | Provider::Okta | Provider::AwsIdentityStore
             ),
             "Unsupported stored directory provider"
         );

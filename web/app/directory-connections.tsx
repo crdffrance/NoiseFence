@@ -162,7 +162,11 @@ export function SavedConnections({
                   ? 'Microsoft Entra ID'
                   : entry.source.provider === 'google'
                     ? 'Google Workspace'
-                    : 'Okta'}
+                    : entry.source.provider === 'aws_identity_store'
+                      ? 'AWS Identity Store'
+                      : entry.source.provider === 'okta'
+                        ? 'Okta'
+                        : entry.source.provider}
               </dd>
             </div>
             <div>

@@ -16,6 +16,36 @@ import {
   type SourceStatus,
   type DirectoryPrepared,
 } from './directory';
+type SyncProvider = 'entra' | 'okta' | 'google' | 'aws_identity_store';
+export function awsFormError(
+  source: Source,
+  domains: string[],
+  access: string,
+  secret: string,
+  token: string,
+) {
+  const regions = new Set(
+    'us-east-1 us-east-2 us-west-1 us-west-2 af-south-1 ap-east-1 ap-east-2 ap-south-1 ap-south-2 ap-southeast-1 ap-southeast-2 ap-southeast-3 ap-southeast-4 ap-southeast-5 ap-southeast-6 ap-southeast-7 ap-northeast-1 ap-northeast-2 ap-northeast-3 ca-central-1 ca-west-1 eu-central-1 eu-central-2 eu-west-1 eu-west-2 eu-west-3 eu-north-1 eu-south-1 eu-south-2 il-central-1 mx-central-1 me-south-1 me-central-1 sa-east-1'.split(
+      ' ',
+    ),
+  );
+  const [region, store, extra] = source.authority.split(':');
+  return source.provider !== 'aws_identity_store'
+    ? 'Choose an AWS Identity Store source.'
+    : sourceError({ ...source, provider: 'manual' }, domains) ||
+        (!regions.has(region) ||
+        extra !== undefined ||
+        !/^(?:d-[0-9a-f]{10}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(
+          store ?? '',
+        ) ||
+        store === '00000000-0000-0000-0000-000000000000'
+          ? 'Enter a supported commercial AWS region and identity store ID, separated by a colon.'
+          : !/^ASIA[A-Z0-9]{16}$/.test(access) ||
+              !/^[A-Za-z0-9+/=._~-]{40}$/.test(secret) ||
+              !/^[A-Za-z0-9+/=._~-]{1,8192}$/.test(token)
+            ? 'Enter a temporary AWS access key ID, 40-character secret key and session token. Long-lived IAM keys are not supported.'
+            : null);
+}
 export type SyncStatus = {
   id: string;
   source_id: string;
@@ -186,7 +216,7 @@ export function DirectorySync({
   const storageKey = `noisefence-directory-sync:${user.username}`;
   const [open, setOpen] = useState(false),
     [existing, setExisting] = useState(''),
-    [provider, setProvider] = useState<'entra' | 'okta' | 'google'>('entra'),
+    [provider, setProvider] = useState<SyncProvider>('entra'),
     [label, setLabel] = useState(''),
     [sourceId, setSourceId] = useState(''),
     [tenant, setTenant] = useState(''),
@@ -195,6 +225,7 @@ export function DirectorySync({
     ),
     [client, setClient] = useState(''),
     [secret, setSecret] = useState(''),
+    [sessionToken, setSessionToken] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [pollError, setPollError] = useState(''),
@@ -252,7 +283,9 @@ export function DirectorySync({
       ? entraFormError(source, domains, client, secret)
       : provider === 'google'
         ? googleFormError(source, domains, secret)
-        : oktaFormError(source, domains, secret)) ||
+        : provider === 'aws_identity_store'
+          ? awsFormError(source, domains, client, secret, sessionToken)
+          : oktaFormError(source, domains, secret)) ||
     (!selected && sources.some((s) => s.source.id === sourceId)
       ? 'This source ID already exists. Select the installed source or use a new ID.'
       : null);
@@ -280,6 +313,7 @@ export function DirectorySync({
   const dirty = !!(
     client ||
     secret ||
+    sessionToken ||
     sourceId ||
     label ||
     tenant ||
@@ -345,6 +379,7 @@ export function DirectorySync({
   }, [visible, busy, revision, attempt, user.username]);
   function clearForm() {
     setSecret('');
+    setSessionToken('');
     setClient('');
     setSourceId('');
     setLabel('');
@@ -453,7 +488,9 @@ export function DirectorySync({
     setBusy(true);
     setError('');
     const credential = secret;
+    const temporaryToken = sessionToken;
     setSecret('');
+    setSessionToken('');
     try {
       if (action === 'save') {
         if (saveProblem) throw new Error(saveProblem);
@@ -483,13 +520,20 @@ export function DirectorySync({
                     client_id: client,
                     client_secret: credential,
                   }
-                : {
-                    kind:
-                      provider === 'google'
-                        ? 'google_access_token'
-                        : 'okta_access_token',
-                    access_token: credential,
-                  },
+                : provider === 'aws_identity_store'
+                  ? {
+                      kind: 'aws_session',
+                      access_key_id: client,
+                      secret_access_key: credential,
+                      session_token: temporaryToken,
+                    }
+                  : {
+                      kind:
+                        provider === 'google'
+                          ? 'google_access_token'
+                          : 'okta_access_token',
+                      access_token: credential,
+                    },
           },
           user.csrf,
         );
@@ -528,7 +572,9 @@ export function DirectorySync({
       /* Only the receipt ID is retained. */
     }
     const credential = secret;
+    const temporaryToken = sessionToken;
     setSecret('');
+    setSessionToken('');
     try {
       const result = await api<{ id: string; deadline: number }>(
         `/admin/identity/sync/${provider}`,
@@ -539,7 +585,13 @@ export function DirectorySync({
           source,
           ...(provider === 'entra'
             ? { client_id: client, client_secret: credential }
-            : { access_token: credential }),
+            : provider === 'aws_identity_store'
+              ? {
+                  access_key_id: client,
+                  secret_access_key: credential,
+                  session_token: temporaryToken,
+                }
+              : { access_token: credential }),
         },
         user.csrf,
       );
@@ -569,8 +621,8 @@ export function DirectorySync({
             synchronization
           </h3>
           <p className="muted small">
-            Collect identities from Microsoft Entra, Google Workspace or Okta.
-            Review every candidate before activation.
+            Collect identities from Microsoft Entra, Google Workspace, Okta or
+            AWS Identity Store. Review every candidate before activation.
           </p>
         </div>
         <button
@@ -597,18 +649,22 @@ export function DirectorySync({
             <select
               value={provider}
               onChange={(e) => {
-                setProvider(e.target.value as 'entra' | 'okta' | 'google');
+                setProvider(e.target.value as SyncProvider);
                 setExisting('');
                 setEditingAccess(null);
                 setLifetime(e.target.value === 'entra' ? 1440 : 30);
                 setTenant('');
                 setClient('');
                 setSecret('');
+                setSessionToken('');
               }}
             >
               <option value="entra">Microsoft Entra ID</option>
               <option value="google">Google Workspace</option>
               <option value="okta">Okta</option>
+              <option value="aws_identity_store">
+                AWS IAM Identity Center
+              </option>
             </select>
           </label>
           {!editingAccess && (
@@ -620,6 +676,7 @@ export function DirectorySync({
                   setExisting(e.target.value);
                   setEditingAccess(null);
                   setSecret('');
+                  setSessionToken('');
                   setClient('');
                 }}
               >
@@ -629,7 +686,9 @@ export function DirectorySync({
                     ? 'Entra'
                     : provider === 'google'
                       ? 'Google Workspace'
-                      : 'Okta'}{' '}
+                      : provider === 'aws_identity_store'
+                        ? 'AWS Identity Store'
+                        : 'Okta'}{' '}
                   source
                 </option>
                 {sources
@@ -672,7 +731,9 @@ export function DirectorySync({
                   ? 'Tenant ID'
                   : provider === 'google'
                     ? 'Google customer ID'
-                    : 'Okta org hostname'}
+                    : provider === 'aws_identity_store'
+                      ? 'AWS region:identity store ID'
+                      : 'Okta org hostname'}
                 <input
                   value={tenant}
                   maxLength={
@@ -683,7 +744,9 @@ export function DirectorySync({
                       ? 'company.okta.com'
                       : provider === 'google'
                         ? 'C01234567'
-                        : undefined
+                        : provider === 'aws_identity_store'
+                          ? 'eu-west-3:d-1234567890'
+                          : undefined
                   }
                   onChange={(e) => setTenant(e.target.value)}
                   autoComplete="off"
@@ -721,9 +784,11 @@ export function DirectorySync({
               cannot be changed by this collection.
             </p>
           )}
-          {provider === 'entra' && (
+          {(provider === 'entra' || provider === 'aws_identity_store') && (
             <label>
-              Application (client) ID
+              {provider === 'entra'
+                ? 'Application (client) ID'
+                : 'Temporary AWS access key ID'}
               <input
                 value={client}
                 maxLength={36}
@@ -733,22 +798,47 @@ export function DirectorySync({
             </label>
           )}
           <label>
-            {provider === 'entra' ? 'Application secret' : 'OAuth access token'}
+            {provider === 'entra'
+              ? 'Application secret'
+              : provider === 'aws_identity_store'
+                ? 'AWS secret access key'
+                : 'OAuth access token'}
             <input
               type="password"
               value={secret}
-              maxLength={provider === 'entra' ? 4096 : 8192}
+              maxLength={
+                provider === 'entra'
+                  ? 4096
+                  : provider === 'aws_identity_store'
+                    ? 40
+                    : 8192
+              }
               autoComplete="new-password"
               spellCheck={false}
               onChange={(e) => setSecret(e.target.value)}
             />
           </label>
+          {provider === 'aws_identity_store' && (
+            <label>
+              AWS session token
+              <input
+                type="password"
+                value={sessionToken}
+                maxLength={8192}
+                autoComplete="new-password"
+                spellCheck={false}
+                onChange={(e) => setSessionToken(e.target.value)}
+              />
+            </label>
+          )}
           <p className="muted small">
             {provider === 'entra'
               ? 'The Entra administrator must grant User.Read.All and GroupMember.Read.All application permissions with tenant admin consent. No mailbox access is requested.'
               : provider === 'google'
                 ? 'Use a short-lived token with admin.directory.user.readonly, admin.directory.group.readonly and admin.directory.domain.readonly scopes. The administrator must have visibility of the intended directory. External and whole-customer memberships are reported as exclusions. No Gmail permission is requested.'
-                : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
+                : provider === 'aws_identity_store'
+                  ? 'Use temporary STS access with identitystore:ListUsers, identitystore:ListGroups and identitystore:ListGroupMemberships for this store. UserStatus is imported when supplied; absent status remains unknown. Login names, permission sets, group mail aliases and delegation are not inferred. No AWS account administration or mailbox access is requested.'
+                  : 'Use an OAuth token with okta.users.read and okta.groups.read, and an admin role/resource set covering the intended directory. Login names and recovery addresses are not imported as aliases. Custom org domains and API tokens (SSWS) are not supported.'}
           </p>
           <label className="check">
             <input
@@ -842,9 +932,10 @@ export function DirectorySync({
         onReplace={(entry) => {
           setEditingAccess(entry);
           setExisting('');
-          setProvider(entry.source.provider as 'entra' | 'okta' | 'google');
+          setProvider(entry.source.provider as SyncProvider);
           setClient('');
           setSecret('');
+          setSessionToken('');
           setSourceId('');
           setLabel('');
           setTenant('');

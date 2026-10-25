@@ -389,3 +389,16 @@ pub struct GoogleInput {
     pub source: super::directory::Source,
     pub access_token: String,
 }
+
+/// Explicit temporary AWS credentials. Never debug formatted or persisted in a job.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AwsInput {
+    pub operation: String,
+    pub revision: i64,
+    pub catalog_sha256: Option<String>,
+    pub source: super::directory::Source,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: String,
+}
