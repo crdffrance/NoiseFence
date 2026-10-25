@@ -156,6 +156,56 @@ export function directoryFixture(params, settings) {
           bearer: 'synthetic-demo-token-not-valid-for-any-server',
         });
       }
+      if (
+        path === '/admin/identity/scim/inventory' &&
+        options?.method === 'POST'
+      ) {
+        const ref = JSON.parse(options.body),
+          access = connections.get(ref.source_id);
+        if (
+          !access ||
+          access.generation !== ref.generation ||
+          access.status !== 'configured'
+        )
+          return Response.json(
+            { error: 'Synthetic access unavailable.' },
+            { status: 409 },
+          );
+        return Response.json({
+          revision,
+          catalog_sha256: currentHash,
+          stage: {
+            revision: {
+              source_id: ref.source_id,
+              source_sha256: 'a'.repeat(64),
+              enrollment: ref.generation,
+              sequence: 1,
+            },
+            users: 1,
+            groups: 0,
+            memberships: 0,
+            modified: now,
+          },
+          inventory_sha256: 'b'.repeat(64),
+          problem: null,
+          draft: {
+            source: access.source,
+            people: [
+              {
+                id: 'scim-alex',
+                display_name: 'Alex Morgan',
+                kind: 'person',
+                activity: 'active',
+                addresses: ['alex@example.test'],
+                protected_roles: [],
+              },
+            ],
+            groups: [],
+            memberships: [],
+            delegations: [],
+          },
+        });
+      }
       if (path === '/admin/identity/connections' && options?.method !== 'POST')
         return Response.json(connectionView());
       if (
@@ -272,11 +322,12 @@ export function directoryFixture(params, settings) {
           '/admin/identity/sync/google',
           '/admin/identity/sync/aws_identity_store',
           '/admin/identity/sync/stored',
+          '/admin/identity/scim/attest',
         ].includes(path) &&
         options?.method === 'POST'
       ) {
         const body = JSON.parse(options.body);
-        if (path.endsWith('/stored')) {
+        if (path.endsWith('/stored') || path.endsWith('/attest')) {
           const access = connections.get(body.connection.source_id);
           if (
             !access ||
@@ -286,6 +337,17 @@ export function directoryFixture(params, settings) {
           )
             return Response.json(
               { error: 'Synthetic saved access unavailable.' },
+              { status: 409 },
+            );
+          if (
+            path.endsWith('/attest') &&
+            (!body.complete_inventory ||
+              body.inventory_sha256 !== 'b'.repeat(64) ||
+              body.staged_revision.enrollment !== access.generation ||
+              syncJobs.has(body.operation))
+          )
+            return Response.json(
+              { error: 'Synthetic attestation conflict.' },
               { status: 409 },
             );
           body.source = access.source;
@@ -347,6 +409,7 @@ export function directoryFixture(params, settings) {
             after: status(after),
           },
         };
+        if (path.endsWith('/attest')) delete prepared.collection;
         const job = {
           id: body.operation,
           source_id: body.source.id,
@@ -357,6 +420,12 @@ export function directoryFixture(params, settings) {
           stale: false,
           prepared: params.get('sync') === 'failed' ? null : prepared,
         };
+        if (path.endsWith('/attest'))
+          job.scim = {
+            inventory_sha256: body.inventory_sha256,
+            verified_at: now,
+            revision: body.staged_revision,
+          };
         syncJobs.set(body.operation, job);
         return Response.json(
           { id: job.id, deadline: job.deadline, state: 'running' },

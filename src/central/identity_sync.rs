@@ -21,12 +21,15 @@ impl Central {
         management_lock(&tx).await?;
         super::policies::approval(&tx, actor, session, None).await?;
         if let Some(reference) = &request.connection {
-            super::identity_connections::live(
+            let record = super::identity_connections::live(
                 &tx,
                 reference,
                 &self.directory_connection_authority(),
             )
             .await?;
+            if let Some(proof) = &request.scim {
+                super::identity_scim::verify_review(&tx, proof, &record).await?;
+            }
         }
         let rows=tx.query("SELECT object_id FROM noisefence.audit WHERE action='identity_sync' AND created>=$1 ORDER BY id LIMIT 129", &[&(request.created-3960)]).await.map_err(database_error)?;
         let raw: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
@@ -83,6 +86,29 @@ impl Central {
             if !allowed {
                 result.outcome = Outcome::Failed {
                     reason: sync::Failure::Authorization,
+                };
+            }
+        }
+        if let Some(proof) = &result.request.scim
+            && matches!(result.outcome, Outcome::Ready { .. })
+        {
+            let reference = result
+                .request
+                .connection
+                .as_ref()
+                .context("SCIM access required")?;
+            let record = super::identity_connections::live(
+                &tx,
+                reference,
+                &self.directory_connection_authority(),
+            )
+            .await?;
+            if super::identity_scim::verify_review(&tx, proof, &record)
+                .await
+                .is_err()
+            {
+                result.outcome = Outcome::Failed {
+                    reason: sync::Failure::Stale,
                 };
             }
         }

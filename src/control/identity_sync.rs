@@ -14,7 +14,8 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::params;
 use serde::Serialize;
 use std::{collections::BTreeSet, sync::Arc};
-enum Collector {
+pub(super) enum Collector {
+    Scim(Box<crate::identity::scim::Candidate>),
     Ad(Box<ad::VerifiedExport>),
     #[cfg(test)]
     Synthetic(tokio::sync::oneshot::Receiver<entra::Collected>),
@@ -25,6 +26,8 @@ enum Collector {
 }
 #[derive(Serialize)]
 pub struct SyncView {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scim: Option<crate::identity::scim::Attestation>,
     pub id: String,
     pub source_id: String,
     pub started_at: i64,
@@ -81,6 +84,7 @@ impl Controller {
         });
         self.directory_authorize(actor, session).await?;
         Ok(SyncView {
+            scim: job.request.scim,
             id,
             source_id: job.request.source_id,
             started_at: job.request.created,
@@ -351,6 +355,7 @@ impl Controller {
         let schedule = record.schedule.as_ref().context("No directory schedule")?;
         let now = crate::now();
         let request = Request {
+            scim: None,
             scheduled: Some(schedule.binding(&record.metadata)?),
             connection: Some(schedule.grant.connection.clone()),
             id: uuid::Uuid::new_v4().to_string(),
@@ -389,7 +394,7 @@ impl Controller {
         Ok((request, task))
     }
     #[allow(clippy::too_many_arguments)]
-    async fn start_directory_sync(
+    pub(super) async fn start_directory_sync(
         self: &Arc<Self>,
         operation: String,
         revision: i64,
@@ -413,8 +418,26 @@ impl Controller {
         let (previous, scopes, generation) = self
             .directory_context(revision, expected.clone(), &source)
             .await?;
-        let now = crate::now();
+        let now = match &collector {
+            Collector::Scim(candidate) => candidate.snapshot().completed_at,
+            _ => crate::now(),
+        };
+        let scim = if let Collector::Scim(candidate) = &collector {
+            ensure!(
+                candidate.snapshot().source == source
+                    && candidate.snapshot().generation == generation,
+                "Directory changed; reload inventory"
+            );
+            Some(crate::identity::scim::Attestation {
+                revision: candidate.revision().clone(),
+                inventory_sha256: candidate.inventory_sha256().into(),
+                verified_at: now,
+            })
+        } else {
+            None
+        };
         let request = Request {
+            scim,
             scheduled: None,
             connection,
             id: operation,
@@ -456,6 +479,10 @@ impl Controller {
         tokio::spawn(async move {
             let result = tokio::time::timeout(std::time::Duration::from_secs(350), async {
                 let collection = async { match collector {
+                    Collector::Scim(candidate) => Ok(entra::Collected {
+                        snapshot: candidate.snapshot().clone(), requests: 1, pages: 1,
+                        bytes: 0, excluded_members: Default::default(),
+                    }),
                     Collector::Ad(export) => tokio::task::spawn_blocking(move || export.collect(generation, crate::now())).await.map_err(|_| anyhow::anyhow!("AD preparation worker failed")).and_then(|v|v),
                     #[cfg(test)]
                     Collector::Synthetic(receiver)=>receiver.await.context("Synthetic collector cancelled"),
@@ -599,7 +626,7 @@ impl Controller {
             selection,
             review: candidate.review,
             active: false,
-            collection: Some(collection),
+            collection: request.scim.is_none().then_some(collection),
         })
     }
     pub(crate) async fn identity_sync_begin(
@@ -618,7 +645,10 @@ impl Controller {
         let request = request.clone();
         self.store.run(move|db| {
             let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;local_authorize(&tx,&actor,&session)?;
-            if let Some(reference)=&request.connection {crate::identity::connections::local::get(&tx,&reference.source_id,&reference.generation,&actor,&session,crate::now())?;}
+            if let Some(reference)=&request.connection {
+                let record=crate::identity::connections::local::get(&tx,&reference.source_id,&reference.generation,&actor,&session,crate::now())?;
+                if let Some(proof)=&request.scim {crate::identity::scim::repository::local::verify_review(&tx,proof,&record)?;}
+            }
             let raw={let mut q=tx.prepare("SELECT object_id FROM audit WHERE action='identity_sync' AND created>=?1 ORDER BY id LIMIT 129")?;q.query_map([request.created-3960],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?};
             sync::admit(&raw,&request,crate::now())?;
             let data=Event{request:request.clone(),outcome:Outcome::Running}.encode()?;
@@ -648,8 +678,10 @@ impl Controller {
         self.store.run(move|db| {
             let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             if let Some(reference)=&event.request.connection && matches!(event.outcome,Outcome::Ready{..}) {
-                let allowed=session.as_ref().is_some_and(|session|crate::identity::connections::local::get(&tx,&reference.source_id,&reference.generation,&actor,session,crate::now()).is_ok());
-                if !allowed { event.outcome=Outcome::Failed{reason:Failure::Authorization}; }
+                let record=session.as_ref().and_then(|session|crate::identity::connections::local::get(&tx,&reference.source_id,&reference.generation,&actor,session,crate::now()).ok());
+                if let Some(record)=record {
+                    if let Some(proof)=&event.request.scim && crate::identity::scim::repository::local::verify_review(&tx,proof,&record).is_err() {event.outcome=Outcome::Failed{reason:Failure::Stale};}
+                } else { event.outcome=Outcome::Failed{reason:Failure::Authorization}; }
             }
             let raw={let mut q=tx.prepare("SELECT object_id FROM audit WHERE action='identity_sync' AND object_id LIKE ?1 ORDER BY id LIMIT 129")?;q.query_map([format!("{};%",event.request.id)],|r|r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?};
             sync::finish(&raw,&event,crate::now())?;

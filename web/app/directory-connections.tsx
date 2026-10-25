@@ -279,9 +279,9 @@ export function SavedConnections({
           )}
           {entry.source.provider === 'scim' && (
             <p className="notice">
-              Inbound provisioning only. Staged users and groups are not active
-              in the filter. Inventory attestation and activation are not yet
-              available for this connector.
+              Inbound provisioning only. New staged changes are not active in
+              the filter. Confirm the full inventory, review the candidate diff
+              and apply the policy explicitly.
             </p>
           )}
           <details>
@@ -292,17 +292,19 @@ export function SavedConnections({
             </p>
           </details>
           <div className="actions">
-            {entry.source.provider !== 'scim' && (
+            {
               <button
                 type="button"
                 disabled={busy || !canCollectSaved(entry)}
                 onClick={() => onCollect(entry)}
               >
-                {entry.source.provider === 'active_directory'
-                  ? 'Upload signed AD export'
-                  : 'Collect using saved access'}
+                {entry.source.provider === 'scim'
+                  ? 'Review staged inventory'
+                  : entry.source.provider === 'active_directory'
+                    ? 'Upload signed AD export'
+                    : 'Collect using saved access'}
               </button>
-            )}
+            }
             <button
               type="button"
               className="secondary"

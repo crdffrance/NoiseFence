@@ -34,7 +34,12 @@ const scim = await moduleURL('../app/directory-scim.tsx', {
   './console-ui':
     'data:text/javascript,export function ConfirmDialog({children}){return children};',
 });
-const { scimFormError, ScimEnrollment } = await import(scim);
+const {
+  scimFormError,
+  ScimEnrollment,
+  scimInventoryMatches,
+  ScimInventoryRows,
+} = await import(scim);
 const {
   syncMessage,
   canReviewSync,
@@ -540,9 +545,76 @@ test('SCIM form explains staging and never asks for a provider password', () => 
   assert.match(html, /Development profile/);
   assert.match(
     html,
-    /Inventory attestation and activation are not yet available/,
+    /confirm completeness, then review and apply an immutable candidate/,
   );
   assert.match(html, /No provider password is required/);
   assert.match(html, /Review enrollment/);
   assert.doesNotMatch(html, /type="password"|nfscim1_/);
+});
+
+test('SCIM inventory review binds source, access, policy and digest without marking completeness', () => {
+  const entry = {
+    source: { ...source, id: 'scim', provider: 'scim' },
+    generation: 'generation-a',
+  };
+  const view = {
+    revision: 4,
+    catalog_sha256: null,
+    stage: { revision: { source_id: 'scim', enrollment: 'generation-a' } },
+    draft: { source: entry.source },
+    inventory_sha256: 'a'.repeat(64),
+    problem: null,
+  };
+  assert.equal(scimInventoryMatches(view, entry, 4, null), true);
+  for (const change of [
+    { revision: 5 },
+    { catalog_sha256: 'b'.repeat(64) },
+    { inventory_sha256: null },
+    { problem: 'Incomplete' },
+    { draft: null },
+    { stage: { revision: { source_id: 'other', enrollment: 'generation-a' } } },
+    { stage: { revision: { source_id: 'scim', enrollment: 'rotated' } } },
+  ])
+    assert.equal(
+      scimInventoryMatches({ ...view, ...change }, entry, 4, null),
+      false,
+    );
+});
+test('SCIM inventory rows are paginated and provider strings are escaped', () => {
+  const draft = {
+    source,
+    people: Array.from({ length: 123 }, (_, i) => ({
+      id: `p-${i}`,
+      display_name: '<script>never execute</script>',
+      activity: 'active',
+      addresses: ['test@example.test'],
+    })),
+    groups: [],
+    memberships: [],
+    delegations: [],
+  };
+  const html = renderToStaticMarkup(
+    createElement(ScimInventoryRows, { draft }),
+  );
+  assert.equal((html.match(/&lt;script&gt;/g) || []).length, 50);
+  assert.match(html, /123 records/);
+  assert.match(html, /Page 1 \/ 3/);
+  assert.doesNotMatch(html, /<script>/);
+});
+
+test('SCIM receipt describes an administrator attestation rather than provider completion', () => {
+  const job = {
+    state: 'ready',
+    stale: false,
+    scim: {
+      inventory_sha256: 'a'.repeat(64),
+      verified_at: 1,
+      revision: { sequence: 1, enrollment: 'e' },
+    },
+  };
+  assert.match(syncMessage(job), /completeness attestation is recorded/);
+  assert.match(
+    syncMessage({ ...job, state: 'failed', reason: 'stale' }),
+    /staged inventory/,
+  );
 });

@@ -54,6 +54,37 @@ impl Revision {
         Ok(next)
     }
 }
+/// Administrator-confirmed inventory, bound to one enrollment and resource
+/// sequence. The digest identifies what was viewed; sequence guards mutations.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Attestation {
+    pub revision: Revision,
+    pub inventory_sha256: String,
+    pub verified_at: i64,
+}
+impl Attestation {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            crate::compatibility::valid_hash(&self.inventory_sha256)
+                && crate::compatibility::valid_hash(&self.revision.source_sha256)
+                && resource::id(&self.revision.enrollment)
+                && self.revision.sequence <= i64::MAX as u64
+                && self.verified_at > 0,
+            "Invalid inventory attestation"
+        );
+        Ok(())
+    }
+    pub fn verify(&self, source: &Source, revision: &Revision) -> anyhow::Result<()> {
+        self.validate()?;
+        self.revision.validate(source)?;
+        anyhow::ensure!(
+            &self.revision == revision,
+            "SCIM inventory changed; review again"
+        );
+        Ok(())
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Candidate {
     revision: Revision,
@@ -63,7 +94,7 @@ pub struct Candidate {
 impl Candidate {
     /// verified_at is an explicit administrator attestation time, not the time
     /// of the last PATCH or the time an automatic worker happens to execute.
-    /// The future repository/API must record the attestation with this exact
+    /// The repository/API records the attestation with this exact
     /// inventory digest and recheck revision before handing it to policy review.
     pub fn prepare(
         source: Source,
@@ -73,10 +104,31 @@ impl Candidate {
         verified_at: i64,
         now: i64,
     ) -> Result<Self> {
-        revision.validate(&source)?;
         if verified_at <= 0 || verified_at > now || now.saturating_sub(verified_at) > 300 {
             return Err(INVALID);
         }
+        Self::project(source, revision, generation, resources, verified_at, now)
+    }
+    /// Read-only projection. No completed-at or attestation is returned: a last
+    /// PATCH is not a provider signal that provisioning is complete.
+    pub fn inspect(
+        source: Source,
+        revision: Revision,
+        resources: &[Resource],
+        now: i64,
+    ) -> Result<(crate::identity::management::Draft, String)> {
+        let projection = Self::project(source, revision, 1, resources, now, now)?;
+        Ok((projection.snapshot.into(), projection.inventory_sha256))
+    }
+    fn project(
+        source: Source,
+        revision: Revision,
+        generation: u64,
+        resources: &[Resource],
+        verified_at: i64,
+        now: i64,
+    ) -> Result<Self> {
+        revision.validate(&source)?;
         if resources.len() > directory::MAX_PEOPLE + directory::MAX_GROUPS {
             return Err(LIMIT);
         }

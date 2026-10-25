@@ -45,6 +45,7 @@ pub async fn enable(
 pub fn request(record: &Record) -> Request {
     let now = noisefence::now();
     Request {
+        scim: None,
         connection: Some(reference(record)),
         scheduled: Some(
             record

@@ -36,6 +36,7 @@ fn snapshot() -> directory::Snapshot {
 fn request(source: &str) -> Request {
     let now = crate::now();
     Request {
+        scim: None,
         scheduled: None,
         connection: None,
         id: uuid::Uuid::new_v4().to_string(),
@@ -684,4 +685,106 @@ async fn stopped_schedule_daemon_does_not_initialize_a_vault() {
     let (_stop, rx) = tokio::sync::watch::channel(true);
     c.run_directory_schedules(rx).await.unwrap();
     assert!(!root.path().join("directory-vault").exists());
+}
+
+#[tokio::test]
+async fn scim_provisioning_during_preparation_invalidates_ready_receipt() {
+    use crate::identity::{
+        connections::Reference,
+        scim::{
+            self, Command, ResourceType,
+            access::{Access, Bearer},
+        },
+    };
+    let (_root, c, session) = setup().await;
+    let source = directory::Source {
+        id: "staged".into(),
+        label: "Synthetic SCIM".into(),
+        provider: directory::Provider::Scim,
+        authority: "fixture".into(),
+        scopes: ["example.test".into()].into(),
+        stale_after_seconds: 86400,
+    };
+    let e = c
+        .enroll_scim(
+            crate::control::identity_scim::Enroll {
+                revision: 0,
+                catalog_sha256: None,
+                expected_generation: None,
+                source: source.clone(),
+                expires: crate::now() + 3600,
+            },
+            "admin".into(),
+            session.clone(),
+        )
+        .await
+        .unwrap();
+    let reference = Reference {
+        source_id: source.id.clone(),
+        generation: e.generation.clone(),
+    };
+    let inventory = c
+        .store
+        .scim_inventory(reference.clone(), "admin".into(), session.clone())
+        .await
+        .unwrap();
+    let candidate = scim::Candidate::prepare(
+        source.clone(),
+        inventory.stage.revision,
+        1,
+        &inventory.resources,
+        crate::now(),
+        crate::now(),
+    )
+    .unwrap();
+    let mut request = request(&source.id);
+    request.runner = c.identity_sync_runner.clone();
+    request.connection = Some(reference);
+    request.scim = Some(scim::Attestation {
+        revision: candidate.revision().clone(),
+        inventory_sha256: candidate.inventory_sha256().into(),
+        verified_at: request.created,
+    });
+    c.identity_sync_begin(&request, "admin".into(), session.clone())
+        .await
+        .unwrap();
+    let prepared = c
+        .prepare_collected_directory(
+            &request,
+            empty(),
+            collected(candidate.snapshot().clone()),
+            source.scopes.clone(),
+            "admin".into(),
+            Some(session.clone()),
+        )
+        .await
+        .unwrap();
+    c.store.scim_request(Access{source_id:source.id.clone(),bearer:Bearer::parse(e.bearer).unwrap()},Command::Create{kind:ResourceType::User,body:serde_json::to_vec(&serde_json::json!({"schemas":[scim::USER_SCHEMA],"userName":"new","emails":[{"value":"new@example.test"}]})).unwrap()}).await.unwrap();
+    c.identity_sync_finish_authorized(
+        Event {
+            request: request.clone(),
+            outcome: Outcome::Ready {
+                prepared: Box::new(prepared),
+            },
+        },
+        "admin".into(),
+        Some(session.clone()),
+    )
+    .await
+    .unwrap();
+    let status = c
+        .identity_sync_status(request.id.clone(), "admin".into(), session.clone())
+        .await
+        .unwrap();
+    assert_eq!(status.state, "failed");
+    assert!(matches!(status.reason, Some(Failure::Stale)));
+    assert!(status.prepared.is_none());
+    let mut replay = request;
+    replay.id = uuid::Uuid::new_v4().to_string();
+    assert!(
+        c.identity_sync_begin(&replay, "admin".into(), session)
+            .await
+            .is_err()
+    );
+    assert!(c.snapshot().config.identity.is_none());
 }

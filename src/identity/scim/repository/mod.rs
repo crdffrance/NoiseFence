@@ -1,7 +1,7 @@
 //! Source-scoped durable staging, shared transaction algorithm, two adapters.
 pub(crate) mod database;
 pub(crate) mod engine;
-mod local;
+pub(crate) mod local;
 mod store;
 use super::{ListQuery, Resource, ResourceType, Revision};
 use crate::identity::{connections::Record, directory::Source};

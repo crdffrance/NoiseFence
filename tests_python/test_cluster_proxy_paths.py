@@ -21,11 +21,18 @@ class ClusterProxyPaths(unittest.TestCase):
     def test_caddy_excludes_both_protocols_from_console_body_limit(self):
         config = (ROOT / 'deploy/Caddyfile').read_text()
         cluster = re.search(r'@cluster path (\S+)', config)[1]
-        excluded = re.search(r'@console not path (\S+)', config)[1]
+        excluded = re.search(r'@console not path ([^\n]+)', config)[1].split()
         for path in ('/api/v1/cluster/v1/sync', '/api/v1/cluster/v2/sync'):
             self.assertTrue(fnmatch.fnmatchcase(path, cluster))
-            self.assertTrue(fnmatch.fnmatchcase(path, excluded))
+            self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in excluded), path)
         self.assertFalse(fnmatch.fnmatchcase('/api/v1/login', cluster))
+        self.assertTrue(any(fnmatch.fnmatchcase('/scim/organization/v2/Users', pattern)
+                            for pattern in excluded))
+        for path in ('/api/v1/login', '/api/v1/settings', '/scim-other/v2/Users',
+                     '/api/v1/cluster-other/v1/sync'):
+            self.assertFalse(any(fnmatch.fnmatchcase(path, pattern) for pattern in excluded), path)
+        self.assertRegex(config, r'request_body @console\s*\{\s*max_size 128KB')
+        self.assertRegex(config, r'request_body @scim\s*\{\s*max_size 1048576')
 
 
 if __name__ == '__main__':

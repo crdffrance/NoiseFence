@@ -242,3 +242,25 @@ impl Central {
         Ok(result)
     }
 }
+
+/// Same management lock as SCIM mutations, revocation and receipt publication.
+pub(super) async fn verify_review(
+    tx: &Transaction<'_>,
+    proof: &crate::identity::scim::Attestation,
+    record: &crate::identity::connections::Record,
+) -> Result<()> {
+    check(tx).await?;
+    let row = tx.query_one("SELECT source_sha256,sequence FROM noisefence.identity_scim_sources WHERE source_id=$1", &[&record.metadata.source.id]).await.map_err(database_error)?;
+    ensure!(
+        row.get::<_, String>(0) == proof.revision.source_sha256,
+        "SCIM source changed"
+    );
+    let sequence: i64 = row.get(1);
+    ensure!(sequence >= 0, "Invalid SCIM sequence");
+    let revision = crate::identity::scim::Revision::new(
+        &record.metadata.source,
+        record.metadata.generation.clone(),
+        sequence as u64,
+    )?;
+    proof.verify(&record.metadata.source, &revision)
+}

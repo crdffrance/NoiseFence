@@ -1040,6 +1040,7 @@
 }
 
 .directory-sync {
+  min-width: 0;
   margin: 20px 0;
   padding: 22px;
   border: 1px solid #dde2e8;
@@ -1248,4 +1249,25 @@
 }
 .directory-scim > header h4 {
   font-weight: 600;
+}
+
+.directory-scim-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+.directory-scim-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.directory-scim-table th,
+.directory-scim-table td {
+  padding: 0.65rem;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  min-width: 8rem;
+}
+.directory-scim-table tbody tr + tr {
+  border-top: 1px solid var(--border);
 }

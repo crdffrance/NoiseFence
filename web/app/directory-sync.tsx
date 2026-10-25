@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { CloudDownload, RefreshCw } from 'lucide-react';
 import { api, type User } from './client';
 import { ConfirmDialog } from './console-ui';
-import { ScimEnrollment } from './directory-scim';
+import { ScimEnrollment, ScimInventory } from './directory-scim';
 import {
   SavedConnections,
   connectionLifetimeError,
@@ -107,6 +107,11 @@ export function awsFormError(
             : null);
 }
 export type SyncStatus = {
+  scim?: {
+    inventory_sha256: string;
+    verified_at: number;
+    revision: { sequence: number; enrollment: string };
+  };
   id: string;
   source_id: string;
   started_at: number;
@@ -127,7 +132,11 @@ export function syncMessage(job: SyncStatus) {
   if (job.state === 'ready' && job.stale)
     return 'Collection completed against an older configuration. Reload settings and collect again before review.';
   if (job.state === 'ready')
-    return 'Collection completed. Review the candidate and apply the policy to activate it.';
+    return job.scim
+      ? 'Inventory preparation completed. Your completeness attestation is recorded. Review the candidate and apply the policy separately.'
+      : 'Collection completed. Review the candidate and apply the policy to activate it.';
+  if (job.scim && job.reason === 'stale')
+    return 'The staged inventory or configuration changed during preparation. Reload the inventory and review it again; no candidate from this attempt is available.';
   const failures: Record<string, string> = {
     collection:
       'Collection failed or the provider refused access. Check the tenant, read permissions and credential.',
@@ -277,6 +286,9 @@ export function DirectorySync({
   const [scimEdit, setScimEdit] = useState<SavedConnection | 'new' | null>(
     null,
   );
+  const [scimInventory, setScimInventory] = useState<SavedConnection | null>(
+    null,
+  );
   const [scimBusy, setScimBusy] = useState(false);
   const [open, setOpen] = useState(false),
     [existing, setExisting] = useState(''),
@@ -424,9 +436,9 @@ export function DirectorySync({
     };
   }, [provider, secret]);
   useEffect(() => {
-    onDirty(dirty || scimEdit !== null);
+    onDirty(dirty || scimEdit !== null || scimInventory !== null);
     return () => onDirty(false);
-  }, [dirty, scimEdit, onDirty]);
+  }, [dirty, scimEdit, scimInventory, onDirty]);
   useEffect(() => {
     onBusy(busy || scimBusy);
     return () => onBusy(false);
@@ -504,7 +516,14 @@ export function DirectorySync({
     }
   }
   async function startSaved(entry: SavedConnection) {
-    if (disabled || busy || scimEdit !== null || scimBusy) return;
+    if (
+      disabled ||
+      busy ||
+      scimEdit !== null ||
+      scimInventory !== null ||
+      scimBusy
+    )
+      return;
     setBusy(true);
     setError('');
     const operation = crypto.randomUUID();
@@ -534,6 +553,7 @@ export function DirectorySync({
       disabled ||
       busy ||
       scimEdit !== null ||
+      scimInventory !== null ||
       scimBusy ||
       !adUpload ||
       !adFile
@@ -594,6 +614,7 @@ export function DirectorySync({
       disabled ||
       busy ||
       scimEdit !== null ||
+      scimInventory !== null ||
       scimBusy ||
       !scheduleDraft ||
       scheduleProblem
@@ -638,7 +659,14 @@ export function DirectorySync({
     }
   }
   async function mutateAccess() {
-    if (disabled || busy || scimEdit !== null || scimBusy || !confirmAccess)
+    if (
+      disabled ||
+      busy ||
+      scimEdit !== null ||
+      scimInventory !== null ||
+      scimBusy ||
+      !confirmAccess
+    )
       return;
     const action = confirmAccess;
     setBusy(true);
@@ -721,6 +749,7 @@ export function DirectorySync({
       disabled ||
       busy ||
       scimEdit !== null ||
+      scimInventory !== null ||
       scimBusy ||
       problem ||
       provider === 'active_directory'
@@ -795,7 +824,13 @@ export function DirectorySync({
         <button
           type="button"
           className="secondary"
-          disabled={disabled || busy || scimEdit !== null || scimBusy}
+          disabled={
+            disabled ||
+            busy ||
+            scimEdit !== null ||
+            scimInventory !== null ||
+            scimBusy
+          }
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -810,7 +845,13 @@ export function DirectorySync({
       </p>
       {open && (
         <fieldset
-          disabled={disabled || busy || scimEdit !== null || scimBusy}
+          disabled={
+            disabled ||
+            busy ||
+            scimEdit !== null ||
+            scimInventory !== null ||
+            scimBusy
+          }
           className="directory-sync-form"
         >
           <legend>Read-only connection</legend>
@@ -1125,7 +1166,13 @@ export function DirectorySync({
       {adUpload && (
         <fieldset
           className="directory-sync-form"
-          disabled={disabled || busy || scimEdit !== null || scimBusy}
+          disabled={
+            disabled ||
+            busy ||
+            scimEdit !== null ||
+            scimInventory !== null ||
+            scimBusy
+          }
         >
           <legend>Upload signed Active Directory export</legend>
           <p>
@@ -1182,6 +1229,7 @@ export function DirectorySync({
             busy ||
             dirty ||
             scimEdit !== null ||
+            scimInventory !== null ||
             !saved ||
             !['ready', 'not_initialized'].includes(saved.vault) ||
             saved.connections.length >= 16
@@ -1207,17 +1255,46 @@ export function DirectorySync({
           onChanged={() => setAttempt((v) => v + 1)}
         />
       )}
+      {(visible || scimBusy) && scimInventory && (
+        <ScimInventory
+          user={user}
+          entry={scimInventory}
+          revision={revision}
+          installed={installed}
+          disabled={disabled || busy || dirty}
+          onBusy={setScimBusy}
+          onClose={() => setScimInventory(null)}
+          onReceipt={(id) => {
+            setJob(null);
+            setJobId(id);
+            try {
+              sessionStorage.setItem(storageKey, id);
+            } catch {
+              /* Receipt ID only. */
+            }
+          }}
+        />
+      )}
       <SavedConnections
         username={user.username}
         onSchedule={editSchedule}
         onStopSchedule={(entry) => editSchedule(entry, true)}
         onInspect={rememberJob}
         value={saved}
-        busy={disabled || busy || scimEdit !== null || scimBusy || dirty}
+        busy={
+          disabled ||
+          busy ||
+          scimEdit !== null ||
+          scimInventory !== null ||
+          scimBusy ||
+          dirty
+        }
         onCollect={(entry) =>
-          entry.source.provider === 'active_directory'
-            ? setAdUpload(entry)
-            : void startSaved(entry)
+          entry.source.provider === 'scim'
+            ? setScimInventory(entry)
+            : entry.source.provider === 'active_directory'
+              ? setAdUpload(entry)
+              : void startSaved(entry)
         }
         onReplace={(entry) => {
           if (entry.source.provider === 'scim') {
@@ -1415,6 +1492,24 @@ export function DirectorySync({
                 : 'Loading synchronization status…'}
           </p>
           <code>{jobId}</code>
+          {job?.scim && (
+            <details>
+              <summary>Inventory attestation</summary>
+              <p>
+                Recorded{' '}
+                {new Date(job.scim.verified_at * 1000).toLocaleString('en-GB')}{' '}
+                · staged sequence {job.scim.revision.sequence}
+              </p>
+              <p>
+                Inventory SHA-256 <code>{job.scim.inventory_sha256}</code>
+              </p>
+              <p className="small muted">
+                Administrator confirmation, not an independent provider
+                completion signal. Later provisioning is excluded from this
+                candidate.
+              </p>
+            </details>
+          )}
           <div className="actions">
             <button
               type="button"
@@ -1426,7 +1521,13 @@ export function DirectorySync({
             {job && canReviewSync(job, revision, installed) && (
               <button
                 type="button"
-                disabled={disabled || busy || scimEdit !== null || scimBusy}
+                disabled={
+                  disabled ||
+                  busy ||
+                  scimEdit !== null ||
+                  scimInventory !== null ||
+                  scimBusy
+                }
                 onClick={() => onPrepared(job.prepared!)}
               >
                 Review collected changes

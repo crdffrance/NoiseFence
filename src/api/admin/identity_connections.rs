@@ -217,3 +217,47 @@ pub(super) async fn enroll_scim(
         serde_json::to_value(result).map_err(anyhow::Error::from)?,
     ))
 }
+
+/// POST keeps the source reference in a bounded body; still a read, not an
+/// attestation. Role/Origin/CSRF are checked before parsing either request.
+pub(super) async fn scim_inventory(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<Json<Value>> {
+    let actor = administrator(&app, &h, true).await?;
+    let _permit = super::identity::capacity(&app)?;
+    let input: crate::identity::connections::Reference = body(request).await?;
+    let result = controller(&app)?
+        .scim_inventory_view(
+            input,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(refused)?;
+    Ok(Json(
+        serde_json::to_value(result).map_err(anyhow::Error::from)?,
+    ))
+}
+pub(super) async fn attest_scim(
+    State(app): State<App>,
+    h: HeaderMap,
+    request: Request,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let actor = administrator(&app, &h, true).await?;
+    let _permit = super::identity::capacity(&app)?;
+    let input: crate::control::identity_scim::Attest = body(request).await?;
+    let result = controller(&app)?
+        .attest_scim(
+            input,
+            actor.username,
+            message::digest(token(&h).unwrap().as_bytes()),
+        )
+        .await
+        .map_err(refused)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"id":result.id,"deadline":result.deadline,"state":"running"})),
+    ))
+}

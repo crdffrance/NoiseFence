@@ -228,8 +228,104 @@ async fn selected_postgres_scim_http_uses_authoritative_sessions_and_storage() {
         .unwrap();
     let (router, control) = http::router(std::sync::Arc::new(config), store.clone()).await;
     http::exercise(&router, &control).await;
+    http::exercise_review(&router, &control).await;
     drop(router);
     drop(control);
+    drop(store);
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn postgres_scim_mutation_between_intent_and_result_invalidates_preparation() {
+    use noisefence::identity::{
+        management, runtime, scim,
+        sync::{self, Event, Outcome, Request},
+    };
+    let f = postgres::Fixture::new().await;
+    let (_root, store) = setup(&f).await;
+    let e = common::enroll(&store, "review-race", None).await;
+    let reference = e.reference();
+    let inventory = store
+        .scim_inventory(reference.clone(), "admin".into(), common::SESSION.into())
+        .await
+        .unwrap();
+    let now = noisefence::now();
+    let candidate = scim::Candidate::prepare(
+        inventory.source.clone(),
+        inventory.stage.revision,
+        1,
+        &inventory.resources,
+        now,
+        now,
+    )
+    .unwrap();
+    let proof = scim::Attestation {
+        revision: candidate.revision().clone(),
+        inventory_sha256: candidate.inventory_sha256().into(),
+        verified_at: now,
+    };
+    let req = Request {
+        scim: Some(proof),
+        scheduled: None,
+        connection: Some(reference),
+        id: uuid::Uuid::new_v4().to_string(),
+        runner: uuid::Uuid::new_v4().to_string(),
+        source_id: "review-race".into(),
+        revision: 0,
+        catalog_sha256: None,
+        created: now,
+        deadline: now + 360,
+    };
+    f.central
+        .identity_sync_begin(&req, "admin", common::SESSION)
+        .await
+        .unwrap();
+    let empty = runtime::Document {
+        schema: runtime::SCHEMA.into(),
+        sources: vec![],
+    };
+    let preview = management::preview_collected(
+        &empty,
+        candidate.snapshot().clone(),
+        &inventory.source.scopes,
+        now,
+    )
+    .unwrap();
+    let prepared = serde_json::from_value(serde_json::json!({"revision":0,"selection":{"sha256":"a".repeat(64),"reviewed_from":null},"review":preview.review,"active":false,"collection":null})).unwrap();
+    common::resource(&store, &e, common::user("raced")).await;
+    f.central
+        .identity_sync_finish_authorized(
+            &Event {
+                request: req.clone(),
+                outcome: Outcome::Ready {
+                    prepared: Box::new(prepared),
+                },
+            },
+            "admin",
+            Some(common::SESSION),
+        )
+        .await
+        .unwrap();
+    let raw = f
+        .central
+        .identity_sync_read(&req.id, "admin", common::SESSION)
+        .await
+        .unwrap();
+    assert!(matches!(
+        sync::latest(&raw).unwrap()[&req.id].outcome,
+        Outcome::Failed {
+            reason: sync::Failure::Stale
+        }
+    ));
+    let mut next = req;
+    next.id = uuid::Uuid::new_v4().to_string();
+    assert!(
+        f.central
+            .identity_sync_begin(&next, "admin", common::SESSION)
+            .await
+            .is_err()
+    );
     drop(store);
     f.finish().await;
 }

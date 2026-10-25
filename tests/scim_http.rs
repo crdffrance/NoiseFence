@@ -338,3 +338,9 @@ async fn scim_slow_body_has_a_deadline_and_never_creates_a_resource() {
         0
     );
 }
+
+#[tokio::test]
+async fn scim_explicit_inventory_attestation_prepares_only_reviewed_snapshot() {
+    let (_root, _store, router, control) = setup().await;
+    http::exercise_review(&router, &control).await;
+}

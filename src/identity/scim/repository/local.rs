@@ -211,3 +211,22 @@ where
     })
     .await?
 }
+
+/// Called inside the same write transaction as a durable review receipt.
+pub(crate) fn verify_review(
+    tx: &Transaction<'_>,
+    proof: &super::super::staging::Attestation,
+    record: &Record,
+) -> Result<()> {
+    migrate(tx)?;
+    let (digest, sequence): (String, i64) = tx.query_row(
+        "SELECT source_sha256,sequence FROM identity_scim_sources WHERE source_id=?1",
+        [&record.metadata.source.id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    ensure!(
+        digest == proof.revision.source_sha256,
+        "SCIM source changed"
+    );
+    proof.verify(&record.metadata.source, &super::revision(record, sequence)?)
+}

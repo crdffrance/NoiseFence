@@ -31,6 +31,14 @@ pub(super) fn routes() -> Router<App> {
             post(identity_connections::collect),
         )
         .route(
+            "/admin/identity/scim/inventory",
+            post(identity_connections::scim_inventory),
+        )
+        .route(
+            "/admin/identity/scim/attest",
+            post(identity_connections::attest_scim),
+        )
+        .route(
             "/admin/identity/scim/enroll",
             post(identity_connections::enroll_scim),
         )

@@ -1,7 +1,7 @@
 //! Bounded SCIM protocol and transactional staging for both management backends.
 //! Source-scoped bearer verification precedes each read or mutation. HTTP routes
-//! and administrator enrollment live in api/control. Reviewed inventory publication
-//! remains a separate integration step. See docs/identity-scim.md.
+//! and explicit inventory attestation live in api/control. Prepared candidates
+//! still require normal policy review and activation. See docs/identity-scim.md.
 pub mod access;
 pub mod endpoint;
 mod json;
@@ -14,7 +14,7 @@ mod staging;
 pub use query::{Filter, ListQuery};
 pub use repository::{Command, Inventory, Reply, Stage};
 pub use resource::{Data, Resource, ResourceType};
-pub use staging::{Candidate, Revision};
+pub use staging::{Attestation, Candidate, Revision};
 
 pub const USER_SCHEMA: &str = "urn:ietf:params:scim:schemas:core:2.0:User";
 pub const GROUP_SCHEMA: &str = "urn:ietf:params:scim:schemas:core:2.0:Group";

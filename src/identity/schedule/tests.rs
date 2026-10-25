@@ -58,6 +58,7 @@ fn enabled(key: &Key, r: &mut Record) {
 }
 fn request(r: &Record) -> Request {
     Request {
+        scim: None,
         connection: Some(Reference {
             source_id: r.metadata.source.id.clone(),
             generation: r.metadata.generation.clone(),

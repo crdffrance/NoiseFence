@@ -365,3 +365,205 @@ pub async fn exercise(router: &Router, control: &Arc<Controller>) {
     assert!(control.snapshot().config.identity.is_none());
     assert_eq!(control.snapshot().revision, 0);
 }
+
+/// Shared actual HTTP review fixture, also executed with selected PostgreSQL.
+pub async fn exercise_review(router: &Router, control: &Arc<Controller>) {
+    let e = enroll(router, "review", None).await;
+    let token = e["bearer"].as_str().unwrap();
+    let reference = json!({"source_id":"review","generation":e["generation"]});
+    assert_eq!(
+        call(
+            router,
+            provisioning(token, "POST", "/scim/review/v2/Users", user("first"))
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    for (token, csrf, status) in [
+        ("", true, StatusCode::UNAUTHORIZED),
+        (READER, true, StatusCode::FORBIDDEN),
+        (ADMIN, false, StatusCode::FORBIDDEN),
+    ] {
+        assert_eq!(
+            call(
+                router,
+                admin_request(
+                    token,
+                    "/admin/identity/scim/inventory",
+                    Some(reference.clone()),
+                    csrf
+                )
+            )
+            .await
+            .0,
+            status
+        );
+        assert_eq!(
+            call(
+                router,
+                admin_request(token, "/admin/identity/scim/attest", Some(json!({})), csrf)
+            )
+            .await
+            .0,
+            status
+        );
+    }
+    let (status, _, view) = call(
+        router,
+        admin_request(
+            ADMIN,
+            "/admin/identity/scim/inventory",
+            Some(reference.clone()),
+            true,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["draft"]["people"].as_array().unwrap().len(), 1);
+    assert!(view["draft"].get("completed_at").is_none());
+    assert!(!view.to_string().contains(token));
+    let mut input = json!({"operation":uuid::Uuid::new_v4().to_string(),"revision":0,"catalog_sha256":null,"connection":reference,"staged_revision":view["stage"]["revision"],"inventory_sha256":view["inventory_sha256"],"complete_inventory":false});
+    assert_eq!(
+        call(
+            router,
+            admin_request(
+                ADMIN,
+                "/admin/identity/scim/attest",
+                Some(input.clone()),
+                true
+            )
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    input["complete_inventory"] = json!(true);
+    let mut bad = input.clone();
+    bad["inventory_sha256"] = json!("a".repeat(64));
+    assert_eq!(
+        call(
+            router,
+            admin_request(ADMIN, "/admin/identity/scim/attest", Some(bad), true)
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            router,
+            provisioning(token, "POST", "/scim/review/v2/Users", user("second"))
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        call(
+            router,
+            admin_request(
+                ADMIN,
+                "/admin/identity/scim/attest",
+                Some(input.clone()),
+                true
+            )
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (_, _, view) = call(
+        router,
+        admin_request(
+            ADMIN,
+            "/admin/identity/scim/inventory",
+            Some(reference.clone()),
+            true,
+        ),
+    )
+    .await;
+    input["staged_revision"] = view["stage"]["revision"].clone();
+    input["inventory_sha256"] = view["inventory_sha256"].clone();
+    assert_eq!(
+        call(
+            router,
+            admin_request(
+                ADMIN,
+                "/admin/identity/scim/attest",
+                Some(input.clone()),
+                true
+            )
+        )
+        .await
+        .0,
+        StatusCode::ACCEPTED
+    );
+    // Receipt was chosen before the POST: a lost reply is recoverable, no replay.
+    let path = format!(
+        "/admin/identity/sync/{}",
+        input["operation"].as_str().unwrap()
+    );
+    let receipt = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let (s, _, r) = call(router, admin_request(ADMIN, &path, None, false)).await;
+            assert_eq!(s, StatusCode::OK, "{r}");
+            if r["state"] != "running" {
+                break r;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt["state"], "ready", "{receipt}");
+    assert_eq!(
+        receipt["scim"]["inventory_sha256"],
+        view["inventory_sha256"]
+    );
+    assert_eq!(receipt["prepared"]["review"]["people"]["added"], 2);
+    assert_eq!(receipt["prepared"]["active"], false);
+    assert!(receipt["prepared"]["collection"].is_null());
+    assert!(control.snapshot().config.identity.is_none());
+    assert_eq!(
+        call(
+            router,
+            admin_request(
+                ADMIN,
+                "/admin/identity/scim/attest",
+                Some(input.clone()),
+                true
+            )
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            router,
+            provisioning(token, "POST", "/scim/review/v2/Users", user("third"))
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let (_, _, later) = call(router, admin_request(ADMIN, &path, None, false)).await;
+    assert_eq!(later["prepared"], receipt["prepared"]); // frozen, never includes third
+    enroll(router, "review", e["generation"].as_str()).await;
+    assert_eq!(
+        call(
+            router,
+            admin_request(
+                ADMIN,
+                "/admin/identity/scim/inventory",
+                Some(reference),
+                true
+            )
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert!(control.snapshot().config.identity.is_none());
+}

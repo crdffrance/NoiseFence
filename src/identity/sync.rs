@@ -10,6 +10,8 @@ pub const MAX_EVENTS: usize = 128;
 #[serde(deny_unknown_fields)]
 pub struct Request {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scim: Option<super::scim::Attestation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<super::connections::Reference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled: Option<super::schedule::Binding>,
@@ -23,6 +25,19 @@ pub struct Request {
 }
 impl Request {
     pub fn validate(&self) -> Result<()> {
+        if let Some(proof) = &self.scim {
+            proof.validate()?;
+            ensure!(
+                self.scheduled.is_none()
+                    && self
+                        .connection
+                        .as_ref()
+                        .is_some_and(|r| r.source_id == proof.revision.source_id
+                            && r.generation == proof.revision.enrollment)
+                    && proof.verified_at == self.created,
+                "Invalid SCIM attestation binding"
+            );
+        }
         if let Some(binding) = &self.scheduled {
             binding.validate()?;
             ensure!(
@@ -285,6 +300,7 @@ mod tests {
     const NOW: i64 = 1800000000;
     fn request(source: &str) -> Request {
         Request {
+            scim: None,
             scheduled: None,
             connection: None,
             id: uuid::Uuid::new_v4().to_string(),
