@@ -1,4 +1,5 @@
 mod domain_setup;
+mod identity;
 mod preference_preview;
 mod providers;
 use super::*;
@@ -8,6 +9,14 @@ pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
+        .route("/admin/identity", get(identity::view))
+        .route("/admin/identity/prepare", post(identity::prepare))
+        .route("/admin/identity/sync/entra", post(identity::synchronize))
+        .route(
+            "/admin/identity/sync/okta",
+            post(identity::synchronize_okta),
+        )
+        .route("/admin/identity/sync/{id}", get(identity::sync_status))
         .route("/admin/rbl/test", post(test_rbl))
         .route("/admin/domains/check", post(domain_setup::check))
         .route("/admin/admission", get(admission_status))

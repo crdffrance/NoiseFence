@@ -60,6 +60,8 @@ export const settingSections: Record<string, string> = {
   gateways: 'Gateways',
   filters: 'Filter policy',
   actions: 'Delivery actions',
+  identity_directory: 'Directory snapshot',
+  contact_learning: 'Automatic correspondent memory',
   protection: 'Protection & reputation',
   mailing: 'Marketing',
   research_archive: 'Research archive',
@@ -110,6 +112,15 @@ export function keepsConfigurationDraft(
 }
 
 export function settingTitle(path: string[]): string {
+  if (path[0] === 'contact_learning') return ({enabled:'Learn from accepted messages',retention_days:'Memory window (days)',minimum_campaigns:'Minimum distinct campaigns',minimum_days:'Minimum observation days',learn_since:'Exclude history before (Unix time)'} as Record<string,string>)[path[1]] ?? 'Automatic correspondent memory';
+  if (path[0] === 'identity_directory' && path[1] === 'sha256') return 'Prepared catalog SHA-256';
+  if (path[0] === 'identity_directory' && path[1] === 'reviewed_from') return 'Reviewed installed catalog SHA-256';
+  if (path[0] === 'protection' && path[1] === 'protected_names') {
+    const row = path[2] && /^\d+$/.test(path[2]) ? ` ${Number(path[2]) + 1}` : '';
+    const detail = path[3] === 'name' ? ' · display name' : path[3] === 'domain' ? ' · sending domain' : '';
+    return `Protected name${row}${detail}`;
+  }
+  if (path[0] === 'protection' && path[1] === 'identity') return 'Observe identity signals';
   const field = path.at(-1) ?? 'configuration';
   const names: Record<string, string> = {
     threshold: 'Content reference threshold',

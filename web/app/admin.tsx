@@ -1,4 +1,5 @@
 'use client';
+import { ContactLearningSettingsEditor, contactLearningError, type ContactLearningSettings } from "./contact-learning";
 import { ProvidersOverview } from './providers-view';
 import { SettingsHistory } from './settings-history-view';
 import { SettingsComparison } from './settings-review-view';
@@ -31,7 +32,9 @@ import {
 } from './actions';
 import { MailingSettings, type MailingPolicy } from './mailing';
 import { ProtectionSettings, type ProtectionPolicy } from './protection';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { IdentitySettings } from './identity-settings';
+import { protectedNameError } from './identity-editor';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   Globe2,
@@ -56,6 +59,8 @@ import { ModelSources } from './model-sources';
 import { ModelCatalog } from './model-catalog';
 import { ActivationPanel, useActivation } from './activation-view';
 import { saveNotice, savesBlocked, type SaveResult } from './activation';
+
+const DirectorySettings = lazy(() => import('./directory-settings').then(module => ({ default: module.DirectorySettings })));
 
 export const navigation = [
   { id: 'messages', label: 'Messages', icon: Activity },
@@ -97,6 +102,7 @@ type Filters = {
   reputation: boolean;
 };
 export type Settings = {
+  contact_learning?: ContactLearningSettings | null;
   quality_candidate?: {job:string|null;sha256:string|null}|null;
   research_archive?: ArchiveSettings | null;
   smtp_admission: AdmissionSettings;
@@ -108,6 +114,7 @@ export type Settings = {
   gateways: Gateway[];
   filters: Filters;
   actions: ActionPolicy | null;
+  identity_directory?: { sha256: string | null; reviewed_from?: string | null } | null;
   protection: ProtectionPolicy | null;
   mailing: MailingPolicy | null;
 };
@@ -218,10 +225,11 @@ const filterSections = [
     description: "Exceptions by domain or address",
     icon: <Users size={19} />,
   },
+  { id: 'identity', label: 'Identity protection', description: 'Directory, contact memory and impersonation context', icon: <Users size={19} /> },
   {
     id: 'protection',
     label: "Protection & reputation",
-    description: "Links, identity and providers",
+    description: "Links, exceptions and providers",
     icon: <Globe2 size={19} />,
   },
   {
@@ -467,9 +475,11 @@ export function AdminConsole({
   const [filterSection, setFilterSection] = useState<FilterSection>('policy');
   const [filterQuery, setFilterQuery] = useState('');
   const [setupOpen, setSetupOpen] = useState(false);
+  const [directoryDirty, setDirectoryDirty] = useState(false);
+  const [directoryBusy, setDirectoryBusy] = useState(false);
   const addDomainButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => { onSetupDirty(setupOpen); return () => onSetupDirty(false); }, [setupOpen, onSetupDirty]);
-  useEffect(() => { onBusy(busy); return () => onBusy(false); }, [busy, onBusy]);
+  useEffect(() => { onSetupDirty(setupOpen || directoryDirty); return () => onSetupDirty(false); }, [setupOpen, directoryDirty, onSetupDirty]);
+  useEffect(() => { onBusy(busy || directoryBusy); return () => onBusy(false); }, [busy, directoryBusy, onBusy]);
   function closeSetup() { setSetupOpen(false); requestAnimationFrame(() => addDomainButton.current?.focus()); }
   const [accountQuery, setAccountQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
@@ -488,19 +498,21 @@ export function AdminConsole({
   const operationView = operations?.key === operationKey ? operations : null;
   const metrics = operationView?.metrics ?? null;
   const deliveries = operationView?.deliveries ?? [];
+  const contactError = contactLearningError(draft?.contact_learning);
+  const identityInvalid = draft?.protection?.protected_names.some(entry => protectedNameError(entry) !== null) ?? false;
   const dirty =
     !refreshRequired &&
     !!config &&
     !!draft &&
     (JSON.stringify(config.settings) !== JSON.stringify(draft) || modelSelection !== null);
   useEffect(() => {
-    onDirty(dirty || setupOpen);
+    onDirty(dirty || setupOpen || directoryDirty);
     const leave = (e: BeforeUnloadEvent) => {
-      if (dirty || setupOpen) e.preventDefault();
+      if (dirty || setupOpen || directoryDirty || directoryBusy) e.preventDefault();
     };
     window.addEventListener('beforeunload', leave);
     return () => window.removeEventListener('beforeunload', leave);
-  }, [dirty, setupOpen, onDirty]);
+  }, [dirty, setupOpen, directoryDirty, directoryBusy, onDirty]);
   useEffect(() => {
     let active = true;
     api<Configuration>('/admin/config')
@@ -594,14 +606,14 @@ export function AdminConsole({
     }
   }
   useEffect(() => {
-    if (!config || dirty || busy || refreshRequired || !activation.view || activation.view.pending ||
+    if (!config || dirty || directoryDirty || directoryBusy || busy || refreshRequired || !activation.view || activation.view.pending ||
         activation.view.installed_revision === config.revision) return;
     let active = true;
     api<Configuration>('/admin/config').then(c => {
       if (active) { setConfig(c); setDraft(c.settings); setReviewed(null); setNotice('Installed configuration refreshed.'); void onApplied().catch(e => setError(e.message)); }
     }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
-  }, [activation.view, config, dirty, busy, refreshRequired, onApplied]);
+  }, [activation.view, config, dirty, directoryDirty, directoryBusy, busy, refreshRequired, onApplied]);
   if (!config || !draft)
     return (
       <div className="panel">
@@ -1119,8 +1131,8 @@ export function AdminConsole({
             />
           </div>
           <div id="filters-panel-models" role="tabpanel" aria-labelledby="filters-tab-models" hidden={filterSection !== 'models'} className="filter-section">
-            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked || setupOpen} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
-            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || blocked || setupOpen} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
+            <ModelSources revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || directoryBusy || directoryDirty || blocked || setupOpen || identityInvalid || !!contactError} coordinated={!!activation.view?.coordinated} selected={catalogSelection ? null : modelSelection} onSelect={digest => setModelChoice(digest ? {digest,draft:modelDraft,revision:config.revision} : null)} />
+            <ModelCatalog revision={config.revision} settings={normalize(draft)} csrf={user.csrf} disabled={busy || directoryBusy || directoryDirty || blocked || setupOpen || identityInvalid || !!contactError} coordinated={!!activation.view?.coordinated} selected={catalogSelection ?? null} onSelect={choice => {
               if (!choice) {setModelChoice(null);return;}
               setModelChoice({digest:choice.digest,catalogId:choice.id,quality:choice.quality_candidate,draft:modelDraft,revision:config.revision});
             }} />
@@ -1292,6 +1304,19 @@ export function AdminConsole({
               }
             />
           </div>
+          <div id="filters-panel-identity" role="tabpanel" aria-labelledby="filters-tab-identity" hidden={filterSection !== 'identity'} className="filter-section">
+            <ContactLearningSettingsEditor value={draft.contact_learning} disabled={busy || blocked || refreshRequired} onChange={contact_learning => setDraft({ ...draft, contact_learning })}/>
+            <Suspense fallback={<p aria-live="polite">Loading directory editor…</p>}><DirectorySettings key={`directory:${user.username}:${config.revision}:${epoch}`} user={user} revision={config.revision}
+              installed={config.settings.identity_directory} selection={draft.identity_directory}
+              domains={config.settings.domains.map(domain => domain.name)} visible={filterSection === 'identity'} disabled={busy || blocked || refreshRequired} onDirty={setDirectoryDirty} onBusy={setDirectoryBusy}
+              onChange={identity_directory => setDraft({ ...draft, identity_directory })}/></Suspense>
+            <details className="directory-legacy"><summary>Domain-based name checks <span>Names, lookalike domains and Reply-To</span></summary>
+            <IdentitySettings key={`${user.username}:${config.revision}:${epoch}`} revision={config.revision}
+              policy={draft.protection} installed={config.settings.protection}
+              domains={draft.domains.filter(domain => domain.enabled).map(domain => domain.name)}
+              onChange={protection => setDraft({ ...draft, protection })}
+              onProtection={() => { setFilterQuery(''); setFilterSection('protection'); requestAnimationFrame(() => document.getElementById('filters-tab-protection')?.focus()); }}/></details>
+          </div>
           <div
             id="filters-panel-protection"
             role="tabpanel"
@@ -1303,6 +1328,7 @@ export function AdminConsole({
               key={`${user.username}:${config.revision}:${epoch}`}
               revision={config.revision}
               policy={draft.protection}
+              onIdentity={() => { setFilterQuery(''); setFilterSection('identity'); requestAnimationFrame(() => document.getElementById('filters-tab-identity')?.focus()); }}
               user={user}
               onChange={(protection) => setDraft({ ...draft, protection })}
             />
@@ -1726,8 +1752,11 @@ export function AdminConsole({
             onLoad={(value,label)=>{setDraft(value);setModelChoice(null);setReviewed(null);setEpoch(e=>e+1);setNotice(`${label} loaded as an unsaved draft. Review before applying as a new revision.`);}} />
         </>
       )}
+      {dirty && directoryDirty && <p className="notice">Prepare or discard your local directory edits before applying the configuration.</p>}
       {dirty && (
         <div className="save-area">
+          {contactError && <p className="error" role="alert">{contactError}</p>}
+          {identityInvalid && <p className="error" role="alert">Correct the invalid protected names in Identity protection before reviewing or applying settings.</p>}
           {review && proposal && (
             <section className="change-review">
               <h2 ref={reviewHeading} tabIndex={-1}>Review configuration changes</h2>
@@ -1755,7 +1784,7 @@ export function AdminConsole({
                 Cancel
               </Button>
               <Button
-                disabled={busy || blocked || setupOpen}
+                disabled={busy || directoryBusy || directoryDirty || blocked || setupOpen || identityInvalid || !!contactError}
                 onClick={() => {
                   if (review) void action(save);
                   else {setReviewed(reviewKey);requestAnimationFrame(()=>reviewHeading.current?.focus());}

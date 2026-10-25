@@ -66,6 +66,14 @@ Spamhaus DQS has a separate IP/domain connector, return-code validation and DNS 
 
 ## Impersonation and campaigns
 
+Manage names and the observation switch under **Filters → Identity protection**.
+The dedicated editor supports search, CSV import preview and confirmed removal;
+all changes use the existing reviewed configuration draft. Reply-To exceptions,
+link exceptions and provider settings remain under **Protection & reputation**.
+See [Identity protection](identity-protection.md) for scope, exact matching,
+registrable-domain semantics and the distinction from the directory foundation.
+
+
 IDNA normalization and an embedded Public Suffix List handle registrable domains, including private suffixes. Similarity checks cover common edits and selected homoglyphs; they are not exhaustive Unicode confusable detection. A display name must exactly match a configured protected name. DMARC alignment is independent: a familiar display name is not authenticated identity.
 
 Campaign comparison uses at most 1,000 recent messages in the 30-day window. It requires feedback from active administrators and at least two distinct spam examples. Contradictory legitimate feedback cancels reinforcement. Short messages and transactions spanning multiple destination domains may lack sufficient context. Exact/SimHash comparison stays within the destination domain; it does not expose other domains or Bcc recipients. Results remain advisory and affect only future analysis.

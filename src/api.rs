@@ -45,6 +45,7 @@ pub struct App {
     limiter: Arc<Mutex<HashMap<String, (i64, u32)>>>,
     hashing: Arc<tokio::sync::Semaphore>,
     cluster_capacity: Arc<tokio::sync::Semaphore>,
+    identity_capacity: Arc<tokio::sync::Semaphore>,
     dummy_hash: Arc<String>,
     mfa_key: Option<Arc<crate::mfa::Key>>,
 }
@@ -717,6 +718,7 @@ pub fn router_controlled(
         limiter: Arc::new(Mutex::new(HashMap::new())),
         hashing: Arc::new(tokio::sync::Semaphore::new(4)),
         cluster_capacity: Arc::new(tokio::sync::Semaphore::new(8)),
+        identity_capacity: Arc::new(tokio::sync::Semaphore::new(2)),
         dummy_hash: Arc::new(hash_password(&random_token())?),
     };
     if crate::cluster::is_worker(&config) {

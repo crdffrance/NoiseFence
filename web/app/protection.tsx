@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { IdentityEvidence } from './identity-evidence';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type User } from './client';
@@ -62,11 +63,13 @@ export function ProtectionSettings({
   onChange,
   user,
   revision,
+  onIdentity,
 }: {
   policy: ProtectionPolicy | null;
   onChange: (value: ProtectionPolicy | null) => void;
   user: User;
   revision: number;
+  onIdentity: () => void;
 }) {
   const [status, setStatus] = useState<ProviderState | null>(null),
     [error, setError] = useState(''),
@@ -151,11 +154,6 @@ export function ProtectionSettings({
                 {(
                   [
                     [
-                      'identity',
-                      "Identity impersonation",
-                      "Similar domains, protected name and response address.",
-                    ],
-                    [
                       'links',
                       "Phishing Links",
                       "Deceptive destination, local base, text and QR codes.",
@@ -187,69 +185,7 @@ export function ProtectionSettings({
                   </label>
                 ))}
               </div>
-              <h3>Protected names</h3>
-              <p className="small muted">
-                Match each name to its usual sending domain. The receiving domains are automatically protected against similarities.
-              </p>
-              {policy.protected_names.map((identity, i) => (
-                <div className="form-grid protection-identity" key={i}>
-                  <label className="field" htmlFor={`protected-name-${i}`}>
-                    Name displayed
-                    <Input
-                      id={`protected-name-${i}`}
-                      aria-label={`Protected name ${i + 1}`}
-                      value={identity.name}
-                      onChange={(e) =>
-                        update({
-                          protected_names: policy.protected_names.map((x, j) =>
-                            j === i ? { ...x, name: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="field" htmlFor={`protected-domain-${i}`}>
-                    Expected domain
-                    <Input
-                      id={`protected-domain-${i}`}
-                      aria-label={`Protected Name Domain ${i + 1}`}
-                      value={identity.domain}
-                      onChange={(e) =>
-                        update({
-                          protected_names: policy.protected_names.map((x, j) =>
-                            j === i ? { ...x, domain: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    />
-                  </label>
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      update({
-                        protected_names: policy.protected_names.filter(
-                          (_, j) => j !== i,
-                        ),
-                      })
-                    }
-                  >
-                    Remove this name
-                  </Button>
-                </div>
-              ))}
-              <Button
-                disabled={policy.protected_names.length >= 100}
-                onClick={() =>
-                  update({
-                    protected_names: [
-                      ...policy.protected_names,
-                      { name: '', domain: '' },
-                    ],
-                  })
-                }
-              >
-                Add a Protected Name
-              </Button>
+              <p className="notice">Manage names and the identity observation switch in the dedicated workspace. <Button variant="outline" onClick={onIdentity}>Open identity protection</Button></p>
               <div className="form-grid">
                 {(
                   [
@@ -416,16 +352,17 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
     <section className="panel">
       <h2>Complementary protection</h2>
       <p className="notice">
-        Observations only · {report.version} · {report.elapsed_ms} ms. Correlated detections are grouped and do not change the current score. Several services reporting the same indicator do not constitute independent votes.
+        {report.observation_only ? 'Observations only' : 'Recorded protection report'} · {report.version} · {report.elapsed_ms} ms. {report.observation_only ? 'These observations do not directly change the score or delivery. ' : 'Refer to the recorded verdict and delivery policy. '}Several services reporting the same indicator do not constitute independent votes.
       </p>
+      <IdentityEvidence report={report} />
       <div className="form-grid">
         <p>
-          Local checks: {statuses[report.local_status]}
+          Local checks: {statuses[report.local_status] ?? 'Not recorded'}
           <br />
-          Phishing feed: {statuses[report.feed_status]}
+          Phishing feed: {statuses[report.feed_status] ?? 'Not recorded'}
         </p>
         <p>
-          Campaigns: {statuses[report.campaign_status]}
+          Campaigns: {statuses[report.campaign_status] ?? 'Not recorded'}
           {report.campaign_conflict
             ? " · conflicting legitimate feedback; match withheld"
             : report.campaign_match
@@ -485,9 +422,9 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
         </div>
       ))}
       <UrlResolutionDetails report={report.url_resolution} />
-      {report.findings.length ? (
+      {report.findings.some(f => f.family !== 'identity') ? (
         <ul className="reasons">
-          {report.findings.map((f, i) => (
+          {report.findings.filter(f => f.family !== 'identity').map((f, i) => (
             <li key={i}>
               <span>
                 <code>{f.id}</code>
@@ -532,7 +469,7 @@ export function ProtectionDetails({ report }: { report: ProtectionReport }) {
         </ul>
       ) : (
         <p className="muted">
-          No additional evidence from the checks carried out.
+          No other findings recorded by complementary checks.
         </p>
       )}
     </section>

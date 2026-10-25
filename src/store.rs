@@ -76,6 +76,8 @@ pub struct VisibleRecipient {
 }
 #[derive(Serialize)]
 pub struct VisibleMail {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact_learning: Option<crate::identity::learning::Report>,
     pub verdict: &'static str,
     pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     pub rspamd: Option<crate::rspamd::Report>,
@@ -111,6 +113,8 @@ pub struct VisibleMail {
     pub adaptive: Option<crate::adaptive::Report>,
     pub vision: crate::vision::Summary,
     pub protection: Option<crate::protection::Report>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<crate::identity::runtime::Report>,
     pub mailing: Option<crate::mailing::Report>,
     pub evidence: Option<crate::evidence::Evidence>,
     pub decision: crate::fusion::runtime::Decision,
@@ -150,6 +154,7 @@ impl MailMetadata {
             .map(|r| r.assessment.category)
             .or(s.delivery_classification);
         VisibleMail {
+            contact_learning: s.contact_learning.map(|c| c.report),
             verdict: assessment.verdict(),
             recipient_decision: s.recipient_decision,
             rspamd: s.rspamd.map(crate::rspamd::Report::visible),
@@ -187,6 +192,7 @@ impl MailMetadata {
             smtp_admission: s.smtp_admission,
             vision: s.vision,
             protection: s.protection,
+            identity: s.identity,
             mailing: s.mailing,
             evidence: s.evidence,
             decision,

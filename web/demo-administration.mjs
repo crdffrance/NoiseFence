@@ -1,7 +1,9 @@
+import { directoryFixture } from './demo-directory.mjs';
 // Disposable browser-memory data only. No mutation reaches a Rust service.
 export function administrationFixture(params, base, version) {
   if (!params.has('administration')) return () => null;
   const scenario = params.get('administration');
+  const directory = directoryFixture(params, base);
   let revision = 25,
     settings = structuredClone(base),
     saved = false,
@@ -44,13 +46,15 @@ export function administrationFixture(params, base, version) {
         object: 'demo-user',
       },
     ];
-  return (path, options) => {
+  return (path, options, url) => {
     if (!path.startsWith('/admin/') && path !== '/metrics') return null;
     if (params.get('role') === 'user')
       return Response.json(
         { error: 'Administrator access required.' },
         { status: 403 },
       );
+    const directoryResponse=directory.handle(path,options,url,revision,settings);
+    if(directoryResponse)return directoryResponse;
     const post = options?.method === 'POST';
     if (path === '/admin/config' && post) {
       const body = JSON.parse(options.body || '{}');
@@ -74,6 +78,7 @@ export function administrationFixture(params, base, version) {
       else {
         revision = next;
         settings = structuredClone(body.settings);
+        directory.commit(settings.identity_directory);
         revisions.set(revision, structuredClone(settings));
         audit.unshift({
           created: Math.floor(Date.now() / 1000),

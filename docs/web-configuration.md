@@ -16,7 +16,8 @@ The console manages **messaging and filter policies**. Installation settings sta
 | Filters → IP reputation · RBL | DNSBL providers, exact return codes, IPv6, independent-provider threshold, timeout, cache, concurrency and admission action | Administrator |
 | Filters → SMTP admission | Greylisting, rate limits and bounded delays | Administrator |
 | Filters → Advanced settings | Analysis limits; LLM model/project, selection, budget and pricing date; OCR limits; DNS checks; URL following; native patterns, composites and family caps | Administrator |
-| Filters → Protection & reputation | CRDF/VirusTotal keys and quotas, protected identities, exceptions and indicator checks | Administrator |
+| Filters → Identity protection | Automatic correspondent memory, retention and recurrence thresholds; manual sources, people, groups, roles, delegation, reviewed CSV imports; separate domain-based name checks | Administrator |
+| Filters → Protection & reputation | CRDF/VirusTotal keys and quotas, exceptions and indicator checks | Administrator |
 | Filters → Marketing & newsletters | Marketing recognition and newsletter policy | Administrator |
 | Filters → User preferences | Permitted personal actions, sensitivity bounds, rule limits and existing preferences | Administrator |
 | My filters | Preferences and rules for authorized mailboxes or domains | Authorized user |
@@ -84,3 +85,11 @@ raise budgets or enable a provider. Verify the provider's actual prices before
 saving a new date. A current date does not guarantee capacity, credentials or
 budget availability. If external analysis is intentionally suspended, leave it
 suspended; an unavailable opinion is not a spam detection.
+
+### One-shot directory collection
+
+Use **Filters → Identity protection → Directory synchronization** to collect
+users and groups from Entra or Okta with an administrator-supplied, request-only credential.
+The job result is persistent, but credentials are not saved. Review and activate
+the prepared directory separately. See [Entra setup](identity-entra.md) or [Okta setup](identity-okta.md) and their shared job states.
+Scheduled synchronization is not yet available.

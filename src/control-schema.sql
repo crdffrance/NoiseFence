@@ -164,3 +164,7 @@ CREATE TABLE IF NOT EXISTS quality_export_campaigns(
 -- Recipient-scoped quarantine history does not scan the whole administration audit.
 CREATE INDEX IF NOT EXISTS audit_quarantine_delivery ON audit(object_id,id DESC)
  WHERE action IN ('quarantine_release','quarantine_delete','quarantine_expire');
+
+-- One-shot directory receipts use the existing audit authority.
+CREATE INDEX IF NOT EXISTS identity_sync_time ON audit(created,id) WHERE action='identity_sync';
+CREATE INDEX IF NOT EXISTS identity_sync_object ON audit(object_id COLLATE NOCASE,id) WHERE action='identity_sync';

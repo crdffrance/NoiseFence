@@ -7,17 +7,33 @@ use std::path::PathBuf;
 enum Action {
     Retain,
     Remove,
+    IdentityPrepare,
 }
 impl Action {
     fn name(self) -> &'static str {
         match self {
             Self::Retain => "model_set_retain",
             Self::Remove => "model_set_remove",
+            Self::IdentityPrepare => "identity_prepare",
         }
     }
 }
 
 impl Central {
+    pub async fn prepare_identity_directory(
+        &self,
+        root: PathBuf,
+        bytes: Vec<u8>,
+        reserve: u64,
+        actor: &str,
+        session: &str,
+    ) -> Result<crate::identity::runtime::Selection> {
+        let hash = crate::message::digest(&bytes);
+        self.catalog_operation(actor, session, Action::IdentityPrepare, &hash, move || {
+            crate::identity::runtime::prepare(&root, &bytes, crate::now(), reserve)
+        })
+        .await
+    }
     /// Commit an authorized intent before touching artifacts. Completion is a
     /// separate event: a crash or DB outage must not erase evidence of the request
     /// or imply that the file operation never happened.

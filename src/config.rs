@@ -9,6 +9,8 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_learning: Option<crate::identity::learning::Settings>,
     /// Installation only; excluded from shared and Web policy allowlists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub management: Option<crate::central::bootstrap::Management>,
@@ -44,6 +46,8 @@ pub struct Config {
     pub llm: Option<crate::llm::LlmConfig>,
     pub vision: Option<crate::vision::Settings>,
     pub protection: Option<crate::protection::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<crate::identity::runtime::Settings>,
     pub mailing: Option<crate::mailing::Settings>,
     pub quality: Option<crate::quality::Settings>,
     pub native_filter: Option<crate::native_filter::Settings>,
@@ -321,6 +325,12 @@ impl Config {
         }
         if let Some(native) = &self.native_filter {
             native.validate()?;
+        }
+        if let Some(settings) = &self.contact_learning {
+            settings.validate()?;
+        }
+        if let Some(identity) = &self.identity {
+            identity.validate()?;
         }
         if let Some(protection) = &self.protection {
             protection.validate()?;

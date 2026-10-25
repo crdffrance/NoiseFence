@@ -131,6 +131,8 @@ const SHARED: &[&str] = &[
     "llm",
     "vision",
     "protection",
+    "identity",
+    "contact_learning",
     "mailing",
     "quality",
     "native_filter",
@@ -177,6 +179,18 @@ pub(crate) fn file_slots(value: &Value) -> Vec<String> {
     }
     paths.retain(|p| value.pointer(p).is_some_and(Value::is_string));
     paths
+}
+/// Non-model data participates in the policy's artifact identity, but must not
+/// change model catalog identities or trigger implicit model reselection.
+fn artifact_slots(value: &Value) -> Vec<String> {
+    let mut slots = file_slots(value);
+    if value
+        .pointer("/identity/catalog")
+        .is_some_and(Value::is_string)
+    {
+        slots.push("/identity/catalog".into());
+    }
+    slots
 }
 /// A stable model identity names logical slots, not capture-order filenames.
 /// It includes the validation report and encoder bytes as well as predictors.
@@ -250,6 +264,17 @@ pub fn model_base(
         }
         value["quality"] = quality;
     }
+    // Explicit absence prevents a local installation catalog from silently
+    // reappearing when the shared policy disabled it or predates this feature.
+    let mut identity = installed
+        .shared
+        .get("identity")
+        .cloned()
+        .unwrap_or(Value::Null);
+    if let Some(name) = identity.get("catalog").and_then(Value::as_str) {
+        identity["catalog"] = json!(root.join(name));
+    }
+    value["identity"] = identity;
     let mut config: crate::config::Config = serde_json::from_value(value)?;
     config.management = base.management.clone();
     bind_installed_credentials(&mut config, installed)?;
@@ -299,7 +324,7 @@ pub fn bindings(
     previous: Option<&BTreeMap<PathBuf, String>>,
 ) -> Result<BTreeMap<PathBuf, String>> {
     let value = serde_json::to_value(config)?;
-    let mut paths = file_slots(&value)
+    let mut paths = artifact_slots(&value)
         .into_iter()
         .map(|p| {
             let reuse = p.starts_with("/filter/") || p.starts_with("/native_filter/");
@@ -365,11 +390,26 @@ pub fn capture(
     }
     let mut files = BTreeMap::new();
     let mut paths = BTreeMap::new();
-    for (index, pointer) in file_slots(&shared).into_iter().enumerate() {
+    for (index, pointer) in artifact_slots(&shared).into_iter().enumerate() {
         let value = shared.pointer_mut(&pointer).unwrap();
         let path = PathBuf::from(value.as_str().unwrap());
-        let name = format!("model-{index}.json");
+        let name = if pointer == "/identity/catalog" {
+            "identity-directory.json".into()
+        } else {
+            format!("model-{index}.json")
+        };
         let (size, sha256) = file_digest(&path)?;
+        if pointer == "/identity/catalog" {
+            let settings = config
+                .identity
+                .as_ref()
+                .context("Missing directory settings")?;
+            ensure!(
+                sha256 == settings.sha256 && size <= crate::identity::runtime::MAX_BYTES as u64,
+                "Directory artifact binding mismatch"
+            );
+            crate::identity::runtime::Loaded::load(settings, crate::now())?;
+        }
         files.insert(name.clone(), Artifact { sha256, size });
         paths.insert(name.clone(), path);
         *value = json!(name);
@@ -407,6 +447,17 @@ impl Bundle {
     /// Build participates in the digest; never rewrite it without recomputing it.
     pub fn for_build(&self, build: &str) -> Result<Self> {
         self.validate()?;
+        ensure!(
+            build == env!("CARGO_PKG_VERSION")
+                || (self.settings.identity_directory.is_none()
+                    && self.shared.get("identity").is_none_or(Value::is_null)
+                    && self.settings.contact_learning.is_none()
+                    && self
+                        .shared
+                        .get("contact_learning")
+                        .is_none_or(Value::is_null)),
+            "Upgrade every MX before selecting an identity directory"
+        );
         let traffic = self
             .settings
             .smtp_admission
@@ -766,6 +817,43 @@ impl Bundle {
                 && self.files.len() <= 32,
             "Invalid shared policy"
         );
+        let identity = self.shared.get("identity").filter(|v| !v.is_null());
+        if let Some(value) = identity {
+            let settings: crate::identity::runtime::Settings =
+                serde_json::from_value(value.clone())?;
+            settings.validate()?;
+            ensure!(
+                settings.catalog == Path::new("identity-directory.json"),
+                "Invalid directory artifact slot"
+            );
+            let artifact = self
+                .files
+                .get("identity-directory.json")
+                .context("Unlisted directory artifact")?;
+            ensure!(
+                artifact.sha256 == settings.sha256
+                    && artifact.size <= crate::identity::runtime::MAX_BYTES as u64,
+                "Directory manifest binding mismatch"
+            );
+            ensure!(
+                self.settings
+                    .identity_directory
+                    .as_ref()
+                    .and_then(|s| s.sha256.as_ref())
+                    == Some(&settings.sha256),
+                "Directory selection disagrees with shared policy"
+            );
+        } else {
+            ensure!(
+                !self.files.contains_key("identity-directory.json")
+                    && self
+                        .settings
+                        .identity_directory
+                        .as_ref()
+                        .is_none_or(|s| s.sha256.is_none()),
+                "Unexpected directory artifact or selection"
+            );
+        }
         let mut total = 0u64;
         for (name, file) in &self.files {
             ensure!(
@@ -785,12 +873,13 @@ impl Bundle {
     }
 }
 fn valid_name(name: &str) -> bool {
-    [
-        "encoder/config.json",
-        "encoder/tokenizer.json",
-        "encoder/model.safetensors",
-    ]
-    .contains(&name)
+    name == "identity-directory.json"
+        || [
+            "encoder/config.json",
+            "encoder/tokenizer.json",
+            "encoder/model.safetensors",
+        ]
+        .contains(&name)
         || name
             .strip_prefix("model-")
             .and_then(|s| s.strip_suffix(".json"))
@@ -809,7 +898,7 @@ pub fn materialize(
     bundle.validate()?;
     let dir = directory(&base.data_dir, bundle);
     let mut shared = bundle.shared.clone();
-    for pointer in file_slots(&shared) {
+    for pointer in artifact_slots(&shared) {
         let value = shared.pointer_mut(&pointer).unwrap();
         let name = value.as_str().unwrap();
         ensure!(bundle.files.contains_key(name), "Unlisted model");
@@ -836,6 +925,9 @@ pub fn materialize(
     }
     let local = serde_json::to_value(base)?;
     let mut full = local.clone();
+    // Shared absence is authoritative, including legacy bundles.
+    full["identity"] = Value::Null;
+    full["contact_learning"] = Value::Null;
     for (key, value) in shared.as_object().unwrap() {
         full[key] = value.clone();
     }

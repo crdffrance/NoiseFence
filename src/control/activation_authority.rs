@@ -80,7 +80,7 @@ fn approval(
     }
     Ok(version)
 }
-fn admin(tx: &Transaction<'_>, actor: &str, token: &str) -> Result<i64> {
+pub(super) fn admin(tx: &Transaction<'_>, actor: &str, token: &str) -> Result<i64> {
     approval(tx, actor, Some(token), None)
 }
 /// A delegated proposal can change exactly one mailbox entry, never its limits,
@@ -435,8 +435,10 @@ impl Controller {
             let mut base=(*this.base).clone();
             base.provider_credentials=current.config.provider_credentials.clone();
             base.credential_generation=current.config.credential_generation.clone();
+            base.identity=current.config.identity.clone();
             tokio::task::spawn_blocking(move|| {
                 let _permit=permit;
+                settings.review_identity(&base)?;
                 let entry=crate::model_catalog::load(&base.data_dir,&id)?;
                 settings.quality_candidate=entry.quality_candidate.clone();
                 let config=entry.effective(&base,&settings)?;
@@ -450,7 +452,7 @@ impl Controller {
             let publication = self.publication().await?;
             settings.effective_installed(&self.base, &publication.bundle)
         } else {
-            settings.effective(&self.base)
+            settings.effective_revision(&self.base, &self.snapshot().config)
         }
     }
     pub async fn preview_installation_models(
@@ -475,10 +477,12 @@ impl Controller {
             let mut base = (*this.base).clone();
             base.provider_credentials = current.config.provider_credentials.clone();
             base.credential_generation = current.config.credential_generation.clone();
+            base.identity = current.config.identity.clone();
             tokio::task::spawn_blocking(move || {
                 // Keep the expensive-preview slot until owned hashing finishes,
                 // including when the HTTP client disconnects.
                 let _permit = permit;
+                settings.review_identity(&base)?;
                 let config = settings.effective(&base)?;
                 let candidate = artifacts::capture(&config, settings, revision)?;
                 Ok(serde_json::json!({"revision":revision,
@@ -553,11 +557,13 @@ impl Controller {
             let mut base=(*this.base).clone();
             base.provider_credentials=source.config.provider_credentials.clone();
             base.credential_generation=source.config.credential_generation.clone();
+            base.identity=source.config.identity.clone();
             let (candidate, bound_source)=tokio::task::spawn_blocking(move|| {
                 artifacts::freeze(&root,&source,reserve)?;
                 let mut config=if let Some(selection)=&catalog {
+                    settings.review_identity(&base)?;
                     crate::model_catalog::load(&root,&selection.id)?.effective(&base,&settings)?
-                } else if models_sha256.is_some() {settings.effective(&base)?}
+                } else if models_sha256.is_some() {settings.review_identity(&base)?;settings.effective(&base)?}
                     else {settings.effective_installed(&base,&source.bundle)?};
                 let mut keys=crate::credentials::Snapshot::capture(&source.config)?;
                 if let Some((provider,key))=credential { keys=keys.replacing(provider,key)?; }

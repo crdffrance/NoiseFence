@@ -129,6 +129,7 @@ mod tests {
             })
             .collect();
         let mut snapshot = Snapshot {
+            contacts: None,
             protocol: PROTOCOL.into(),
             generation: 1,
             created: now,

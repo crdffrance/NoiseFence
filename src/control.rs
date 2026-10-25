@@ -1,6 +1,8 @@
 //! Validated, durable console configuration; one coherent snapshot per SMTP transaction.
 mod activation;
 mod activation_authority;
+pub(crate) mod identity;
+mod identity_sync;
 use crate::{
     config::{Config, Domain, Mode},
     engine::Engine,
@@ -63,6 +65,10 @@ pub struct Filters {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_learning: Option<crate::identity::learning::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_directory: Option<crate::identity::runtime::Selection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality_candidate: Option<crate::quality::workflow::Selection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,6 +133,13 @@ impl Settings {
             })
             .collect();
         Self {
+            contact_learning: config.contact_learning.clone(),
+            identity_directory: config.identity.as_ref().map(|i| {
+                crate::identity::runtime::Selection {
+                    sha256: Some(i.sha256.clone()),
+                    reviewed_from: None,
+                }
+            }),
             quality_candidate: None,
             research_archive: Some(config.research_archive.clone().unwrap_or_default()),
             rbl: Some(config.rbl.clone().unwrap_or_default()),
@@ -203,6 +216,28 @@ impl Settings {
             }
         }
     }
+    pub(crate) fn review_identity(&self, current: &Config) -> Result<()> {
+        match &self.identity_directory {
+            Some(selection) => {
+                selection.apply(&current.data_dir, current.identity.as_ref())?;
+            }
+            None => ensure!(
+                current.identity.is_none(),
+                "Use an explicit reviewed directory selection to disable identity observations"
+            ),
+        }
+        Ok(())
+    }
+    pub(crate) fn effective_revision(&self, base: &Config, current: &Config) -> Result<Config> {
+        self.review_identity(current)?;
+        ensure!(
+            self.contact_learning.is_some() || current.contact_learning.is_none(),
+            "Contact learning settings are missing; refresh the configuration before saving"
+        );
+        let mut pinned = base.clone();
+        pinned.identity = current.identity.clone();
+        self.effective(&pinned)
+    }
     pub fn effective(&self, base: &Config) -> Result<Config> {
         self.effective_inner(base, false)
     }
@@ -218,7 +253,16 @@ impl Settings {
             self.quality_candidate.is_some() || installed.settings.quality_candidate.is_none(),
             "Use an explicit empty candidate selection to disable a managed shadow model"
         );
+        ensure!(
+            self.identity_directory.is_some() || installed.settings.identity_directory.is_none(),
+            "Use an explicit empty directory selection to disable identity observations"
+        );
         let pinned = crate::cluster::artifacts::model_base(base, installed)?;
+        self.review_identity(&pinned)?;
+        ensure!(
+            self.contact_learning.is_some() || installed.settings.contact_learning.is_none(),
+            "Contact learning settings are missing; refresh the configuration before saving"
+        );
         let unchanged = self.quality_candidate == installed.settings.quality_candidate;
         let config = self.effective_inner(&pinned, unchanged)?;
         crate::cluster::artifacts::require_installed_models(&config, installed, !unchanged)?;
@@ -256,6 +300,13 @@ impl Settings {
             );
         }
         let mut cfg = base.clone();
+        cfg.contact_learning = self.contact_learning.clone();
+        if let Some(settings) = &cfg.contact_learning {
+            settings.validate()?;
+        }
+        if let Some(selection) = &self.identity_directory {
+            cfg.identity = selection.resolve(&base.data_dir, base.identity.as_ref())?;
+        }
         if let Some(selection) = &self.quality_candidate
             && !pinned_quality
         {
@@ -618,6 +669,7 @@ fn cluster_model_identity(config: &Config) -> String {
     })).expect("model identity"))
 }
 pub struct Controller {
+    identity_sync_runner: String,
     activation_receipt: std::sync::Mutex<Option<crate::cluster::activation::Acknowledgement>>,
     activation_serial: Arc<tokio::sync::Mutex<()>>,
     prepared_activation: std::sync::Mutex<Option<activation::Prepared>>,
@@ -825,6 +877,7 @@ impl Controller {
                 engine,
             })),
             applying: Arc::new(tokio::sync::Semaphore::new(1)),
+            identity_sync_runner: uuid::Uuid::new_v4().to_string(),
         }))
     }
     pub fn snapshot(&self) -> Arc<Snapshot> {
@@ -903,7 +956,7 @@ impl Controller {
             ensure!(this.store.activation.epoch().is_none() && this.store.activation.ready(),
                 "Use the coordinated activation driver for this storage");
             ensure!(revision==this.snapshot().revision,"Modified configuration in another session. Reload before saving.");
-            let config=crate::credentials::pin(Arc::new(settings.effective(&this.base)?))?;
+            let config=crate::credentials::pin(Arc::new(settings.effective_revision(&this.base, &this.snapshot().config)?))?;
             let rbl=Arc::new(this.snapshot().rbl.reconfigure(config.rbl.as_ref(),crate::management::dqs_key(&config)?.as_deref())?);
             let template=this.template.read().unwrap().clone(); let cfg=config.clone();
             let engine=Arc::new(tokio::task::spawn_blocking(move||template.reconfigure(cfg)).await??);
@@ -917,6 +970,7 @@ impl Controller {
                 (previous.config.fusion.as_ref().is_none_or(|p| !p.family_caps) ||
                  (f.mode==crate::fusion::runtime::Mode::Decision && previous.config.fusion.as_ref().is_none_or(|p| p.mode!=f.mode))));
             let require_traffic_workers=config.smtp_admission.as_ref().is_some_and(|s|s.traffic.is_some());
+            let require_identity_workers=settings.identity_directory.is_some() || config.identity.is_some() || config.contact_learning.is_some();
             let require_scoped_workers=config.custom_filtering.as_ref().is_some_and(|p|p.ordering==crate::custom_filtering::Ordering::Scoped);
             let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {
@@ -934,15 +988,15 @@ impl Controller {
                 let enabled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM users WHERE username=?1 AND admin=1 AND disabled=0)",[&username],|r|r.get(0))?;
                 ensure!(enabled,"Administrator rights revoked.");
                 }
-                if require_partial_workers || require_fusion_workers || require_scoped_workers || require_traffic_workers {
+                if require_partial_workers || require_fusion_workers || require_scoped_workers || require_traffic_workers || require_identity_workers {
                     let mut query=tx.prepare("SELECT COALESCE(last_seen,0),COALESCE(json_extract(CASE WHEN json_valid(status) THEN status ELSE '{}' END,'$.build'),'') FROM cluster_nodes WHERE enabled=1")?;
                     let nodes=query.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
                     ensure!(nodes.iter().all(|(seen,build)| *seen>=worker_cutoff
                         && (!require_partial_workers || crate::cluster::protocol::supports_partial_actions(build))
                         && (!require_fusion_workers || crate::cluster::protocol::supports_capped_fusion(build))
                         && (!require_scoped_workers || crate::cluster::protocol::supports_scoped_policy(build))
-                        && (!require_traffic_workers || build==env!("CARGO_PKG_VERSION"))),
-                        "Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions, capped fusion or scoped policy inheritance.");
+                        && (!(require_traffic_workers || require_identity_workers) || build==env!("CARGO_PKG_VERSION"))),
+                        "Upgrade every enabled MX and wait for a fresh successful synchronization before enabling partial actions, capped fusion, identity directories or scoped policy inheritance.");
                 }
                 tx.execute("INSERT INTO console_revisions(created,username,settings) VALUES(?1,?2,?3)",params![crate::now(),username,raw])?;
                 let id=tx.last_insert_rowid();

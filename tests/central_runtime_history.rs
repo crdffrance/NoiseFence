@@ -390,3 +390,163 @@ async fn local_detector_cache_preserves_votes_scopes_freshness_and_read_only_smt
     drop(pg);
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn automatic_correspondence_projects_unlabelled_messages_and_human_vetoes() {
+    use noisefence::identity::learning::{self, Observation, Settings};
+    let f = postgres::Fixture::new().await;
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let identity = store.run(|db| outbox::initialize(db, "mx1")).await.unwrap();
+    f.central.register_source(&identity).await.unwrap();
+    let cfg = common::config(root.path());
+    let mut scan = noisefence::engine::Engine::new(cfg.clone())
+        .unwrap()
+        .offline(common::MESSAGE);
+    let e = scan.evidence.as_mut().unwrap();
+    e.source = noisefence::evidence::Source::SmtpSession;
+    e.authentication.dmarc_state = State::Complete;
+    e.authentication.dmarc_dkim = Some(AuthResult::Pass);
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    let targets = Default::default();
+    let sample = learning::capture(common::MESSAGE, &scan, &recipient.address, &targets).unwrap();
+    let now = noisefence::now();
+    let mut ids = Vec::new();
+    for n in 1..=6 {
+        let mut captured = sample.clone();
+        captured.campaign = digest(format!("contact campaign {n}").as_bytes());
+        let mut accepted = scan.clone();
+        accepted.contact_learning = Some(Observation {
+            report: Default::default(),
+            sample: Some(captured),
+        });
+        let id = uuid::Uuid::new_v4().to_string();
+        ids.push(id.clone());
+        store.run(move |db| {
+            db.execute("INSERT INTO messages(id,created,sender,scan) VALUES(?1,?2,'sender@example.org',?3)",rusqlite::params![id,now-n*86400,serde_json::to_string(&accepted)?])?;
+            db.execute("INSERT INTO deliveries(message_id,address,destination,hosts,next_attempt) VALUES(?1,'alice@example.test','alice@example.test','[]',0)",[&id])?;Ok(())
+        }).await.unwrap();
+    }
+    while f.central.synchronize_once(&store).await.unwrap() > 0 {}
+    let snapshot = f.central.runtime_history(None).await.unwrap();
+    let contacts = snapshot.contacts.as_ref().unwrap();
+    assert_eq!(contacts.rows.len(), 6);
+    assert!(contacts.rows.iter().all(|r| r.unwanted_at.is_none()));
+    assert!(snapshot.rows.iter().all(|r| r.votes.is_empty()));
+    let serialized = serde_json::to_string(contacts).unwrap();
+    assert!(!serialized.contains("alice@example.test"));
+    assert!(!serialized.contains("sender@example.org"));
+    noisefence::runtime_history::require(&store).await.unwrap();
+    noisefence::runtime_history::install(root.path(), snapshot)
+        .await
+        .unwrap();
+    let history = learning::prepare(
+        root.path(),
+        &Settings::default(),
+        common::MESSAGE,
+        &scan,
+        std::slice::from_ref(&recipient),
+        &targets,
+        "sender@example.org",
+    )
+    .await;
+    assert!(history[&recipient.address].report.regular);
+    let pg = f.connect().await;
+    pg.execute(
+        "INSERT INTO noisefence.users(username,password,admin) VALUES('reviewer','unused',true)",
+        &[],
+    )
+    .await
+    .unwrap();
+    pg.execute("INSERT INTO noisefence.feedback(username,message_id,spam,created) VALUES('reviewer',$1,true,$2)",&[&ids[0],&(now-1)]).await.unwrap();
+    let snapshot = f.central.runtime_history(None).await.unwrap();
+    assert_eq!(
+        snapshot
+            .contacts
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|r| r.unwanted_at.is_some())
+            .count(),
+        1
+    );
+    noisefence::runtime_history::install(root.path(), snapshot)
+        .await
+        .unwrap();
+    let history = learning::prepare(
+        root.path(),
+        &Settings::default(),
+        common::MESSAGE,
+        &scan,
+        std::slice::from_ref(&recipient),
+        &targets,
+        "sender@example.org",
+    )
+    .await;
+    assert_eq!(history[&recipient.address].report.status, "human_rejected");
+    assert!(!history[&recipient.address].report.regular);
+    // Mailbox owners can veto their own contact history, not another user's.
+    pg.execute(
+        "UPDATE noisefence.users SET admin=false WHERE username='reviewer'",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(
+        f.central
+            .runtime_history(None)
+            .await
+            .unwrap()
+            .contacts
+            .unwrap()
+            .rows
+            .iter()
+            .all(|r| r.unwanted_at.is_none())
+    );
+    pg.execute(
+        "INSERT INTO noisefence.grants(username,address) VALUES('reviewer','alice@example.test')",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        f.central
+            .runtime_history(None)
+            .await
+            .unwrap()
+            .contacts
+            .unwrap()
+            .rows
+            .iter()
+            .filter(|r| r.unwanted_at.is_some())
+            .count(),
+        1
+    );
+    pg.execute(
+        "UPDATE noisefence.users SET disabled=true WHERE username='reviewer'",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(
+        f.central
+            .runtime_history(None)
+            .await
+            .unwrap()
+            .contacts
+            .unwrap()
+            .rows
+            .iter()
+            .all(|r| r.unwanted_at.is_none())
+    );
+    // A corrupt optional contact observation degrades only this projection.
+    pg.execute("UPDATE noisefence.messages SET scan=jsonb_set(scan,'{contact_learning,sample}','{\"protocol\":\"corrupt\"}'::jsonb) WHERE id=$1", &[&ids[0]]).await.unwrap();
+    let degraded = f.central.runtime_history(None).await.unwrap();
+    assert!(degraded.contacts.as_ref().unwrap().limited);
+    assert_eq!(degraded.contacts.as_ref().unwrap().rows.len(), 5);
+    assert_eq!(degraded.rows.len(), 6);
+    drop(pg);
+    f.finish().await;
+}

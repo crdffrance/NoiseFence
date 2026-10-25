@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — Correspondent memory and identity observations
+
+- Learn recipient-scoped recurring inbound contacts from durably accepted,
+  SMTP-authenticated messages, with campaign/day safeguards and a human-spam veto.
+  Preserve expiry, cache freshness, capacity bounds and Bcc isolation. Frequency
+  does not create an allowlist, a training label or a score adjustment.
+- Compare a claimed recurring address even when current DKIM alignment fails;
+  exclude that message from learning and distinguish unavailable authentication
+  from a completed failure. Explain reply/name/link/request changes in the console.
+- Add reviewed organization-directory snapshots, bounded manual/CSV management,
+  and one-shot read-only Entra and Okta collection. Credentials remain request-only;
+  selected-authority job receipts survive restarts and never imply activation.
+- Provide English settings, message evidence, connector guides and synthetic
+  screenshots. Scheduled synchronization, other directory providers, reciprocal
+  mailbox history and independently qualified identity scoring remain future work.
+
+
 ## 0.32.0-rc.3 — Context filtering and independent comparison diagnostics
 
 - Add cohort-specific Rspamd symbol diagnostics to human-labelled quality comparisons;

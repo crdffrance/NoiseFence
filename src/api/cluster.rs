@@ -520,12 +520,18 @@ async fn central_runtime_history(
             "Management protocol or spool epoch mismatch".into(),
         ));
     }
-    let snapshot = app
+    let mut snapshot = app
         .store
         .management()
         .unwrap()
         .runtime_history(Some(&node))
         .await?;
+    if h.get("x-noisefence-contact-history")
+        .and_then(|v| v.to_str().ok())
+        != Some(crate::identity::learning::PROTOCOL)
+    {
+        snapshot.contacts = None;
+    }
     Ok(Json(crate::central::transport::RuntimeReply {
         protocol: crate::central::transport::PROTOCOL.into(),
         identity: node.identity().clone(),

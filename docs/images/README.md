@@ -22,3 +22,43 @@ The displayed scores are actual demo outputs, not manually edited values or a qu
 6. Inspect every image at full size for readability and private data, update this provenance note, and stop the demo server. Keep demo configuration, credentials and queue data out of Git.
 
 If configured models or providers are needed for future screenshots, document that change and obtain the appropriate authorization before transmitting any content. Keep screenshot data synthetic and do not present demo scores as measured accuracy.
+
+## Identity workspace captures
+
+`console-directory.jpg` was captured on 25 October 2026 from the local Vite
+browser-memory fixture in the integrated browser, at a 1280 × 720 viewport:
+`http://127.0.0.1:3013/demo.html?administration=identity`.
+It shows **Filters → Identity protection → Organization directory → People**,
+scrolled to the directory workspace. Names, revision, source generation and
+freshness are synthetic values. The screenshot is an unedited JPEG captured from
+the running development UI. It is not a connected tenant, SMTP analysis or
+production mailbox. The feature is not part of previously published archives.
+
+`console-identity.webp` is the earlier 1440 × 1200 capture of the domain-based
+protected-name editor, now available under **Domain-based name checks**.
+
+Refresh using the [console preview procedure](../console.md#identity-editor-preview).
+Select the synthetic organization source and capture the rendered page without
+changing UI elements or values for the image. Keep real identities, provider
+credentials and message data out of these captures. Inspect every image for
+readability and private data before adding it to documentation.
+
+### Automatic correspondent memory
+
+`console-contact-memory.jpg` is an unedited 1280×720 browser capture from the
+local synthetic administration demo on 25 October 2026. It shows reviewed memory
+settings, not a connected production installation or measured detection accuracy.
+The sample contains no real messages, identities, keys or provider accounts.
+
+- `console-entra-sync.jpg`: unedited local in-app browser capture on 25 October 2026, 1280×720. Synthetic Entra collection and installed policy result only; no tenant connection, actual directory, real credential or email was used.
+
+`console-okta-sync.jpg` is an unedited local browser capture of the directory
+workspace after a simulated Okta candidate has been reviewed and applied in the
+synthetic demo. Names, source data, revisions and receipts are fixtures. No
+production identities, OAuth tokens or connected provider are shown.
+
+`console-contact-comparison.jpg` is an unedited 1280×720 integrated-browser capture
+from `http://127.0.0.1:3013/demo.html?contacts=1&case=spam` on 25 October 2026.
+It demonstrates a recurring claimed address whose current DKIM alignment failed,
+excluded from automatic learning but compared with authenticated history. Every
+message, identifier and result is synthetic; no production accuracy is implied.

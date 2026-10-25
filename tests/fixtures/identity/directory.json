@@ -1,0 +1,36 @@
+{
+  "schema": "identity-directory-1",
+  "source": {
+    "id": "example-directory",
+    "provider": "manual",
+    "label": "Synthetic demonstration directory",
+    "authority": "local-example",
+    "scopes": ["example.test"],
+    "stale_after_seconds": 86400
+  },
+  "generation": 1,
+  "completed_at": 1800000000,
+  "people": [
+    {
+      "id": "person-alice",
+      "display_name": "Alice Finance",
+      "kind": "person",
+      "activity": "active",
+      "addresses": ["alice@example.test", "finance-lead@example.test"],
+      "protected_roles": ["finance"]
+    }
+  ],
+  "groups": [
+    {
+      "id": "group-finance",
+      "display_name": "Finance Team",
+      "activity": "active",
+      "addresses": ["finance@example.test"],
+      "protected": true
+    }
+  ],
+  "memberships": [
+    {"group": "group-finance", "member": {"kind": "person", "id": "person-alice"}}
+  ],
+  "delegations": []
+}
