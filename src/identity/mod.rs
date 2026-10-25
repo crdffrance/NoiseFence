@@ -13,6 +13,7 @@ pub mod protection;
 pub mod relationships;
 pub mod runtime;
 pub mod schedule;
+pub mod scim;
 pub mod sync;
 
 use anyhow::{Result, ensure};
