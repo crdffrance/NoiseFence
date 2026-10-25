@@ -133,6 +133,7 @@ const SHARED: &[&str] = &[
     "protection",
     "identity",
     "contact_learning",
+    "identity_policy",
     "mailing",
     "quality",
     "native_filter",
@@ -451,6 +452,11 @@ impl Bundle {
             build == env!("CARGO_PKG_VERSION")
                 || (self.settings.identity_directory.is_none()
                     && self.shared.get("identity").is_none_or(Value::is_null)
+                    && self.settings.identity_policy.is_none()
+                    && self
+                        .shared
+                        .get("identity_policy")
+                        .is_none_or(Value::is_null)
                     && self.settings.contact_learning.is_none()
                     && self
                         .shared
@@ -817,6 +823,20 @@ impl Bundle {
                 && self.files.len() <= 32,
             "Invalid shared policy"
         );
+        let identity_policy: Option<crate::identity::correlation::Settings> =
+            serde_json::from_value(
+                self.shared
+                    .get("identity_policy")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            )?;
+        if let Some(settings) = &identity_policy {
+            settings.validate()?;
+        }
+        ensure!(
+            identity_policy == self.settings.identity_policy,
+            "Identity contribution policy differs from its reviewed settings"
+        );
         let identity = self.shared.get("identity").filter(|v| !v.is_null());
         if let Some(value) = identity {
             let settings: crate::identity::runtime::Settings =
@@ -928,6 +948,7 @@ pub fn materialize(
     // Shared absence is authoritative, including legacy bundles.
     full["identity"] = Value::Null;
     full["contact_learning"] = Value::Null;
+    full["identity_policy"] = Value::Null;
     for (key, value) in shared.as_object().unwrap() {
         full[key] = value.clone();
     }

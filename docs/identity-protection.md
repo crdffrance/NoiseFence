@@ -5,8 +5,9 @@
 **Administration → Filters → Identity protection** brings together a manual
 organization directory, protected-name checks and per-message observations.
 This development version adds administrator source management through the existing
-configuration review and MX activation workflow. It does not change filtering
-scores, models, thresholds or delivery policy.
+configuration review and MX activation workflow. It defaults to observation and preserves installed models, thresholds and delivery
+policy. The separate [identity contribution](identity-correlation.md) can change
+the content index only after explicit configuration and reviewed activation.
 
 | Capability | Status |
 | --- | --- |
@@ -16,7 +17,8 @@ scores, models, thresholds or delivery policy.
 | Protected names and expected sending domains | Separate domain-based check editor, with its own CSV format |
 | Immutable catalogs and per-recipient SMTP observations | Distributed with the versioned MX policy; displayed in message details |
 | Entra, Google Workspace and Okta full directory collection | Read-only Web collection, optional encrypted access and expiring schedules; durable results require review |
-| Automatic correspondent memory | Recipient-scoped, retained SMTP observations with Web controls; observation only |
+| Automatic correspondent memory | Recipient-scoped, retained SMTP observations with Web controls |
+| Corroborated identity contribution | Optional bounded, deduplicated content weight; observation by default |
 | Other directory providers, SSO and reciprocal contact graph | Further integration work; no connected tenant or outbound history is claimed |
 
 ![Manual directory workspace with synthetic identities](images/console-directory.jpg)
@@ -265,12 +267,14 @@ matches, signals and the catalog digest. Historical messages without this report
 are not assigned new observations retroactively.
 
 The runtime projects a report for each envelope recipient before grouping delivery
-variants. Different reports cannot share a wire variant. Shared analysis and the
-HAM/PUB/SPAM verdict remain unchanged; the directory does not contribute a score
-in this development increment. Reports contain no directory object IDs, names,
-other recipients' addresses or contact-history join keys. The directory detector’s human-qualified relationship and
-sensitive-request analysis remain explicitly unavailable until their own integration
-is complete. Loading and provider requests never run inside SMTP processing.
+variants. Different reports cannot share a wire variant. The separate correlation
+policy can adjust the recipient's content index and recorded verdict when explicitly
+enabled; it never turns frequency into a safe-sender exemption. Reports contain no
+directory object IDs, names, other recipients' addresses or contact-history join
+keys. Current complete local content analysis supplies sensitive-request evidence.
+The directory detector's human-qualified relationship baseline remains unavailable;
+automatic recurrence is separately identified. Loading and provider requests never
+run inside SMTP processing.
 
 ## Trust model
 
@@ -374,10 +378,10 @@ name mismatch is a diagnostic signal, not a measured probability or live score.
    Implement an internal secure AD collector, AWS Identity Store and inbound SCIM provisioning.
    Bound pagination, time, response sizes and retries. Never publish a partially
    fetched source. Never send credentials to a changed redirect/next-page host.
-4. Integrate relationship context and sensitive-request evidence with the existing
-   per-recipient SMTP observations. Define bounded, deduplicated contributions and
-   validate them before
-   activation. Keep directory/network calls off the SMTP critical path.
+4. Qualify the implemented [bounded identity contribution](identity-correlation.md)
+   on independent labels before activation. Automatic recurrence and current local
+   sensitive-request evidence are wired per recipient; human-qualified reciprocal
+   history remains separate work. Directory/network calls stay off the SMTP path.
 5. Authorized metadata connectors for otherwise invisible outbound/internal
    relationships are optional, separately consented integrations. Do not claim
    organization-wide Proton access from Bridge's IMAP/SMTP support.
@@ -402,3 +406,7 @@ actions remain separate future extensions, as in the approved plan.
 
 An IdP API/SCIM connector provisions directory data; an OIDC/SAML login alone
 does not synchronize an organization's people, aliases and group membership.
+
+Current local sensitive-request signals now feed directory checks and the separate
+[corroboration policy](identity-correlation.md). Automatic recurrence remains
+distinct from human-qualified or reciprocal relationships.

@@ -284,3 +284,51 @@ async fn committed_directory_reopens_without_replaying_review_against_installati
         .unwrap();
     assert!(controller.snapshot().config.identity.is_none());
 }
+
+#[test]
+fn identity_policy_is_shared_reviewed_and_cannot_fall_back_to_worker_defaults() {
+    use noisefence::identity::correlation::{Mode, Settings};
+    let root = tempfile::tempdir().unwrap();
+    let mut config = (*common::config(root.path())).clone();
+    let legacy = artifacts::capture(&config, control::Settings::from_config(&config), 0).unwrap();
+    config.identity_policy = Some(Settings {
+        mode: Mode::Contribute,
+        maximum_weight: 0.75,
+    });
+    let settings = control::Settings::from_config(&config);
+    let publication = artifacts::capture(&config, settings.clone(), 1).unwrap();
+    assert_ne!(publication.bundle.digest, legacy.bundle.digest);
+    assert_eq!(
+        artifacts::model_digest(&publication.bundle).unwrap(),
+        artifacts::model_digest(&legacy.bundle).unwrap()
+    );
+    assert!(publication.bundle.for_build("0.32.0-rc.2").is_err());
+    assert_eq!(
+        artifacts::materialize(&config, &publication.bundle, false)
+            .unwrap()
+            .identity_policy,
+        config.identity_policy
+    );
+    assert!(
+        artifacts::materialize(&config, &legacy.bundle, false)
+            .unwrap()
+            .identity_policy
+            .is_none()
+    );
+    let mut invalid = settings.clone();
+    invalid.identity_policy.as_mut().unwrap().maximum_weight = 2.;
+    assert!(invalid.effective(&config).is_err());
+    let mut mismatch = publication.bundle.clone();
+    mismatch.shared["identity_policy"]["maximum_weight"] = json!(0.5);
+    mismatch.digest = mismatch.hash().unwrap();
+    assert!(mismatch.validate().is_err());
+    let mut bad = publication.bundle.clone();
+    bad.shared["identity_policy"]["maximum_weight"] = json!(1.5);
+    bad.settings
+        .identity_policy
+        .as_mut()
+        .unwrap()
+        .maximum_weight = 1.5;
+    bad.digest = bad.hash().unwrap();
+    assert!(bad.validate().is_err());
+}

@@ -634,6 +634,18 @@ impl Catalog {
     pub fn person(&self, key: &Key, scope: &str, now: i64) -> Option<&Person> {
         self.indexes.iter().find_map(|i| i.person(key, scope, now))
     }
+    pub fn delegated(
+        &self,
+        owner: &Key,
+        delegate: &Key,
+        address: &str,
+        scope: &str,
+        now: i64,
+    ) -> bool {
+        self.indexes
+            .iter()
+            .any(|i| i.delegated(owner, delegate, address, scope, now))
+    }
     pub fn group(&self, key: &Key, scope: &str, now: i64) -> Option<&Group> {
         self.indexes.iter().find_map(|i| i.group(key, scope, now))
     }

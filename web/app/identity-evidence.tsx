@@ -198,8 +198,9 @@ export function DirectoryIdentityEvidence({
       <details>
         <summary>Scope, limitations and provenance</summary>
         <p>
-          These observations do not change the NoiseFence verdict or delivery
-          action. A legitimate delegate, a forwarded message or a compromised
+          These directory observations do not independently decide the verdict or
+          delivery action. The corroborated identity report, when present, records
+          whether the configured policy retained a contribution. A legitimate delegate, a forwarded message or a compromised
           real account can require additional context.
         </p>
         {!report.relationships_available && (

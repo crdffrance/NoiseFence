@@ -5,9 +5,11 @@ every message. It compares the next message with earlier accepted messages from
 that exact sender to that exact envelope recipient. It highlights changes in a
 recurring display name, Reply-To destination, link domain or sensitive request.
 
-This implementation is **observation only**. It never reduces the score, changes
-a HAM/PUB/SPAM verdict, releases a quarantine, exempts a sender from scanning or
-trains a model. Recurrence describes traffic, not consent or the writer's identity.
+Memory itself never reduces a score, creates a HAM/PUB/SPAM label, releases a
+quarantine, exempts a sender from scanning or trains a model. The separate
+[identity contribution policy](identity-correlation.md) defaults to observation.
+Administrators can explicitly enable a bounded contribution for corroborated
+changes after validation. Recurrence describes traffic, not consent or the writer's identity.
 A compromised account can still authenticate successfully. Rspamd and LLM opinions
 are not learning labels. Human-labelled quality datasets remain separate.
 

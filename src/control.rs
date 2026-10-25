@@ -70,6 +70,8 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact_learning: Option<crate::identity::learning::Settings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_policy: Option<crate::identity::correlation::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_directory: Option<crate::identity::runtime::Selection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality_candidate: Option<crate::quality::workflow::Selection>,
@@ -136,6 +138,7 @@ impl Settings {
             .collect();
         Self {
             contact_learning: config.contact_learning.clone(),
+            identity_policy: config.identity_policy.clone(),
             identity_directory: config.identity.as_ref().map(|i| {
                 crate::identity::runtime::Selection {
                     sha256: Some(i.sha256.clone()),
@@ -233,6 +236,10 @@ impl Settings {
     pub(crate) fn effective_revision(&self, base: &Config, current: &Config) -> Result<Config> {
         self.review_identity(current)?;
         ensure!(
+            self.identity_policy.is_some() || current.identity_policy.is_none(),
+            "Identity policy is missing; refresh the configuration before saving"
+        );
+        ensure!(
             self.contact_learning.is_some() || current.contact_learning.is_none(),
             "Contact learning settings are missing; refresh the configuration before saving"
         );
@@ -258,6 +265,10 @@ impl Settings {
         ensure!(
             self.identity_directory.is_some() || installed.settings.identity_directory.is_none(),
             "Use an explicit empty directory selection to disable identity observations"
+        );
+        ensure!(
+            self.identity_policy.is_some() || installed.settings.identity_policy.is_none(),
+            "Identity policy is missing; refresh the configuration before saving"
         );
         let pinned = crate::cluster::artifacts::model_base(base, installed)?;
         self.review_identity(&pinned)?;
@@ -302,6 +313,10 @@ impl Settings {
             );
         }
         let mut cfg = base.clone();
+        cfg.identity_policy = self.identity_policy.clone();
+        if let Some(settings) = &cfg.identity_policy {
+            settings.validate()?;
+        }
         cfg.contact_learning = self.contact_learning.clone();
         if let Some(settings) = &cfg.contact_learning {
             settings.validate()?;
@@ -972,7 +987,7 @@ impl Controller {
                 (previous.config.fusion.as_ref().is_none_or(|p| !p.family_caps) ||
                  (f.mode==crate::fusion::runtime::Mode::Decision && previous.config.fusion.as_ref().is_none_or(|p| p.mode!=f.mode))));
             let require_traffic_workers=config.smtp_admission.as_ref().is_some_and(|s|s.traffic.is_some());
-            let require_identity_workers=settings.identity_directory.is_some() || config.identity.is_some() || config.contact_learning.is_some();
+            let require_identity_workers=settings.identity_policy.is_some() || settings.identity_directory.is_some() || config.identity.is_some() || config.contact_learning.is_some();
             let require_scoped_workers=config.custom_filtering.as_ref().is_some_and(|p|p.ordering==crate::custom_filtering::Ordering::Scoped);
             let worker_cutoff=crate::now()-config.cluster.as_ref().map_or(60,|c|c.max_stale_seconds);
             let id=this.store.run(move|db| {

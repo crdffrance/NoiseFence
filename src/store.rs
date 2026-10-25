@@ -78,6 +78,8 @@ pub struct VisibleRecipient {
 pub struct VisibleMail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_learning: Option<crate::identity::learning::Report>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_correlation: Option<crate::identity::correlation::Report>,
     pub verdict: &'static str,
     pub recipient_decision: Option<Box<crate::decision_record::RecipientDecision>>,
     pub rspamd: Option<crate::rspamd::Report>,
@@ -155,6 +157,7 @@ impl MailMetadata {
             .or(s.delivery_classification);
         VisibleMail {
             contact_learning: s.contact_learning.map(|c| c.report),
+            identity_correlation: s.identity_correlation,
             verdict: assessment.verdict(),
             recipient_decision: s.recipient_decision,
             rspamd: s.rspamd.map(crate::rspamd::Report::visible),

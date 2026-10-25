@@ -139,7 +139,7 @@ test('directory completion does not imply a verified person or a completed conta
   assert.match(html, /human-confirmed relationship baseline was unavailable/);
   assert.match(html, /Sensitive-request analysis was unavailable/);
   assert.match(html, /does not verify the sender/);
-  assert.match(html, /do not change the NoiseFence verdict/);
+  assert.match(html, /do not independently decide the verdict/);
   assert.match(html, /Not established by trusted SMTP evidence/);
 });
 test('missing, stale and ambiguous directory evidence is not presented as safe', () => {

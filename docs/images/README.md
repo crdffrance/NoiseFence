@@ -82,3 +82,14 @@ the browser-memory fixture does not run a provider scheduler or contact an IdP.
 The authorize → recorded → stop → stopped flow was checked visually while the
 installed policy remained revision 25. Actual durable scheduling is covered by
 SQLite/PostgreSQL and synthetic collector tests, not established by this screenshot.
+
+## Identity correlation capture
+
+`console-identity-correlation.jpg` is an unedited 1280 × 720 integrated-browser
+capture from 25 October 2026, using the synthetic Vite fixture
+`http://127.0.0.1:3013/demo.html?administration=identity&contacts`.
+It shows the **Corroborated identity changes** report in observation mode. The
+proposal, historical campaigns and SMTP results are fixture data, not measured
+traffic or detector accuracy. No real sender, mailbox, credential or provider
+request is included. A separate draft-policy exercise was cancelled; the demo's
+installed observation revision remained unchanged.

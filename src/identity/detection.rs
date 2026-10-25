@@ -42,7 +42,7 @@ pub struct Report {
     pub signals: BTreeSet<Signal>,
     pub corroborated: bool,
 }
-fn authentication(evidence: Option<&Evidence>) -> Authentication {
+pub(crate) fn authentication(evidence: Option<&Evidence>) -> Authentication {
     let Some(e) = evidence.filter(|e| {
         e.source == Source::SmtpSession && e.authentication.dmarc_state == State::Complete
     }) else {
@@ -139,6 +139,9 @@ pub fn inspect(
                 && !person.protected_roles.is_empty()
                 && !person.addresses.is_empty()
                 && !person.addresses.contains(&address)
+                && !(result.authentication == Authentication::Aligned
+                    && matches!(directory.address(&address, scope, now), Match::Unique(ref delegate)
+                        if person.addresses.iter().any(|owner_address| directory.delegated(&key, delegate, owner_address, scope, now))))
             {
                 result.signals.insert(Signal::ProtectedNameMismatch);
             }
@@ -189,6 +192,7 @@ pub fn inspect(
             .contains(&Signal::KnownContactNewSensitiveRequest);
     let demand = result.signals.contains(&Signal::SensitiveRequest);
     result.corroborated = result.status == "complete"
+        && !result.ambiguous_identity
         && ((identity
             && (demand || relationship_change || result.authentication == Authentication::Failed))
             || (demand && (auth_failure || relationship_change)));
@@ -399,6 +403,66 @@ mod tests {
         assert!(report.signals.contains(&Signal::ProtectedGroupMismatch));
         assert!(report.corroborated);
     }
+    #[test]
+    fn explicit_active_delegation_requires_aligned_sender_and_exact_owner_assignment() {
+        let mut source = directory();
+        let mut delegate = source.people[0].clone();
+        delegate.id = "assistant".into();
+        delegate.display_name = "Assistant".into();
+        delegate.addresses = BTreeSet::from(["assistant@example.test".into()]);
+        delegate.protected_roles.clear();
+        source.people.push(delegate);
+        source
+            .delegations
+            .insert(crate::identity::directory::Delegation {
+                owner: "alice-id".into(),
+                delegate: "assistant".into(),
+                address: "alice@example.test".into(),
+            });
+        let cfg =
+            crate::config::Config::load(std::path::Path::new("config/development.toml")).unwrap();
+        let mut e = Evidence::new(
+            &cfg,
+            crate::evidence::Artifacts::new(&cfg, None, None, false),
+            false,
+        );
+        e.source = Source::SmtpSession;
+        e.authentication.dmarc_state = State::Complete;
+        e.authentication.dmarc_dkim = Some(AuthResult::Pass);
+        e.authentication.dmarc_spf = Some(AuthResult::Pass);
+        let raw = message("Alice Finance <assistant@example.test>", "");
+        let report = |data: Snapshot, evidence: &Evidence| {
+            inspect(
+                &Catalog::new(vec![data], NOW).unwrap(),
+                &raw,
+                &["bob@example.test".into()],
+                Some(evidence),
+                &BTreeSet::from([Request::Payment]),
+                None,
+                NOW,
+            )
+        };
+        assert!(
+            !report(source.clone(), &e)
+                .signals
+                .contains(&Signal::ProtectedNameMismatch)
+        );
+        e.authentication.dmarc_dkim = Some(AuthResult::Fail);
+        e.authentication.dmarc_spf = Some(AuthResult::Fail);
+        assert!(
+            report(source.clone(), &e)
+                .signals
+                .contains(&Signal::ProtectedNameMismatch)
+        );
+        e.authentication.dmarc_dkim = Some(AuthResult::Pass);
+        source.people[1].activity = Activity::Inactive;
+        assert!(
+            report(source, &e)
+                .signals
+                .contains(&Signal::ProtectedNameMismatch)
+        );
+    }
+
     #[test]
     fn authentication_requires_observed_alignment_not_a_known_name() {
         let cfg =

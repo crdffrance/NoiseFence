@@ -3,6 +3,7 @@
 //! Connectors and publication run outside the SMTP path.
 pub mod connections;
 pub mod connectors;
+pub mod correlation;
 pub mod detection;
 pub mod directory;
 pub mod learning;

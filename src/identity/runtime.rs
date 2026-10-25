@@ -180,6 +180,29 @@ impl Loaded {
             catalog,
         })
     }
+    pub fn inspect_message(
+        &self,
+        raw: &[u8],
+        recipient: &str,
+        scan: &crate::engine::Scan,
+        now: i64,
+    ) -> Report {
+        let requests = super::correlation::requests(scan);
+        Report {
+            catalog_sha256: self.sha256.clone(),
+            relationships_available: false,
+            sensitive_requests_available: requests.is_some(),
+            observation: super::detection::inspect(
+                &self.catalog,
+                raw,
+                &[recipient.to_owned()],
+                scan.evidence.as_ref(),
+                &requests.unwrap_or_default(),
+                None,
+                now,
+            ),
+        }
+    }
     pub fn inspect(
         &self,
         raw: &[u8],

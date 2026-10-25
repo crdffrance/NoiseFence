@@ -11,6 +11,8 @@ use std::{
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact_learning: Option<crate::identity::learning::Settings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_policy: Option<crate::identity::correlation::Settings>,
     /// Installation only; excluded from shared and Web policy allowlists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub management: Option<crate::central::bootstrap::Management>,
@@ -325,6 +327,9 @@ impl Config {
         }
         if let Some(native) = &self.native_filter {
             native.validate()?;
+        }
+        if let Some(settings) = &self.identity_policy {
+            settings.validate()?;
         }
         if let Some(settings) = &self.contact_learning {
             settings.validate()?;

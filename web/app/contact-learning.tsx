@@ -68,9 +68,9 @@ export function ContactLearningSettingsEditor({
         </div>
       </div>
       <p className="notice">
-        Observation only. Regular contact does not mean safe sender. This memory
-        never bypasses phishing checks, changes a verdict or creates training
-        labels.
+        Regular contact does not mean safe sender. This memory never bypasses
+        phishing checks or creates training labels. The separate identity
+        contribution policy controls whether corroborated changes affect the content index.
       </p>
       <fieldset disabled={disabled} className="contact-learning-fields">
         <legend>Learning policy</legend>

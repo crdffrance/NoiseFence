@@ -16,7 +16,7 @@ The console manages **messaging and filter policies**. Installation settings sta
 | Filters → IP reputation · RBL | DNSBL providers, exact return codes, IPv6, independent-provider threshold, timeout, cache, concurrency and admission action | Administrator |
 | Filters → SMTP admission | Greylisting, rate limits and bounded delays | Administrator |
 | Filters → Advanced settings | Analysis limits; LLM model/project, selection, budget and pricing date; OCR limits; DNS checks; URL following; native patterns, composites and family caps | Administrator |
-| Filters → Identity protection | Automatic correspondent memory, retention and recurrence thresholds; manual sources, people, groups, roles, delegation, reviewed CSV imports; separate domain-based name checks | Administrator |
+| Filters → Identity protection | Automatic correspondent memory, retention and recurrence thresholds; identity contribution mode and cap; manual sources, people, groups, roles, delegation, reviewed CSV imports; separate domain-based name checks | Administrator |
 | Filters → Protection & reputation | CRDF/VirusTotal keys and quotas, exceptions and indicator checks | Administrator |
 | Filters → Marketing & newsletters | Marketing recognition and newsletter policy | Administrator |
 | Filters → User preferences | Permitted personal actions, sensitivity bounds, rule limits and existing preferences | Administrator |

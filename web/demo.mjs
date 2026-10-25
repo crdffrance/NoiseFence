@@ -17,6 +17,7 @@ if (params.get('administration') === 'identity') setupSettings.protection.protec
   {name:'Alex Morgan',domain:'example.test'}, {name:'Finance Team',domain:'example.test'},
   {name:'Supplier Billing',domain:'supplier.example.test'},
 ];
+if (params.has('contacts')) setupSettings.identity_policy = {mode:'observation',maximum_weight:1};
 if (params.has('contacts')) setupSettings.contact_learning = {enabled:true,retention_days:30,minimum_campaigns:5,minimum_days:3,learn_since:0};
 const administration = administrationFixture(params,setupSettings,__NOISEFENCE_CONSOLE__.version);
 const sampleId = '00000000-0000-4000-8000-000000000002';
@@ -115,7 +116,7 @@ const assessment = {
   },
 };
 const mail = {
-  ...(params.has('contacts') ? { contact_learning: {status:'regular',observation_only:true,learning_eligible:!spam,dkim_alignment:spam?'not_verified':'verified',regular:true,campaigns:8,observed_days:6,last_seen_at:created-86400,retention_days:30,minimum_campaigns:5,minimum_days:3,blocked_by_feedback:false,content_comparison_available:true,changes:[...(spam?['dkim_alignment']:[]),'reply_destination','sensitive_request']} } : {}),
+  ...(params.has('contacts') ? { identity_correlation: {protocol:'identity-correlation-1',policy_sha256:'c'.repeat(64),mode:'observation',status:'complete',content_available:true,recurrence_available:true,authentication:spam?'failed':'aligned',signals:spam?['recurring_reply_changed','sensitive_request','authentication_failed']:[],corroborated:spam,proposed_weight:spam?1:0,applied_weight:0}, contact_learning: {status:'regular',observation_only:true,learning_eligible:!spam,dkim_alignment:spam?'not_verified':'verified',regular:true,campaigns:8,observed_days:6,last_seen_at:created-86400,retention_days:30,minimum_campaigns:5,minimum_days:3,blocked_by_feedback:false,content_comparison_available:true,changes:[...(spam?['dkim_alignment']:[]),'reply_destination','sensitive_request']} } : {}),
   ...(params.has('identity') ? { protection: {
     version:'protection-demo', observation_only:true,local_status:'complete',feed_status:'not_configured',campaign_status:'not_run',campaign_match:false,campaign_conflict:false,authenticated_sender:false,
     crdf:{status:'not_configured',checked:0,malicious:0,suspicious:0,unknown:0,cache_hits:0,elapsed_ms:0},

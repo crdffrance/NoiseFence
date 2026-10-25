@@ -661,6 +661,10 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     );
     let mut settings = base.settings.clone();
     settings.filters.threshold = 96.;
+    settings.identity_policy = Some(noisefence::identity::correlation::Settings {
+        mode: noisefence::identity::correlation::Mode::Contribute,
+        maximum_weight: 0.75,
+    });
     let staged = control
         .stage_activation_session(0, settings, "admin".into(), session.clone())
         .await
@@ -714,6 +718,16 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     assert!(worker.cluster_ready());
     assert_eq!(control.snapshot().revision, 1);
     assert_eq!(control.snapshot().settings.filters.threshold, 96.);
+    let identity_policy = control.snapshot().settings.identity_policy.clone().unwrap();
+    assert_eq!(
+        identity_policy.mode,
+        noisefence::identity::correlation::Mode::Contribute
+    );
+    assert_eq!(identity_policy.maximum_weight, 0.75);
+    assert_eq!(
+        worker.snapshot().settings.identity_policy,
+        Some(identity_policy)
+    );
     f.central
         .record_policy_incident(&owner, &epoch, Some("runtime_generation_busy"))
         .await
@@ -755,6 +769,12 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
         )
         .await;
         assert_eq!(status, axum::http::StatusCode::OK);
+        if id == 0 {
+            assert!(settings.get("identity_policy").is_none());
+        } else {
+            assert_eq!(settings["identity_policy"]["mode"], "contribute");
+            assert_eq!(settings["identity_policy"]["maximum_weight"], 0.75);
+        }
         assert_eq!(
             settings["filters"]["threshold"],
             if id == 0 {

@@ -1,4 +1,5 @@
 'use client';
+import { IdentityPolicyEditor, identityPolicyError, type IdentityPolicy } from './identity-correlation';
 import { ContactLearningSettingsEditor, contactLearningError, type ContactLearningSettings } from "./contact-learning";
 import { ProvidersOverview } from './providers-view';
 import { SettingsHistory } from './settings-history-view';
@@ -103,6 +104,7 @@ type Filters = {
 };
 export type Settings = {
   contact_learning?: ContactLearningSettings | null;
+  identity_policy?: IdentityPolicy | null;
   quality_candidate?: {job:string|null;sha256:string|null}|null;
   research_archive?: ArchiveSettings | null;
   smtp_admission: AdmissionSettings;
@@ -498,7 +500,7 @@ export function AdminConsole({
   const operationView = operations?.key === operationKey ? operations : null;
   const metrics = operationView?.metrics ?? null;
   const deliveries = operationView?.deliveries ?? [];
-  const contactError = contactLearningError(draft?.contact_learning);
+  const contactError = contactLearningError(draft?.contact_learning) ?? identityPolicyError(draft?.identity_policy);
   const identityInvalid = draft?.protection?.protected_names.some(entry => protectedNameError(entry) !== null) ?? false;
   const dirty =
     !refreshRequired &&
@@ -1305,6 +1307,7 @@ export function AdminConsole({
             />
           </div>
           <div id="filters-panel-identity" role="tabpanel" aria-labelledby="filters-tab-identity" hidden={filterSection !== 'identity'} className="filter-section">
+            <IdentityPolicyEditor value={draft.identity_policy} disabled={busy || blocked || refreshRequired} onChange={identity_policy => setDraft({ ...draft, identity_policy })}/>
             <ContactLearningSettingsEditor value={draft.contact_learning} disabled={busy || blocked || refreshRequired} onChange={contact_learning => setDraft({ ...draft, contact_learning })}/>
             <Suspense fallback={<p aria-live="polite">Loading directory editor…</p>}><DirectorySettings key={`directory:${user.username}:${config.revision}:${epoch}`} user={user} revision={config.revision}
               installed={config.settings.identity_directory} selection={draft.identity_directory}

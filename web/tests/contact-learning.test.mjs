@@ -68,7 +68,7 @@ test('recurrence is presented separately from trust, score and training', () => 
   );
   assert.match(
     settings,
-    /never bypasses phishing checks, changes a verdict or creates training labels/,
+    /never bypasses phishing checks or creates training labels/,
   );
   assert.doesNotMatch(settings, /checked=""/);
 });

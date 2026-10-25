@@ -1,4 +1,5 @@
 'use client';
+import { IdentityCorrelationEvidence, type IdentityCorrelationReport } from './identity-correlation';
 import { ContactLearningEvidence, type ContactLearningReport } from "./contact-learning";
 import {groundingSummary, responseIssueLabel, type LlmGrounding} from './llm-evidence';
 import { RspamdComparison, RspamdOverview, RspamdResult } from './rspamd-comparison';
@@ -121,6 +122,7 @@ type Mail = {
   protection?: ProtectionReport;
   identity?: DirectoryIdentityReport | null;
   contact_learning?: ContactLearningReport | null;
+  identity_correlation?: IdentityCorrelationReport | null;
   mailing?: MailingReport;
   category: FeedbackCategory | 'undetermined';
   pub_tagged: boolean;
@@ -1359,6 +1361,7 @@ function Home() {
                   {selected.quality && (
                     <QualityDetails report={selected.quality} />
                   )}
+                  {selected.identity_correlation && <IdentityCorrelationEvidence report={selected.identity_correlation} retained={selected.scoring?.contributions.find(c => c.id === 'identity_change')?.retained} />}
                   {selected.contact_learning && <ContactLearningEvidence report={selected.contact_learning} />}
                   {selected.identity && <DirectoryIdentityEvidence report={selected.identity} />}
                   {selected.protection && (

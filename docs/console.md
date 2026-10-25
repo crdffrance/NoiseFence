@@ -19,7 +19,9 @@ In **Filters → Identity protection**, administrators can enable local learning
 choose the memory window and recurrence requirements, or start a new observation
 window. Review and activate the configuration on every MX. Message details show
 recurrence, missing coverage and changed patterns, separately from the verdict.
-See [learning and privacy limits](contact-learning.md).
+See [learning and privacy limits](contact-learning.md). The adjacent **Identity
+contribution** policy defaults to observation. Its [corroboration guide](identity-correlation.md)
+explains the optional bounded weight, deduplication and per-message ledger.
 
 ## Identity protection workspace
 

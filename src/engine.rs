@@ -91,6 +91,8 @@ pub struct SemanticResult {
 pub struct Scan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact_learning: Option<crate::identity::learning::Observation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_correlation: Option<crate::identity::correlation::Report>,
     #[serde(skip)]
     pub contact_candidates: crate::identity::learning::Reports,
     /// Recipient-scoped directory observation; never a shared detector vote.
@@ -2026,6 +2028,7 @@ impl Engine {
         };
         let mut base = scan.clone();
         base.identity = None;
+        base.identity_correlation = None;
         base.contact_learning = None;
         base.contact_candidates.clear();
         crate::decision_record::record_analysis(&mut base, &self.config);
@@ -2035,6 +2038,7 @@ impl Engine {
             || !self.config.preferences.mailboxes.is_empty()
             || !scan.traffic_candidates.is_empty()
             || self.identity.is_some()
+            || self.config.identity_policy.is_some()
             || self
                 .config
                 .contact_learning
@@ -2065,19 +2069,11 @@ impl Engine {
                 };
                 let policy = effective.as_ref();
                 let prepared = own_prepared.as_ref().unwrap_or(&common_prepared);
-                let mut assessment = crate::custom_filtering::assess_prepared(
-                    policy,
-                    &self.config,
-                    scan,
-                    prepared,
-                    recipient,
-                    recorded_at,
-                );
                 let mut s = base.clone();
                 // Resolve only this actual envelope recipient. No Bcc address,
                 // other tenant's directory or relationship key enters the report.
                 s.identity = self.identity.as_ref().map(|runtime| {
-                    runtime.inspect(raw, &recipient.address, scan.evidence.as_ref(), recorded_at)
+                    runtime.inspect_message(raw, &recipient.address, scan, recorded_at)
                 });
                 s.contact_learning = scan
                     .contact_candidates
@@ -2100,6 +2096,47 @@ impl Engine {
                                 },
                             })
                     });
+                let settings = self.config.identity_policy.clone().unwrap_or_default();
+                s.identity_correlation = (s.identity.is_some()
+                    || s.contact_learning.is_some()
+                    || self.config.identity_policy.is_some())
+                .then(|| crate::identity::correlation::inspect(&settings, &s));
+                let weighted = s
+                    .identity_correlation
+                    .as_ref()
+                    .is_some_and(|r| r.applied_weight > 0.);
+                if weighted {
+                    s.reasons
+                        .retain(|r| r.id != crate::identity::correlation::RULE);
+                    s.reasons.push(Signal {
+                        id: crate::identity::correlation::RULE.into(),
+                        detail: "Corroborated identity change for this recipient; recurrence alone is not a safe-sender exemption.".into(),
+                        weight: s.identity_correlation.as_ref().unwrap().applied_weight,
+                    });
+                    s.analysis_result = None;
+                    s.recipient_decision = None;
+                    self.score(&mut s);
+                    self.decide(&mut s);
+                    crate::decision_record::record_analysis(&mut s, &self.config);
+                }
+                // Legacy rule predicates also need the recipient's new score.
+                let recipient_prepared = weighted.then(|| {
+                    let facts = crate::custom_filtering::Facts::message(
+                        raw,
+                        sender,
+                        &s,
+                        self.config.filter.max_analysis_bytes,
+                    );
+                    crate::custom_filtering::Prepared::new(policy, &facts)
+                });
+                let mut assessment = crate::custom_filtering::assess_prepared(
+                    policy,
+                    &self.config,
+                    &s,
+                    recipient_prepared.as_ref().unwrap_or(prepared),
+                    recipient,
+                    recorded_at,
+                );
                 s.traffic_candidates.clear();
                 s.traffic = scan.traffic_candidates.get(&recipient.address).cloned();
                 if let Some(report) = &mut s.traffic
@@ -2135,6 +2172,9 @@ impl Engine {
                     .policy_sha256
                     .clone();
                 if let Some(report) = &s.contact_learning {
+                    key.push_str(&message::digest(&serde_json::to_vec(report)?));
+                }
+                if let Some(report) = &s.identity_correlation {
                     key.push_str(&message::digest(&serde_json::to_vec(report)?));
                 }
                 if let Some(report) = &s.identity {
@@ -2258,6 +2298,119 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn identity_weight_is_recipient_scoped_and_snapshotted_before_custom_policies() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        config.smtp.minimum_free_bytes = 0;
+        config.filter.threshold = 60.;
+        config
+            .filter
+            .rule_weights
+            .insert("credential_request".into(), 3.);
+        config.filter.rule_weights.insert("urgency".into(), 1.5);
+        config.native_filter = Some(Default::default());
+        config.contact_learning = Some(Default::default());
+        config.identity_policy = Some(crate::identity::correlation::Settings {
+            mode: crate::identity::correlation::Mode::Contribute,
+            maximum_weight: 1.,
+        });
+        config.custom_filtering = Some(serde_json::from_value(serde_json::json!({
+            "rules":[{"id":"recipient-risk","name":"Recipient risk", "enabled":true,"priority":10,"scope":"*","expires":null,"any":false,
+            "conditions":[{"field":"score","op":"at_least","value":"60"}],"category":null,"action":"quarantine","stop":true}]
+        })).unwrap());
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let raw = b"From: sender@example.org\r\nSubject: Please verify your password\r\n\r\nPlease verify your password.\r\n";
+        let mut scan = crate::identity::correlation::tests::scan();
+        scan.complete = true;
+        scan.feature_version = crate::features::VERSION;
+        scan.reasons = vec![
+            Signal {
+                id: "credential_request".into(),
+                detail: "fixture".into(),
+                weight: 1.5,
+            },
+            Signal {
+                id: "urgency".into(),
+                detail: "fixture".into(),
+                weight: 1.,
+            },
+        ];
+        engine.score(&mut scan);
+        engine.decide(&mut scan);
+        let alice = config.recipient("alice@example.test").unwrap();
+        let bob = config.recipient("bob@example.test").unwrap();
+        scan.contact_candidates
+            .insert(alice.address.clone(), scan.contact_learning.take().unwrap());
+        let render = |s: &mut Scan, id: &str| {
+            message::rewrite(
+                raw,
+                false,
+                &engine.headers("192.0.2.5".parse().unwrap(), id, s, None),
+            )
+        };
+        let variants = engine
+            .variants_inner(
+                raw,
+                &scan,
+                "sender@example.org",
+                "identity",
+                &[alice, bob],
+                render,
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 2);
+        let a = &variants[0].scan;
+        let b = &variants[1].scan;
+        assert!(
+            a.score > b.score,
+            "scores {} / {}, correlation {:?}, ledger {:?}",
+            a.score,
+            b.score,
+            a.identity_correlation,
+            a.scoring
+        );
+        assert_eq!(b.score, scan.score);
+        assert!(a.identity_correlation.as_ref().unwrap().corroborated);
+        assert!(!b.identity_correlation.as_ref().unwrap().corroborated);
+        assert_eq!(a.analysis_result.as_ref().unwrap().scoring, a.scoring);
+        assert_eq!(crate::assessment::historical(a).score.raw, Some(a.score));
+        assert_eq!(
+            variants[0].recipients[0].1.as_ref().unwrap().category,
+            crate::mailing::Category::Spam
+        );
+        assert_eq!(
+            variants[1].recipients[0].1.as_ref().unwrap().category,
+            crate::mailing::Category::Legitimate
+        );
+        assert_eq!(
+            variants[0].recipients[0].1.as_ref().unwrap().matched[0].id,
+            "recipient-risk"
+        );
+        assert!(
+            variants[1].recipients[0]
+                .1
+                .as_ref()
+                .unwrap()
+                .matched
+                .is_empty()
+        );
+        for v in &variants {
+            crate::scoring::validate_transport(&v.scan).unwrap();
+            let wire = String::from_utf8(v.raw.to_vec()).unwrap();
+            assert!(wire.contains(&format!("X-NoiseFence-Score: {:.1}\r\n", v.scan.score)));
+            let public = serde_json::to_string(&v.scan.identity_correlation).unwrap();
+            assert!(!public.contains("alice@") && !public.contains("bob@"));
+            // The deployment remains in observation even when index contribution
+            // is enabled: ordinary action gates are still authoritative.
+            assert_eq!(
+                v.scan.action.as_ref().unwrap().effective,
+                crate::actions::Action::Deliver
+            );
+        }
+    }
 
     #[test]
     fn automatic_contact_reports_are_private_recipient_variants_not_detector_votes() {

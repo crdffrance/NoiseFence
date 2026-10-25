@@ -62,6 +62,7 @@ export const settingSections: Record<string, string> = {
   actions: 'Delivery actions',
   identity_directory: 'Directory snapshot',
   contact_learning: 'Automatic correspondent memory',
+  identity_policy: 'Identity contribution',
   protection: 'Protection & reputation',
   mailing: 'Marketing',
   research_archive: 'Research archive',
@@ -112,6 +113,7 @@ export function keepsConfigurationDraft(
 }
 
 export function settingTitle(path: string[]): string {
+  if (path[0] === 'identity_policy') return path[1] === 'mode' ? 'Identity contribution mode' : 'Maximum identity contribution (log-odds units)';
   if (path[0] === 'contact_learning') return ({enabled:'Learn from accepted messages',retention_days:'Memory window (days)',minimum_campaigns:'Minimum distinct campaigns',minimum_days:'Minimum observation days',learn_since:'Exclude history before (Unix time)'} as Record<string,string>)[path[1]] ?? 'Automatic correspondent memory';
   if (path[0] === 'identity_directory' && path[1] === 'sha256') return 'Prepared catalog SHA-256';
   if (path[0] === 'identity_directory' && path[1] === 'reviewed_from') return 'Reviewed installed catalog SHA-256';

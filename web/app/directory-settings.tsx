@@ -347,7 +347,7 @@ export function DirectorySettings({
             assignments.
           </p>
         </div>
-        <span className="identity-badge">Observation only</span>
+        <span className="identity-badge">Scoped directory context</span>
       </header>
       <div className="directory-steps" aria-label="Directory change workflow">
         <span>
@@ -361,8 +361,9 @@ export function DirectorySettings({
         </span>
       </div>
       <p className="small muted">
-        Directory observations explain possible impersonation. They do not
-        change message scores, delivery, accounts or accepted recipients.
+        Directory observations explain possible impersonation. The separate identity
+        contribution policy controls score changes; directory membership never
+        grants account access or accepts recipients.
       </p>
       {(error || statusError) && (
         <div className="alert error" role="alert">

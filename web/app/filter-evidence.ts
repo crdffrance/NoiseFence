@@ -12,6 +12,7 @@ export type EffectFilter = keyof typeof effectLabels;
 
 const signalNames: Record<string, string> = {
   model_contribution: 'Content model summary',
+  identity_change: 'Corroborated identity change',
   malware_priority: 'Malware protection',
   spf_fail: 'SPF authentication failed',
   dkim_fail: 'DKIM verification failed',
