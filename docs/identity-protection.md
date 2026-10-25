@@ -27,6 +27,10 @@ not production data, a connected identity provider or evidence of detection accu
 See [Automatic correspondent memory](contact-learning.md) for learning from accepted,
 authenticated mail without manual labels. It works without a directory connection.
 
+The [directory credential storage groundwork](directory-credential-storage.md)
+documents encrypted persistence and its development boundary. The Web collectors
+still use request-only credentials; scheduled refresh is not enabled.
+
 ## Manage a manual directory
 
 1. Open **Filters → Identity protection → Add manual source**. Give the source a

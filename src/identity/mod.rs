@@ -1,6 +1,7 @@
 //! Tenant-scoped directory and relationship evidence. Directory membership is
 //! neither mailbox authorization nor proof that a message is legitimate.
 //! Connectors and publication run outside the SMTP path.
+pub mod connections;
 pub mod connectors;
 pub mod detection;
 pub mod directory;
