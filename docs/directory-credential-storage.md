@@ -197,8 +197,23 @@ Before enabling saved access on a real management server:
    remain independent. Restore the original key from a protected backup. There is
    no reset-key button or automatic re-encryption migration in this increment.
 
-Production backup qualification and a dedicated key-recovery CLI remain rollout
-work. The feature has only been exercised with disposable keys and synthetic data.
+The hardening metadata and full backup exporters include the original vault key,
+private correspondent-memory material and immutable prepared directory catalogs.
+They bind the key to connection metadata, including revocation tombstones. Selected
+PostgreSQL exports read public key IDs from the selected database, never a local
+shadow. A changed identity during export refuses the archive before streaming.
+
+`restore-check.py` checks key sizes, memory markers, installed memory policy and
+the recorded key bindings offline. It does not decrypt provider credentials,
+contact a provider, renew access or establish that a PostgreSQL dump can be restored.
+Its PostgreSQL result remains `requires_postgresql_restore`: finish the separate
+isolated database/native authorization checks before recovery. Install
+`identity_recovery.py` beside the other hardening helpers when upgrading them.
+
+These paths have been exercised with disposable keys and synthetic data. A real
+site must still rehearse recovery with its protected backup and current authority.
+The console standby checkpoint is not an installation-secret backup; retain and
+restore these private keys separately through the authorized recovery procedure.
 
 ## Administrative API
 

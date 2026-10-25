@@ -26,7 +26,14 @@ import tomllib
 import uuid
 
 DATA=Path('/var/lib/noisefence')
+CONFIG=Path('/etc/noisefence')
 ROOT=Path('/var/lib/noisefence-hardening')
+
+def identity_tools():
+    spec = importlib.util.spec_from_file_location('nf_identity_recovery', Path(__file__).with_name('identity_recovery.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 def run(*args,check=True,timeout=70):
     return subprocess.run(args,check=check,timeout=timeout,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -160,18 +167,23 @@ def export(mode):
     with (ROOT/'snapshot.lock').open('a') as own:
         fcntl.flock(own,fcntl.LOCK_EX|fcntl.LOCK_NB)
         if mode == 'metadata':
-            cfg = tomllib.loads(Path('/etc/noisefence/config.toml').read_text())
+            cfg = tomllib.loads((CONFIG/'config.toml').read_text())
             if cfg.get('management') is not None:
                 spec = importlib.util.spec_from_file_location('nf_online_metadata', Path(__file__).with_name('online_metadata.py'))
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 # No service stop, timer changes or daemon writer lock.
-                return module.export(types.SimpleNamespace(**globals()))
+                return module.export(types.SimpleNamespace(**globals()), CONFIG)
         # Only operational data and configured model artifacts, never old research corpora.
+        identity = identity_tools()
+        identity_files = identity.files(DATA)
         allowed=[p for p in DATA.iterdir() if p.name in ['protection','spool','incoming','cluster','credentials','mfa.key'] or p.name.startswith(('state.sqlite3','llm-budget.sqlite3','cluster-'))]
-        cfg=tomllib.loads(Path('/etc/noisefence/config.toml').read_text())
+        cfg=tomllib.loads((CONFIG/'config.toml').read_text())
         pg=postgres_target(cfg)
         pg_size=postgres_bytes(pg) if pg else 0
+        connection_keys = identity.postgres_keys(types.SimpleNamespace(**globals()), pg) if pg else None
+        identity_before = identity.inspect(DATA, cfg, connection_keys, private=True)
+        allowed.extend(identity_files.values())
         verify_management_selection(DATA/'state.sqlite3',cfg)
         def paths(value):
             if isinstance(value,dict):
@@ -183,7 +195,7 @@ def export(mode):
             if p.exists() and p not in allowed and p.resolve().is_relative_to(DATA) and p!=DATA:allowed.append(p)
         allowed=[p for p in allowed if p.relative_to(DATA).parts[0]!='research-archive' and not any(parent in allowed for parent in p.parents)]
         if mode=='metadata':allowed=[p for p in allowed if p.name not in ['spool','incoming']]
-        size=sum(tree_bytes(p) if p.is_dir() and not p.is_symlink() else p.lstat().st_size for p in allowed)+tree_bytes(Path('/etc/noisefence'))+pg_size
+        size=sum(tree_bytes(p) if p.is_dir() and not p.is_symlink() else p.lstat().st_size for p in allowed)+tree_bytes(CONFIG)+pg_size
         if shutil.disk_usage(ROOT).free<size*2+2*1024**3:raise RuntimeError('Insufficient snapshot reserve')
         with tempfile.TemporaryDirectory(prefix='snapshot-',dir=ROOT) as tmp:
             dest=Path(tmp);timers=[];stopped=False;started=time.monotonic();guard='noisefence-snapshot-resume-'+uuid.uuid4().hex
@@ -202,7 +214,7 @@ def export(mode):
                         target=dest/'data'/source.relative_to(DATA)
                         target.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
                         run('cp','-a','--reflink=auto',str(source),str(target),timeout=min(90,remaining))
-                    run('cp','-a','--reflink=auto','/etc/noisefence',str(dest/'config'),timeout=30)
+                    run('cp','-a','--reflink=auto',str(CONFIG),str(dest/'config'),timeout=30)
                     if pg:
                         dump_postgres(pg,dest/'data/management.postgresql.dump',120-int(time.monotonic()-copy_started))
                     verify_management_selection(dest/'data/state.sqlite3',cfg)
@@ -213,7 +225,13 @@ def export(mode):
                     run('systemctl','start','noisefence',timeout=120)
                     run('systemctl','stop',guard+'.timer',check=False)
                 for timer in timers:run('systemctl','start',timer)
-            metadata=manifest(dest,mode);metadata['pause_and_copy_seconds']=round(time.monotonic()-started,2)
+            identity_after = identity.inspect(dest/'data', cfg, connection_keys, expected=identity_before)
+            if set(identity.files(DATA)) != set(identity_files):
+                raise ValueError('Identity recovery files changed during backup; retry')
+            identity.files(dest/'data', private=False)
+            if pg and identity.postgres_keys(types.SimpleNamespace(**globals()), pg) != connection_keys:
+                raise ValueError('Directory keys changed during backup; retry')
+            metadata=manifest(dest,mode);metadata['identity_recovery']=identity_after;metadata['pause_and_copy_seconds']=round(time.monotonic()-started,2)
             (dest/'manifest.json').write_text(json.dumps(metadata,sort_keys=True)+'\n')
             # Streaming tar: the receiver checks the SSH exit code as well as restic's.
             with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as archive:

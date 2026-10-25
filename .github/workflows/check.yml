@@ -159,6 +159,11 @@ jobs:
           sudo /usr/bin/python3 tests/systemd_vision.py
   rust:
     env:
+      # Debug assertions stay enabled; full symbols and incremental artifacts
+      # otherwise exhaust hosted-runner storage before archive-reserve tests.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       # Network deadline fixtures must not compete with unrelated test runtimes.
       RUST_TEST_THREADS: '1'
     strategy:
@@ -190,6 +195,21 @@ jobs:
       - run: python3 scripts/version.py --check
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets ${{ matrix.profile }} ${{ matrix.features }} -- -D warnings
+      - name: Build tests and verify archive-reserve headroom
+        run: |
+          cargo test --locked --no-run ${{ matrix.profile }} ${{ matrix.features }}
+          python3 - <<'PY'
+          import shutil
+          from pathlib import Path
+          import tempfile
+          # Archive persistence intentionally keeps >2 GiB free. Check after
+          # linking every test, before fixtures start, and retain that safeguard.
+          for path in {Path.cwd(), Path(tempfile.gettempdir())}:
+              free = shutil.disk_usage(path).free
+              print(f'{path}: {free / 1024**3:.2f} GiB available', flush=True)
+              if free < 3 * 1024**3:
+                  raise SystemExit('Insufficient CI disk headroom for archive tests (3 GiB required)')
+          PY
       - run: cargo test --locked ${{ matrix.profile }} ${{ matrix.features }}
       - name: Verify full-processing measurement controls
         run: |

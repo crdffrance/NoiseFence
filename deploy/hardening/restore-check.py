@@ -6,6 +6,7 @@ Symlinks are validated against the manifest but never materialized.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path,PurePosixPath
 import re
@@ -112,6 +113,12 @@ def verify(archive_path):
                         if backend!='coordinator':raise ValueError('Worker management configuration mismatch')
                     else:raise ValueError('Invalid selected management role')
                 elif backend is not None:raise ValueError('Management configuration precedes storage selection')
+        spec=importlib.util.spec_from_file_location('nf_identity_restore',Path(__file__).with_name('identity_recovery.py'))
+        identity=importlib.util.module_from_spec(spec);spec.loader.exec_module(identity)
+        if any(name in ('data/contact-memory','data/directory-vault','data/identity') or name.startswith(('data/contact-memory/','data/directory-vault/','data/identity/')) for name in links):
+            raise ValueError('Identity recovery symlink refused')
+        identity.inspect(root/'data',config,expected=manifest.get('identity_recovery'))
+        identity.files(root/'data',private=False)
         # A checksummed PGDMP header does not prove that SQL can be restored.
         # Never execute archive-supplied SQL against the production cluster here.
         return {'status':'requires_postgresql_restore' if has_postgres else 'verified','mode':manifest['mode'],'files':len(actual),'databases':databases,'postgresql_restore_required':has_postgres,'network_used':False,'services_started':False}

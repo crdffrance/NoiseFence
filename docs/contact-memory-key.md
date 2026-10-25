@@ -43,7 +43,12 @@ runtime-history snapshot. No SMTP lookup contacts a key service.
 
 Include **both** `contact-memory/key` and `contact-memory/key-id` in private,
 encrypted installation backups. A database dump or a downloaded policy bundle
-alone is insufficient. Keep a separately access-controlled copy of the key; a
+alone is insufficient. The hardening metadata and full backup exporters now include
+these two files and verify the marker against the actual key and installed policy.
+Offline restore verification refuses missing or mismatched material. Upgrade the
+hardening helpers together, including `identity_recovery.py`. Console standby
+checkpoints do not provision installation secrets; retain a protected key copy for
+that recovery path too. Keep a separately access-controlled copy of the key; a
 backup containing both memory records and the key no longer protects those
 records against dictionary guessing.
 
