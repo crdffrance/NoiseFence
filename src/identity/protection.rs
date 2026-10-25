@@ -51,6 +51,90 @@ impl Selection {
         Ok(snapshot)
     }
 }
+/// A bounded administrator edit, never a replacement for provider-owned data.
+/// The selected catalog revision supplies the source authority and all identities.
+pub const MAX_PATCH_CHANGES: usize = 100;
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PersonPatch {
+    pub id: String,
+    pub roles: BTreeSet<Role>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroupPatch {
+    pub id: String,
+    pub protected: bool,
+}
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Patch {
+    #[serde(default)]
+    pub people: Vec<PersonPatch>,
+    #[serde(default)]
+    pub groups: Vec<GroupPatch>,
+    #[serde(default)]
+    pub add_delegations: Vec<Delegation>,
+    #[serde(default)]
+    pub remove_delegations: Vec<Delegation>,
+}
+impl Patch {
+    pub fn apply(&self, installed: &Snapshot, now: i64) -> Result<Snapshot> {
+        installed.validate(now)?;
+        let count = self.people.len()
+            + self.groups.len()
+            + self.add_delegations.len()
+            + self.remove_delegations.len();
+        ensure!(
+            (1..=MAX_PATCH_CHANGES).contains(&count),
+            "Review between 1 and 100 protection changes at a time"
+        );
+        let mut next = installed.clone();
+        let mut seen = BTreeSet::new();
+        for patch in &self.people {
+            ensure!(seen.insert(&patch.id), "Repeated person protection edit");
+            let person = next
+                .people
+                .iter_mut()
+                .find(|p| p.id == patch.id)
+                .ok_or_else(|| anyhow::anyhow!("Protection identity not found in this source"))?;
+            person.protected_roles = patch.roles.clone();
+        }
+        seen.clear();
+        for patch in &self.groups {
+            ensure!(seen.insert(&patch.id), "Repeated group protection edit");
+            let group = next
+                .groups
+                .iter_mut()
+                .find(|g| g.id == patch.id)
+                .ok_or_else(|| anyhow::anyhow!("Protection group not found in this source"))?;
+            group.protected = patch.protected;
+        }
+        let mut delegations = BTreeSet::new();
+        for removed in &self.remove_delegations {
+            ensure!(
+                delegations.insert(removed) && next.delegations.remove(removed),
+                "Delegation removal is repeated or does not match an installed assignment"
+            );
+        }
+        for added in &self.add_delegations {
+            ensure!(
+                delegations.insert(added) && next.delegations.insert(added.clone()),
+                "Delegation addition is repeated or conflicts with another change"
+            );
+        }
+        next.validate(now)?;
+        ensure!(next != *installed, "No protection changes to review");
+        next.generation = installed
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("Source generation exhausted"))?;
+        // Local choices must never renew stale provider data or impersonate a sync.
+        debug_assert_eq!(next.completed_at, installed.completed_at);
+        Ok(next)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

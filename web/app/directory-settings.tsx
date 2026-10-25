@@ -28,6 +28,7 @@ import {
   newDirectory,
   parsePeopleCsv,
   preparedMatches,
+  protectionEdit,
   removeGroup,
   removePerson,
   roles,
@@ -319,6 +320,15 @@ export function DirectorySettings({
           ? 'This source ID already exists. Choose a new ID or edit the installed source.'
           : null)
       : null;
+  let protectionChange: DirectoryEdit | null = null;
+  let protectionProblem = '';
+  if (draft && !manual && dirty) {
+    try {
+      protectionChange = protectionEdit(JSON.parse(original), draft);
+    } catch (e) {
+      protectionProblem = (e as Error).message;
+    }
+  }
   const objects = draft ? (tab === 'groups' ? draft.groups : draft.people) : [];
   const matches = objects.filter((p) =>
     `${p.id} ${p.display_name} ${p.addresses.join(' ')}`
@@ -361,9 +371,9 @@ export function DirectorySettings({
         </span>
       </div>
       <p className="small muted">
-        Directory observations explain possible impersonation. The separate identity
-        contribution policy controls score changes; directory membership never
-        grants account access or accepts recipients.
+        Directory observations explain possible impersonation. The separate
+        identity contribution policy controls score changes; directory
+        membership never grants account access or accepts recipients.
       </p>
       {(error || statusError) && (
         <div className="alert error" role="alert">
@@ -491,8 +501,8 @@ export function DirectorySettings({
             <Plus size={16} /> Add manual source
           </Button>
           <p className="directory-note">
-            Collect provider sources above; edit manual sources here. Directory
-            collection does not enable SSO sign-in.
+            Collect provider data above; manage protection assignments here.
+            Directory collection does not enable SSO sign-in.
           </p>
         </aside>
         <section
@@ -547,8 +557,11 @@ export function DirectorySettings({
               </header>
               {!manual && (
                 <p className="directory-note">
-                  This provider snapshot is read-only. Collect an update above,
-                  then review it before activation.
+                  Names, addresses, activity and memberships come from your
+                  provider. You can edit protected roles, protected groups and
+                  sending delegation here. These local choices survive
+                  synchronization; editing them does not renew the provider’s
+                  freshness.
                 </p>
               )}
               <SectionTabs
@@ -838,8 +851,12 @@ export function DirectorySettings({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  aria-label={`Edit ${p.display_name}`}
-                                  disabled={!manual || locked}
+                                  aria-label={
+                                    manual
+                                      ? `Edit ${p.display_name}`
+                                      : `Edit protection for ${p.display_name}`
+                                  }
+                                  disabled={locked}
                                   onClick={() =>
                                     setEditing(
                                       tab === 'people'
@@ -904,7 +921,7 @@ export function DirectorySettings({
                     )}
                     {tab === 'groups' && (
                       <fieldset
-                        disabled={!manual || locked}
+                        disabled={locked}
                         className="directory-relations"
                       >
                         <legend>Group membership</legend>
@@ -944,6 +961,7 @@ export function DirectorySettings({
                                   size="sm"
                                   variant="ghost"
                                   aria-label={`Remove member ${m.member.id}`}
+                                  disabled={!manual}
                                   onClick={() =>
                                     update({
                                       ...draft,
@@ -963,6 +981,7 @@ export function DirectorySettings({
                           <label className="field">
                             Member type
                             <select
+                              disabled={!manual}
                               value={memberKind}
                               onChange={(e) => {
                                 setMemberKind(
@@ -978,6 +997,7 @@ export function DirectorySettings({
                           <label className="field">
                             Member
                             <select
+                              disabled={!manual}
                               value={memberId}
                               onChange={(e) => setMemberId(e.target.value)}
                             >
@@ -995,6 +1015,7 @@ export function DirectorySettings({
                           <Button
                             variant="outline"
                             disabled={
+                              !manual ||
                               !groupId ||
                               !memberId ||
                               draft.memberships.some(
@@ -1026,10 +1047,7 @@ export function DirectorySettings({
                   </>
                 )}
                 {tab === 'delegations' && (
-                  <fieldset
-                    disabled={!manual || locked}
-                    className="directory-relations"
-                  >
+                  <fieldset disabled={locked} className="directory-relations">
                     <legend>Explicit sending delegation</legend>
                     <p className="small muted">
                       Record who is authorized to send using another identity’s
@@ -1059,7 +1077,7 @@ export function DirectorySettings({
                           <Button
                             size="sm"
                             variant="ghost"
-                            aria-label={`Remove delegation for ${d.address}`}
+                            aria-label={`Remove delegation for ${d.address} from ${draft.people.find((p) => p.id === d.delegate)?.display_name ?? d.delegate}`}
                             onClick={() =>
                               update({
                                 ...draft,
@@ -1158,6 +1176,7 @@ export function DirectorySettings({
                   </strong>
                   <p>
                     {sourceProblem ||
+                      protectionProblem ||
                       'Preparing validates the complete source and shows its changes before activation.'}
                   </p>
                 </div>
@@ -1187,16 +1206,25 @@ export function DirectorySettings({
                     </Button>
                   )}
                   <Button
-                    disabled={!manual || locked || !!sourceProblem}
-                    onClick={() =>
-                      void prepare({ operation: 'upsert_manual', draft })
+                    disabled={
+                      locked ||
+                      !!sourceProblem ||
+                      !!protectionProblem ||
+                      (!manual && !protectionChange)
                     }
+                    onClick={() => {
+                      if (manual)
+                        void prepare({ operation: 'upsert_manual', draft });
+                      else if (protectionChange) void prepare(protectionChange);
+                    }}
                   >
                     {busy
                       ? 'Preparing…'
                       : dirty
                         ? 'Prepare changes'
-                        : 'Renew reviewed source'}
+                        : manual
+                          ? 'Renew reviewed source'
+                          : 'Prepare protection changes'}
                     <ArrowRight size={16} />
                   </Button>
                 </div>
@@ -1247,11 +1275,13 @@ export function DirectorySettings({
       {editing && draft && (
         <ConfirmDialog
           title={
-            editing.original
-              ? 'Edit directory identity'
-              : editing.kind === 'person'
-                ? 'Add directory identity'
-                : 'Add directory group'
+            !manual
+              ? 'Edit identity protection'
+              : editing.original
+                ? 'Edit directory identity'
+                : editing.kind === 'person'
+                  ? 'Add directory identity'
+                  : 'Add directory group'
           }
           confirmLabel="Save to source workspace"
           confirmDisabled={!!editError || locked}
@@ -1301,6 +1331,7 @@ export function DirectorySettings({
               Display name
               <Input
                 id={`${id}-directory-field-14`}
+                disabled={!manual}
                 value={editing.value.display_name}
                 onChange={(e) =>
                   setEditing({
@@ -1315,6 +1346,7 @@ export function DirectorySettings({
                 <label className="field">
                   Identity type
                   <select
+                    disabled={!manual}
                     value={editing.value.kind}
                     onChange={(e) =>
                       setEditing({
@@ -1335,6 +1367,7 @@ export function DirectorySettings({
               <label className="field">
                 Activity
                 <select
+                  disabled={!manual}
                   value={editing.value.activity}
                   onChange={(e) =>
                     setEditing({
@@ -1356,6 +1389,7 @@ export function DirectorySettings({
               Explicit addresses and aliases
               <textarea
                 rows={3}
+                disabled={!manual}
                 defaultValue={editing.value.addresses.join('\n')}
                 spellCheck={false}
                 onChange={(e) =>
@@ -1520,7 +1554,10 @@ export function DirectoryReview({ prepared }: { prepared: DirectoryPrepared }) {
   return (
     <div className="directory-review">
       <p>
-        <strong>{r.source_label}</strong> · {r.operation} source
+        <strong>{r.source_label}</strong> ·{' '}
+        {r.operation === 'protection'
+          ? 'update protection assignments'
+          : `${r.operation} source`}
       </p>
       <div className="directory-review-grid">
         {[
@@ -1556,6 +1593,13 @@ export function DirectoryReview({ prepared }: { prepared: DirectoryPrepared }) {
           <dd>{r.protected_identity_changes}</dd>
         </div>
       </dl>
+      {r.operation === 'protection' && (
+        <p className="directory-note">
+          Only administrator protection assignments change. Provider data and
+          its last completed synchronization time are preserved. This does not
+          grant mailbox permissions, routing or console access.
+        </p>
+      )}
       <CollectionCoverage value={prepared.collection} />
       {r.requires_attention && (
         <p className="directory-attention">

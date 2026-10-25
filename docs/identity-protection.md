@@ -108,7 +108,7 @@ Mailbox users cannot fetch directory names or assignments.
 | --- | --- |
 | `GET /api/v1/admin/identity` | Installed revision, digest, source counts and freshness |
 | `GET /api/v1/admin/identity?source=SOURCE_ID` | The selected source's editable content |
-| `POST /api/v1/admin/identity/prepare` | Prepare an `upsert_manual` or `remove` operation; never activate it |
+| `POST /api/v1/admin/identity/prepare` | Prepare an `upsert_manual`, `update_protection` or `remove` operation; never activate it |
 
 Preparation accepts `revision`, `catalog_sha256` (null for no installed catalog)
 and `edit`. A manual upsert has `operation: "upsert_manual"` and a `draft` with
@@ -134,6 +134,52 @@ policy's files. In PostgreSQL mode, authorization and preparation audit are cent
 files remain local content-addressed artifacts before normal policy distribution.
 Audit distinguishes started, completed and failed preparation. A completed
 preparation is not an activated policy.
+
+## Protect synchronized identities
+
+Open an installed provider source under **Filters → Identity protection**. The
+pencil action beside a person or group opens **Edit identity protection**. Names,
+addresses, activity, identity type and memberships are supplied by the provider
+and remain read-only. Choose the protected roles or group flag, then save to the
+local workspace. The **Delegation** tab lets you add or remove an explicit sending
+assignment between existing people and an address belonging to its owner.
+
+Select **Prepare changes**, inspect the source diff, add it to the policy draft
+and apply the normal configuration review. Up to 100 changed assignments can be
+prepared together, regardless of directory size. Removing a protection or a
+delegation is also reviewed. A conflict requires reloading the installed source;
+no edit is automatically replayed against a newer catalog.
+
+These assignments are administrator-owned. The next provider refresh preserves
+them; a missing protected identity or invalidated delegation stops preparation
+for review rather than silently clearing protection. Editing assignments changes
+the source generation but **preserves its last synchronization time**. Stale data
+stays stale until a successful provider collection. Assignments grant neither
+mailbox permissions nor console access, and do not make a sender automatically
+legitimate. Authentication and corroborating message evidence are still required.
+
+The existing preparation endpoint accepts this narrow edit:
+
+```json
+{
+  "operation": "update_protection",
+  "source_id": "organization",
+  "patch": {
+    "people": [{ "id": "finance-001", "roles": ["finance", "executive"] }],
+    "groups": [{ "id": "finance", "protected": true }],
+    "add_delegations": [],
+    "remove_delegations": []
+  }
+}
+```
+
+Send it as `edit` alongside the expected `revision` and `catalog_sha256`. Omitted
+patch arrays mean no changes to that category; an empty roles list removes that
+person's protected roles. Each delegation is `{ "owner": "id", "delegate": "id",
+"address": "owner@example.test" }`. Duplicate edits, unknown identities, conflicting
+additions/removals, nonexistent removals, provider-field changes and empty patches
+are refused. The same administrator authorization, CSRF, immutable preparation,
+audit and selected SQLite/PostgreSQL authority apply as for other source edits.
 
 ## Configure protected names
 

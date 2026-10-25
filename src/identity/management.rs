@@ -1,4 +1,4 @@
-//! Administrator-owned manual source preparation. This module performs no IdP
+//! Administrator-owned source and protection preparation. This module performs no IdP
 //! requests and never modifies routing, users, grants or the installed policy.
 use super::{directory::*, runtime};
 use anyhow::{Result, ensure};
@@ -28,8 +28,16 @@ impl From<Snapshot> for Draft {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
-    UpsertManual { draft: Box<Draft> },
-    Remove { source_id: String },
+    UpsertManual {
+        draft: Box<Draft>,
+    },
+    Remove {
+        source_id: String,
+    },
+    UpdateProtection {
+        source_id: String,
+        patch: super::protection::Patch,
+    },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SourceStatus {
@@ -122,11 +130,12 @@ pub fn preview(
     previous.validate(now)?;
     let id = match &edit {
         Edit::UpsertManual { draft } => &draft.source.id,
-        Edit::Remove { source_id } => source_id,
+        Edit::Remove { source_id } | Edit::UpdateProtection { source_id, .. } => source_id,
     };
     ensure!(super::text(id, 100), "Invalid source identifier");
     let old = previous.sources.iter().find(|s| &s.source.id == id);
     let source_id = id.to_owned();
+    let protection_only = matches!(&edit, Edit::UpdateProtection { .. });
     let new = match edit {
         Edit::UpsertManual { draft } => {
             ensure!(
@@ -159,12 +168,25 @@ pub fn preview(
             next.validate(now)?;
             Some(next)
         }
+        Edit::UpdateProtection { patch, .. } => {
+            let installed = old.ok_or_else(|| anyhow::anyhow!("Directory source not found"))?;
+            ensure!(
+                installed.source.scopes.iter().all(|s| scopes.contains(s)),
+                "Source scopes must be configured receiving domains"
+            );
+            Some(patch.apply(installed, now)?)
+        }
         Edit::Remove { .. } => {
             ensure!(old.is_some(), "Directory source not found");
             None
         }
     };
-    finish(previous, old, new, source_id, now)
+    let mut candidate = finish(previous, old, new, source_id, now)?;
+    if protection_only {
+        candidate.review.operation = "protection".into();
+        candidate.review.requires_attention = true;
+    }
+    Ok(candidate)
 }
 
 /// Only called with the result of a server-owned connector, never request JSON.

@@ -67,6 +67,8 @@ export function directoryFixture(params, settings) {
             ],
           },
         ];
+  if (params.get('directory') === 'provider' && sources.length)
+    sources[0].source.provider = 'entra';
   if (params.get('administration') === 'identity' && sources.length)
     settings.identity_directory = { sha256: hash, reviewed_from: null };
   else sources = [];
@@ -471,6 +473,26 @@ export function directoryFixture(params, settings) {
                 generation: (before?.generation ?? 0) + 1,
                 completed_at: now,
               };
+      if (edit.operation === 'update_protection') {
+        if (!before)
+          return Response.json({ error: 'Source not found.' }, { status: 422 });
+        Object.assign(after, structuredClone(before), {
+          generation: before.generation + 1,
+        });
+        const patch = edit.patch;
+        for (const p of patch.people)
+          after.people.find((old) => old.id === p.id).protected_roles = [
+            ...p.roles,
+          ];
+        for (const g of patch.groups)
+          after.groups.find((old) => old.id === g.id).protected = g.protected;
+        const key = (d) => JSON.stringify([d.owner, d.delegate, d.address]);
+        const removed = new Set(patch.remove_delegations.map(key));
+        after.delegations = [
+          ...after.delegations.filter((d) => !removed.has(key(d))),
+          ...patch.add_delegations,
+        ];
+      }
       const sha256 = (++count).toString(16).padStart(64, '0');
       candidates.set(sha256, [
         ...sources.filter((s) => s.source.id !== id),
@@ -478,12 +500,27 @@ export function directoryFixture(params, settings) {
       ]);
       const people = diff(before?.people ?? [], after?.people ?? []),
         groups = diff(before?.groups ?? [], after?.groups ?? []);
+      const delegationKey = (d) =>
+        JSON.stringify([d.owner, d.delegate, d.address]);
+      const previousDelegations = new Set(
+        (before?.delegations ?? []).map(delegationKey),
+      );
+      const nextDelegations = new Set(
+        (after?.delegations ?? []).map(delegationKey),
+      );
       return Response.json({
         revision,
         selection: { sha256, reviewed_from: currentHash },
         active: false,
         review: {
-          operation: !after ? 'remove' : before ? 'update' : 'create',
+          operation:
+            edit.operation === 'update_protection'
+              ? 'protection'
+              : !after
+                ? 'remove'
+                : before
+                  ? 'update'
+                  : 'create',
           source_id: id,
           source_label: (after ?? before).source.label,
           people,
@@ -494,10 +531,10 @@ export function directoryFixture(params, settings) {
               ? 0
               : 1,
           delegation_changes:
-            JSON.stringify(before?.delegations ?? []) ===
-            JSON.stringify(after?.delegations ?? [])
-              ? 0
-              : 1,
+            [...previousDelegations].filter((d) => !nextDelegations.has(d))
+              .length +
+            [...nextDelegations].filter((d) => !previousDelegations.has(d))
+              .length,
           removed_or_disabled: people.removed + groups.removed,
           protected_identity_changes: people.changed + groups.changed,
           source_configuration_changed:

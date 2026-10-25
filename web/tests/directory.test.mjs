@@ -11,6 +11,7 @@ import {
   removeGroup,
   preparedMatches,
   directoryPending,
+  protectionEdit,
 } from '../app/directory.ts';
 import { administrationFixture } from '../demo-administration.mjs';
 const header = 'id,name,addresses,kind,activity,roles\r\n';
@@ -186,4 +187,129 @@ test('policy comparison identifies both directory digests explicitly', () => {
     settingTitle(['identity_directory', 'reviewed_from']),
     'Reviewed installed catalog SHA-256',
   );
+});
+
+test('provider protection edits contain only changed assignments, without provider attributes', () => {
+  const before = newDirectory(['example.test']);
+  before.source.provider = 'entra';
+  before.source.id = 'provider';
+  before.people = [
+    alice,
+    { ...alice, id: 'delegate', addresses: ['d@example.test'] },
+  ];
+  before.groups = [
+    {
+      id: 'finance',
+      display_name: 'Finance',
+      addresses: [],
+      activity: 'active',
+      protected: true,
+    },
+  ];
+  const after = structuredClone(before);
+  after.people[0].protected_roles = ['executive'];
+  after.groups[0].protected = false;
+  after.delegations = [
+    { owner: alice.id, delegate: 'delegate', address: alice.addresses[0] },
+  ];
+  assert.deepEqual(protectionEdit(before, after), {
+    operation: 'update_protection',
+    source_id: 'provider',
+    patch: {
+      people: [{ id: alice.id, roles: ['executive'] }],
+      groups: [{ id: 'finance', protected: false }],
+      add_delegations: after.delegations,
+      remove_delegations: [],
+    },
+  });
+  const removal = protectionEdit(after, before);
+  assert.deepEqual(removal.patch.remove_delegations, after.delegations);
+  assert.throws(() => protectionEdit(before, before), /between 1 and 100/);
+  for (const change of [
+    (d) => (d.people[0].display_name = 'Forged'),
+    (d) => (d.people[0].addresses = ['forged@example.test']),
+    (d) => (d.people[0].activity = 'inactive'),
+    (d) => (d.people[0].kind = 'supplier'),
+    (d) => (d.people[1].id = alice.id),
+    (d) => d.people.pop(),
+    (d) => (d.groups[0].addresses = ['forged@example.test']),
+    (d) =>
+      d.memberships.push({
+        group: 'finance',
+        member: { kind: 'person', id: alice.id },
+      }),
+    (d) => (d.source.scopes = ['other.test']),
+    (d) => d.delegations.push(d.delegations[0]),
+  ]) {
+    const invalid = structuredClone(after);
+    change(invalid);
+    assert.throws(
+      () => protectionEdit(before, invalid),
+      /Provider data changed/,
+    );
+  }
+  assert.deepEqual(before.people[0], alice);
+});
+test('large source sends a bounded patch and refuses more than 100 simultaneous assignments', () => {
+  const before = newDirectory(['example.test']);
+  before.people = Array.from({ length: 20000 }, (_, i) => ({
+    ...alice,
+    id: `id-${i}`,
+  }));
+  const after = structuredClone(before);
+  for (let i = 0; i < 100; ++i) after.people[i].protected_roles = ['supplier'];
+  const edit = protectionEdit(before, after);
+  assert.equal(edit.patch.people.length, 100);
+  assert.ok(JSON.stringify(edit).length < 10000);
+  after.people[100].protected_roles = [];
+  assert.throws(() => protectionEdit(before, after), /between 1 and 100/);
+});
+test('provider demo protects local roles without renewing the last successful sync', async () => {
+  const fixture = administrationFixture(
+    new URLSearchParams('administration=identity&directory=provider'),
+    {
+      filters: { threshold: 95 },
+      actions: { quarantine_days: 14 },
+      rbl: { minimum_providers: 2 },
+    },
+    'preview',
+  );
+  const base = await fixture('/admin/config').json();
+  const get = () =>
+    fixture(
+      '/admin/identity',
+      undefined,
+      new URL('http://localhost/?source=organization'),
+    ).json();
+  const before = await get();
+  const draft = structuredClone(before.draft);
+  draft.people[0].protected_roles = ['legal'];
+  draft.delegations[0].delegate = 'operations-002';
+  const prepared = await fixture('/admin/identity/prepare', {
+    method: 'POST',
+    body: JSON.stringify({
+      revision: 25,
+      catalog_sha256: before.catalog_sha256,
+      edit: protectionEdit(before.draft, draft),
+    }),
+  }).json();
+  assert.equal(prepared.active, false);
+  assert.equal(prepared.review.operation, 'protection');
+  assert.equal(prepared.review.delegation_changes, 2);
+  assert.equal(
+    prepared.review.before.completed_at,
+    prepared.review.after.completed_at,
+  );
+  assert.deepEqual((await get()).draft, before.draft);
+  await fixture('/admin/config', {
+    method: 'POST',
+    body: JSON.stringify({
+      revision: 25,
+      settings: { ...base.settings, identity_directory: prepared.selection },
+    }),
+  }).json();
+  const view = await get();
+  assert.deepEqual(view.draft.people[0].protected_roles, ['legal']);
+  assert.equal(view.sources[0].completed_at, before.sources[0].completed_at);
+  assert.deepEqual(view.draft.memberships, before.draft.memberships);
 });

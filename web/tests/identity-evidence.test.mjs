@@ -245,3 +245,17 @@ test('directory review escapes source data and distinguishes preparation from ac
   assert.match(html, /Protected identity changes/);
   assert.match(html, /check source coverage, intended removals/i);
 });
+
+test('protection review identifies local assignments and does not claim renewed synchronization', () => {
+  const html = renderToStaticMarkup(
+    createElement(DirectoryReview, {
+      prepared: {
+        ...prepared,
+        review: { ...prepared.review, operation: 'protection' },
+      },
+    }),
+  );
+  assert.match(html, /update protection assignments/);
+  assert.match(html, /last completed synchronization time are preserved/);
+  assert.match(html, /does not grant mailbox permissions/);
+});

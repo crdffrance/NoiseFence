@@ -75,7 +75,88 @@ export type DirectoryView = {
 };
 export type DirectoryEdit =
   | { operation: 'upsert_manual'; draft: DirectoryDraft }
-  | { operation: 'remove'; source_id: string };
+  | { operation: 'remove'; source_id: string }
+  | {
+      operation: 'update_protection';
+      source_id: string;
+      patch: ProtectionPatch;
+    };
+export type ProtectionPatch = {
+  people: { id: string; roles: Role[] }[];
+  groups: { id: string; protected: boolean }[];
+  add_delegations: Delegation[];
+  remove_delegations: Delegation[];
+};
+// Send only changed administrator assignments, even for a large provider source.
+export function protectionEdit(
+  before: DirectoryDraft,
+  after: DirectoryDraft,
+): DirectoryEdit {
+  const same = (a: unknown, b: unknown) =>
+    JSON.stringify(a) === JSON.stringify(b);
+  const invariant = (ok: boolean) => {
+    if (!ok)
+      throw new Error(
+        'Provider data changed. Reload the source before editing protection.',
+      );
+  };
+  invariant(
+    same(before.source, after.source) &&
+      same(before.memberships, after.memberships),
+  );
+  invariant(
+    before.people.length === after.people.length &&
+      before.groups.length === after.groups.length,
+  );
+  const people = new Map(before.people.map((p) => [p.id, p]));
+  const groups = new Map(before.groups.map((g) => [g.id, g]));
+  const patch: ProtectionPatch = {
+    people: [],
+    groups: [],
+    add_delegations: [],
+    remove_delegations: [],
+  };
+  for (const next of after.people) {
+    const old = people.get(next.id);
+    invariant(
+      !!old &&
+        same({ ...old, protected_roles: [] }, { ...next, protected_roles: [] }),
+    );
+    people.delete(next.id);
+    if (
+      !same([...old!.protected_roles].sort(), [...next.protected_roles].sort())
+    )
+      patch.people.push({ id: next.id, roles: [...next.protected_roles] });
+  }
+  for (const next of after.groups) {
+    const old = groups.get(next.id);
+    invariant(
+      !!old &&
+        same({ ...old, protected: false }, { ...next, protected: false }),
+    );
+    groups.delete(next.id);
+    if (old!.protected !== next.protected)
+      patch.groups.push({ id: next.id, protected: next.protected });
+  }
+  const key = (d: Delegation) =>
+    JSON.stringify([d.owner, d.delegate, d.address]);
+  const oldDelegations = new Set(before.delegations.map(key));
+  const nextDelegations = new Set(after.delegations.map(key));
+  invariant(
+    oldDelegations.size === before.delegations.length &&
+      nextDelegations.size === after.delegations.length,
+  );
+  patch.add_delegations = after.delegations.filter(
+    (d) => !oldDelegations.has(key(d)),
+  );
+  patch.remove_delegations = before.delegations.filter(
+    (d) => !nextDelegations.has(key(d)),
+  );
+  const count = Object.values(patch).reduce((n, edits) => n + edits.length, 0);
+  if (count < 1 || count > 100)
+    throw new Error('Review between 1 and 100 protection changes at a time.');
+  return { operation: 'update_protection', source_id: before.source.id, patch };
+}
 type Counts = { added: number; removed: number; changed: number };
 export type DirectoryPrepared = {
   revision: number;

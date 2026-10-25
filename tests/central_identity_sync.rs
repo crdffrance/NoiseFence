@@ -380,3 +380,84 @@ async fn stored_receipt_case(invalidation: &str) {
     drop(reopened);
     f.finish().await;
 }
+
+#[allow(dead_code)]
+#[path = "common/mod.rs"]
+mod config_fixture;
+#[path = "common/scim_http.rs"]
+mod http;
+#[path = "common/identity_protection.rs"]
+mod protection;
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn central_protection_edit_uses_selected_authority_and_reviewed_policy() {
+    let f = postgres::Fixture::new().await;
+    let db = f.connect().await;
+    for (name, token, admin) in [
+        ("admin", http::ADMIN, true),
+        ("reader", http::READER, false),
+    ] {
+        db.execute(
+            "INSERT INTO noisefence.users(username,password,admin) VALUES($1,'unused',$2)",
+            &[&name, &admin],
+        )
+        .await
+        .unwrap();
+        db.execute("INSERT INTO noisefence.sessions(token_hash,username,csrf,expires) VALUES($1,$2,'csrf-http',$3)",&[&noisefence::message::digest(token.as_bytes()),&name,&(noisefence::now()+3600)]).await.unwrap();
+    }
+    let root = tempfile::tempdir().unwrap();
+    let store = noisefence::store::Store::open(root.path())
+        .unwrap()
+        .with_management(f.central.clone())
+        .await
+        .unwrap();
+    let mut config = (*config_fixture::config(root.path())).clone();
+    protection::install(&mut config);
+    config.cluster = Some(toml::from_str("role='coordinator'\nnode_id='mx1'").unwrap());
+    noisefence::cluster::prepare(&config, &store).await.unwrap();
+    let identity = store
+        .run(|db| noisefence::central::outbox::initialize(db, "mx1"))
+        .await
+        .unwrap();
+    f.central.register_source(&identity).await.unwrap();
+    let publication = noisefence::cluster::artifacts::bind_credentials(
+        noisefence::cluster::artifacts::capture(
+            &config,
+            noisefence::control::Settings::from_config(&config),
+            0,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    noisefence::cluster::artifacts::freeze(root.path(), &publication, 0).unwrap();
+    f.central
+        .initialize_policy(&identity, publication.bundle)
+        .await
+        .unwrap();
+    let (router, control) = http::router(std::sync::Arc::new(config), store.clone()).await;
+    protection::exercise(&router, &control).await;
+    let count: i64 = db
+        .query_one(
+            "SELECT count(*) FROM noisefence.audit WHERE action='identity_prepare_completed'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 1);
+    let local: i64 = store
+        .read(|db| {
+            Ok(db.query_row(
+                "SELECT count(*) FROM audit WHERE action='identity_prepare_completed'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(local, 0);
+    drop(router);
+    drop(control);
+    drop(store);
+    f.finish().await;
+}

@@ -969,3 +969,118 @@ async fn ad_signed_upload_requires_enrollment_authorization_and_review_and_refus
         StatusCode::CONFLICT
     );
 }
+
+#[test]
+fn provider_protection_patch_preserves_data_and_freshness_across_refresh() {
+    use noisefence::identity::{protection, runtime};
+    use std::collections::BTreeSet;
+    let mut source: directory::Snapshot =
+        serde_json::from_str(include_str!("fixtures/identity/directory.json")).unwrap();
+    source.source.provider = directory::Provider::Entra;
+    let mut delegate = source.people[0].clone();
+    delegate.id = "delegate".into();
+    delegate.addresses = BTreeSet::from(["delegate@example.test".into()]);
+    delegate.protected_roles.clear();
+    source.people.push(delegate);
+    let before = runtime::Document {
+        schema: runtime::SCHEMA.into(),
+        sources: vec![source.clone()],
+    };
+    let now = source.completed_at + 86401;
+    let patch = json!({"people":[{"id":"person-alice","roles":["executive"]}],
+        "groups":[{"id":"group-finance","protected":false}],
+        "add_delegations":[{"owner":"person-alice","delegate":"delegate","address":"alice@example.test"}]});
+    let edit = |value: Value| management::Edit::UpdateProtection {
+        source_id: source.source.id.clone(),
+        patch: serde_json::from_value::<protection::Patch>(value).unwrap(),
+    };
+    let result =
+        management::preview(&before, edit(patch.clone()), &source.source.scopes, now).unwrap();
+    assert_eq!(result.review.operation, "protection");
+    assert!(result.review.requires_attention);
+    assert_eq!(result.review.delegation_changes, 1);
+    assert_eq!(result.review.membership_changes, 0);
+    assert_eq!(result.review.removed_or_disabled, 0);
+    assert!(!result.review.source_configuration_changed);
+    assert!(!result.review.after.as_ref().unwrap().fresh);
+    let next = &result.document.sources[0];
+    assert_eq!(next.completed_at, source.completed_at);
+    assert_eq!(next.generation, source.generation + 1);
+    let mut original_data = next.clone();
+    original_data.people[0].protected_roles = source.people[0].protected_roles.clone();
+    original_data.groups[0].protected = true;
+    original_data.delegations.clear();
+    original_data.generation = source.generation;
+    assert_eq!(original_data, source);
+    let mut collected = source.clone();
+    collected.generation = next.generation + 1;
+    collected.completed_at = now;
+    let refreshed =
+        management::preview_collected(&result.document, collected, &source.source.scopes, now)
+            .unwrap();
+    assert_eq!(
+        refreshed.document.sources[0].people[0].protected_roles,
+        BTreeSet::from([directory::Role::Executive])
+    );
+    assert!(!refreshed.document.sources[0].groups[0].protected);
+    assert_eq!(refreshed.document.sources[0].delegations, next.delegations);
+    assert!(management::preview(&before, edit(patch), &BTreeSet::new(), now).is_err());
+    for invalid in [
+        json!({}),
+        json!({"people":[{"id":"person-alice","roles":["finance"]}]}),
+        json!({"people":[{"id":"other-source-id","roles":[]}]}),
+        json!({"people":[{"id":"person-alice","roles":[]},{"id":"person-alice","roles":["executive"]}]}),
+        json!({"groups":[{"id":"not-here","protected":true}]}),
+        json!({"groups":[{"id":"group-finance","protected":false},{"id":"group-finance","protected":true}]}),
+        json!({"remove_delegations":[{"owner":"person-alice","delegate":"delegate","address":"alice@example.test"}]}),
+        json!({"add_delegations":[{"owner":"person-alice","delegate":"delegate","address":"unknown@example.test"}]}),
+        json!({"people":vec![json!({"id":"person-alice","roles":[]});101]}),
+    ] {
+        assert!(
+            management::preview(&before, edit(invalid.clone()), &source.source.scopes, now)
+                .is_err(),
+            "{invalid}"
+        );
+    }
+    let delegation =
+        json!({"owner":"person-alice","delegate":"delegate","address":"alice@example.test"});
+    for invalid in [
+        json!({"add_delegations":[delegation.clone()]}),
+        json!({"add_delegations":[delegation.clone()],"remove_delegations":[delegation.clone()]}),
+        json!({"remove_delegations":[delegation.clone(),delegation.clone()]}),
+    ] {
+        assert!(
+            management::preview(&result.document, edit(invalid), &source.source.scopes, now)
+                .is_err()
+        );
+    }
+    let removed = management::preview(
+        &result.document,
+        edit(json!({"remove_delegations":[delegation]})),
+        &source.source.scopes,
+        now,
+    )
+    .unwrap();
+    assert!(removed.document.sources[0].delegations.is_empty());
+    assert_eq!(
+        removed.document.sources[0].completed_at,
+        source.completed_at
+    );
+    for extra in ["source", "completed_at", "memberships", "display_name"] {
+        let mut forged = json!({"operation":"update_protection","source_id":source.source.id,"patch":{"people":[{"id":"person-alice","roles":[]}]}});
+        forged["patch"][extra] = json!("untrusted");
+        assert!(serde_json::from_value::<management::Edit>(forged).is_err());
+    }
+    assert!(
+        serde_json::from_value::<protection::Patch>(
+            json!({"people":[{"id":"person-alice","roles":["admin"]}]})
+        )
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<protection::Patch>(
+            json!({"people":[{"id":"person-alice","roles":[],"display_name":"forged"}]})
+        )
+        .is_err()
+    );
+}
