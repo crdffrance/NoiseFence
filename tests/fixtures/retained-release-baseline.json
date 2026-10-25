@@ -1,9 +1,9 @@
 {
   "schema": "noisefence-release-baseline-1",
-  "version": "0.32.0-rc.1",
-  "commit": "ed89fc65ff9b68487ea96c6a498c33df29d7a1cc",
+  "version": "0.32.0-rc.2",
+  "commit": "a8fd74f4239da7b3b09066ef418668671b7ceaae",
   "archives": {
-    "linux-amd64": "05a7964baf196d4c9e4c493232d7b924a0cfe10f73df057330f951c1cfaebd9d",
-    "linux-arm64": "6c3156295bd64d9e5eef3748e1b95200a6e39b5f5c2abb2584339707e86250cc"
+    "linux-amd64": "8a28ea102ff8595927d0302577dafa79568f09e815f0f04f2ad62156dac9d05d",
+    "linux-arm64": "cbf35798eb29c2d78a4c0f71fbc120a7b8464ebb8fe1186d29dd9a72ff19603f"
   }
 }

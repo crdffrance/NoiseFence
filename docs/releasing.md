@@ -118,7 +118,7 @@ never silently replace the baseline with whatever release is latest. The initial
 0.31.9 baseline predates attestations. Its reviewed checksum is a test dependency,
 not a replacement for the new release's required provenance verification.
 
-A separate positive retained-release gate pins the immutable rc.1 archives in
+A separate positive retained-release gate pins the immutable rc.2 archives in
 `tests/fixtures/retained-release-baseline.json`. It must complete a forward
 upgrade, explicit retained activation with current data, recovery after discarded
 start/completion replies, new mail acceptance and a new forward operation. A

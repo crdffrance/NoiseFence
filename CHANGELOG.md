@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.32.0-rc.3 — Context filtering and independent comparison diagnostics
 
 - Add cohort-specific Rspamd symbol diagnostics to human-labelled quality comparisons;
   missing/nonfinal opinions remain explicit and never become training labels.
@@ -10,6 +10,8 @@
   safeguard. Keep model weights, thresholds and Rspamd independence unchanged.
 - Add bounded, digest-verified offline context regression tooling and document the
   historical regression evidence and remaining qualification limits.
+- Pin the deployed rc.2 archives for the mandatory two-node upgrade and retained
+  recovery rehearsals on amd64 and arm64. Filtering efficacy remains unqualified.
 
 ## 0.32.0-rc.2 — Paired recovery and scoped service confinement
 
