@@ -641,6 +641,16 @@ async fn independent_policy_and_history_loops_activate_both_mxs_over_http() {
     let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
     let mut settings = publication.bundle.settings;
     settings.filters.threshold = 96.;
+    let memory_key = noisefence::identity::memory_key::Key::install(a.path(), None).unwrap();
+    noisefence::identity::memory_key::Key::install(
+        b.path(),
+        Some(&a.path().join("contact-memory/key")),
+    )
+    .unwrap();
+    settings.contact_learning = Some(noisefence::identity::learning::Settings {
+        key_id: Some(memory_key.id().into()),
+        ..Default::default()
+    });
     control
         .stage_activation_session(0, settings, "admin".into(), session.clone())
         .await
@@ -704,6 +714,20 @@ async fn independent_policy_and_history_loops_activate_both_mxs_over_http() {
     .unwrap();
     assert_eq!(control.snapshot().settings.filters.threshold, 96.);
     assert_eq!(worker.snapshot().settings.filters.threshold, 96.);
+    assert_eq!(
+        worker.snapshot().settings.contact_learning,
+        control.snapshot().settings.contact_learning
+    );
+    for participant in [&control, &worker] {
+        assert_eq!(
+            participant.snapshot().engine.software_identity()["contact_memory"]["key_id"],
+            memory_key.id()
+        );
+        assert_eq!(
+            participant.snapshot().engine.software_identity()["contact_memory"]["key_available"],
+            true
+        );
+    }
     assert_eq!(
         db.query_one("SELECT count(*) FROM noisefence.messages", &[])
             .await

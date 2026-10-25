@@ -32,6 +32,14 @@ impl ProbeCategory {
 enum Command {
     /// Print the compiled engine identity without reading configuration or starting services.
     BuildIdentity,
+    /// Install a private contact-memory key, or restore it from an owner-private file. Never activates learning.
+    ContactMemoryKey {
+        #[arg(long)]
+        from_file: Option<PathBuf>,
+        /// Only verify the installed key; do not create files.
+        #[arg(long, conflicts_with = "from_file")]
+        check: bool,
+    },
     /// Temporarily validate a reserved MX runtime; never starts SMTP, delivery or administration.
     ValidateRuntime {
         #[arg(long)]
@@ -543,6 +551,22 @@ async fn main() -> Result<()> {
     match &cli.command {
         Command::ValidateRuntime { plan } => {
             return noisefence::maintenance::serve(&cli.config, plan).await;
+        }
+        Command::ContactMemoryKey { from_file, check } => {
+            let config = Config::load(&cli.config)?;
+            let key = if *check {
+                noisefence::identity::memory_key::Key::load(&config.data_dir)?
+            } else {
+                noisefence::identity::memory_key::Key::install(
+                    &config.data_dir,
+                    from_file.as_deref(),
+                )?
+            };
+            println!(
+                "{}",
+                serde_json::json!({"key_id":key.id(),"activated":false})
+            );
+            return Ok(());
         }
         Command::BuildIdentity => {
             println!(

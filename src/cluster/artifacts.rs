@@ -837,6 +837,19 @@ impl Bundle {
             identity_policy == self.settings.identity_policy,
             "Identity contribution policy differs from its reviewed settings"
         );
+        let contacts: Option<crate::identity::learning::Settings> = serde_json::from_value(
+            self.shared
+                .get("contact_learning")
+                .cloned()
+                .unwrap_or(Value::Null),
+        )?;
+        if let Some(s) = &contacts {
+            s.validate()?;
+        }
+        ensure!(
+            contacts == self.settings.contact_learning,
+            "Memory policy differs from its reviewed settings"
+        );
         let identity = self.shared.get("identity").filter(|v| !v.is_null());
         if let Some(value) = identity {
             let settings: crate::identity::runtime::Settings =

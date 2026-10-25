@@ -357,6 +357,7 @@ async fn large_authorized_import_and_revoked_mfa_are_bounded_before_activation()
 #[tokio::test]
 async fn automatic_memory_is_admin_reviewed_validated_and_durable() {
     let root = tempfile::tempdir().unwrap();
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
     let base = common::config(root.path());
     let store = Store::open(root.path()).unwrap();
     let admin = account(&store, "admin", true).await;
@@ -365,8 +366,11 @@ async fn automatic_memory_is_admin_reviewed_validated_and_durable() {
     let router =
         api::router_controlled(base.clone(), store.clone(), Some(control.clone())).unwrap();
     let mut settings = serde_json::to_value(&control.snapshot().settings).unwrap();
-    settings["contact_learning"] =
-        serde_json::to_value(noisefence::identity::learning::Settings::default()).unwrap();
+    settings["contact_learning"] = serde_json::to_value(noisefence::identity::learning::Settings {
+        key_id: Some(key.id().into()),
+        ..Default::default()
+    })
+    .unwrap();
     let proposal = json!({"revision":0,"settings":settings});
     assert_eq!(
         request(
@@ -401,6 +405,14 @@ async fn automatic_memory_is_admin_reviewed_validated_and_durable() {
             .is_success()
     );
     assert!(control.snapshot().config.contact_learning.is_none());
+    let mut missing_key = proposal.clone();
+    missing_key["settings"]["contact_learning"]["key_id"] = serde_json::Value::Null;
+    assert!(
+        !request(&router, &admin, "/admin/config", Some(missing_key), true)
+            .await
+            .0
+            .is_success()
+    );
     let applied = request(&router, &admin, "/admin/config", Some(proposal), true).await;
     assert_eq!(applied.0, StatusCode::OK, "{:?}", applied.1);
     assert!(
@@ -429,9 +441,35 @@ async fn automatic_memory_is_admin_reviewed_validated_and_durable() {
     );
     drop(router);
     drop(control);
-    let reloaded = Controller::load(base, store).await.unwrap();
+    std::fs::remove_file(root.path().join("contact-memory/key")).unwrap();
+    let reloaded = Controller::load(base.clone(), store.clone()).await.unwrap();
+    assert_eq!(
+        reloaded.snapshot().engine.software_identity()["contact_memory"]["key_available"],
+        false
+    );
     assert!(
         reloaded
+            .snapshot()
+            .config
+            .contact_learning
+            .as_ref()
+            .unwrap()
+            .enabled
+    );
+    let router = api::router_controlled(base, store, Some(reloaded.clone())).unwrap();
+    let mut disabled = serde_json::to_value(&reloaded.snapshot().settings).unwrap();
+    disabled["contact_learning"]["enabled"] = json!(false);
+    let response = request(
+        &router,
+        &admin,
+        "/admin/config",
+        Some(json!({"revision":revision,"settings":disabled})),
+        true,
+    )
+    .await;
+    assert_eq!(response.0, StatusCode::OK, "{:?}", response.1);
+    assert!(
+        !reloaded
             .snapshot()
             .config
             .contact_learning

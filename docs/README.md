@@ -37,6 +37,7 @@
 - [SMTP/DNS consistency](smtp-policy.md)
 - [Protection and reputation providers](protection.md)
 - [Automatic correspondent memory: learning, privacy and limits](contact-learning.md)
+- [Private memory key: installation, matching MXs and exact-key recovery](contact-memory-key.md)
 - [Identity protection: manual directories, protected names and integration status](identity-protection.md)
 - [Entra candidate collection, permissions and failure boundaries](identity-entra.md)
 - [Okta collection, org scope and review](identity-okta.md)

@@ -583,6 +583,7 @@ pub struct Engine {
     vision: Option<Arc<crate::vision::Client>>,
     protection: Option<Arc<crate::protection::Runtime>>,
     identity: Option<Arc<crate::identity::runtime::Loaded>>,
+    contact_key: Option<Arc<crate::identity::memory_key::Key>>,
     native_filter: Option<Arc<crate::native_filter::Runtime>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
@@ -601,6 +602,8 @@ impl Engine {
             "policy_sha256": self.evidence_artifacts.policy_sha256,
             "cohort_sha256": self.quality_artifacts_sha256(),
             "identity": self.identity.as_ref().map(|r| serde_json::json!({"catalog_sha256": r.sha256, "observation_only": true})),
+            "contact_memory": {"enabled":self.config.contact_learning.as_ref().is_some_and(|s|s.enabled),
+                "key_available":self.contact_key.is_some(),"key_id":self.contact_key.as_ref().map(|k|k.id())},
             "decision_policy": crate::decision::VERSION,
             "score_combination": crate::scoring::VERSION,
             "feature_version": crate::features::VERSION
@@ -842,6 +845,15 @@ impl Engine {
                 },
             )
             .transpose()?;
+        let contact_key = config
+            .contact_learning
+            .as_ref()
+            .filter(|s| s.enabled)
+            .and_then(|s| {
+                crate::identity::memory_key::Key::matching(&config.data_dir, s.key_id.as_deref())
+                    .ok()
+            })
+            .map(Arc::new);
         let identity = config
             .identity
             .as_ref()
@@ -888,6 +900,7 @@ impl Engine {
         }
         Ok(Self {
             rspamd,
+            contact_key,
             cluster_models,
             native_filter,
             quality,
@@ -1852,6 +1865,7 @@ impl Engine {
             if let Some(settings) = &self.config.contact_learning {
                 // Local metadata only. Keep an owned target summary before provider observation consumes it.
                 scan.contact_candidates = crate::identity::learning::prepare(
+                    self.contact_key.as_deref(),
                     &self.config.data_dir,
                     settings,
                     raw,

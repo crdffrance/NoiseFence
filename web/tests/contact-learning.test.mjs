@@ -115,7 +115,14 @@ test('changed patterns and human veto remain visible without promoting model lab
   );
 });
 test('policy bounds reject unsafe or impossible maturity and window settings', () => {
-  assert.equal(contactLearningError(defaultContactLearning), null);
+  assert.match(
+    contactLearningError(defaultContactLearning),
+    /private memory key/,
+  );
+  assert.equal(
+    contactLearningError({ ...defaultContactLearning, key_id: 'd'.repeat(64) }),
+    null,
+  );
   assert.equal(contactLearningError(null), null);
   for (const patch of [
     { minimum_campaigns: 1 },
@@ -126,10 +133,17 @@ test('policy bounds reject unsafe or impossible maturity and window settings', (
     { learn_since: -1 },
     { retention_days: 7.5 },
   ])
-    assert.ok(contactLearningError({ ...defaultContactLearning, ...patch }));
+    assert.ok(
+      contactLearningError({
+        ...defaultContactLearning,
+        key_id: 'd'.repeat(64),
+        ...patch,
+      }),
+    );
   assert.equal(
     contactLearningError({
       ...defaultContactLearning,
+      key_id: 'd'.repeat(64),
       retention_days: 7,
       minimum_campaigns: 14,
       minimum_days: 7,
@@ -159,4 +173,45 @@ test('a forged recurring address is compared without being learned or declared a
     /Missing authentication is not recorded as a failed check/,
   );
   assert.doesNotMatch(missing, /does not have verified DKIM alignment/);
+});
+
+test('key installation is explicit and missing-key messages never present learned patterns', () => {
+  const missing = renderToStaticMarkup(
+    createElement(ContactLearningSettingsEditor, {
+      disabled: false,
+      onChange() {},
+    }),
+  );
+  assert.match(missing, /Memory key unavailable or different/);
+  assert.match(missing, /type="checkbox" disabled=""/);
+  const ready = renderToStaticMarkup(
+    createElement(ContactLearningSettingsEditor, {
+      disabled: false,
+      installedKey: 'd'.repeat(64),
+      onChange() {},
+    }),
+  );
+  assert.match(ready, /Private memory key installed/);
+  assert.doesNotMatch(ready, /type="checkbox" disabled=""/);
+  const mismatch = renderToStaticMarkup(
+    createElement(ContactLearningSettingsEditor, {
+      disabled: false,
+      installedKey: 'd'.repeat(64),
+      value: { ...defaultContactLearning, key_id: 'e'.repeat(64) },
+      onChange() {},
+    }),
+  );
+  assert.match(mismatch, /Memory key unavailable or different/);
+  assert.doesNotMatch(mismatch, /type="checkbox" disabled=""/); // Can still disable learning.
+  const unavailable = render({
+    ...report,
+    status: 'privacy_key_unavailable',
+    regular: false,
+  });
+  assert.match(unavailable, /Private memory key unavailable/);
+  assert.doesNotMatch(unavailable, /distinct campaigns|No change was observed/);
+  assert.match(
+    contactLearningError({ ...defaultContactLearning, key_id: 'not-a-key' }),
+    /Reload/,
+  );
 });

@@ -93,3 +93,10 @@ proposal, historical campaigns and SMTP results are fixture data, not measured
 traffic or detector accuracy. No real sender, mailbox, credential or provider
 request is included. A separate draft-policy exercise was cancelled; the demo's
 installed observation revision remained unchanged.
+
+`console-memory-private.jpg` is an unedited 1280×720 integrated-browser capture
+from `http://127.0.0.1:3013/demo.html?administration=identity&contacts=` on 25 October
+2026. It shows the corrected contribution settings and private-key readiness in
+the synthetic memory fixture, after a disable/review draft was cancelled. Installed
+revision 25 and observation were retained. No real secret, message, provider or
+production host was used. The synthetic readiness label is not a deployment proof.

@@ -315,7 +315,7 @@ separate revision rather than an IdP response changing its own authority/scope.
 
 `src/identity/learning.rs` implements automatic inbound recurrence, persistence via
 accepted-message metadata, selected-authority cache projection and Web controls.
-It uses private, domain-separated fingerprints and never promotes model opinions
+It uses private, installation-keyed HMAC fingerprints and never promotes model opinions
 to human labels. See the [automatic memory guide](contact-learning.md) for privacy
 and coverage limits.
 

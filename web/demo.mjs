@@ -18,7 +18,7 @@ if (params.get('administration') === 'identity') setupSettings.protection.protec
   {name:'Supplier Billing',domain:'supplier.example.test'},
 ];
 if (params.has('contacts')) setupSettings.identity_policy = {mode:'observation',maximum_weight:1};
-if (params.has('contacts')) setupSettings.contact_learning = {enabled:true,retention_days:30,minimum_campaigns:5,minimum_days:3,learn_since:0};
+if (params.has('contacts')) setupSettings.contact_learning = {key_id:"d".repeat(64),enabled:true,retention_days:30,minimum_campaigns:5,minimum_days:3,learn_since:0};
 const administration = administrationFixture(params,setupSettings,__NOISEFENCE_CONSOLE__.version);
 const sampleId = '00000000-0000-4000-8000-000000000002';
 const cohort = 'a'.repeat(64);
@@ -548,7 +548,7 @@ window.fetch = async (input, options) => {
       services:{llm:{installed:true,enabled:true,configuration:setupLlm,budget:{status:'available',month:'2026-10',accounted_micro_eur:2500000,issued_micro_eur:500000,requests:18,worker_wallet:false,ceiling_micro_eur:20000000,remaining_micro_eur:17500000}},rbl:{enabled_lists:0,action:'observe',timeout_ms:1000,max_parallel:4},rspamd:{enabled:true,sample_percent:100,timeout_ms:5000,max_parallel:2}}};
   }
   else if (path === '/admin/config' && !readonlyUser)
-    data = {revision:25,settings:setupSettings,actions:setupSettings.actions,rules:[],native_rules:[],available:setupFilters,hostname:'mx.example.test',version:__NOISEFENCE_CONSOLE__.version,sensitivity_levels:[],threshold_locked:false,sensitivity_locked:false,tag_ready:false,pub_tag_ready:false,mailing_available:false,max_connections:100,processing:4,relay_workers:4,max_message_bytes:26214400};
+    data = {memory_key_id:"d".repeat(64),revision:25,settings:setupSettings,actions:setupSettings.actions,rules:[],native_rules:[],available:setupFilters,hostname:'mx.example.test',version:__NOISEFENCE_CONSOLE__.version,sensitivity_levels:[],threshold_locked:false,sensitivity_locked:false,tag_ready:false,pub_tag_ready:false,mailing_available:false,max_connections:100,processing:4,relay_workers:4,max_message_bytes:26214400};
   else if (path === '/admin/cluster/activation/view' && !readonlyUser)
     data = {coordinator:true,coordinated:false,pending:false,installed_revision:25,committed_revision:null,smtp_ready:true,phase:null,epoch:null,participants:null,abortable:false,recoverable:false,personal_change:null,incident:null};
   else if (path === '/system/version')

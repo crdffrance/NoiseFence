@@ -25,7 +25,10 @@ export function IdentityPolicyEditor({
 }) {
   const policy = value ?? { mode: 'observation', maximum_weight: 1 };
   return (
-    <section className="card" aria-label="Identity contribution policy">
+    <section
+      className="card contact-learning-settings"
+      aria-label="Identity contribution policy"
+    >
       <div className="identity-heading">
         <Fingerprint size={22} aria-hidden="true" />
         <div>
@@ -37,37 +40,39 @@ export function IdentityPolicyEditor({
       </div>
       <fieldset disabled={disabled} className="contact-learning-fields">
         <legend>Decision policy</legend>
-        <label>
-          Mode
-          <select
-            value={policy.mode}
-            onChange={(event) =>
-              onChange({
-                ...policy,
-                mode: event.target.value as IdentityPolicy['mode'],
-              })
-            }
-          >
-            <option value="observation">Observe changes only</option>
-            <option value="contribute">Apply bounded contribution</option>
-          </select>
-        </label>
-        <label>
-          Maximum contribution (log-odds units)
-          <input
-            type="number"
-            min={0}
-            max={1}
-            step={0.1}
-            value={policy.maximum_weight}
-            onChange={(event) =>
-              onChange({
-                ...policy,
-                maximum_weight: Number(event.target.value),
-              })
-            }
-          />
-        </label>
+        <div className="contact-learning-grid identity-contribution-grid">
+          <label>
+            Mode
+            <select
+              value={policy.mode}
+              onChange={(event) =>
+                onChange({
+                  ...policy,
+                  mode: event.target.value as IdentityPolicy['mode'],
+                })
+              }
+            >
+              <option value="observation">Observe changes only</option>
+              <option value="contribute">Apply bounded contribution</option>
+            </select>
+          </label>
+          <label>
+            Maximum contribution (log-odds units)
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.1}
+              value={policy.maximum_weight}
+              onChange={(event) =>
+                onChange({
+                  ...policy,
+                  maximum_weight: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+        </div>
       </fieldset>
       <p className="notice">
         Observation is the default. A changed reply destination from a recurring

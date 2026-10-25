@@ -58,6 +58,12 @@ impl Controller {
             // Re-verify every byte, including an aborted preparation restoring
             // the exact installed epoch. A matching path alone is not proof.
             let mut config = artifacts::materialize(&base, &bundle, true)?;
+            // A new memory policy must match the operator-installed secret on
+            // every participant. Losing a key after activation only makes this
+            // optional check unavailable; it must not stop existing mail service.
+            if config.contact_learning != current.config.contact_learning {
+                bundle.settings.validate_memory_installation(&base)?;
+            }
             config.provider_credentials = Some(credentials);
             let config = Arc::new(config);
             let publication =

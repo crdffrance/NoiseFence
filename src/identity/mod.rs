@@ -8,6 +8,7 @@ pub mod detection;
 pub mod directory;
 pub mod learning;
 pub mod management;
+pub mod memory_key;
 pub mod protection;
 pub mod relationships;
 pub mod runtime;

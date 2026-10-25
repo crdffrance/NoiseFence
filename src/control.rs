@@ -243,9 +243,20 @@ impl Settings {
             self.contact_learning.is_some() || current.contact_learning.is_none(),
             "Contact learning settings are missing; refresh the configuration before saving"
         );
+        if self.contact_learning != current.contact_learning {
+            self.validate_memory_installation(base)?;
+        }
         let mut pinned = base.clone();
         pinned.identity = current.identity.clone();
         self.effective(&pinned)
+    }
+    pub(crate) fn validate_memory_installation(&self, base: &Config) -> Result<()> {
+        if let Some(s) = &self.contact_learning
+            && s.enabled
+        {
+            crate::identity::memory_key::Key::matching(&base.data_dir, s.key_id.as_deref())?;
+        }
+        Ok(())
     }
     pub fn effective(&self, base: &Config) -> Result<Config> {
         self.effective_inner(base, false)
@@ -276,6 +287,9 @@ impl Settings {
             self.contact_learning.is_some() || installed.settings.contact_learning.is_none(),
             "Contact learning settings are missing; refresh the configuration before saving"
         );
+        if self.contact_learning != installed.settings.contact_learning {
+            self.validate_memory_installation(base)?;
+        }
         let unchanged = self.quality_candidate == installed.settings.quality_candidate;
         let config = self.effective_inner(&pinned, unchanged)?;
         crate::cluster::artifacts::require_installed_models(&config, installed, !unchanged)?;

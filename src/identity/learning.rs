@@ -3,7 +3,6 @@
 use crate::{
     engine::Scan,
     evidence::{AuthResult, Source, State},
-    message::digest,
 };
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -14,12 +13,17 @@ use std::{
     time::Duration,
 };
 
-pub const PROTOCOL: &str = "contact-learning-1";
+pub const PROTOCOL: &str = "contact-learning-2";
+pub const LEGACY_PROTOCOL: &str = "contact-learning-1";
+use super::memory_key::Key;
 pub const MAX_ROWS: usize = 2000;
 pub const MAX_SNAPSHOT_ROWS: usize = 10000;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    /// Public fingerprint only; secret installation material never enters policy bundles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
     pub enabled: bool,
     pub retention_days: u32,
     pub minimum_campaigns: usize,
@@ -30,6 +34,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            key_id: None,
             enabled: true,
             retention_days: 30,
             minimum_campaigns: 5,
@@ -40,6 +45,12 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.key_id
+                .as_deref()
+                .is_none_or(crate::compatibility::valid_hash),
+            "Invalid memory key ID"
+        );
         ensure!(
             (7..=30).contains(&self.retention_days),
             "Contact memory must retain 7 to 30 days"
@@ -61,11 +72,13 @@ impl Settings {
         Ok(())
     }
 }
-/// Private, domain-separated fingerprints, NOT anonymization or secret HMACs.
-/// Never exported by the message API. Exact local parts remain distinct.
+/// Private, installation-keyed and recipient-scoped HMAC fingerprints.
+/// Never exported by the message API. Legacy unkeyed samples remain readable only.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Sample {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
     pub protocol: String,
     pub key: String,
     pub campaign: String,
@@ -79,7 +92,8 @@ pub struct Sample {
 impl Sample {
     pub fn valid(&self) -> bool {
         let hash = crate::compatibility::valid_hash;
-        self.protocol == PROTOCOL
+        ((self.protocol == PROTOCOL && self.key_id.as_deref().is_some_and(hash))
+            || (self.protocol == LEGACY_PROTOCOL && self.key_id.is_none()))
             && hash(&self.key)
             && hash(&self.campaign)
             && self.name.as_deref().is_none_or(hash)
@@ -185,11 +199,6 @@ impl Snapshot {
         Ok(())
     }
 }
-fn hash(parts: &[&str]) -> String {
-    // Length framing prevents ambiguous concatenations. These fingerprints are
-    // pseudonymous private metadata, not protection against dictionary attacks.
-    digest(&serde_json::to_vec(parts).expect("contact fingerprint"))
-}
 fn base(settings: &Settings, status: &str) -> Report {
     Report {
         status: status.into(),
@@ -201,6 +210,7 @@ fn base(settings: &Settings, status: &str) -> Report {
     }
 }
 pub fn capture(
+    secret: &Key,
     raw: &[u8],
     scan: &Scan,
     recipient: &str,
@@ -211,12 +221,13 @@ pub fn capture(
     {
         return None;
     }
-    comparison_sample(raw, scan, recipient, targets)
+    comparison_sample(secret, raw, scan, recipient, targets)
 }
 /// A claimed address can be compared with authenticated history even when the
 /// current message fails authentication. This sample must never be persisted
 /// unless it independently passes capture()'s learning eligibility requirements.
 fn comparison_sample(
+    secret: &Key,
     raw: &[u8],
     scan: &Scan,
     recipient: &str,
@@ -243,7 +254,7 @@ fn comparison_sample(
     let address = super::mailbox(from.address()?).ok()?;
     let recipient = super::mailbox(recipient).ok()?;
     let domain = recipient.rsplit_once('@')?.1;
-    let key = hash(&[PROTOCOL, domain, &recipient, &address]);
+    let key = secret.token("contact", &[domain, &recipient, &address]);
     let reply = match parsed.reply_to() {
         Some(v) => {
             if v.iter().count() != 1 {
@@ -254,14 +265,15 @@ fn comparison_sample(
         None => address,
     };
     let mut sample = Sample {
+        key_id: Some(secret.id().into()),
         protocol: PROTOCOL.into(),
         key: key.clone(),
-        campaign: scan.fingerprint.clone(),
+        campaign: secret.token("campaign", &[&key, &scan.fingerprint]),
         name: from
             .name()
             .and_then(super::name_key)
-            .map(|name| hash(&[&key, "name", &name])),
-        reply: hash(&[&key, "reply", &reply]),
+            .map(|name| secret.token("name", &[&key, &name])),
+        reply: secret.token("reply", &[&key, &reply]),
         links: BTreeSet::new(),
         requests: BTreeSet::new(),
         content_complete: false,
@@ -290,7 +302,7 @@ fn comparison_sample(
             };
             sample
                 .links
-                .insert(hash(&[&key, "link", &host.to_ascii_lowercase()]));
+                .insert(secret.token("link", &[&key, &host.to_ascii_lowercase()]));
         }
         sample.requests = native
             .local_symbols
@@ -318,7 +330,7 @@ pub fn assess(
     at: i64,
 ) -> Report {
     let mut report = base(settings, "learning");
-    if !current.valid() {
+    if !current.valid() || current.protocol != PROTOCOL || current.key_id != settings.key_id {
         report.status = "ineligible".into();
         return report;
     }
@@ -329,7 +341,12 @@ pub fn assess(
     let cutoff = (at - i64::from(settings.retention_days) * 86400).max(settings.learn_since);
     let mut campaigns: BTreeMap<&str, Vec<&Row>> = BTreeMap::new();
     for row in rows.iter().filter(|r| {
-        r.sample.key == current.key && r.created < at && r.created >= cutoff && r.sample.valid()
+        r.sample.key_id == current.key_id
+            && r.sample.protocol == PROTOCOL
+            && r.sample.key == current.key
+            && r.created < at
+            && r.created >= cutoff
+            && r.sample.valid()
     }) {
         // A later human rejection also vetoes an earlier regularity pattern.
         report.blocked_by_feedback |= row.unwanted_at.is_some_and(|t| t < at);
@@ -494,7 +511,9 @@ fn read(
     Ok((rows, limited))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn prepare(
+    secret: Option<&Key>,
     root: &Path,
     settings: &Settings,
     raw: &[u8],
@@ -506,11 +525,25 @@ pub async fn prepare(
     if !settings.enabled {
         return Reports::new();
     }
+    let Some(secret) = secret.filter(|key| Some(key.id()) == settings.key_id.as_deref()) else {
+        return recipients
+            .iter()
+            .map(|r| {
+                (
+                    r.address.clone(),
+                    Observation {
+                        report: base(settings, "privacy_key_unavailable"),
+                        sample: None,
+                    },
+                )
+            })
+            .collect();
+    };
     let current: BTreeMap<_, _> = recipients
         .iter()
         .filter_map(|r| {
             (!envelope_sender.is_empty())
-                .then(|| comparison_sample(raw, scan, &r.address, targets))
+                .then(|| comparison_sample(secret, raw, scan, &r.address, targets))
                 .flatten()
                 .map(|sample| (r.address.clone(), sample))
         })
@@ -589,9 +622,17 @@ pub async fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::digest;
     const NOW: i64 = 1_800_000_000;
+    fn settings() -> Settings {
+        Settings {
+            key_id: Some(digest(b"synthetic-key")),
+            ..Default::default()
+        }
+    }
     fn sample(campaign: &str) -> Sample {
         Sample {
+            key_id: Some(digest(b"synthetic-key")),
             protocol: PROTOCOL.into(),
             key: digest(b"alice:supplier"),
             campaign: digest(campaign.as_bytes()),
@@ -614,7 +655,7 @@ mod tests {
     }
     #[test]
     fn learns_without_labels_but_does_not_grant_trust() {
-        let result = assess(&Settings::default(), &sample("today"), &rows(), false, NOW);
+        let result = assess(&settings(), &sample("today"), &rows(), false, NOW);
         assert!(result.regular && result.observation_only);
         assert_eq!((result.campaigns, result.observed_days), (6, 6));
         assert!(result.changes.is_empty());
@@ -627,21 +668,14 @@ mod tests {
             r.sample.campaign = digest(b"one");
         }
         assert_eq!(
-            assess(
-                &Settings::default(),
-                &sample("today"),
-                &duplicate,
-                false,
-                NOW
-            )
-            .campaigns,
+            assess(&settings(), &sample("today"), &duplicate, false, NOW).campaigns,
             1
         );
         let mut flood = rows();
         for row in &mut flood {
             row.created = NOW - 100;
         }
-        let report = assess(&Settings::default(), &sample("today"), &flood, false, NOW);
+        let report = assess(&settings(), &sample("today"), &flood, false, NOW);
         assert_eq!(report.campaigns, 2);
         assert!(!report.regular);
         let mut future = rows();
@@ -649,21 +683,14 @@ mod tests {
             row.created = NOW + 1;
         }
         assert_eq!(
-            assess(&Settings::default(), &sample("today"), &future, false, NOW).campaigns,
+            assess(&settings(), &sample("today"), &future, false, NOW).campaigns,
             0
         );
         for row in &mut duplicate {
             row.sample.campaign = sample("today").campaign;
         }
         assert_eq!(
-            assess(
-                &Settings::default(),
-                &sample("today"),
-                &duplicate,
-                false,
-                NOW
-            )
-            .campaigns,
+            assess(&settings(), &sample("today"), &duplicate, false, NOW).campaigns,
             0
         );
     }
@@ -674,7 +701,7 @@ mod tests {
         current.reply = digest(b"attacker");
         current.links.insert(digest(b"new.test"));
         current.requests.insert("NF_CREDENTIALS".into());
-        let result = assess(&Settings::default(), &current, &rows(), false, NOW);
+        let result = assess(&settings(), &current, &rows(), false, NOW);
         assert!(result.regular);
         assert_eq!(
             result.changes,
@@ -689,7 +716,7 @@ mod tests {
         let mut history = rows();
         history[0].sample.reply = current.reply.clone();
         assert!(
-            assess(&Settings::default(), &current, &history, false, NOW)
+            assess(&settings(), &current, &history, false, NOW)
                 .changes
                 .contains(&"reply_destination".into())
         );
@@ -699,24 +726,18 @@ mod tests {
         let mut history = rows();
         history[0].unwanted_at = Some(NOW - 10);
         let current = sample("today");
-        let rejected = assess(&Settings::default(), &current, &history, false, NOW);
+        let rejected = assess(&settings(), &current, &history, false, NOW);
         assert!(!rejected.regular && rejected.blocked_by_feedback);
         history[0].unwanted_at = Some(NOW + 10);
-        assert!(assess(&Settings::default(), &current, &history, false, NOW).regular);
-        let partial = assess(&Settings::default(), &current, &history, true, NOW);
+        assert!(assess(&settings(), &current, &history, false, NOW).regular);
+        let partial = assess(&settings(), &current, &history, true, NOW);
         assert_eq!(partial.status, "limited");
         assert!(!partial.regular);
-        let expired = assess(
-            &Settings::default(),
-            &current,
-            &history,
-            false,
-            NOW + 31 * 86400,
-        );
+        let expired = assess(&settings(), &current, &history, false, NOW + 31 * 86400);
         assert_eq!(expired.campaigns, 0);
         let reset = Settings {
             learn_since: NOW - 100,
-            ..Default::default()
+            ..settings()
         };
         assert_eq!(assess(&reset, &current, &history, false, NOW).campaigns, 0);
         let other = Sample {
@@ -724,7 +745,7 @@ mod tests {
             ..current
         };
         assert_eq!(
-            assess(&Settings::default(), &other, &history, false, NOW).campaigns,
+            assess(&settings(), &other, &history, false, NOW).campaigns,
             0
         );
     }
@@ -732,20 +753,20 @@ mod tests {
     fn conflicting_copies_and_missing_content_cannot_build_complete_baselines() {
         let mut changed_policy = sample("today");
         changed_policy.content_policy = Some(digest(b"new-policy"));
-        let changed = assess(&Settings::default(), &changed_policy, &rows(), false, NOW);
+        let changed = assess(&settings(), &changed_policy, &rows(), false, NOW);
         assert!(changed.regular && !changed.content_comparison_available);
         let mut history = rows();
         let mut conflict = history[0].clone();
         conflict.sample.reply = digest(b"different");
         history.push(conflict);
         assert_eq!(
-            assess(&Settings::default(), &sample("today"), &history, false, NOW).campaigns,
+            assess(&settings(), &sample("today"), &history, false, NOW).campaigns,
             5
         );
         for r in &mut history {
             r.sample.content_complete = false;
         }
-        let report = assess(&Settings::default(), &sample("today"), &history, false, NOW);
+        let report = assess(&settings(), &sample("today"), &history, false, NOW);
         assert!(!report.content_comparison_available);
         assert!(!report.changes.contains(&"sensitive_request".into()));
     }

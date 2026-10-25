@@ -121,6 +121,7 @@ export type Settings = {
   mailing: MailingPolicy | null;
 };
 type Configuration = {
+  memory_key_id?: string | null;
   native_rules: import('./management').NativeRule[];
   revision: number;
   actions: ActionPolicy;
@@ -1308,7 +1309,7 @@ export function AdminConsole({
           </div>
           <div id="filters-panel-identity" role="tabpanel" aria-labelledby="filters-tab-identity" hidden={filterSection !== 'identity'} className="filter-section">
             <IdentityPolicyEditor value={draft.identity_policy} disabled={busy || blocked || refreshRequired} onChange={identity_policy => setDraft({ ...draft, identity_policy })}/>
-            <ContactLearningSettingsEditor value={draft.contact_learning} disabled={busy || blocked || refreshRequired} onChange={contact_learning => setDraft({ ...draft, contact_learning })}/>
+            <ContactLearningSettingsEditor installedKey={config.memory_key_id} value={draft.contact_learning} disabled={busy || blocked || refreshRequired} onChange={contact_learning => setDraft({ ...draft, contact_learning })}/>
             <Suspense fallback={<p aria-live="polite">Loading directory editor…</p>}><DirectorySettings key={`directory:${user.username}:${config.revision}:${epoch}`} user={user} revision={config.revision}
               installed={config.settings.identity_directory} selection={draft.identity_directory}
               domains={config.settings.domains.map(domain => domain.name)} visible={filterSection === 'identity'} disabled={busy || blocked || refreshRequired} onDirty={setDirectoryDirty} onBusy={setDirectoryBusy}

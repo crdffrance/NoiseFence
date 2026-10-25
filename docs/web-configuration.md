@@ -101,3 +101,5 @@ automatic collection**. Only the access owner can authorize it, with a 15-minute
 24-hour interval and an end time bounded by credential expiry. Administrators can
 stop it and inspect the last durable receipt. Each candidate still requires the
 normal review and MX policy activation; see [schedule semantics](directory-credential-storage.md#automatic-collection).
+
+Private correspondent-memory keys are installed on each MX with the [operator command](contact-memory-key.md). The console shows readiness and selects only the public key ID when enabling learning; it never receives the secret bytes.

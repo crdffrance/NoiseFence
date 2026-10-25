@@ -18,7 +18,9 @@ are not learning labels. Human-labelled quality datasets remain separate.
 Open **Administration → Filters → Identity protection → Automatic correspondent
 memory**. No directory or SSO connection is required.
 
-1. Enable **Learn from accepted messages**.
+1. Have the installation administrator [install the same private memory key](contact-memory-key.md)
+   on the management host and every MX. Reload the console; it displays key readiness.
+   Enable **Learn from accepted messages**. The draft records only the public key ID.
 2. Set the memory window: **7–30 days**, default **30**.
 3. Set the minimum distinct campaigns: default **5**. At most two campaigns per
    UTC day contribute, so the configured minimum cannot exceed twice the window
@@ -39,6 +41,8 @@ Equivalent server configuration for initial installation:
 
 ```toml
 [contact_learning]
+# Public ID printed by contact-memory-key --check, not the secret file contents.
+key_id = "<64-character-installed-key-ID>"
 enabled = true
 retention_days = 30
 minimum_campaigns = 5
@@ -66,8 +70,9 @@ builds. They do not change model catalog identities or select a new model.
   recipient-specific analysis, not written by the analysis task itself. Failed
   acceptance or rendering leaves no learned message.
 
-The campaign fingerprint is the existing normalized content fingerprint; dates,
-Message-ID and varying numbers do not create extra campaigns. Current-campaign
+The campaign fingerprint is an installation-keyed HMAC of the existing normalized
+content fingerprint, scoped to the sender and recipient. Dates, Message-ID and
+varying numbers do not create extra campaigns. Current-campaign
 copies, future timestamps and observations outside the window are excluded.
 Conflicting copies do not establish a baseline. Persistent spam can become
 frequent, which is precisely why frequency is not used as an allowlist.
@@ -158,13 +163,27 @@ Bcc history from leaking into another recipient's analysis. Per-message Web
 reports expose only counts, timing and named changes, after normal message access
 checks. They contain no other recipients, contact lists, raw join keys or samples.
 
-Private samples contain domain-separated SHA-256 fingerprints for sender/recipient,
-name, reply target, campaign and link domains, plus bounded request IDs. They do
-not add message text, subjects, attachments or raw addresses. **Fingerprints are
-pseudonymous, not anonymous or secret**: predictable values can be guessed by
-someone who obtains the private database. They are not the installation-keyed
-HMAC design of the separate reciprocal-graph foundation. Protect metadata and
-backups as mail data. No new provider receives message content or contact history.
+New private samples use domain-separated **HMAC-SHA-256** for sender/recipient,
+name, reply target, campaign and link domains, plus bounded request IDs. The key
+is a random 32-byte installation secret, distinct from provider credentials and
+the directory vault. Policy bundles carry only its public SHA-256 identifier.
+Neither database projections nor API reports contain the secret. Identical inputs
+on different installations, or for different recipients, have different tokens.
+This prevents an offline address dictionary from being checked against memory
+fingerprints alone. It does not anonymize the mail database, which already holds
+message addressing, and does not protect a host or backup containing the key.
+
+The key is loaded into each engine generation outside SMTP processing. A missing
+or mismatched key disables capture/comparison with **Private memory key
+unavailable**; the remaining mail analysis continues. A new or changed enabled
+memory policy requires matching operator-installed material before activation.
+The console permits disabling the feature without restoring a lost key.
+
+Legacy `contact-learning-1` samples stay readable for historical records and
+retention, but **never** establish a baseline for `contact-learning-2`. They cannot
+be securely converted from hashes without the original source data. No automatic
+replay of old mail is performed. New history must meet the configured day/campaign
+requirements again. No new provider receives mail content or contact history.
 
 Only inbound traffic seen by the gateway is observed. References, In-Reply-To and
 quoted headers do not prove that the recipient replied or that two people know

@@ -410,7 +410,9 @@ async fn automatic_correspondence_projects_unlabelled_messages_and_human_vetoes(
     e.authentication.dmarc_dkim = Some(AuthResult::Pass);
     let recipient = cfg.recipient("alice@example.test").unwrap();
     let targets = Default::default();
-    let sample = learning::capture(common::MESSAGE, &scan, &recipient.address, &targets).unwrap();
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
+    let sample =
+        learning::capture(&key, common::MESSAGE, &scan, &recipient.address, &targets).unwrap();
     let now = noisefence::now();
     let mut ids = Vec::new();
     for n in 1..=6 {
@@ -442,8 +444,12 @@ async fn automatic_correspondence_projects_unlabelled_messages_and_human_vetoes(
         .await
         .unwrap();
     let history = learning::prepare(
+        Some(&key),
         root.path(),
-        &Settings::default(),
+        &Settings {
+            key_id: Some(key.id().into()),
+            ..Default::default()
+        },
         common::MESSAGE,
         &scan,
         std::slice::from_ref(&recipient),
@@ -476,8 +482,12 @@ async fn automatic_correspondence_projects_unlabelled_messages_and_human_vetoes(
         .await
         .unwrap();
     let history = learning::prepare(
+        Some(&key),
         root.path(),
-        &Settings::default(),
+        &Settings {
+            key_id: Some(key.id().into()),
+            ..Default::default()
+        },
         common::MESSAGE,
         &scan,
         std::slice::from_ref(&recipient),

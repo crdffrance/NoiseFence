@@ -99,6 +99,7 @@ export function administrationFixture(params, base, version) {
         );
       }
       return Response.json({
+        memory_key_id: "d".repeat(64),
         revision,
         settings,
         actions: settings.actions,

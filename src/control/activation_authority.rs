@@ -565,6 +565,7 @@ impl Controller {
                     crate::model_catalog::load(&root,&selection.id)?.effective(&base,&settings)?
                 } else if models_sha256.is_some() {settings.review_identity(&base)?;settings.effective(&base)?}
                     else {settings.effective_installed(&base,&source.bundle)?};
+                if settings.contact_learning != source.bundle.settings.contact_learning { settings.validate_memory_installation(&base)?; }
                 let mut keys=crate::credentials::Snapshot::capture(&source.config)?;
                 if let Some((provider,key))=credential { keys=keys.replacing(provider,key)?; }
                 config.credential_generation=Some(keys.fingerprint());

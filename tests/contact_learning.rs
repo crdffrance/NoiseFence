@@ -17,37 +17,44 @@ fn scan(config: Arc<noisefence::config::Config>, raw: &[u8]) -> Scan {
 #[test]
 fn eligibility_uses_original_single_from_and_trusted_smtp_not_imported_headers() {
     let root = tempfile::tempdir().unwrap();
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
     let cfg = common::config(root.path());
     let mut s = scan(cfg, common::MESSAGE);
     let targets = Default::default();
-    let sample = learning::capture(common::MESSAGE, &s, "alice@example.test", &targets).unwrap();
-    let other = learning::capture(common::MESSAGE, &s, "bob@example.test", &targets).unwrap();
+    let sample =
+        learning::capture(&key, common::MESSAGE, &s, "alice@example.test", &targets).unwrap();
+    let other = learning::capture(&key, common::MESSAGE, &s, "bob@example.test", &targets).unwrap();
     assert_ne!(sample.key, other.key);
     let serialized = serde_json::to_string(&sample).unwrap();
     assert!(!serialized.contains("sender@example.org"));
     assert!(!serialized.contains("alice"));
     s.evidence.as_mut().unwrap().source = Source::ContentOnly;
-    assert!(learning::capture(common::MESSAGE, &s, "alice@example.test", &targets).is_none());
+    assert!(learning::capture(&key, common::MESSAGE, &s, "alice@example.test", &targets).is_none());
     s.evidence.as_mut().unwrap().source = Source::SmtpSession;
     s.evidence.as_mut().unwrap().authentication.dmarc_dkim = Some(AuthResult::Fail);
-    assert!(learning::capture(common::MESSAGE, &s, "alice@example.test", &targets).is_none());
+    assert!(learning::capture(&key, common::MESSAGE, &s, "alice@example.test", &targets).is_none());
     s.evidence.as_mut().unwrap().authentication.dmarc_dkim = Some(AuthResult::Pass);
     let duplicate = [b"From: forged@evil.test\r\n".as_slice(), common::MESSAGE].concat();
-    assert!(learning::capture(&duplicate, &s, "alice@example.test", &targets).is_none());
+    assert!(learning::capture(&key, &duplicate, &s, "alice@example.test", &targets).is_none());
     s.antivirus.status = noisefence::antivirus::AntivirusStatus::Malware;
-    assert!(learning::capture(common::MESSAGE, &s, "alice@example.test", &targets).is_none());
+    assert!(learning::capture(&key, common::MESSAGE, &s, "alice@example.test", &targets).is_none());
 }
 #[tokio::test]
 async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_fallback() {
     let root = tempfile::tempdir().unwrap();
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
     let cfg = common::config(root.path());
     let store = Store::open(root.path()).unwrap();
     let s = scan(cfg.clone(), common::MESSAGE);
     let targets = Default::default();
-    let settings = Settings::default();
+    let settings = Settings {
+        key_id: Some(key.id().into()),
+        ..Default::default()
+    };
     let recipient = cfg.recipient("alice@example.test").unwrap();
     let now = noisefence::now();
-    let current = learning::capture(common::MESSAGE, &s, &recipient.address, &targets).unwrap();
+    let current =
+        learning::capture(&key, common::MESSAGE, &s, &recipient.address, &targets).unwrap();
     let mut rows = Vec::new();
     for day in 1..=6 {
         let mut sample = current.clone();
@@ -87,6 +94,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
     drop(store);
     let store = Store::open(root.path()).unwrap();
     let result = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -107,6 +115,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
         hosts: vec![],
     };
     let result = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -119,6 +128,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
     assert!(result[&recipient.address].report.regular);
     assert_eq!(result[&bob.address].report.campaigns, 0);
     let bounce = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -131,6 +141,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
     assert!(bounce[&recipient.address].sample.is_none());
     noisefence::runtime_history::require(&store).await.unwrap();
     let missing = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -155,6 +166,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
         .await
         .unwrap();
     let shared = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -171,6 +183,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
         .await
         .unwrap();
     let limited = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -187,6 +200,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
         .await
         .unwrap();
     let old = learning::prepare(
+        Some(&key),
         root.path(),
         &settings,
         common::MESSAGE,
@@ -201,6 +215,7 @@ async fn accepted_history_survives_restart_is_scoped_and_refuses_stale_central_f
 #[test]
 fn policy_replication_preserves_models_and_refuses_unsupported_workers() {
     let root = tempfile::tempdir().unwrap();
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
     let mut cfg = (*common::config(root.path())).clone();
     let before = noisefence::cluster::artifacts::capture(
         &cfg,
@@ -208,7 +223,10 @@ fn policy_replication_preserves_models_and_refuses_unsupported_workers() {
         0,
     )
     .unwrap();
-    cfg.contact_learning = Some(Settings::default());
+    cfg.contact_learning = Some(Settings {
+        key_id: Some(key.id().into()),
+        ..Default::default()
+    });
     cfg.validate().unwrap();
     let policy = noisefence::control::Settings::from_config(&cfg);
     let after = noisefence::cluster::artifacts::capture(&cfg, policy.clone(), 1).unwrap();
@@ -220,6 +238,18 @@ fn policy_replication_preserves_models_and_refuses_unsupported_workers() {
     let worker = tempfile::tempdir().unwrap();
     let mut wc = (*common::config(worker.path())).clone();
     noisefence::cluster::artifacts::freeze(worker.path(), &after, 0).unwrap();
+    let without_key =
+        noisefence::cluster::artifacts::materialize(&wc, &after.bundle, true).unwrap();
+    let without_key = Engine::new(Arc::new(without_key)).unwrap();
+    assert_eq!(
+        without_key.software_identity()["contact_memory"]["key_available"],
+        false
+    );
+    noisefence::identity::memory_key::Key::install(
+        worker.path(),
+        Some(&root.path().join("contact-memory/key")),
+    )
+    .unwrap();
     assert_eq!(
         noisefence::cluster::artifacts::materialize(&wc, &after.bundle, true)
             .unwrap()
@@ -233,6 +263,16 @@ fn policy_replication_preserves_models_and_refuses_unsupported_workers() {
             .contact_learning
             .is_none()
     );
+    let mut altered = after.bundle.clone();
+    altered.shared["contact_learning"]["key_id"] = serde_json::json!("a".repeat(64));
+    altered.digest = altered.hash().unwrap();
+    assert!(altered.validate().is_err());
+    let private = hex::encode(std::fs::read(root.path().join("contact-memory/key")).unwrap());
+    assert!(
+        !serde_json::to_string(&after.bundle)
+            .unwrap()
+            .contains(&private)
+    );
     let mut bad = policy;
     bad.contact_learning.as_mut().unwrap().minimum_campaigns = 1;
     assert!(bad.effective(&cfg).is_err());
@@ -241,13 +281,14 @@ fn policy_replication_preserves_models_and_refuses_unsupported_workers() {
 #[tokio::test]
 async fn authentication_failure_is_compared_but_never_added_to_learned_history() {
     let root = tempfile::tempdir().unwrap();
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
     let cfg = common::config(root.path());
     let store = Store::open(root.path()).unwrap();
     let targets = Default::default();
     let recipient = cfg.recipient("alice@example.test").unwrap();
     let known = scan(cfg.clone(), common::MESSAGE);
     let original =
-        learning::capture(common::MESSAGE, &known, &recipient.address, &targets).unwrap();
+        learning::capture(&key, common::MESSAGE, &known, &recipient.address, &targets).unwrap();
     let now = noisefence::now();
     let rows = (1..=6)
         .map(|day| {
@@ -309,10 +350,14 @@ async fn authentication_failure_is_compared_but_never_added_to_learned_history()
         let authentication = &mut current.evidence.as_mut().unwrap().authentication;
         authentication.dmarc_state = state;
         authentication.dmarc_dkim = Some(result);
-        assert!(learning::capture(&raw, &current, &recipient.address, &targets).is_none());
+        assert!(learning::capture(&key, &raw, &current, &recipient.address, &targets).is_none());
         let reports = learning::prepare(
+            Some(&key),
             root.path(),
-            &Settings::default(),
+            &Settings {
+                key_id: Some(key.id().into()),
+                ..Default::default()
+            },
             &raw,
             &current,
             std::slice::from_ref(&recipient),
@@ -345,8 +390,12 @@ async fn authentication_failure_is_compared_but_never_added_to_learned_history()
     let mut imported = current;
     imported.evidence.as_mut().unwrap().source = Source::ContentOnly;
     let reports = learning::prepare(
+        Some(&key),
         root.path(),
-        &Settings::default(),
+        &Settings {
+            key_id: Some(key.id().into()),
+            ..Default::default()
+        },
         &raw,
         &imported,
         std::slice::from_ref(&recipient),
@@ -356,4 +405,145 @@ async fn authentication_failure_is_compared_but_never_added_to_learned_history()
     .await;
     assert_eq!(reports[&recipient.address].report.status, "ineligible");
     assert!(reports[&recipient.address].sample.is_none());
+}
+
+#[tokio::test]
+async fn unavailable_or_mismatched_key_never_learns_or_disables_the_mail_engine() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
+    let recipient = cfg.recipient("alice@example.test").unwrap();
+    let scan = scan(cfg.clone(), common::MESSAGE);
+    let settings = Settings {
+        key_id: Some(key.id().into()),
+        ..Default::default()
+    };
+    let targets = Default::default();
+    for secret in [None, Some(&key)] {
+        let mut selected = settings.clone();
+        if secret.is_some() {
+            selected.key_id = Some("0".repeat(64));
+        }
+        let reports = learning::prepare(
+            secret,
+            root.path(),
+            &selected,
+            common::MESSAGE,
+            &scan,
+            std::slice::from_ref(&recipient),
+            &targets,
+            "sender@example.org",
+        )
+        .await;
+        assert_eq!(
+            reports[&recipient.address].report.status,
+            "privacy_key_unavailable"
+        );
+        assert!(reports[&recipient.address].sample.is_none());
+        assert!(!reports[&recipient.address].report.regular);
+    }
+    let mut config = (*cfg).clone();
+    config.contact_learning = Some(settings);
+    std::fs::remove_file(root.path().join("contact-memory/key")).unwrap();
+    assert!(Engine::new(Arc::new(config)).is_ok());
+}
+
+#[test]
+fn key_epochs_and_recipient_hmacs_never_mix_with_unkeyed_history() {
+    let root = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let cfg = common::config(root.path());
+    let s = scan(cfg, common::MESSAGE);
+    let key = noisefence::identity::memory_key::Key::install(root.path(), None).unwrap();
+    let foreign = noisefence::identity::memory_key::Key::install(other.path(), None).unwrap();
+    let targets = Default::default();
+    let current =
+        learning::capture(&key, common::MESSAGE, &s, "alice@example.test", &targets).unwrap();
+    let swapped = learning::capture(
+        &foreign,
+        common::MESSAGE,
+        &s,
+        "alice@example.test",
+        &targets,
+    )
+    .unwrap();
+    let alias = learning::capture(
+        &key,
+        common::MESSAGE,
+        &s,
+        "alice+tag@example.test",
+        &targets,
+    )
+    .unwrap();
+    assert_ne!(current.key, swapped.key);
+    assert_ne!(current.reply, swapped.reply);
+    assert_ne!(current.campaign, swapped.campaign);
+    assert_ne!(current.key, alias.key);
+    assert_ne!(current.campaign, alias.campaign);
+    let now = noisefence::now();
+    let settings = Settings {
+        key_id: Some(key.id().into()),
+        ..Default::default()
+    };
+    let rows: Vec<_> = (1..=6)
+        .map(|day| {
+            let mut sample = current.clone();
+            sample.protocol = learning::LEGACY_PROTOCOL.into();
+            sample.key_id = None;
+            sample.campaign = noisefence::message::digest(format!("legacy{day}").as_bytes());
+            assert!(sample.valid());
+            Row {
+                created: now - day * 86400,
+                sample,
+                unwanted_at: None,
+            }
+        })
+        .collect();
+    let history = learning::assess(&settings, &current, &rows, false, now);
+    assert_eq!(history.campaigns, 0);
+    assert!(!history.regular);
+    assert_eq!(
+        learning::assess(&settings, &rows[0].sample, &[], false, now).status,
+        "ineligible"
+    );
+    assert_eq!(
+        learning::assess(&settings, &swapped, &[], false, now).status,
+        "ineligible"
+    );
+}
+
+#[test]
+fn operator_cli_reports_only_key_id_and_cannot_silently_replace_lost_material() {
+    let root = tempfile::tempdir().unwrap();
+    let config = common::config(root.path());
+    let file = root.path().join("fixture.toml");
+    std::fs::write(&file, toml::to_string(&*config).unwrap()).unwrap();
+    let invoke = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_noisefence"))
+            .arg("--config")
+            .arg(&file)
+            .arg("contact-memory-key")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    assert!(!invoke(&["--check"]).status.success());
+    assert!(!root.path().join("contact-memory").exists());
+    let created = invoke(&[]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
+    assert_eq!(result["activated"], false);
+    assert_eq!(result.as_object().unwrap().len(), 2);
+    let key = noisefence::identity::memory_key::Key::load(root.path()).unwrap();
+    assert_eq!(result["key_id"], key.id());
+    let check = invoke(&["--check"]);
+    assert!(check.status.success());
+    assert_eq!(created.stdout, check.stdout);
+    std::fs::remove_file(root.path().join("contact-memory/key")).unwrap();
+    assert!(!invoke(&[]).status.success());
+    assert!(!root.path().join("contact-memory/key").exists());
 }

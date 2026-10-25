@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Repeat2 } from 'lucide-react';
 import { ConfirmDialog } from './console-ui';
 export type ContactLearningSettings = {
+  key_id?: string | null;
   enabled: boolean;
   retention_days: number;
   minimum_campaigns: number;
@@ -19,6 +20,10 @@ export function contactLearningError(
   value?: ContactLearningSettings | null,
 ): string | null {
   if (!value) return null;
+  if (value.key_id != null && !/^[a-f0-9]{64}$/.test(value.key_id))
+    return 'Reload the installed memory key before reviewing this policy.';
+  if (value.enabled && !value.key_id)
+    return 'The installation needs a private memory key before learning can be enabled.';
   if (
     !Number.isInteger(value.retention_days) ||
     value.retention_days < 7 ||
@@ -43,15 +48,20 @@ export function contactLearningError(
 }
 export function ContactLearningSettingsEditor({
   value,
+  installedKey,
   disabled,
   onChange,
 }: {
   value?: ContactLearningSettings | null;
+  installedKey?: string | null;
   disabled: boolean;
   onChange: (value: ContactLearningSettings) => void;
 }) {
   const [reset, setReset] = useState(false);
   const settings = value ?? { ...defaultContactLearning, enabled: false };
+  const keyReady = !!installedKey && /^[a-f0-9]{64}$/.test(installedKey);
+  const keyMatches =
+    keyReady && (!settings.key_id || settings.key_id === installedKey);
   return (
     <section
       className="card contact-learning-settings"
@@ -70,7 +80,13 @@ export function ContactLearningSettingsEditor({
       <p className="notice">
         Regular contact does not mean safe sender. This memory never bypasses
         phishing checks or creates training labels. The separate identity
-        contribution policy controls whether corroborated changes affect the content index.
+        contribution policy controls whether corroborated changes affect the
+        content index.
+      </p>
+      <p className="notice">
+        {keyMatches
+          ? 'Private memory key installed. Only its public identifier travels with this policy; every MX must have the same private key.'
+          : 'Memory key unavailable or different on disk. Ask the installation administrator to install or restore the matching key on every MX. This installation check does not describe a key already loaded by a running engine.'}
       </p>
       <fieldset disabled={disabled} className="contact-learning-fields">
         <legend>Learning policy</legend>
@@ -78,8 +94,15 @@ export function ContactLearningSettingsEditor({
           <input
             type="checkbox"
             checked={settings.enabled}
+            disabled={!settings.enabled && !keyMatches}
             onChange={(event) =>
-              onChange({ ...settings, enabled: event.target.checked })
+              onChange({
+                ...settings,
+                enabled: event.target.checked,
+                ...(event.target.checked && installedKey
+                  ? { key_id: installedKey }
+                  : {}),
+              })
             }
           />
           Learn from accepted messages
@@ -205,6 +228,7 @@ const statuses: Record<string, string> = {
   human_rejected: 'Prior human spam correction',
   limited: 'History capacity reached',
   unavailable: 'Contact history unavailable',
+  privacy_key_unavailable: 'Private memory key unavailable',
   ineligible: 'Message not eligible for automatic learning',
 };
 const changes: Record<string, string> = {
