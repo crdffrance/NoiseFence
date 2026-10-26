@@ -76,6 +76,11 @@ builds. They do not change model catalog identities or select a new model.
 - A message durably accepted into the queue. The sample is stored with its
   recipient-specific analysis, not written by the analysis task itself. Failed
   acceptance or rendering leaves no learned message.
+- A recovered peer candidate whose SMTP acceptance is unconfirmed does not
+  qualify. Recovery keeps its message and receipt-time verdict for resolution,
+  but removes its learning sample and marks it ineligible. A confirmed peer
+  record or committed owner checkpoint preserves an accepted message's sample,
+  even if its later delivery result is uncertain.
 
 The campaign fingerprint is an installation-keyed HMAC of the existing normalized
 content fingerprint, scoped to the sender and recipient. Dates, Message-ID and

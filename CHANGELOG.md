@@ -5,6 +5,9 @@
 - Learn recipient-scoped recurring inbound contacts from durably accepted,
   DKIM-aligned messages, with campaign/day safeguards, expiry, private HMAC keys
   and a human-spam veto. Frequency creates neither an allowlist nor training labels.
+  Recovery excludes unconfirmed peer candidates from learning while preserving
+  their bodies and verdicts; confirmed acceptance or an owner checkpoint retains
+  the original sample.
 - Compare recurring addresses even when current alignment fails, without learning
   from those messages. Explain changes and unavailable checks separately; optional
   corroborated contributions remain bounded and default to observation.
