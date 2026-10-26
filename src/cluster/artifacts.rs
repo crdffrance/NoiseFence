@@ -514,6 +514,7 @@ impl Bundle {
                 | "0.32.0-rc.1"
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
+                | "0.32.0-rc.4"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -547,6 +548,7 @@ impl Bundle {
                 | "0.32.0-rc.1"
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
+                | "0.32.0-rc.4"
         ) && matches!(
             build,
             "0.28.0-rc.9"
@@ -569,6 +571,7 @@ impl Bundle {
                 | "0.31.9"
                 | "0.32.0-rc.1"
                 | "0.32.0-rc.2"
+                | "0.32.0-rc.3"
         ) {
             let mut bundle = self.clone();
             bundle.build = build.into();
@@ -822,6 +825,18 @@ impl Bundle {
                 .is_some_and(|v| v.keys().all(|k| SHARED.contains(&k.as_str())))
                 && self.files.len() <= 32,
             "Invalid shared policy"
+        );
+        // The published rc.3 schema predates these fields. A forged legacy
+        // build label cannot bypass the new-policy gate during retained reads.
+        let identity_selected = self.settings.identity_directory.is_some()
+            || self.settings.identity_policy.is_some()
+            || self.settings.contact_learning.is_some()
+            || ["identity", "identity_policy", "contact_learning"]
+                .iter()
+                .any(|key| self.shared.get(*key).is_some_and(|v| !v.is_null()));
+        ensure!(
+            !identity_selected || self.build == env!("CARGO_PKG_VERSION"),
+            "Identity policy requires a matching application build"
         );
         let identity_policy: Option<crate::identity::correlation::Settings> =
             serde_json::from_value(

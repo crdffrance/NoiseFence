@@ -235,6 +235,7 @@ fn policy_replication_preserves_models_and_refuses_unsupported_workers() {
         noisefence::cluster::artifacts::model_digest(&after.bundle).unwrap()
     );
     assert!(after.bundle.for_build("0.32.0-rc.2").is_err());
+    assert!(after.bundle.for_build("0.32.0-rc.3").is_err());
     let worker = tempfile::tempdir().unwrap();
     let mut wc = (*common::config(worker.path())).clone();
     noisefence::cluster::artifacts::freeze(worker.path(), &after, 0).unwrap();

@@ -31,6 +31,13 @@ memory**. No directory or SSO connection is required.
 5. **Review and apply** the configuration. Follow the normal policy activation
    on every MX. Existing administrator, MFA, CSRF and revision checks apply.
 
+This capability starts in **0.32.0-rc.4**. Upgrade every MX before applying an
+identity or memory policy. A published rc.3 worker does not support these fields;
+NoiseFence refuses mixed-build activation instead of silently dropping them.
+Use the [coordinated maintenance procedure](paired-upgrades.md) for an enrolled
+two-MX installation. An unchanged legacy policy can be retained during that
+upgrade; enabling memory is a separate reviewed activation afterward.
+
 Existing installations with no `contact_learning` setting remain disabled.
 Disabling stops collection and comparison for subsequent messages. **Start a new
 observation window** adds a cutoff to the draft. After activation, earlier samples

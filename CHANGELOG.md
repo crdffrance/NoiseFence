@@ -1,21 +1,36 @@
 # Changelog
 
-## Unreleased — Correspondent memory and identity observations
+## 0.32.0-rc.4 — Identity context and correspondent memory
 
 - Learn recipient-scoped recurring inbound contacts from durably accepted,
-  SMTP-authenticated messages, with campaign/day safeguards and a human-spam veto.
-  Preserve expiry, cache freshness, capacity bounds and Bcc isolation. Frequency
-  does not create an allowlist, a training label or a score adjustment.
-- Compare a claimed recurring address even when current DKIM alignment fails;
-  exclude that message from learning and distinguish unavailable authentication
-  from a completed failure. Explain reply/name/link/request changes in the console.
-- Add reviewed organization-directory snapshots, bounded manual/CSV management,
-  and one-shot read-only Entra and Okta collection. Credentials remain request-only;
-  selected-authority job receipts survive restarts and never imply activation.
-- Provide English settings, message evidence, connector guides and synthetic
-  screenshots. Scheduled synchronization, other directory providers, reciprocal
-  mailbox history and independently qualified identity scoring remain future work.
-
+  DKIM-aligned messages, with campaign/day safeguards, expiry, private HMAC keys
+  and a human-spam veto. Frequency creates neither an allowlist nor training labels.
+- Compare recurring addresses even when current alignment fails, without learning
+  from those messages. Explain changes and unavailable checks separately; optional
+  corroborated contributions remain bounded and default to observation.
+- Add reviewed immutable directories with people, groups, aliases, protected roles
+  and delegation. English Web administration supports manual/CSV imports, provider
+  protection assignments and recipient-specific message explanations.
+- Collect Entra, Google Workspace, Okta and AWS Identity Store directories through
+  bounded read-only jobs. Optional encrypted saved access and expiring schedules
+  preserve selected-authority authorization, durable receipts and review.
+- Add signed internal Active Directory imports and source-bound SCIM provisioning
+  with Web enrollment, transactional staging and explicit inventory attestation.
+  Provider data grants neither console access nor mailbox routing rights.
+- Include exact private directory/memory keys and immutable catalogs in protected
+  backups with selected-authority bindings. No key regeneration, automatic
+  credential migration or unqualified downgrade is introduced.
+- Provide chronological offline replay, separate labels and campaign-aware metrics,
+  including synthetic false candidates and missed patterns. These checks do not
+  qualify real-world capture, false-positive rates or live provider interoperability.
+- Distinguish this build from the published rc.3 schema. New identity policies
+  require matching builds on every MX; legacy build labels cannot authorize them.
+  Retain digest-verified rc.3 policies during coordinated upgrades and pin its
+  published archives for native upgrade/retained-activation rehearsals.
+- Preserve installed models, thresholds, provider activation and delivery policy.
+  Optional inbound memory needs an explicitly provisioned shared key and reviewed
+  policy activation. Outbound metadata, reciprocal graphs, renewable workload
+  access and delta collection remain separately scoped extensions.
 
 ## 0.32.0-rc.3 — Context filtering and independent comparison diagnostics
 

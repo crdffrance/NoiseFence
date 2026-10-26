@@ -51,6 +51,7 @@ fn directory_moves_with_policy_but_never_changes_model_identity() {
             .contains_key("identity-directory.json")
     );
     assert!(publication.bundle.for_build("0.32.0-rc.2").is_err());
+    assert!(publication.bundle.for_build("0.32.0-rc.3").is_err());
     assert!(
         publication
             .bundle
@@ -303,6 +304,7 @@ fn identity_policy_is_shared_reviewed_and_cannot_fall_back_to_worker_defaults() 
         artifacts::model_digest(&legacy.bundle).unwrap()
     );
     assert!(publication.bundle.for_build("0.32.0-rc.2").is_err());
+    assert!(publication.bundle.for_build("0.32.0-rc.3").is_err());
     assert_eq!(
         artifacts::materialize(&config, &publication.bundle, false)
             .unwrap()
@@ -331,4 +333,38 @@ fn identity_policy_is_shared_reviewed_and_cannot_fall_back_to_worker_defaults() 
         .maximum_weight = 1.5;
     bad.digest = bad.hash().unwrap();
     assert!(bad.validate().is_err());
+}
+
+#[test]
+fn legacy_build_labels_cannot_authorize_new_identity_fields() {
+    for kind in 0..3 {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = (*common::config(root.path())).clone();
+        match kind {
+            0 => {
+                prepare(&mut config, 1);
+            }
+            1 => config.identity_policy = Some(Default::default()),
+            _ => {
+                config.contact_learning = Some(noisefence::identity::learning::Settings {
+                    enabled: false,
+                    ..Default::default()
+                })
+            }
+        }
+        let bundle = artifacts::capture(&config, control::Settings::from_config(&config), 1)
+            .unwrap()
+            .bundle;
+        bundle.validate().unwrap();
+        for old in ["0.32.0-rc.2", "0.32.0-rc.3"] {
+            assert!(bundle.for_build(old).is_err());
+            let mut relabelled = bundle.clone();
+            relabelled.build = old.into();
+            relabelled.digest = relabelled.hash().unwrap();
+            assert!(
+                relabelled.validate().is_err(),
+                "legacy label {old} must not authorize field {kind}"
+            );
+        }
+    }
 }
