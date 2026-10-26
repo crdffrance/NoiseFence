@@ -356,6 +356,13 @@ fn legacy_build_labels_cannot_authorize_new_identity_fields() {
             .unwrap()
             .bundle;
         bundle.validate().unwrap();
+        // rc.4 introduced this schema. Retained reads are supported by rc.5,
+        // but conversion for a mixed-build live rollout is still forbidden.
+        let mut retained = bundle.clone();
+        retained.build = "0.32.0-rc.4".into();
+        retained.digest = retained.hash().unwrap();
+        retained.validate().unwrap();
+        assert!(bundle.for_build("0.32.0-rc.4").is_err());
         for old in ["0.32.0-rc.2", "0.32.0-rc.3"] {
             assert!(bundle.for_build(old).is_err());
             let mut relabelled = bundle.clone();

@@ -118,12 +118,14 @@ never silently replace the baseline with whatever release is latest. The initial
 0.31.9 baseline predates attestations. Its reviewed checksum is a test dependency,
 not a replacement for the new release's required provenance verification.
 
-A separate positive retained-release gate pins the immutable rc.2 archives in
+A separate positive retained-release gate pins the immutable rc.4 archives in
 `tests/fixtures/retained-release-baseline.json`. It must complete a forward
 upgrade, explicit retained activation with current data, recovery after discarded
 start/completion replies, new mail acceptance and a new forward operation. A
 missing maintenance command, skipped probe or failed rollback fails this gate.
-Both branch checks and release builds run it on each architecture; it supplements
+After the final upgrade, an authenticated Web policy edit, two-node installation
+and restart check must also pass. Both branch checks and release builds run it
+on each architecture; it supplements
 the historical baseline's safe-refusal coverage.
 
 `scripts/check_release_lifecycle.sh` downloads and verifies that baseline, builds

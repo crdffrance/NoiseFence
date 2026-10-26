@@ -517,6 +517,10 @@ impl Settings {
 }
 
 pub struct Snapshot {
+    // Keep the committed wire identity with the runtime that implements it.
+    // Recapture is for NEW policies: an upgraded binary must not re-sign a
+    // retained policy with its build label or newly serialized defaults.
+    retained_bundle: Option<Arc<crate::cluster::artifacts::Bundle>>,
     pub activation_epoch: Option<crate::cluster::activation::Epoch>,
     pub rbl: Arc<crate::rbl::Runtime>,
     pub revision: i64,
@@ -550,15 +554,23 @@ impl Controller {
         if let Some(value) = &*cache
             && value.bundle.revision == snapshot.revision
             && value.bundle.credential_generation == snapshot.config.credential_generation
+            && snapshot
+                .retained_bundle
+                .as_ref()
+                .is_none_or(|b| b.digest == value.bundle.digest)
         {
             return Ok(value.clone());
         }
         let publication = tokio::task::spawn_blocking(move || {
-            let publication = crate::cluster::artifacts::capture(
-                &snapshot.config,
-                snapshot.settings.clone(),
-                snapshot.revision,
-            )?;
+            let publication = if let Some(bundle) = &snapshot.retained_bundle {
+                crate::cluster::artifacts::retained_publication(&snapshot.config, bundle)?
+            } else {
+                crate::cluster::artifacts::capture(
+                    &snapshot.config,
+                    snapshot.settings.clone(),
+                    snapshot.revision,
+                )?
+            };
             snapshot.engine.validate_cluster_publication(&publication)?;
             Ok::<_, anyhow::Error>(publication)
         })
@@ -675,6 +687,7 @@ impl Controller {
                 *this.template.write().unwrap() = engine.clone();
                 *this.active.write().unwrap() = Arc::new(Snapshot {
                     activation_epoch: None,
+                    retained_bundle: Some(Arc::new(bundle.clone())),
                     revision: bundle.revision,
                     settings: bundle.settings,
                     config,
@@ -898,6 +911,7 @@ impl Controller {
             cluster_keys: RwLock::new(key_hash),
             retired: std::sync::Mutex::new(None),
             active: RwLock::new(Arc::new(Snapshot {
+                retained_bundle: clustered.map(Arc::new),
                 activation_epoch: participant
                     .as_ref()
                     .map(|p| p.installed_epoch().clone())
@@ -1037,7 +1051,7 @@ impl Controller {
                 tx.commit()?;Ok(id)
             }).await?;
             engine.activate_limits();rbl.activate();this.store.admission.activate(config.smtp_admission.as_ref());this.store.archive.configure(config.research_archive.clone().unwrap_or_default());
-            *this.active.write().unwrap()=Arc::new(Snapshot{activation_epoch:None,revision:id,settings,config,engine,rbl});
+            *this.active.write().unwrap()=Arc::new(Snapshot{retained_bundle:None,activation_epoch:None,revision:id,settings,config,engine,rbl});
             Ok(id)
         }).await?
     }

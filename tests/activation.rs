@@ -49,6 +49,51 @@ async fn synchronize(
 }
 
 #[tokio::test]
+async fn retained_publication_survives_prepare_install_cache_and_restart() {
+    let mut f = Fixture::new();
+    let mut active = f.bundle(0, 95.);
+    active.build = "0.28.0-rc.9".into();
+    for key in ["identity", "identity_policy", "contact_learning"] {
+        active.shared.as_object_mut().unwrap().remove(key);
+    }
+    active.digest = active.hash().unwrap();
+    let tx = f.db.transaction().unwrap();
+    Journal::initialize(&tx, "mx1", active.clone()).unwrap();
+    tx.commit().unwrap();
+    let central = participant(f.root.path(), false).await;
+    // Loading an already retained policy is distinct from first enrollment,
+    // whose resident-policy comparison must continue to reject mismatches.
+    assert_eq!(
+        central.publication().await.unwrap().bundle.digest,
+        active.digest
+    );
+    let epoch = f.stage(1, 97.);
+    synchronize(&central, f.read()).await.unwrap();
+    // A prepared future policy cannot replace the installed publication.
+    assert_eq!(
+        central.publication().await.unwrap().bundle.digest,
+        active.digest
+    );
+    let tx = f.db.transaction().unwrap();
+    let aborted = Journal::abort(&tx, &epoch, 100).unwrap();
+    tx.commit().unwrap();
+    synchronize(&central, aborted.clone()).await.unwrap();
+    assert!(central.cluster_ready());
+    assert_eq!(
+        serde_json::to_value(&central.publication().await.unwrap().bundle).unwrap(),
+        serde_json::to_value(&active).unwrap()
+    );
+    drop(central);
+    let restarted = participant(f.root.path(), false).await;
+    assert_eq!(
+        restarted.publication().await.unwrap().bundle.digest,
+        active.digest
+    );
+    synchronize(&restarted, aborted).await.unwrap();
+    assert!(restarted.cluster_ready());
+}
+
+#[tokio::test]
 async fn replication_setup_preserves_the_activation_database_guard() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let mut f = Fixture::new();
@@ -119,6 +164,7 @@ async fn actual_participants_prepare_apply_release_and_restart_with_the_same_pol
     let central = participant(f.root.path(), false).await;
     let worker = participant(remote.path(), true).await;
     f.initialize();
+    let old_publication = central.publication().await.unwrap();
     let epoch = f.stage(1, 97.);
     let preparing = f.read();
     for (id, control) in [("mx1", &central), ("mx2", &worker)] {
@@ -141,6 +187,11 @@ async fn actual_participants_prepare_apply_release_and_restart_with_the_same_pol
         .unwrap();
     f.ack(&epoch, "mx1", ack.progress);
     assert_eq!(central.snapshot().config.filter.threshold, 97.);
+    assert_eq!(
+        central.publication().await.unwrap().bundle.digest,
+        epoch.digest
+    );
+    assert_ne!(old_publication.bundle.digest, epoch.digest);
     assert_eq!(worker.snapshot().config.filter.threshold, 95.);
     assert!(!central.store.activation.ready());
     assert!(!worker.store.activation.ready());

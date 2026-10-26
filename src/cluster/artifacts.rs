@@ -443,6 +443,41 @@ pub fn capture(
         config: config.clone(),
     })
 }
+/// Re-publish an installed, immutable policy without changing its wire identity.
+/// Materialization already selected this bundle for the runtime. Recheck frozen
+/// bytes and credential bindings; the caller must also verify the resident engine.
+pub(crate) fn retained_publication(
+    config: &crate::config::Config,
+    bundle: &Bundle,
+) -> Result<Publication> {
+    bundle.validate()?;
+    ensure!(
+        config.credential_generation == bundle.credential_generation,
+        "Retained publication credential binding mismatch"
+    );
+    if let Some(hash) = &bundle.credential_generation {
+        ensure!(
+            crate::credentials::Snapshot::capture(config)?.fingerprint() == *hash,
+            "Retained publication credentials differ from the installed runtime"
+        );
+    }
+    let root = directory(&config.data_dir, bundle);
+    let mut paths = BTreeMap::new();
+    for (name, artifact) in &bundle.files {
+        let path = root.join(name);
+        ensure!(
+            file_digest(&path)? == (artifact.size, artifact.sha256.clone()),
+            "Corrupt retained publication model"
+        );
+        paths.insert(name.clone(), path);
+    }
+    Ok(Publication {
+        bundle: bundle.clone(),
+        paths,
+        config: config.clone(),
+    })
+}
+
 impl Bundle {
     /// Preserve the unchanged protocol for an older worker during rollout.
     /// Build participates in the digest; never rewrite it without recomputing it.
@@ -515,6 +550,7 @@ impl Bundle {
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
+                | "0.32.0-rc.5"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -549,6 +585,7 @@ impl Bundle {
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
+                | "0.32.0-rc.5"
         ) && matches!(
             build,
             "0.28.0-rc.9"
@@ -572,6 +609,7 @@ impl Bundle {
                 | "0.32.0-rc.1"
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
+                | "0.32.0-rc.4"
         ) {
             let mut bundle = self.clone();
             bundle.build = build.into();
@@ -828,6 +866,8 @@ impl Bundle {
         );
         // The published rc.3 schema predates these fields. A forged legacy
         // build label cannot bypass the new-policy gate during retained reads.
+        // rc.5 retains rc.4's unchanged identity schema; transport still requires
+        // identical live builds for newly staged credential-bound activation.
         let identity_selected = self.settings.identity_directory.is_some()
             || self.settings.identity_policy.is_some()
             || self.settings.contact_learning.is_some()
@@ -835,7 +875,9 @@ impl Bundle {
                 .iter()
                 .any(|key| self.shared.get(*key).is_some_and(|v| !v.is_null()));
         ensure!(
-            !identity_selected || self.build == env!("CARGO_PKG_VERSION"),
+            !identity_selected
+                || self.build == env!("CARGO_PKG_VERSION")
+                || (env!("CARGO_PKG_VERSION") == "0.32.0-rc.5" && self.build == "0.32.0-rc.4"),
             "Identity policy requires a matching application build"
         );
         let identity_policy: Option<crate::identity::correlation::Settings> =

@@ -464,3 +464,17 @@ See [candidate runtime validation](maintenance-validation.md) for the explicit
 temporary mode that loads a reserved candidate without starting normal mail or
 administrative services. Its probe readiness is separate from normal SMTP and
 replica durability; the complete production supervisor remains a release gate.
+
+## Editing policy after an upgrade
+
+An installed policy keeps the exact build, digest, settings, credential generation
+and artifact manifest that were committed with it. A newer executable must not
+recapture that policy with new defaults before comparing a Web proposal with the
+selected authority. Only a newly approved proposal receives the current build.
+
+The paired archive fixture also signs in with its generated, isolated test account
+and changes a gateway display name through the normal Web API after completing
+upgrade and retained-activation checks. It requires both MXs to install the same
+new epoch, unchanged models and credentials, restart recovery and replicated
+synthetic mail. This checks the next administrative operation, not only startup of
+an unchanged policy. It never uses a production account, session or database.

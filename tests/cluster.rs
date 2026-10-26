@@ -705,6 +705,46 @@ fn lexical_model(path: &std::path::Path, version: &str) {
 }
 
 #[tokio::test]
+async fn retained_publication_preserves_frozen_models_and_refuses_corruption() {
+    let root = tempfile::tempdir().unwrap();
+    let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
+    let path = root.path().join("model.json");
+    lexical_model(&path, "retained");
+    cfg.filter.model = Some(path.clone());
+    let cfg = Arc::new(cfg);
+    let store = prepare(&cfg).await;
+    let mut publication =
+        artifacts::capture(&cfg, noisefence::control::Settings::from_config(&cfg), 2).unwrap();
+    publication.bundle.build = "0.28.0-rc.9".into();
+    publication.bundle.digest = publication.bundle.hash().unwrap();
+    artifacts::freeze(root.path(), &publication, 0).unwrap();
+    let bundle = publication.bundle.clone();
+    store
+        .run(move |db| {
+            let tx = db.transaction()?;
+            cluster::activation::Journal::initialize(&tx, "mx1", bundle)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    // The installation model may be replaced; the installed epoch still owns
+    // its frozen bytes, not the mutable installation source.
+    lexical_model(&path, "installation-replacement");
+    let control = Controller::load(cfg.clone(), store.clone()).await.unwrap();
+    let retained = control.publication().await.unwrap();
+    assert_eq!(retained.bundle.digest, publication.bundle.digest);
+    assert!(retained.paths.values().all(|p| p != &path));
+    drop(control);
+    let restarted = Controller::load(cfg, store).await.unwrap();
+    lexical_model(
+        retained.paths.values().next().unwrap(),
+        "corrupt-frozen-model",
+    );
+    assert!(restarted.publication().await.is_err());
+}
+
+#[tokio::test]
 async fn disk_model_replacement_cannot_silently_diverge_from_the_resident_coordinator() {
     let root = tempfile::tempdir().unwrap();
     let mut cfg = (*config(root.path(), Role::Coordinator)).clone();
@@ -1662,7 +1702,7 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     assert!(bundle.for_build("0.32.0-rc.2").is_err());
     assert!(bundle.for_build("0.32.0-rc.3").is_err());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
-    for unsupported_build in ["0.29.1", "0.32.0-rc.5", "0.32.0", "9.9.9"] {
+    for unsupported_build in ["0.29.1", "0.32.0-rc.6", "0.32.0", "9.9.9"] {
         let mut unknown = prior.clone();
         unknown.build = unsupported_build.into();
         unknown.digest = unknown.hash().unwrap();

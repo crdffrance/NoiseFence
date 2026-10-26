@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.32.0-rc.5 — Policy activation after upgrades
+
+- Preserve the exact committed policy bundle when publishing an installed runtime.
+  Upgrading a binary no longer changes the retained policy digest and wrongly
+  rejects the next Web configuration change as a concurrent edit.
+- Keep credential, frozen-model and resident-engine checks, revision comparisons
+  and coordinated activation fences. New proposals use the current build.
+- Exercise retained-policy publication, restart and authenticated PostgreSQL
+  activation; pin official rc.4 archives for paired native lifecycle qualification.
+- Preserve filtering models, thresholds, provider activation and observation mode.
+  This maintenance release does not qualify detection accuracy.
+
 ## 0.32.0-rc.4 — Identity context and correspondent memory
 
 - Learn recipient-scoped recurring inbound contacts from durably accepted,
