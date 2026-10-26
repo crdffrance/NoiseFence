@@ -13,6 +13,51 @@ The English console uses the Rust API and a static frontend. Install the first l
 
 See [Web configuration](web-configuration.md) for the complete control map. Global filtering, domain profiles and recipient exceptions are separate scopes. Changes are drafted, reviewed and explicitly applied to future mail.
 
+## Automatic correspondent memory
+
+In **Filters → Identity protection**, administrators can enable local learning,
+choose the memory window and recurrence requirements, or start a new observation
+window. Review and activate the configuration on every MX. Message details show
+recurrence, missing coverage and changed patterns, separately from the verdict.
+See [learning and privacy limits](contact-learning.md). The adjacent **Identity
+contribution** policy defaults to observation. Its [corroboration guide](identity-correlation.md)
+explains the optional bounded weight, deduplication and per-message ledger.
+
+## Identity protection workspace
+
+Administrators manage **Filters → Identity protection** in the same reviewed
+configuration workflow as other filters. The directory workspace has a source
+list and focused tabs for people, groups, source scope/freshness and explicit
+sending delegation. Search and paginated lists keep larger directories readable.
+CSV merges by stable ID; the change preview exposes removals and protected
+identities before anything is added to the policy draft.
+
+The screen distinguishes installed data, local source edits, prepared artifacts
+and the pending configuration. Preparation alone never activates a change. Global
+**Review and apply** and the MX activation panel remain authoritative. Domain-based
+protected-name checks live in their own expandable section and retain their
+separate CSV format. Entra, Google Workspace, Okta and AWS Identity Store support reviewed one-shot collection. Optional expiring schedules reuse encrypted access; SSO and a reciprocal contact graph remain separate work.
+
+In message details, **Additional engine details → Complementary protection →
+Identity observations** groups name/domain findings and explains why domain
+authentication is different from person identity. No finding is not a passed
+identity check. See the [identity protection guide](identity-protection.md) for
+limits, CSV format, privacy and the remaining source-management work.
+
+Development builds can also display a **Directory identity** card when a
+recipient-scoped report was recorded. It distinguishes source freshness, domain
+authentication, ambiguous matches and the exact directory snapshot. Missing
+contact-history or sensitive-request analysis stays explicit. This observation
+does not replace the saved verdict and is not backfilled onto historical mail.
+
+Entra, Google Workspace, Okta and AWS Identity Store sources can be collected once through **Directory synchronization**
+in the same workspace. One-time access is the default. Optional
+[encrypted saved access](directory-credential-storage.md) has explicit expiry,
+replacement and revocation. A separate **Set up automatic collection** authorization permits background reads until a chosen expiry; each candidate still needs review.
+A durable receipt separates collection from reviewed activation; failures and
+unknown outcomes preserve the installed directory. See the [Entra](identity-entra.md), [Google Workspace](identity-google.md), [Okta](identity-okta.md) and [AWS](identity-aws.md) guides
+for permissions, limits and the remaining provider boundaries.
+
 ## Quality & research
 
 One navigation entry contains three keyboard-accessible tabs:
@@ -148,3 +193,18 @@ CRDF and VirusTotal distinguish saved credentials from credentials captured by t
 Request counters and LLM accounting belong to the responding node. A coordinator also reserves credits issued to other MXs: summing coordinator and worker counters double-counts those credits. LLM amounts include outstanding reservations and conservative charges, not provider invoices. Worker credit ceilings can be lower than the configured monthly ceiling. A missing ledger is shown as not started; an unreadable ledger is unknown. Reading this view never initializes or migrates that ledger.
 
 Recorded checks use accessible history from the last 24 hours, potentially across MXs. Select the current engine build or all builds explicitly. Historical failures are not a live health probe or evidence of spam. CRDF/VirusTotal p95 uses recorded elapsed times only when detailed timing metadata exists, including failed attempts and cache lookups. Phase totals may overlap and are never treated as percentiles. No observations means no availability or latency conclusion. Rspamd remains an independent comparison; Scaleway suspension and all activation controls remain unchanged.
+
+### Identity editor preview
+
+For a disposable browser-memory fixture, run `npm run dev -- --port 3013` in
+`web/` and open
+`http://127.0.0.1:3013/demo.html?administration=identity`. Select **Filters → Identity
+protection**. The three initial names are synthetic. Review/apply changes only
+this browser-memory fixture; refresh resets it. Select **Organization directory**
+to inspect its people. Use `&directory=empty` for onboarding or
+`&directory=unavailable` to exercise a source-status failure. Add `&identity=1` to render a
+synthetic identity observation in the initial message details. No mail is sent,
+no directory is contacted and these fixtures are excluded from the production
+build. Use `&providers=unavailable` to exercise the status failure and retry path.
+
+For Active Directory, select **Active Directory — internal collector**, enroll the public verification key after comparing its SHA-256 fingerprint, then use **Upload signed AD export** on the saved connection. Import within 15 minutes and review the candidate before activation. Private keys stay on Windows. See the [internal collector guide](identity-active-directory.md).

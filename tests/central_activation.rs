@@ -187,6 +187,43 @@ async fn destination_activates_only_after_all_durable_selections_and_rejects_rea
     pg.batch_execute("UPDATE noisefence.users SET disabled=false")
         .await
         .unwrap();
+    pg.execute(
+        "INSERT INTO noisefence.identity_connections VALUES('late','{}'::jsonb)",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(
+        f.central
+            .activate_import(&receipt.database, &prepared, &selections, || panic!(
+                "late credential rows must block local selection"
+            ))
+            .await
+            .is_err()
+    );
+    pg.execute("DELETE FROM noisefence.identity_connections", &[])
+        .await
+        .unwrap();
+    pg.execute(
+        "UPDATE noisefence.identity_connection_schema SET version=2",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(
+        f.central
+            .activate_import(&receipt.database, &prepared, &selections, || panic!(
+                "changed credential schema must block local selection"
+            ))
+            .await
+            .is_err()
+    );
+    pg.execute(
+        "UPDATE noisefence.identity_connection_schema SET version=1",
+        &[],
+    )
+    .await
+    .unwrap();
     let mut pending = txs.into_iter();
     let first = pending.next().unwrap();
     assert!(

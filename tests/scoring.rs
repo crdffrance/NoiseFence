@@ -568,3 +568,16 @@ fn native_context_reuses_retained_weights_and_cannot_revive_excluded_symbols() {
     scan.scoring = None;
     assert!(rules::context(&scan).is_empty());
 }
+
+#[test]
+fn previous_evidence_ledger_preserves_its_unavailable_score_contract() {
+    let config = Config::load(Path::new("config/development.toml")).unwrap();
+    let mut scan = unavailable_score::scan(&config);
+    scan.scoring.as_mut().unwrap().version = scoring::PREVIOUS_VERSION.into();
+    scan.analysis_result.as_mut().unwrap().scoring = scan.scoring.clone();
+    scoring::validate_transport(&scan).unwrap();
+    assert_eq!(
+        scoring::recorded(&scan).unwrap().version,
+        scoring::PREVIOUS_VERSION
+    );
+}

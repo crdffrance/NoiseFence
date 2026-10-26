@@ -212,3 +212,102 @@ async fn legacy_dsn_keeps_public_identity_transcripts_and_runtime_history() {
     );
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn credential_registry_is_validated_and_connection_rows_are_not_overwritten() {
+    use noisefence::identity::connections::{Credential, Metadata, PROTOCOL, vault::Key};
+    use noisefence::identity::directory::{Provider, Source};
+    let f = postgres::Fixture::new().await;
+    let db = f.connect().await;
+    let root = tempfile::tempdir().unwrap();
+    let key = Key::initialize(root.path()).unwrap();
+    let record = key
+        .seal(
+            Metadata {
+                protocol: PROTOCOL.into(),
+                source: Source {
+                    id: "synthetic".into(),
+                    label: "Synthetic".into(),
+                    provider: Provider::Entra,
+                    authority: "11111111-1111-4111-8111-111111111111".into(),
+                    scopes: ["example.test".into()].into_iter().collect(),
+                    stale_after_seconds: 86400,
+                },
+                generation: uuid::Uuid::new_v4().to_string(),
+                supersedes: None,
+                authority: f.central.directory_connection_authority(),
+                key_id: key.id(),
+                owner: "future-admin".into(),
+                owner_version: 0,
+                created: noisefence::now(),
+                expires: noisefence::now() + 3600,
+            },
+            &Credential::EntraApplication {
+                client_id: "22222222-2222-4222-8222-222222222222".into(),
+                client_secret: "synthetic".into(),
+            },
+        )
+        .unwrap();
+    db.execute(
+        "INSERT INTO noisefence.identity_connections VALUES('synthetic',$1)",
+        &[&serde_json::to_value(&record).unwrap()],
+    )
+    .await
+    .unwrap();
+    assert!(f.central.stage_import(prepared().await).await.is_err());
+    assert_eq!(
+        db.query_one("SELECT count(*) FROM noisefence.identity_connections", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        1
+    );
+    db.execute("DELETE FROM noisefence.identity_connections", &[])
+        .await
+        .unwrap();
+    db.execute(
+        "UPDATE noisefence.identity_connection_schema SET sha256='invalid'",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(f.central.stage_import(prepared().await).await.is_err());
+    assert_eq!(
+        db.query_one("SELECT count(*) FROM noisefence.migration_state", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn staged_import_checks_scim_component_before_excluding_its_schema_row() {
+    let f = postgres::Fixture::new().await;
+    let pg = f.connect().await;
+    pg.execute(
+        "UPDATE noisefence.identity_scim_schema SET sha256='corrupt'",
+        &[],
+    )
+    .await
+    .unwrap();
+    assert!(f.central.stage_import(prepared().await).await.is_err());
+    assert_eq!(
+        pg.query_one("SELECT count(*) FROM noisefence.users", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
+    assert_eq!(
+        pg.query_one("SELECT count(*) FROM noisefence.migration_state", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
+    f.finish().await;
+}

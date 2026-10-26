@@ -111,6 +111,20 @@ impl AccountsSnapshot {
     /// Read all account state from the caller's consistent SQLite transaction.
     /// The original external MFA key is required whenever sealed records exist.
     pub fn capture(tx: &rusqlite::Transaction<'_>, key: Option<&crate::mfa::Key>) -> Result<Self> {
+        // Directory credentials bind to their management authority. Until a
+        // reviewed re-encryption migration exists, refuse to silently omit them.
+        let has_connections: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='identity_connections')", [], |r| r.get(0))?;
+        if has_connections {
+            let populated: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM identity_connections)",
+                [],
+                |r| r.get(0),
+            )?;
+            ensure!(
+                !populated,
+                "Directory connections require an explicit credential migration; offline account import cannot discard them"
+            );
+        }
         ensure!(
             tx.prepare("PRAGMA foreign_key_check")?
                 .query([])?

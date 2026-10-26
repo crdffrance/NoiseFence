@@ -766,6 +766,158 @@ async fn candidate_without_acceptance_confirmation_is_recovered_for_review_only(
 }
 
 #[tokio::test]
+async fn recovered_contact_memory_requires_durable_acceptance_evidence() {
+    use noisefence::{
+        evidence::{AuthResult, Source, State},
+        identity::{learning, memory_key::Key},
+    };
+    for mode in ["failed_commit", "confirmed", "checkpoint"] {
+        let p = pair().await;
+        let key = Key::install(p._a.path(), None).unwrap();
+        let engine = engine::Engine::new(p.config.clone()).unwrap();
+        let trusted = |raw: &[u8]| {
+            let mut scan = engine.offline(raw);
+            let evidence = scan.evidence.as_mut().unwrap();
+            evidence.source = Source::SmtpSession;
+            evidence.authentication.dmarc_state = State::Complete;
+            evidence.authentication.dmarc_dkim = Some(AuthResult::Pass);
+            scan
+        };
+        let recipient = p.config.recipient("alice@example.test").unwrap();
+        let targets = Default::default();
+        let mut scan = trusted(common::MESSAGE);
+        let sample =
+            learning::capture(&key, common::MESSAGE, &scan, &recipient.address, &targets).unwrap();
+        scan.contact_learning = Some(learning::Observation {
+            sample: Some(sample),
+            report: learning::Report {
+                learning_eligible: Some(true),
+                observation_only: true,
+                ..Default::default()
+            },
+        });
+        let expected = serde_json::to_value(&scan).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        if mode == "failed_commit" {
+            // Peer preparation succeeds, then the local create_new fails before
+            // any message row commits. This SMTP attempt was never accepted.
+            std::fs::write(p.a.raw_path(&id), b"synthetic existing orphan").unwrap();
+        }
+        let accepted =
+            p.a.enqueue(
+                id.clone(),
+                "sender@example.org".into(),
+                vec![recipient.clone()],
+                scan,
+                common::MESSAGE.to_vec(),
+            )
+            .await;
+        assert_eq!(
+            accepted.is_ok(),
+            mode != "failed_commit",
+            "{mode}: {accepted:?}"
+        );
+        if mode == "failed_commit" {
+            assert_eq!(
+                p.a.read(|db| Ok(
+                    db.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0),)?
+                ))
+                .await
+                .unwrap(),
+                0
+            );
+        }
+        if mode == "confirmed" {
+            ha::replica::synchronize(&p.a).await.unwrap();
+            let sending = p.a.claim().await.unwrap().unwrap();
+            assert_eq!(sending.message_id, id);
+            ha::replica::synchronize_message(&p.a, id.clone())
+                .await
+                .unwrap();
+            // Delivery uncertainty does not undo proven SMTP acceptance.
+        }
+        assert_eq!(remote(&p, &id).await.confirmed, mode == "confirmed");
+        let target = tempfile::tempdir().unwrap();
+        if mode == "checkpoint" {
+            // An owner checkpoint proves acceptance even if its peer never
+            // received the later confirmation manifest.
+            ha::recovery::snapshot_database(
+                &p.a.root.join("state.sqlite3"),
+                &target.path().join("state.sqlite3"),
+            )
+            .unwrap();
+        }
+        let report =
+            ha::recovery::restore_queue(&p.b.root, target.path(), "mx1", &fence(p._a.path()))
+                .await
+                .unwrap();
+        assert_eq!(report["held_recipients"], usize::from(mode != "checkpoint"));
+        let restored = Store::open(target.path()).unwrap();
+        assert_eq!(
+            std::fs::read(restored.raw_path(&id)).unwrap(),
+            common::MESSAGE
+        );
+        let saved_id = id.clone();
+        let saved: serde_json::Value = restored
+            .run(move |db| {
+                db.execute(
+                    "UPDATE messages SET created=?1 WHERE id=?2",
+                    rusqlite::params![noisefence::now() - 86400, saved_id],
+                )?;
+                let raw: String =
+                    db.query_row("SELECT scan FROM messages WHERE id=?1", [&saved_id], |r| {
+                        r.get(0)
+                    })?;
+                Ok(serde_json::from_str(&raw)?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(saved["analysis_result"], expected["analysis_result"]);
+        assert_eq!(saved["recipient_decision"], expected["recipient_decision"]);
+        if mode == "failed_commit" {
+            assert!(
+                saved["contact_learning"]["sample"].is_null(),
+                "an unconfirmed recovered candidate must never teach contact memory"
+            );
+            assert_eq!(
+                saved["contact_learning"]["report"]["learning_eligible"],
+                false
+            );
+        } else {
+            assert_eq!(saved["contact_learning"], expected["contact_learning"]);
+        }
+        let current = String::from_utf8(common::MESSAGE.to_vec())
+            .unwrap()
+            .replace("Rendez-vous demain", "New project discussion")
+            .replace(
+                "Bonjour, le rendez-vous est confirme.",
+                "Please review the project timeline and agenda.",
+            );
+        let current_scan = trusted(current.as_bytes());
+        let observed = learning::prepare(
+            Some(&key),
+            target.path(),
+            &learning::Settings {
+                key_id: Some(key.id().into()),
+                ..Default::default()
+            },
+            current.as_bytes(),
+            &current_scan,
+            std::slice::from_ref(&recipient),
+            &targets,
+            "sender@example.org",
+        )
+        .await;
+        assert_eq!(
+            observed[&recipient.address].report.campaigns,
+            usize::from(mode != "failed_commit"),
+            "{mode}: {:?}",
+            observed[&recipient.address].report
+        );
+    }
+}
+
+#[tokio::test]
 async fn an_original_is_retained_when_its_queued_failure_notice_was_not_replicated() {
     let p = pair().await;
     let id = uuid::Uuid::new_v4().to_string();

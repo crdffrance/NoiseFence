@@ -686,6 +686,16 @@ select {
   color: #1e293b;
   box-shadow: 0 24px 100px #12213840;
 }
+.confirm-dialog[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.confirm-dialog .dialog-description {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .confirm-dialog::backdrop {
   background: #111e32a3;
   backdrop-filter: blur(3px);

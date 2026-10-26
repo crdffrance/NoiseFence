@@ -9,5 +9,6 @@ import './workspace-refinement.css';
 import './message-search.css';
 import './filter-workspace.css';
 import './message-analysis.css';
+import './identity.css';
 
 createRoot(document.getElementById('root')!).render(<Console />);

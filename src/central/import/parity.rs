@@ -17,6 +17,12 @@ pub(super) async fn lock(tx: &Transaction<'_>) -> Result<()> {
         .join(",");
     let mut expected: BTreeSet<String> = [
         "schema_migrations",
+        "identity_connection_schema",
+        "identity_connections",
+        "identity_scim_schema",
+        "identity_scim_sources",
+        "identity_scim_resources",
+        "identity_scim_members",
         "sources",
         "message_versions",
         "messages",
@@ -102,6 +108,19 @@ async fn value(
 }
 
 pub(super) async fn verify(tx: &Transaction<'_>, p: &PreparedImport) -> Result<()> {
+    // Source capture refuses stored connections until a credential migration
+    // exists. Recheck both metadata and emptiness under the destination locks.
+    crate::central::identity_connections::check(tx).await?;
+    count(tx, "identity_connections", 0).await?;
+    crate::central::identity_scim::check(tx).await?;
+    count(tx, "identity_scim_schema", 1).await?;
+    for table in [
+        "identity_scim_sources",
+        "identity_scim_resources",
+        "identity_scim_members",
+    ] {
+        count(tx, table, 0).await?;
+    }
     verify_tables(tx, super::TABLES, &p.accounts.tables).await?;
     verify_tables(tx, quality::TABLES, &p.quality.tables).await?;
     verify_tables(tx, policy::TABLES, &p.policy.tables).await?;

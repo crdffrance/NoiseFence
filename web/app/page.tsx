@@ -1,4 +1,6 @@
 'use client';
+import { IdentityCorrelationEvidence, type IdentityCorrelationReport } from './identity-correlation';
+import { ContactLearningEvidence, type ContactLearningReport } from "./contact-learning";
 import {groundingSummary, responseIssueLabel, type LlmGrounding} from './llm-evidence';
 import { RspamdComparison, RspamdOverview, RspamdResult } from './rspamd-comparison';
 import type { RspamdReport, ComparisonSummary } from './rspamd-format';
@@ -49,6 +51,7 @@ import {
   type FeedbackCategory,
 } from './mailing';
 import { ProtectionDetails, type ProtectionReport } from './protection';
+import { DirectoryIdentityEvidence, type DirectoryIdentityReport } from './identity-evidence';
 import {
   lazy,
   Suspense,
@@ -117,6 +120,9 @@ type Mail = {
   } | null;
   quality?: QualityReport | null;
   protection?: ProtectionReport;
+  identity?: DirectoryIdentityReport | null;
+  contact_learning?: ContactLearningReport | null;
+  identity_correlation?: IdentityCorrelationReport | null;
   mailing?: MailingReport;
   category: FeedbackCategory | 'undetermined';
   pub_tagged: boolean;
@@ -1355,6 +1361,9 @@ function Home() {
                   {selected.quality && (
                     <QualityDetails report={selected.quality} />
                   )}
+                  {selected.identity_correlation && <IdentityCorrelationEvidence report={selected.identity_correlation} retained={selected.scoring?.contributions.find(c => c.id === 'identity_change')?.retained} />}
+                  {selected.contact_learning && <ContactLearningEvidence report={selected.contact_learning} />}
+                  {selected.identity && <DirectoryIdentityEvidence report={selected.identity} />}
                   {selected.protection && (
                     <ProtectionDetails report={selected.protection} />
                   )}
@@ -2004,7 +2013,7 @@ function Home() {
       </main>
       {pendingNavigation && <ConfirmDialog title={correctionDirty || qualityDirty ? "Discard unsaved annotations?" : "Discard unsaved settings?"} confirmLabel="Discard and leave" danger busy={false}
         onCancel={() => setPendingNavigation(null)} onConfirm={() => completeNavigation(pendingNavigation)}>
-        <p>{correctionDirty || qualityDirty ? "Your unsaved annotations will be discarded. Saved feedback, evaluation annotations and message delivery remain unchanged." : preferenceDirty ? "Your unsaved personal filter changes will be discarded. Installed preferences and accepted messages will remain unchanged." : "The configuration draft and any unfinished domain setup will be discarded. Installed settings and accepted messages will remain unchanged."}</p>
+        <p>{correctionDirty || qualityDirty ? "Your unsaved annotations will be discarded. Saved feedback, evaluation annotations and message delivery remain unchanged." : preferenceDirty ? "Your unsaved personal filter changes will be discarded. Installed preferences and accepted messages will remain unchanged." : "The configuration draft and any unfinished directory or domain setup will be discarded. Installed settings and accepted messages will remain unchanged."}</p>
       </ConfirmDialog>}
       {confirmation && selected && (
         <ConfirmDialog

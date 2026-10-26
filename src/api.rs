@@ -5,6 +5,7 @@ mod ha;
 mod mfa;
 mod onboarding;
 mod quality;
+mod scim;
 mod sender_verification;
 mod software;
 use crate::{
@@ -45,6 +46,8 @@ pub struct App {
     limiter: Arc<Mutex<HashMap<String, (i64, u32)>>>,
     hashing: Arc<tokio::sync::Semaphore>,
     cluster_capacity: Arc<tokio::sync::Semaphore>,
+    identity_capacity: Arc<tokio::sync::Semaphore>,
+    scim_admission: scim::Admission,
     dummy_hash: Arc<String>,
     mfa_key: Option<Arc<crate::mfa::Key>>,
 }
@@ -717,6 +720,8 @@ pub fn router_controlled(
         limiter: Arc::new(Mutex::new(HashMap::new())),
         hashing: Arc::new(tokio::sync::Semaphore::new(4)),
         cluster_capacity: Arc::new(tokio::sync::Semaphore::new(8)),
+        identity_capacity: Arc::new(tokio::sync::Semaphore::new(2)),
+        scim_admission: scim::Admission::new(),
         dummy_hash: Arc::new(hash_password(&random_token())?),
     };
     if crate::cluster::is_worker(&config) {
@@ -753,6 +758,7 @@ pub fn router_controlled(
         .route("/verify-sender", get(sender_verification::page))
         .route("/verify-sender.js", get(sender_verification::script))
         .nest("/api/v1", api)
+        .merge(scim::routes())
         .route("/healthz", get(health))
         .fallback_service(
             ServeDir::new(&config.web.static_dir).append_index_html_on_directories(true),

@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -36,19 +37,28 @@ class OnlineMetadataTests(unittest.TestCase):
                 for key, value in [('management_selection', selection), ('activation_participant', local)]:
                     db.execute('UPDATE cluster_state SET value=? WHERE key=?', (json.dumps(value), key))
             (source / 'config/config.toml').write_text('[cluster]\nrole="worker"\nnode_id="mx2"\n[management]\nbackend="coordinator"\n')
+        for directory, key in [('directory-vault', b'v'*32), ('contact-memory', b'm'*32)]:
+            folder = source / 'data' / directory
+            folder.mkdir(mode=0o700)
+            (folder / 'key').write_bytes(key)
+            (folder / 'key').chmod(0o600)
+            if directory == 'contact-memory':
+                (folder / 'key-id').write_text(hashlib.sha256(key).hexdigest())
+                (folder / 'key-id').chmod(0o600)
         for name in ['spool', 'incoming', 'replicas', 'research-archive']:
             folder = source / 'data' / name
             folder.mkdir()
             (folder / 'never-export.eml').write_bytes(b'private body')
         return source, manifest
 
-    def run_export(self, root, worker=False, change=False, symlink=False):
+    def run_export(self, root, worker=False, change=False, symlink=False, key_change=False):
         source, manifest = self.fixture(root, worker)
         cfg = source / 'config'
         if symlink:
             (cfg / 'redirected-file').symlink_to(source / 'data/spool/never-export.eml')
         tools = online.checkpoint_tools()
-        backup = types.SimpleNamespace(DATA=source / 'data', ROOT=root,
+        identity = snapshot.identity_tools()
+        backup = types.SimpleNamespace(identity_tools=lambda: identity, DATA=source / 'data', ROOT=root,
             verify_management_selection=snapshot.verify_management_selection,
             manifest=snapshot.manifest, postgres_target=lambda _: None if worker else {},
             postgres_bytes=lambda _: 10,
@@ -65,12 +75,13 @@ class OnlineMetadataTests(unittest.TestCase):
                     local = json.loads(db.execute("SELECT value FROM cluster_state WHERE key='activation_participant'").fetchone()[0])
                     local['authority']['sequence'] += 1
                     db.execute("UPDATE cluster_state SET value=? WHERE key='activation_participant'", (json.dumps(local),))
-        with patch.object(online, 'checkpoint_tools', return_value=tools), \
+        with patch.object(identity, 'postgres_keys', side_effect=[[hashlib.sha256(b'v'*32).hexdigest()], ['f'*64] if key_change else [hashlib.sha256(b'v'*32).hexdigest()]]), \
+             patch.object(online, 'checkpoint_tools', return_value=tools), \
              patch.object(tools, 'postgres_state', return_value=manifest['management']), \
              patch.object(online.subprocess, 'run', side_effect=sqlite_backup), \
              patch('sys.stdout', types.SimpleNamespace(buffer=output)):
-            if change or symlink:
-                with self.assertRaisesRegex(ValueError, 'symlink refused' if symlink else 'Policy changed'):
+            if change or symlink or key_change:
+                with self.assertRaisesRegex(ValueError, 'symlink refused' if symlink else 'Directory keys changed' if key_change else 'Policy changed'):
                     online.export(backup, cfg)
                 self.assertEqual(output.getvalue(), b'')
                 return
@@ -82,6 +93,9 @@ class OnlineMetadataTests(unittest.TestCase):
             self.assertFalse(any('never-export.eml' in n for n in names))
             self.assertEqual('data/management.postgresql.dump' in names, not worker)
             m = json.load(archive.extractfile('manifest.json'))
+            for name in identity.KEY_FILES:
+                self.assertIn('data/' + name, names)
+            self.assertEqual(m['identity_recovery']['keys']['contact-memory'], hashlib.sha256(b'm'*32).hexdigest())
             self.assertTrue(m['online'])
             self.assertEqual(m['pause_and_copy_seconds'], 0)
             self.assertEqual(m['mode'], 'metadata')
@@ -113,3 +127,7 @@ class OnlineMetadataTests(unittest.TestCase):
     def test_redirected_configuration_cannot_include_private_bodies(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.run_export(Path(tmp), symlink=True)
+
+    def test_vault_key_binding_change_refuses_output_before_streaming(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.run_export(Path(tmp), key_change=True)

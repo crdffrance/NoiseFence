@@ -4,7 +4,8 @@ use crate::engine::{Scan, SemanticStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: &str = "content-evidence-combination-2";
+pub const VERSION: &str = "content-evidence-combination-3";
+pub const PREVIOUS_VERSION: &str = "content-evidence-combination-2";
 pub const LEGACY_VERSION: &str = "content-logit-deduplicated-1";
 pub mod comparison;
 mod evidence_rules;
@@ -114,8 +115,10 @@ pub fn validate_transport(scan: &Scan) -> anyhow::Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Missing unavailable-score ledger"))?;
     ensure!(
-        matches!(report.version.as_str(), VERSION | LEGACY_VERSION)
-            && report.score.is_none()
+        matches!(
+            report.version.as_str(),
+            VERSION | PREVIOUS_VERSION | LEGACY_VERSION
+        ) && report.score.is_none()
             && report.total_logit.is_none()
             && scan
                 .reasons
@@ -184,6 +187,7 @@ pub struct Report {
 pub fn family(id: &str) -> &'static str {
     match id {
         "llm_advisory" => "llm",
+        "identity_change" => "identity",
         "spf_fail" | "dmarc_fail" => "authentication",
         "ip_reputation" | "domain_reputation" | "abused_domain_body" => "reputation",
         "smtp_policy_contribution" => "smtp",

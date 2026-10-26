@@ -27,6 +27,7 @@ impl Central {
             .map_err(database_error)?
             .get(0);
         let mut snapshot = Snapshot {
+            contacts: None,
             protocol: PROTOCOL.into(),
             generation,
             created: crate::now(),
@@ -96,6 +97,51 @@ impl Central {
                 snapshot.rows.push(row);
             }
         }
+        // Separate bounded projection: unlabelled correspondence never expands the
+        // human-labelled training set or the campaign detector's recent window.
+        let mut contacts = crate::identity::learning::Snapshot::default();
+        let query = tx.prepare("SELECT m.created,CASE WHEN octet_length((m.scan#>'{contact_learning,sample}')::text)<=4096 THEN m.scan#>'{contact_learning,sample}' ELSE 'null'::jsonb END,(SELECT MIN(f.created) FROM noisefence.training_feedback f JOIN noisefence.users u ON u.username=f.username WHERE f.message_id=m.id AND f.spam AND NOT u.disabled AND f.created<$2 AND EXISTS(SELECT 1 FROM noisefence.deliveries d JOIN noisefence.console_access a ON a.delivery_id=d.id WHERE d.message_id=m.id AND a.username=f.username)) FROM noisefence.messages m WHERE m.created>=$1 AND m.created<$2 AND NOT m.is_dsn AND jsonb_typeof(m.scan#>'{contact_learning,sample}')='object' ORDER BY m.created DESC,m.id DESC LIMIT 10001").await.map_err(database_error)?;
+        let portal = tx
+            .bind(
+                &query,
+                &[&(snapshot.created - 30 * 86400), &snapshot.created],
+            )
+            .await
+            .map_err(database_error)?;
+        'contacts: loop {
+            let batch = tx.query_portal(&portal, 32).await.map_err(database_error)?;
+            if batch.is_empty() {
+                break;
+            }
+            for row in batch {
+                if contacts.rows.len() == crate::identity::learning::MAX_SNAPSHOT_ROWS {
+                    contacts.limited = true;
+                    break 'contacts;
+                }
+                let Some(sample) =
+                    serde_json::from_value::<crate::identity::learning::Sample>(row.get(1))
+                        .ok()
+                        .filter(|s| s.valid())
+                else {
+                    // Optional contact corruption must not disable unrelated
+                    // human-labelled detector history for the whole installation.
+                    contacts.limited = true;
+                    continue;
+                };
+                let row = crate::identity::learning::Row {
+                    created: row.get(0),
+                    sample,
+                    unwanted_at: row.get(2),
+                };
+                bytes += serde_json::to_vec(&row)?.len() + 1;
+                if bytes >= MAX_BYTES - 4096 {
+                    contacts.limited = true;
+                    break 'contacts;
+                }
+                contacts.rows.push(row);
+            }
+        }
+        snapshot.contacts = Some(contacts);
         snapshot.validate()?;
         tx.commit().await.map_err(database_error)?;
         Ok(snapshot)

@@ -80,7 +80,12 @@ def export(snapshot, config=Path('/etc/noisefence')):
         tools.match_central(before, central)
     if 'recovery' in before:
         raise ValueError('Use the dedicated recovered-console checkpoint exporter')
+    identity = snapshot.identity_tools()
+    connection_keys = identity.postgres_keys(snapshot, pg) if pg is not None else None
+    identity_before = identity.inspect(data, cfg, connection_keys, private=True)
     files = tools.selected_artifacts(data, before)
+    identity_files = identity.files(data)
+    files.update(identity_files)
     files['data/state.sqlite3'] = data / 'state.sqlite3'
     # Include base-configuration model paths as well as the installed bundle.
     # Never retain mail, history cache, research samples or temporary operations.
@@ -133,7 +138,14 @@ def export(snapshot, config=Path('/etc/noisefence')):
         expected = before['selection'].get('mfa_key_sha256')
         if expected and tools.digest(dest / 'data/mfa.key') != expected:
             raise ValueError('Metadata MFA key mismatch')
+        identity_after = identity.inspect(dest / 'data', cfg, connection_keys, expected=identity_before)
+        if set(identity.files(data)) != set(identity_files):
+            raise ValueError('Identity recovery files changed during metadata backup; retry')
+        identity.files(dest / 'data', private=False)
+        if pg is not None and identity.postgres_keys(snapshot, pg) != connection_keys:
+            raise ValueError('Directory keys changed during metadata backup; retry')
         metadata = snapshot.manifest(dest, 'metadata')
+        metadata['identity_recovery'] = identity_after
         if sum(f['bytes'] for f in metadata['files'].values()) > 4 * 1024**3:
             raise ValueError('Online metadata archive exceeds size limit')
         metadata.update(online=True, pause_and_copy_seconds=0,

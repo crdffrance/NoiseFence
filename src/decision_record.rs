@@ -213,14 +213,21 @@ pub fn record_recipient(
     let rule_ids = policy
         .map(|p| p.matched.iter().map(|r| r.id.clone()).collect())
         .unwrap_or_default();
-    let policy_sha256 = crate::message::digest(&serde_json::to_vec(&serde_json::json!({
+    let mut receipt_policy = serde_json::json!({
         "version": VERSION, "analysis_policy": scan.analysis_policy,
         "custom_policy": policy.map(|p| &p.policy), "profile": policy.and_then(|p| p.profile.as_ref()),
         "threshold": view.content_threshold, "category": view.category,
         "score_boundary": view.score_boundary,
         "classification": classification, "action": view.action, "rule_ids": rule_ids,
         "trace":policy.and_then(|p|p.trace.as_ref()),
-    })).expect("typed receipt policy"));
+    });
+    // Bind the configured identity contribution without changing legacy receipts
+    // whose messages did not carry recipient-scoped identity observations.
+    if let Some(identity) = &scan.identity_correlation {
+        receipt_policy["identity_policy_sha256"] = serde_json::json!(identity.policy_sha256);
+    }
+    let policy_sha256 =
+        crate::message::digest(&serde_json::to_vec(&receipt_policy).expect("typed receipt policy"));
     scan.recipient_decision = Some(Box::new(RecipientDecision {
         activation_epoch: scan.activation_epoch.clone(),
         policy_trace: policy.and_then(|p| p.trace.clone()),

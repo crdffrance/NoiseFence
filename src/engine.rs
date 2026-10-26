@@ -90,6 +90,15 @@ pub struct SemanticResult {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Scan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_learning: Option<crate::identity::learning::Observation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_correlation: Option<crate::identity::correlation::Report>,
+    #[serde(skip)]
+    pub contact_candidates: crate::identity::learning::Reports,
+    /// Recipient-scoped directory observation; never a shared detector vote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<crate::identity::runtime::Report>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub traffic: Option<crate::traffic::Report>,
     #[serde(skip)]
     pub traffic_candidates: crate::traffic::runtime::Reports,
@@ -573,6 +582,8 @@ pub struct Engine {
     llm_capacity: Arc<crate::capacity::Capacity>,
     vision: Option<Arc<crate::vision::Client>>,
     protection: Option<Arc<crate::protection::Runtime>>,
+    identity: Option<Arc<crate::identity::runtime::Loaded>>,
+    contact_key: Option<Arc<crate::identity::memory_key::Key>>,
     native_filter: Option<Arc<crate::native_filter::Runtime>>,
     #[cfg(feature = "semantic")]
     semantic: Option<Arc<crate::semantic::Hybrid>>,
@@ -590,6 +601,9 @@ impl Engine {
             "shadow": self.quality.as_ref().map(|m| serde_json::json!({"version": m.version, "observation_only": true})),
             "policy_sha256": self.evidence_artifacts.policy_sha256,
             "cohort_sha256": self.quality_artifacts_sha256(),
+            "identity": self.identity.as_ref().map(|r| serde_json::json!({"catalog_sha256": r.sha256, "observation_only": true})),
+            "contact_memory": {"enabled":self.config.contact_learning.as_ref().is_some_and(|s|s.enabled),
+                "key_available":self.contact_key.is_some(),"key_id":self.contact_key.as_ref().map(|k|k.id())},
             "decision_policy": crate::decision::VERSION,
             "score_combination": crate::scoring::VERSION,
             "feature_version": crate::features::VERSION
@@ -831,6 +845,28 @@ impl Engine {
                 },
             )
             .transpose()?;
+        let contact_key = config
+            .contact_learning
+            .as_ref()
+            .filter(|s| s.enabled)
+            .and_then(|s| {
+                crate::identity::memory_key::Key::matching(&config.data_dir, s.key_id.as_deref())
+                    .ok()
+            })
+            .map(Arc::new);
+        let identity = config
+            .identity
+            .as_ref()
+            .map(|settings| {
+                if let Some(old) = template
+                    .filter(|t| !reload_models && t.config.identity.as_ref() == Some(settings))
+                    .and_then(|t| t.identity.as_ref())
+                {
+                    return Ok(old.clone());
+                }
+                crate::identity::runtime::Loaded::load(settings, crate::now()).map(Arc::new)
+            })
+            .transpose()?;
         let vision = config
             .vision
             .clone()
@@ -864,6 +900,7 @@ impl Engine {
         }
         Ok(Self {
             rspamd,
+            contact_key,
             cluster_models,
             native_filter,
             quality,
@@ -881,6 +918,7 @@ impl Engine {
             llm_capacity,
             vision,
             protection,
+            identity,
             #[cfg(feature = "semantic")]
             semantic,
             generations,
@@ -1685,6 +1723,20 @@ impl Engine {
                 policy_result.apply(&mut scan);
                 scan.smtp_policy = policy_result;
             }
+            let contact_targets = if self
+                .config
+                .contact_learning
+                .as_ref()
+                .is_some_and(|s| s.enabled)
+            {
+                crate::protection::Targets {
+                    urls: targets.urls.clone(),
+                    urls_truncated: targets.urls_truncated,
+                    ..Default::default()
+                }
+            } else {
+                Default::default()
+            };
             let authenticated_results = match auth_result {
                 Ok(Ok(results)) => Some(results),
                 _ => {
@@ -1807,7 +1859,23 @@ impl Engine {
                 ));
             };
             self.decide(&mut scan);
+            // Optional contact lookup must not erase completed detector evidence
+            // when the overall analysis deadline expires during history access.
             content_ready = true;
+            if let Some(settings) = &self.config.contact_learning {
+                // Local metadata only. Keep an owned target summary before provider observation consumes it.
+                scan.contact_candidates = crate::identity::learning::prepare(
+                    self.contact_key.as_deref(),
+                    &self.config.data_dir,
+                    settings,
+                    raw,
+                    &scan,
+                    context.recipients,
+                    &contact_targets,
+                    sender,
+                )
+                .await;
+            }
             if let Some(store) = context.store {
                 crate::traffic::runtime::prepare(
                     store,
@@ -1973,12 +2041,23 @@ impl Engine {
             None => Ok(crate::queue_body::WireBody::from(wire)),
         };
         let mut base = scan.clone();
+        base.identity = None;
+        base.identity_correlation = None;
+        base.contact_learning = None;
+        base.contact_candidates.clear();
         crate::decision_record::record_analysis(&mut base, &self.config);
         base.action = Some(crate::actions::evaluate(scan, &self.config));
         let recorded_at = crate::now();
         if (self.config.custom_filtering.is_some()
             || !self.config.preferences.mailboxes.is_empty()
-            || !scan.traffic_candidates.is_empty())
+            || !scan.traffic_candidates.is_empty()
+            || self.identity.is_some()
+            || self.config.identity_policy.is_some()
+            || self
+                .config
+                .contact_learning
+                .as_ref()
+                .is_some_and(|s| s.enabled))
             && !recipients.is_empty()
         {
             let facts = crate::custom_filtering::Facts::message(
@@ -2004,15 +2083,74 @@ impl Engine {
                 };
                 let policy = effective.as_ref();
                 let prepared = own_prepared.as_ref().unwrap_or(&common_prepared);
+                let mut s = base.clone();
+                // Resolve only this actual envelope recipient. No Bcc address,
+                // other tenant's directory or relationship key enters the report.
+                s.identity = self.identity.as_ref().map(|runtime| {
+                    runtime.inspect_message(raw, &recipient.address, scan, recorded_at)
+                });
+                s.contact_learning = scan
+                    .contact_candidates
+                    .get(&recipient.address)
+                    .cloned()
+                    .or_else(|| {
+                        self.config
+                            .contact_learning
+                            .as_ref()
+                            .filter(|s| s.enabled)
+                            .map(|settings| crate::identity::learning::Observation {
+                                sample: None,
+                                report: crate::identity::learning::Report {
+                                    status: "unavailable".into(),
+                                    observation_only: true,
+                                    retention_days: settings.retention_days,
+                                    minimum_campaigns: settings.minimum_campaigns,
+                                    minimum_days: settings.minimum_days,
+                                    ..Default::default()
+                                },
+                            })
+                    });
+                let settings = self.config.identity_policy.clone().unwrap_or_default();
+                s.identity_correlation = (s.identity.is_some()
+                    || s.contact_learning.is_some()
+                    || self.config.identity_policy.is_some())
+                .then(|| crate::identity::correlation::inspect(&settings, &s));
+                let weighted = s
+                    .identity_correlation
+                    .as_ref()
+                    .is_some_and(|r| r.applied_weight > 0.);
+                if weighted {
+                    s.reasons
+                        .retain(|r| r.id != crate::identity::correlation::RULE);
+                    s.reasons.push(Signal {
+                        id: crate::identity::correlation::RULE.into(),
+                        detail: "Corroborated identity change for this recipient; recurrence alone is not a safe-sender exemption.".into(),
+                        weight: s.identity_correlation.as_ref().unwrap().applied_weight,
+                    });
+                    s.analysis_result = None;
+                    s.recipient_decision = None;
+                    self.score(&mut s);
+                    self.decide(&mut s);
+                    crate::decision_record::record_analysis(&mut s, &self.config);
+                }
+                // Legacy rule predicates also need the recipient's new score.
+                let recipient_prepared = weighted.then(|| {
+                    let facts = crate::custom_filtering::Facts::message(
+                        raw,
+                        sender,
+                        &s,
+                        self.config.filter.max_analysis_bytes,
+                    );
+                    crate::custom_filtering::Prepared::new(policy, &facts)
+                });
                 let mut assessment = crate::custom_filtering::assess_prepared(
                     policy,
                     &self.config,
-                    scan,
-                    prepared,
+                    &s,
+                    recipient_prepared.as_ref().unwrap_or(prepared),
                     recipient,
                     recorded_at,
                 );
-                let mut s = base.clone();
                 s.traffic_candidates.clear();
                 s.traffic = scan.traffic_candidates.get(&recipient.address).cloned();
                 if let Some(report) = &mut s.traffic
@@ -2047,6 +2185,15 @@ impl Engine {
                     .expect("recorded recipient")
                     .policy_sha256
                     .clone();
+                if let Some(report) = &s.contact_learning {
+                    key.push_str(&message::digest(&serde_json::to_vec(report)?));
+                }
+                if let Some(report) = &s.identity_correlation {
+                    key.push_str(&message::digest(&serde_json::to_vec(report)?));
+                }
+                if let Some(report) = &s.identity {
+                    key.push_str(&message::digest(&serde_json::to_vec(report)?));
+                }
                 if let Some(report) = &s.traffic {
                     key.push_str(&message::digest(&serde_json::to_vec(report)?));
                 }
@@ -2165,6 +2312,309 @@ pub fn dqs_answer(records: &[std::net::Ipv4Addr]) -> Result<bool> {
 }
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn identity_weight_is_recipient_scoped_and_snapshotted_before_custom_policies() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        config.smtp.minimum_free_bytes = 0;
+        config.filter.threshold = 60.;
+        config
+            .filter
+            .rule_weights
+            .insert("credential_request".into(), 3.);
+        config.filter.rule_weights.insert("urgency".into(), 1.5);
+        config.native_filter = Some(Default::default());
+        config.contact_learning = Some(Default::default());
+        config.identity_policy = Some(crate::identity::correlation::Settings {
+            mode: crate::identity::correlation::Mode::Contribute,
+            maximum_weight: 1.,
+        });
+        config.custom_filtering = Some(serde_json::from_value(serde_json::json!({
+            "rules":[{"id":"recipient-risk","name":"Recipient risk", "enabled":true,"priority":10,"scope":"*","expires":null,"any":false,
+            "conditions":[{"field":"score","op":"at_least","value":"60"}],"category":null,"action":"quarantine","stop":true}]
+        })).unwrap());
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let raw = b"From: sender@example.org\r\nSubject: Please verify your password\r\n\r\nPlease verify your password.\r\n";
+        let mut scan = crate::identity::correlation::tests::scan();
+        scan.complete = true;
+        scan.feature_version = crate::features::VERSION;
+        scan.reasons = vec![
+            Signal {
+                id: "credential_request".into(),
+                detail: "fixture".into(),
+                weight: 1.5,
+            },
+            Signal {
+                id: "urgency".into(),
+                detail: "fixture".into(),
+                weight: 1.,
+            },
+        ];
+        engine.score(&mut scan);
+        engine.decide(&mut scan);
+        let alice = config.recipient("alice@example.test").unwrap();
+        let bob = config.recipient("bob@example.test").unwrap();
+        scan.contact_candidates
+            .insert(alice.address.clone(), scan.contact_learning.take().unwrap());
+        let render = |s: &mut Scan, id: &str| {
+            message::rewrite(
+                raw,
+                false,
+                &engine.headers("192.0.2.5".parse().unwrap(), id, s, None),
+            )
+        };
+        let variants = engine
+            .variants_inner(
+                raw,
+                &scan,
+                "sender@example.org",
+                "identity",
+                &[alice, bob],
+                render,
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 2);
+        let a = &variants[0].scan;
+        let b = &variants[1].scan;
+        assert!(
+            a.score > b.score,
+            "scores {} / {}, correlation {:?}, ledger {:?}",
+            a.score,
+            b.score,
+            a.identity_correlation,
+            a.scoring
+        );
+        assert_eq!(b.score, scan.score);
+        assert!(a.identity_correlation.as_ref().unwrap().corroborated);
+        assert!(!b.identity_correlation.as_ref().unwrap().corroborated);
+        assert_eq!(a.analysis_result.as_ref().unwrap().scoring, a.scoring);
+        assert_eq!(crate::assessment::historical(a).score.raw, Some(a.score));
+        assert_eq!(
+            variants[0].recipients[0].1.as_ref().unwrap().category,
+            crate::mailing::Category::Spam
+        );
+        assert_eq!(
+            variants[1].recipients[0].1.as_ref().unwrap().category,
+            crate::mailing::Category::Legitimate
+        );
+        assert_eq!(
+            variants[0].recipients[0].1.as_ref().unwrap().matched[0].id,
+            "recipient-risk"
+        );
+        assert!(
+            variants[1].recipients[0]
+                .1
+                .as_ref()
+                .unwrap()
+                .matched
+                .is_empty()
+        );
+        for v in &variants {
+            crate::scoring::validate_transport(&v.scan).unwrap();
+            let wire = String::from_utf8(v.raw.to_vec()).unwrap();
+            assert!(wire.contains(&format!("X-NoiseFence-Score: {:.1}\r\n", v.scan.score)));
+            let public = serde_json::to_string(&v.scan.identity_correlation).unwrap();
+            assert!(!public.contains("alice@") && !public.contains("bob@"));
+            // The deployment remains in observation even when index contribution
+            // is enabled: ordinary action gates are still authoritative.
+            assert_eq!(
+                v.scan.action.as_ref().unwrap().effective,
+                crate::actions::Action::Deliver
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_contact_reports_are_private_recipient_variants_not_detector_votes() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        config.smtp.minimum_free_bytes = 0;
+        config.contact_learning = Some(Default::default());
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let raw = b"From: sender@example.org\r\nSubject: Hello\r\n\r\nA message.\r\n";
+        let mut scan = engine.offline(raw);
+        let alice = config.recipient("alice@example.test").unwrap();
+        let bob = crate::config::Recipient {
+            address: "bcc@other.test".into(),
+            destination: "bcc@other.test".into(),
+            hosts: vec![],
+        };
+        for (recipient, regular) in [(&alice, true), (&bob, false)] {
+            scan.contact_candidates.insert(
+                recipient.address.clone(),
+                crate::identity::learning::Observation {
+                    sample: None,
+                    report: crate::identity::learning::Report {
+                        status: if regular { "regular" } else { "learning" }.into(),
+                        regular,
+                        campaigns: if regular { 6 } else { 0 },
+                        observation_only: true,
+                        ..Default::default()
+                    },
+                },
+            );
+        }
+        let variants = engine
+            .variants_inner(
+                raw,
+                &scan,
+                "sender@example.org",
+                "contact",
+                &[alice, bob],
+                |_, _| Ok(raw.to_vec()),
+            )
+            .unwrap();
+        assert_eq!(variants.len(), 2);
+        assert!(
+            variants[0]
+                .scan
+                .contact_learning
+                .as_ref()
+                .unwrap()
+                .report
+                .regular
+        );
+        assert!(
+            !variants[1]
+                .scan
+                .contact_learning
+                .as_ref()
+                .unwrap()
+                .report
+                .regular
+        );
+        for variant in &variants {
+            assert_eq!(variant.scan.score, scan.score);
+            assert!(variant.scan.contact_candidates.is_empty());
+            assert!(
+                !serde_json::to_string(&variant.scan.contact_learning)
+                    .unwrap()
+                    .contains("bcc@")
+            );
+        }
+        let visible = crate::store::MailMetadata {
+            id: "test".into(),
+            created: crate::now(),
+            sender: "sender@example.org".into(),
+            feedback: None,
+            feedback_category: None,
+            recipients: vec![],
+            origin: None,
+        }
+        .visible(variants[0].scan.clone());
+        let public = serde_json::to_value(visible).unwrap();
+        assert_eq!(public["contact_learning"]["regular"], true);
+        assert!(public["contact_learning"].get("sample").is_none());
+    }
+    #[test]
+    fn directory_observations_are_recipient_scoped_and_do_not_change_verdicts() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::load(Path::new("config/development.toml")).unwrap();
+        config.data_dir = root.path().into();
+        config.smtp.minimum_free_bytes = 0;
+        let raw = b"From: Alice Finance <unknown@elsewhere.test>\r\nTo: alice@example.test\r\nSubject: Hello\r\n\r\nA synthetic message.\r\n";
+        let base_engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let scan = base_engine.offline(raw);
+        let recipients = [
+            config.recipient("alice@example.test").unwrap(),
+            crate::config::Recipient {
+                address: "private@other.test".into(),
+                destination: "private@other.test".into(),
+                hosts: vec!["127.0.0.1".into()],
+            },
+        ];
+        let baseline = base_engine
+            .variants_inner(
+                raw,
+                &scan,
+                "unknown@elsewhere.test",
+                "baseline",
+                &recipients,
+                |_, _| Ok(raw.to_vec()),
+            )
+            .unwrap();
+        let mut snapshot: crate::identity::directory::Snapshot =
+            serde_json::from_str(include_str!("../tests/fixtures/identity/directory.json"))
+                .unwrap();
+        snapshot.completed_at = crate::now();
+        let document = crate::identity::runtime::Document {
+            schema: crate::identity::runtime::SCHEMA.into(),
+            sources: vec![snapshot],
+        };
+        let selection = crate::identity::runtime::prepare(
+            root.path(),
+            &serde_json::to_vec(&document).unwrap(),
+            crate::now(),
+            0,
+        )
+        .unwrap();
+        config.identity = selection.apply(root.path(), None).unwrap();
+        let engine = Engine::new(Arc::new(config.clone())).unwrap();
+        let variants = engine
+            .variants_inner(
+                raw,
+                &scan,
+                "unknown@elsewhere.test",
+                "identity",
+                &recipients,
+                |_, _| Ok(raw.to_vec()),
+            )
+            .unwrap();
+        assert_eq!(
+            variants.len(),
+            2,
+            "Different directory scopes cannot share a report"
+        );
+        for variant in &variants {
+            let report = variant.scan.identity.as_ref().unwrap();
+            assert_eq!(variant.scan.score, baseline[0].scan.score);
+            assert_eq!(
+                serde_json::to_value(&variant.scan.decision).unwrap(),
+                serde_json::to_value(&baseline[0].scan.decision).unwrap()
+            );
+            assert_eq!(
+                variant.scan.action.as_ref().unwrap().effective,
+                baseline[0].scan.action.as_ref().unwrap().effective
+            );
+            assert_eq!(
+                variant.scan.delivery_classification.unwrap(),
+                crate::assessment::historical(&baseline[0].scan).category
+            );
+            assert_eq!(
+                serde_json::to_value(&variant.scan.analysis_result).unwrap(),
+                serde_json::to_value(&baseline[0].scan.analysis_result).unwrap()
+            );
+            let visible = serde_json::to_string(report).unwrap();
+            assert!(!visible.contains("Alice Finance") && !visible.contains("private@"));
+            if variant.recipients[0].0.address == "alice@example.test" {
+                assert_eq!(report.observation.status, "complete");
+                assert!(
+                    report
+                        .observation
+                        .signals
+                        .contains(&crate::identity::detection::Signal::ProtectedNameMismatch)
+                );
+                assert_eq!(
+                    report.observation.authentication,
+                    crate::identity::detection::Authentication::Unavailable
+                );
+            } else {
+                assert_eq!(report.observation.status, "not_configured");
+                assert!(report.observation.signals.is_empty());
+            }
+        }
+        let changed = root.path().join("invalid.json");
+        std::fs::write(&changed, b"invalid").unwrap();
+        config.identity.as_mut().unwrap().catalog = changed;
+        assert!(engine.reconfigure(Arc::new(config)).is_err());
+        assert_eq!(
+            engine.identity.as_ref().unwrap().sha256,
+            selection.sha256.unwrap()
+        );
+    }
     #[tokio::test]
     async fn completed_checks_survive_sibling_cancellation_and_reach_receipt_headers() {
         use crate::llm::{Category, LlmResult, LlmStatus, Verdict};

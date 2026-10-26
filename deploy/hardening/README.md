@@ -218,3 +218,25 @@ queue filenames when the stored message is a delivery notification with an empty
 envelope sender. It checks the same signed 64-bit identifier bounds as the queue,
 rejects paths and noncanonical numbers, and still requires the queued body file.
 This does not enable full/body backups or change the configured retention mode.
+
+### Identity and correspondent-memory recovery
+
+Install the hardening helpers as a set, including `identity_recovery.py`. Both full
+and metadata backups include published `directory-vault/key`, `contact-memory/key`
+and `contact-memory/key-id` when present, plus bounded, content-addressed prepared
+identity catalogs. A partial key installation, changed or corrupt catalog, invalid
+memory marker or key differing from stored connection/policy metadata refuses the
+archive. Active and revoked connection records require the original vault key.
+
+Selected PostgreSQL exports inspect only public key identifiers from the selected
+database. Archive verification checks their receipt, but does not execute SQL or
+prove credential decryption. Complete the separate isolated PostgreSQL restore and
+native authority/authorization checks. An older metadata archive without these keys
+is not sufficient to recover enabled identity features. Restore keys with service
+ownership, 0700 directories and 0600 files; never generate replacements to hide an
+incomplete backup. No provider calls or schedule activation occur during verification.
+
+The console standby checkpoint has a different recovery purpose and does not
+replace a private installation-secret backup. See
+[directory access recovery](../../docs/directory-credential-storage.md#migration-backup-and-restore)
+and [memory-key recovery](../../docs/contact-memory-key.md#failure-and-recovery).

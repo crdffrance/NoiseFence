@@ -40,6 +40,8 @@ pub struct Row {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contacts: Option<crate::identity::learning::Snapshot>,
     pub protocol: String,
     pub generation: i64,
     pub created: i64,
@@ -59,6 +61,9 @@ impl Snapshot {
             self.rows.len() <= 50000,
             "Runtime history exceeds row capacity"
         );
+        if let Some(contacts) = &self.contacts {
+            contacts.validate(self.created)?;
+        }
         let mut ids = std::collections::HashSet::new();
         for row in &self.rows {
             ensure!(
@@ -198,7 +203,12 @@ pub async fn install(root: &Path, snapshot: Snapshot) -> Result<()> {
         let file=OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;drop(file);
         let temporary=Temporary(path);let mut db=Connection::open(&temporary.0)?;
         db.execute_batch("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; CREATE TABLE snapshot(id INTEGER PRIMARY KEY,protocol TEXT,generation INTEGER,created INTEGER); CREATE TABLE messages(id TEXT PRIMARY KEY,created INTEGER,is_dsn INTEGER,scan TEXT); CREATE INDEX history_date ON messages(created DESC); CREATE INDEX sender_key ON messages(json_extract(scan,'$.sender_history.key'),created); CREATE TABLE users(username TEXT PRIMARY KEY,admin INTEGER,disabled INTEGER); CREATE TABLE training_feedback(username TEXT,message_id TEXT,spam INTEGER,created INTEGER,PRIMARY KEY(username,message_id)); CREATE INDEX vote_message ON training_feedback(message_id); CREATE TABLE deliveries(id INTEGER PRIMARY KEY,message_id TEXT,destination TEXT); CREATE INDEX delivery_message ON deliveries(message_id); CREATE VIEW console_access AS SELECT u.username,d.id AS delivery_id FROM users u CROSS JOIN deliveries d;")?;
+        db.execute_batch("CREATE TABLE contact_coverage(id INTEGER PRIMARY KEY,available INTEGER,limited INTEGER); CREATE TABLE automatic_contacts(created INTEGER,contact_key TEXT,sample TEXT,unwanted_at INTEGER); CREATE INDEX contacts_key ON automatic_contacts(contact_key,created);")?;
         let tx=db.transaction()?;
+        tx.execute("INSERT INTO contact_coverage VALUES(1,?1,?2)",params![snapshot.contacts.is_some(),snapshot.contacts.as_ref().is_some_and(|c|c.limited)])?;
+        if let Some(contacts) = &snapshot.contacts {
+            for row in &contacts.rows { tx.execute("INSERT INTO automatic_contacts VALUES(?1,?2,?3,?4)",params![row.created,row.sample.key,serde_json::to_string(&row.sample)?,row.unwanted_at])?; }
+        }
         tx.execute("INSERT INTO snapshot VALUES(1,?1,?2,?3)",params![snapshot.protocol,snapshot.generation,snapshot.created])?;
         for row in &snapshot.rows {
             let scan=serde_json::json!({"fingerprint":row.fingerprint,"campaign_simhash":row.simhash,"raw_sha256":row.raw_sha256,"features":vec![(0,0.0);row.feature_count],"native_filter":{"features":row.native},"sender_history":{"key":row.sender_key,"behavior":{"sample":row.behavior}}});

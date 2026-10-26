@@ -253,14 +253,17 @@ upgrade gate does not replace the planned atomic multi-node activation protocol.
 
 ## Exact content-index accounting
 
-The release candidate records `scoring` in the scan and the immutable
+The current development code records `scoring` in the scan and the immutable
 `analysis_result.scoring` snapshot. The policy is
-`content-evidence-combination-2`; its version is bound into the detector artifact
+`content-evidence-combination-3`; its version is bound into the detector artifact
 fingerprint. This report is the calculation used by the content scorer, rather
 than a later reconstruction from today's configuration. Diagnostics and the
 English console read the stored report. Historical records without it retain
 explicitly unknown accounting. Fusion estimates remain distinct from this
-content index.
+content index. Version 3 adds the optional bounded [identity contribution](identity-correlation.md)
+and reconciles overlapping Reply-To evidence. Older version 1/2 ledgers remain
+readable without recalculation; identity policy is bound into new recipient receipts
+only when that message carries an identity-correlation report.
 
 The calculation keeps the existing lexical output (or fixed `-5` rules baseline
 when no model applies), eligible semantic contribution and configured rule

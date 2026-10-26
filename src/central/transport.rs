@@ -289,6 +289,10 @@ pub async fn synchronize_runtime_history(
         http.post(format!("{url}/api/v1/cluster/v3/runtime-history")),
         authority.as_ref(),
     )?
+    .header(
+        "x-noisefence-contact-history",
+        crate::identity::learning::PROTOCOL,
+    )
     .json(&RuntimePoll {
         protocol: PROTOCOL.into(),
         epoch: identity.epoch.clone(),

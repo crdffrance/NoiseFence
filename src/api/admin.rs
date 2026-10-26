@@ -1,4 +1,6 @@
 mod domain_setup;
+mod identity;
+mod identity_connections;
 mod preference_preview;
 mod providers;
 use super::*;
@@ -8,6 +10,58 @@ pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/domains", get(domains))
         .route("/admin/config", get(configuration).post(apply))
+        .route(
+            "/admin/identity/schedules",
+            post(identity_connections::schedule),
+        )
+        .route(
+            "/admin/identity/schedules/stop",
+            post(identity_connections::stop_schedule),
+        )
+        .route(
+            "/admin/identity/connections",
+            get(identity_connections::list).post(identity_connections::save),
+        )
+        .route(
+            "/admin/identity/connections/revoke",
+            post(identity_connections::revoke),
+        )
+        .route(
+            "/admin/identity/sync/stored",
+            post(identity_connections::collect),
+        )
+        .route(
+            "/admin/identity/scim/inventory",
+            post(identity_connections::scim_inventory),
+        )
+        .route(
+            "/admin/identity/scim/attest",
+            post(identity_connections::attest_scim),
+        )
+        .route(
+            "/admin/identity/scim/enroll",
+            post(identity_connections::enroll_scim),
+        )
+        .route("/admin/identity", get(identity::view))
+        .route("/admin/identity/prepare", post(identity::prepare))
+        .route(
+            "/admin/identity/sync/active_directory",
+            post(identity_connections::upload_ad),
+        )
+        .route("/admin/identity/sync/entra", post(identity::synchronize))
+        .route(
+            "/admin/identity/sync/aws_identity_store",
+            post(identity::synchronize_aws),
+        )
+        .route(
+            "/admin/identity/sync/okta",
+            post(identity::synchronize_okta),
+        )
+        .route(
+            "/admin/identity/sync/google",
+            post(identity::synchronize_google),
+        )
+        .route("/admin/identity/sync/{id}", get(identity::sync_status))
         .route("/admin/rbl/test", post(test_rbl))
         .route("/admin/domains/check", post(domain_setup::check))
         .route("/admin/admission", get(admission_status))
@@ -100,7 +154,16 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
     let mut availability = (*control.base).clone();
     availability.provider_credentials = s.config.provider_credentials.clone();
     availability.credential_generation = s.config.credential_generation.clone();
-    Ok(Json(json!({"revision":s.revision,"settings":s.settings,
+    let root = control.base.data_dir.clone();
+    let memory_key_id = tokio::task::spawn_blocking(move || {
+        crate::identity::memory_key::Key::load(&root)
+            .ok()
+            .map(|k| k.id().to_owned())
+    })
+    .await
+    .map_err(anyhow::Error::from)?;
+    Ok(Json(
+        json!({"revision":s.revision,"settings":s.settings,"memory_key_id":memory_key_id,
         "available":Settings::available(&availability),
         "actions":crate::actions::Policy::from_config(&s.config),"rules":crate::rules::CATALOG,
         "native_rules":crate::native_filter::content_rules::RULES,
@@ -110,7 +173,8 @@ async fn configuration(State(app): State<App>, h: HeaderMap) -> ApiResult<Json<V
         "hostname":control.base.hostname,"version":env!("CARGO_PKG_VERSION"),
         "tls_required":true,"max_connections":control.base.smtp.max_connections,
         "processing":control.base.smtp.max_processing,"relay_workers":control.base.relay.workers,
-        "max_message_bytes":control.base.smtp.max_message_bytes})))
+        "max_message_bytes":control.base.smtp.max_message_bytes}),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

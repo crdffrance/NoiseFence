@@ -90,6 +90,12 @@ async fn check_incident_authority(
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL on 127.0.0.1:15432 and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
 async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
+    // Separate bounded phase futures: boxing one monolithic future still
+    // constructed a large temporary on Linux debug test workers. Preserve the
+    // same database and assertions without enlarging the normal worker stack.
+    Box::pin(policy_commit_scenario()).await;
+}
+async fn policy_commit_scenario() {
     let f = postgres::Fixture::new().await;
     let c = &f.central;
     let db = f.connect().await;
@@ -129,411 +135,459 @@ async fn policy_commit_is_atomic_authorized_fenced_and_recoverable() {
     )
     .await
     .unwrap();
-    c.initialize_policy(&owner, base.clone()).await.unwrap();
-    c.initialize_policy(&owner, base.clone()).await.unwrap(); // Lost response is harmless.
-    assert!(c.initialize_policy(&owner, next(&base)).await.is_err());
-    assert!(
-        c.stage_policy(
-            &owner,
-            proposal(&base, next(&base), "admin", &admin_session, None)
-        )
-        .await
-        .is_err()
-    ); // Missing peer readiness.
-    c.report_policy_peer(&peer, PROTOCOL, env!("CARGO_PKG_VERSION"), 0, &base.digest)
-        .await
-        .unwrap();
-    for invalid in [i64::MIN, 0, 59, 7 * 86400 + 1, i64::MAX] {
-        let mut change = proposal(&base, next(&base), "admin", &admin_session, None);
-        change.max_stale_seconds = invalid;
-        let error = c.stage_policy(&owner, change).await.err().unwrap();
-        assert!(error.to_string().contains("Invalid policy freshness bound"));
-    }
-    assert!(
-        c.stage_policy(
-            &owner,
-            proposal(&base, next(&base), "alice", &user_session, None)
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        c.stage_policy(
-            &owner,
-            proposal(
-                &base,
-                next(&base),
-                "alice",
-                &user_session,
-                Some("bob@example.test")
-            )
-        )
-        .await
-        .is_err()
-    );
-    let mut wrong_base = proposal(&base, next(&base), "admin", &admin_session, None);
-    wrong_base.base_digest = "0".repeat(64);
-    assert!(c.stage_policy(&owner, wrong_base).await.is_err());
-    let mut upper_bound = proposal(&base, next(&base), "admin", &admin_session, None);
-    upper_bound.max_stale_seconds = 7 * 86400;
-    let staged = c.stage_policy(&owner, upper_bound).await.unwrap();
-    let epoch = staged.rollout().unwrap().epoch().clone();
-    assert_eq!(
-        c.stage_policy(
-            &owner,
-            proposal(&base, next(&base), "admin", &admin_session, None)
-        )
-        .await
-        .unwrap()
-        .rollout()
-        .unwrap()
-        .epoch(),
-        &epoch
-    );
-    assert!(c.commit_policy(&owner, &epoch).await.is_err());
-    Box::pin(check_incident_authority(c, &owner, &epoch)).await;
-    assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 0);
-    assert!(
-        c.acknowledge_policy(
-            &peer,
-            &Acknowledgement {
-                epoch: epoch.clone(),
-                progress: Progress::Applied
-            }
-        )
-        .await
-        .is_err()
-    );
-    for node in [&owner, &peer] {
-        c.acknowledge_policy(
-            node,
-            &Acknowledgement {
-                epoch: epoch.clone(),
-                progress: Progress::Prepared,
-            },
-        )
-        .await
-        .unwrap();
-    }
-    // The browser session and account version are checked again at commit.
-    db.execute(
-        "UPDATE noisefence.sessions SET expires=0 WHERE username='admin'",
-        &[],
-    )
-    .await
-    .unwrap();
-    assert!(c.commit_policy(&owner, &epoch).await.is_err());
-    db.execute(
-        "UPDATE noisefence.sessions SET expires=$1 WHERE username='admin'",
-        &[&(noisefence::now() + 3600)],
-    )
-    .await
-    .unwrap();
-    db.execute(
-        "UPDATE noisefence.users SET version=version+1 WHERE username='admin'",
-        &[],
-    )
-    .await
-    .unwrap();
-    assert!(c.commit_policy(&owner, &epoch).await.is_err());
-    c.abort_policy(&owner, &epoch, "admin", &admin_session)
-        .await
-        .unwrap();
-    assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 0);
-    c.record_policy_incident(&owner, &epoch, Some("activation_step_failed"))
-        .await
-        .unwrap();
-    let staged = c
-        .stage_policy(
-            &owner,
-            proposal(&base, next(&base), "admin", &admin_session, None),
-        )
-        .await
-        .unwrap();
-    let epoch = staged.rollout().unwrap().epoch().clone();
-    assert!(epoch.sequence > 1);
-    assert!(
-        db.query_one(
-            "SELECT incident IS NULL FROM noisefence.policy_authority",
-            &[]
-        )
-        .await
-        .unwrap()
-        .get::<_, bool>(0)
-    );
-    let wrong = Identity {
-        epoch: uuid::Uuid::new_v4().to_string(),
-        ..peer.clone()
+    let scenario = PolicyScenario {
+        f,
+        base,
+        owner,
+        peer,
+        admin_session,
+        user_session,
     };
-    assert!(
-        c.acknowledge_policy(
-            &wrong,
-            &Acknowledgement {
-                epoch: epoch.clone(),
-                progress: Progress::Prepared
-            }
-        )
-        .await
-        .is_err()
-    );
-    for node in [&owner, &peer] {
-        c.acknowledge_policy(
-            node,
-            &Acknowledgement {
-                epoch: epoch.clone(),
-                progress: Progress::Prepared,
-            },
-        )
-        .await
-        .unwrap();
-    }
-    // Force a failure after the INSERT revision, before commit: both the new
-    // revision and the barrier must roll back, then succeed together on retry.
-    db.batch_execute("CREATE FUNCTION noisefence.fail_policy_head() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$; CREATE TRIGGER synthetic_head_failure BEFORE UPDATE ON noisefence.policy_head FOR EACH ROW EXECUTE FUNCTION noisefence.fail_policy_head();").await.unwrap();
-    assert!(c.commit_policy(&owner, &epoch).await.is_err());
-    assert_eq!(
-        db.query_one("SELECT count(*) FROM noisefence.policy_revisions", &[])
-            .await
-            .unwrap()
-            .get::<_, i64>(0),
-        1
-    );
-    assert_eq!(
-        c.policy_journal(&owner)
-            .await
-            .unwrap()
-            .rollout()
-            .unwrap()
-            .phase(),
-        Phase::Preparing
-    );
-    db.batch_execute("DROP TRIGGER synthetic_head_failure ON noisefence.policy_head; DROP FUNCTION noisefence.fail_policy_head();").await.unwrap();
-    c.commit_policy(&owner, &epoch).await.unwrap();
-    c.commit_policy(&owner, &epoch).await.unwrap();
-    assert!(c.activated_policy().await.unwrap().is_none());
-    assert!(
-        c.abort_policy(&owner, &epoch, "admin", &admin_session)
+    Box::pin(scenario.initial()).await;
+    let released = Box::pin(scenario.recovery()).await;
+    Box::pin(scenario.personal(&released)).await;
+    scenario.f.finish().await;
+}
+struct PolicyScenario {
+    f: postgres::Fixture,
+    base: Bundle,
+    owner: Identity,
+    peer: Identity,
+    admin_session: String,
+    user_session: String,
+}
+impl PolicyScenario {
+    async fn initial(&self) {
+        let c = &self.f.central;
+        let db = self.f.connect().await;
+        let base = &self.base;
+        let owner = &self.owner;
+        let peer = &self.peer;
+        let admin_session = &self.admin_session;
+        let user_session = &self.user_session;
+        c.initialize_policy(owner, base.clone()).await.unwrap();
+        c.initialize_policy(owner, base.clone()).await.unwrap(); // Lost response is harmless.
+        assert!(c.initialize_policy(owner, next(base)).await.is_err());
+        assert!(
+            c.stage_policy(
+                owner,
+                proposal(base, next(base), "admin", admin_session, None)
+            )
             .await
             .is_err()
-    );
-    assert!(c.release_policy(&owner, &epoch).await.is_err());
-    // An unavailable authority must never manufacture a release decision.
-    f.suspend().await;
-    assert!(c.policy_journal(&owner).await.is_err());
-    f.resume().await;
-    let db = f.connect().await;
-    let restarted = noisefence::central::Central::new(&f.settings).unwrap();
-    assert_eq!(
-        restarted
-            .policy_journal(&owner)
+        ); // Missing peer readiness.
+        c.report_policy_peer(peer, PROTOCOL, env!("CARGO_PKG_VERSION"), 0, &base.digest)
             .await
-            .unwrap()
-            .rollout()
-            .unwrap()
-            .phase(),
-        Phase::Committed
-    );
-    c.acknowledge_policy(
-        &owner,
-        &Acknowledgement {
-            epoch: epoch.clone(),
-            progress: Progress::Applied,
-        },
-    )
-    .await
-    .unwrap();
-    // Recovery is a new fenced revision, never an in-place rewind.
-    let recovery = c
-        .recover_policy(&owner, &epoch, "admin", &admin_session)
-        .await
-        .unwrap();
-    let recovered_epoch = recovery.rollout().unwrap().epoch().clone();
-    assert_eq!(recovered_epoch.revision, 2);
-    assert_eq!(recovery.rollout().unwrap().recovery_of(), Some(&epoch));
-    assert_eq!(
-        c.recover_policy(&owner, &epoch, "admin", &admin_session)
+            .unwrap();
+        for invalid in [i64::MIN, 0, 59, 7 * 86400 + 1, i64::MAX] {
+            let mut change = proposal(base, next(base), "admin", admin_session, None);
+            change.max_stale_seconds = invalid;
+            let error = c.stage_policy(owner, change).await.err().unwrap();
+            assert!(error.to_string().contains("Invalid policy freshness bound"));
+        }
+        assert!(
+            c.stage_policy(
+                owner,
+                proposal(base, next(base), "alice", user_session, None)
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            c.stage_policy(
+                owner,
+                proposal(
+                    base,
+                    next(base),
+                    "alice",
+                    user_session,
+                    Some("bob@example.test")
+                )
+            )
+            .await
+            .is_err()
+        );
+        let mut wrong_base = proposal(base, next(base), "admin", admin_session, None);
+        wrong_base.base_digest = "0".repeat(64);
+        assert!(c.stage_policy(owner, wrong_base).await.is_err());
+        let mut upper_bound = proposal(base, next(base), "admin", admin_session, None);
+        upper_bound.max_stale_seconds = 7 * 86400;
+        let staged = c.stage_policy(owner, upper_bound).await.unwrap();
+        let epoch = staged.rollout().unwrap().epoch().clone();
+        assert_eq!(
+            c.stage_policy(
+                owner,
+                proposal(base, next(base), "admin", admin_session, None)
+            )
             .await
             .unwrap()
             .rollout()
             .unwrap()
             .epoch(),
-        &recovered_epoch
-    );
-    assert!(
-        c.abort_policy(&owner, &recovered_epoch, "admin", &admin_session)
+            &epoch
+        );
+        assert!(c.commit_policy(owner, &epoch).await.is_err());
+        Box::pin(check_incident_authority(c, owner, &epoch)).await;
+        assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 0);
+        assert!(
+            c.acknowledge_policy(
+                peer,
+                &Acknowledgement {
+                    epoch: epoch.clone(),
+                    progress: Progress::Applied
+                }
+            )
             .await
             .is_err()
-    );
-    assert!(
-        c.acknowledge_policy(
-            &peer,
-            &Acknowledgement {
-                epoch: epoch.clone(),
-                progress: Progress::Applied
-            }
-        )
-        .await
-        .is_err()
-    );
-    for node in [&owner, &peer] {
-        c.acknowledge_policy(
-            node,
-            &Acknowledgement {
-                epoch: recovered_epoch.clone(),
-                progress: Progress::Prepared,
-            },
+        );
+        for node in [owner, peer] {
+            c.acknowledge_policy(
+                node,
+                &Acknowledgement {
+                    epoch: epoch.clone(),
+                    progress: Progress::Prepared,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        // The browser session and account version are checked again at commit.
+        db.execute(
+            "UPDATE noisefence.sessions SET expires=0 WHERE username='admin'",
+            &[],
         )
         .await
         .unwrap();
+        assert!(c.commit_policy(owner, &epoch).await.is_err());
+        db.execute(
+            "UPDATE noisefence.sessions SET expires=$1 WHERE username='admin'",
+            &[&(noisefence::now() + 3600)],
+        )
+        .await
+        .unwrap();
+        db.execute(
+            "UPDATE noisefence.users SET version=version+1 WHERE username='admin'",
+            &[],
+        )
+        .await
+        .unwrap();
+        assert!(c.commit_policy(owner, &epoch).await.is_err());
+        c.abort_policy(owner, &epoch, "admin", admin_session)
+            .await
+            .unwrap();
+        assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 0);
+        c.record_policy_incident(owner, &epoch, Some("activation_step_failed"))
+            .await
+            .unwrap();
     }
-    c.commit_policy(&owner, &recovered_epoch).await.unwrap();
-    for node in [&owner, &peer] {
+    async fn recovery(&self) -> noisefence::cluster::activation::Journal {
+        let c = &self.f.central;
+        let db = self.f.connect().await;
+        let base = &self.base;
+        let owner = &self.owner;
+        let peer = &self.peer;
+        let admin_session = &self.admin_session;
+        let staged = c
+            .stage_policy(
+                owner,
+                proposal(base, next(base), "admin", admin_session, None),
+            )
+            .await
+            .unwrap();
+        let epoch = staged.rollout().unwrap().epoch().clone();
+        assert!(epoch.sequence > 1);
+        assert!(
+            db.query_one(
+                "SELECT incident IS NULL FROM noisefence.policy_authority",
+                &[]
+            )
+            .await
+            .unwrap()
+            .get::<_, bool>(0)
+        );
+        let wrong = Identity {
+            epoch: uuid::Uuid::new_v4().to_string(),
+            ..peer.clone()
+        };
+        assert!(
+            c.acknowledge_policy(
+                &wrong,
+                &Acknowledgement {
+                    epoch: epoch.clone(),
+                    progress: Progress::Prepared
+                }
+            )
+            .await
+            .is_err()
+        );
+        for node in [owner, peer] {
+            c.acknowledge_policy(
+                node,
+                &Acknowledgement {
+                    epoch: epoch.clone(),
+                    progress: Progress::Prepared,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        // Force a failure after the INSERT revision, before commit: both the new
+        // revision and the barrier must roll back, then succeed together on retry.
+        db.batch_execute("CREATE FUNCTION noisefence.fail_policy_head() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$; CREATE TRIGGER synthetic_head_failure BEFORE UPDATE ON noisefence.policy_head FOR EACH ROW EXECUTE FUNCTION noisefence.fail_policy_head();").await.unwrap();
+        assert!(c.commit_policy(owner, &epoch).await.is_err());
+        assert_eq!(
+            db.query_one("SELECT count(*) FROM noisefence.policy_revisions", &[])
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            1
+        );
+        assert_eq!(
+            c.policy_journal(owner)
+                .await
+                .unwrap()
+                .rollout()
+                .unwrap()
+                .phase(),
+            Phase::Preparing
+        );
+        db.batch_execute("DROP TRIGGER synthetic_head_failure ON noisefence.policy_head; DROP FUNCTION noisefence.fail_policy_head();").await.unwrap();
+        c.commit_policy(owner, &epoch).await.unwrap();
+        c.commit_policy(owner, &epoch).await.unwrap();
+        assert!(c.activated_policy().await.unwrap().is_none());
+        assert!(
+            c.abort_policy(owner, &epoch, "admin", admin_session)
+                .await
+                .is_err()
+        );
+        assert!(c.release_policy(owner, &epoch).await.is_err());
+        // An unavailable authority must never manufacture a release decision.
+        self.f.suspend().await;
+        assert!(c.policy_journal(owner).await.is_err());
+        self.f.resume().await;
+        let db = self.f.connect().await;
+        let restarted = noisefence::central::Central::new(&self.f.settings).unwrap();
+        assert_eq!(
+            restarted
+                .policy_journal(owner)
+                .await
+                .unwrap()
+                .rollout()
+                .unwrap()
+                .phase(),
+            Phase::Committed
+        );
         c.acknowledge_policy(
-            node,
+            owner,
             &Acknowledgement {
-                epoch: recovered_epoch.clone(),
+                epoch: epoch.clone(),
                 progress: Progress::Applied,
             },
         )
         .await
         .unwrap();
-    }
-    let released = c.release_policy(&owner, &recovered_epoch).await.unwrap();
-    c.release_policy(&owner, &recovered_epoch).await.unwrap();
-    assert_eq!(released.rollout().unwrap().phase(), Phase::Released);
-    assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 2);
-    assert_eq!(released.current().settings, base.settings);
-    assert_eq!(
-        db.query_one("SELECT count(*) FROM noisefence.policy_revisions", &[])
+        // Recovery is a new fenced revision, never an in-place rewind.
+        let recovery = c
+            .recover_policy(owner, &epoch, "admin", admin_session)
+            .await
+            .unwrap();
+        let recovered_epoch = recovery.rollout().unwrap().epoch().clone();
+        assert_eq!(recovered_epoch.revision, 2);
+        assert_eq!(recovery.rollout().unwrap().recovery_of(), Some(&epoch));
+        assert_eq!(
+            c.recover_policy(owner, &epoch, "admin", admin_session)
+                .await
+                .unwrap()
+                .rollout()
+                .unwrap()
+                .epoch(),
+            &recovered_epoch
+        );
+        assert!(
+            c.abort_policy(owner, &recovered_epoch, "admin", admin_session)
+                .await
+                .is_err()
+        );
+        assert!(
+            c.acknowledge_policy(
+                peer,
+                &Acknowledgement {
+                    epoch: epoch.clone(),
+                    progress: Progress::Applied
+                }
+            )
+            .await
+            .is_err()
+        );
+        for node in [owner, peer] {
+            c.acknowledge_policy(
+                node,
+                &Acknowledgement {
+                    epoch: recovered_epoch.clone(),
+                    progress: Progress::Prepared,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        c.commit_policy(owner, &recovered_epoch).await.unwrap();
+        for node in [owner, peer] {
+            c.acknowledge_policy(
+                node,
+                &Acknowledgement {
+                    epoch: recovered_epoch.clone(),
+                    progress: Progress::Applied,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let released = c.release_policy(owner, &recovered_epoch).await.unwrap();
+        c.release_policy(owner, &recovered_epoch).await.unwrap();
+        assert_eq!(released.rollout().unwrap().phase(), Phase::Released);
+        assert_eq!(c.activated_policy().await.unwrap().unwrap().0, 2);
+        assert_eq!(released.current().settings, base.settings);
+        assert_eq!(
+            db.query_one("SELECT count(*) FROM noisefence.policy_revisions", &[])
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            3
+        );
+        assert_eq!(
+            db.query_one(
+                "SELECT count(*) FROM noisefence.audit WHERE action='configuration'",
+                &[]
+            )
             .await
             .unwrap()
             .get::<_, i64>(0),
-        3
-    );
-    assert_eq!(
-        db.query_one(
-            "SELECT count(*) FROM noisefence.audit WHERE action='configuration'",
-            &[]
-        )
-        .await
-        .unwrap()
-        .get::<_, i64>(0),
-        2
-    );
-    // Personal proposals cannot alter thresholds or other mailboxes.
-    c.report_policy_peer(
-        &peer,
-        PROTOCOL,
-        env!("CARGO_PKG_VERSION"),
-        2,
-        &released.current().digest,
-    )
-    .await
-    .unwrap();
-    let mut personal = next(released.current());
-    personal.settings.preferences.mailboxes.insert(
-        "alice@example.test".into(),
-        noisefence::preferences::Preference {
-            traffic: None,
-            profile: None,
-            rules: Vec::new(),
-        },
-    );
-    personal.digest = personal.hash().unwrap();
-    let mut outside = personal.clone();
-    outside.settings.filters.threshold = 91.;
-    outside.digest = outside.hash().unwrap();
-    assert!(
-        c.stage_policy(
-            &owner,
-            proposal(
-                released.current(),
-                outside,
-                "alice",
-                &user_session,
-                Some("alice@example.test")
-            )
-        )
-        .await
-        .is_err()
-    );
-    let staged = c
-        .stage_policy(
-            &owner,
-            proposal(
-                released.current(),
-                personal,
-                "alice",
-                &user_session,
-                Some("alice@example.test"),
-            ),
-        )
-        .await
-        .unwrap();
-    let epoch = staged.rollout().unwrap().epoch().clone();
-    c.record_policy_incident(&owner, &epoch, Some("runtime_preparation_failed"))
-        .await
-        .unwrap();
-    assert_eq!(
-        c.policy_view(&owner, "alice", false, released.current().revision, false)
-            .await
-            .unwrap()["incident"]["code"],
-        "runtime_preparation_failed"
-    );
-    for node in [&owner, &peer] {
-        c.acknowledge_policy(
-            node,
-            &Acknowledgement {
-                epoch: epoch.clone(),
-                progress: Progress::Prepared,
-            },
-        )
-        .await
-        .unwrap();
+            2
+        );
+        released
     }
-    db.execute("DELETE FROM noisefence.grants WHERE username='alice'", &[])
+    async fn personal(&self, released: &noisefence::cluster::activation::Journal) {
+        let c = &self.f.central;
+        let db = self.f.connect().await;
+        let base = &self.base;
+        let owner = &self.owner;
+        let peer = &self.peer;
+        let admin_session = &self.admin_session;
+        let user_session = &self.user_session;
+        // Personal proposals cannot alter thresholds or other mailboxes.
+        c.report_policy_peer(
+            peer,
+            PROTOCOL,
+            env!("CARGO_PKG_VERSION"),
+            2,
+            &released.current().digest,
+        )
         .await
         .unwrap();
-    assert!(
-        c.policy_view(&owner, "alice", false, released.current().revision, false)
+        let mut personal = next(released.current());
+        personal.settings.preferences.mailboxes.insert(
+            "alice@example.test".into(),
+            noisefence::preferences::Preference {
+                traffic: None,
+                profile: None,
+                rules: Vec::new(),
+            },
+        );
+        personal.digest = personal.hash().unwrap();
+        let mut outside = personal.clone();
+        outside.settings.filters.threshold = 91.;
+        outside.digest = outside.hash().unwrap();
+        assert!(
+            c.stage_policy(
+                owner,
+                proposal(
+                    released.current(),
+                    outside,
+                    "alice",
+                    user_session,
+                    Some("alice@example.test")
+                )
+            )
             .await
-            .unwrap()["incident"]
-            .is_null()
-    );
-    assert!(c.commit_policy(&owner, &epoch).await.is_err());
-    c.abort_policy(&owner, &epoch, "admin", &admin_session)
+            .is_err()
+        );
+        let staged = c
+            .stage_policy(
+                owner,
+                proposal(
+                    released.current(),
+                    personal,
+                    "alice",
+                    user_session,
+                    Some("alice@example.test"),
+                ),
+            )
+            .await
+            .unwrap();
+        let epoch = staged.rollout().unwrap().epoch().clone();
+        c.record_policy_incident(owner, &epoch, Some("runtime_preparation_failed"))
+            .await
+            .unwrap();
+        assert_eq!(
+            c.policy_view(owner, "alice", false, released.current().revision, false)
+                .await
+                .unwrap()["incident"]["code"],
+            "runtime_preparation_failed"
+        );
+        for node in [owner, peer] {
+            c.acknowledge_policy(
+                node,
+                &Acknowledgement {
+                    epoch: epoch.clone(),
+                    progress: Progress::Prepared,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        db.execute("DELETE FROM noisefence.grants WHERE username='alice'", &[])
+            .await
+            .unwrap();
+        assert!(
+            c.policy_view(owner, "alice", false, released.current().revision, false)
+                .await
+                .unwrap()["incident"]
+                .is_null()
+        );
+        assert!(c.commit_policy(owner, &epoch).await.is_err());
+        c.abort_policy(owner, &epoch, "admin", admin_session)
+            .await
+            .unwrap();
+        db.execute(
+            "UPDATE noisefence.sources SET enabled=false WHERE node='mx2'",
+            &[],
+        )
         .await
         .unwrap();
-    db.execute(
-        "UPDATE noisefence.sources SET enabled=false WHERE node='mx2'",
-        &[],
-    )
-    .await
-    .unwrap();
-    assert!(c.policy_journal(&owner).await.is_err());
-    let view = c
-        .policy_view(&owner, "admin", true, base.revision, true)
-        .await
-        .unwrap();
-    assert_eq!(view["incident"]["code"], "membership_changed");
-    assert_eq!(view["smtp_ready"], false);
-    assert_eq!(view["abortable"], false);
-    assert!(
-        c.record_policy_incident(&owner, &epoch, Some("activation_step_failed"))
+        assert!(c.policy_journal(owner).await.is_err());
+        let view = c
+            .policy_view(owner, "admin", true, base.revision, true)
+            .await
+            .unwrap();
+        assert_eq!(view["incident"]["code"], "membership_changed");
+        assert_eq!(view["smtp_ready"], false);
+        assert_eq!(view["abortable"], false);
+        assert!(
+            c.record_policy_incident(owner, &epoch, Some("activation_step_failed"))
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            db.query_one(
+                "SELECT incident->>'code' FROM noisefence.policy_authority",
+                &[]
+            )
             .await
             .unwrap()
-    );
-    assert_eq!(
-        db.query_one(
-            "SELECT incident->>'code' FROM noisefence.policy_authority",
-            &[]
-        )
-        .await
-        .unwrap()
-        .get::<_, String>(0),
-        "membership_changed"
-    );
-    f.finish().await;
+            .get::<_, String>(0),
+            "membership_changed"
+        );
+    }
 }
 
 #[tokio::test]
@@ -607,6 +661,10 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     );
     let mut settings = base.settings.clone();
     settings.filters.threshold = 96.;
+    settings.identity_policy = Some(noisefence::identity::correlation::Settings {
+        mode: noisefence::identity::correlation::Mode::Contribute,
+        maximum_weight: 0.75,
+    });
     let staged = control
         .stage_activation_session(0, settings, "admin".into(), session.clone())
         .await
@@ -660,6 +718,16 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     assert!(worker.cluster_ready());
     assert_eq!(control.snapshot().revision, 1);
     assert_eq!(control.snapshot().settings.filters.threshold, 96.);
+    let identity_policy = control.snapshot().settings.identity_policy.clone().unwrap();
+    assert_eq!(
+        identity_policy.mode,
+        noisefence::identity::correlation::Mode::Contribute
+    );
+    assert_eq!(identity_policy.maximum_weight, 0.75);
+    assert_eq!(
+        worker.snapshot().settings.identity_policy,
+        Some(identity_policy)
+    );
     f.central
         .record_policy_incident(&owner, &epoch, Some("runtime_generation_busy"))
         .await
@@ -701,6 +769,12 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
         )
         .await;
         assert_eq!(status, axum::http::StatusCode::OK);
+        if id == 0 {
+            assert!(settings.get("identity_policy").is_none());
+        } else {
+            assert_eq!(settings["identity_policy"]["mode"], "contribute");
+            assert_eq!(settings["identity_policy"]["maximum_weight"], 0.75);
+        }
         assert_eq!(
             settings["filters"]["threshold"],
             if id == 0 {

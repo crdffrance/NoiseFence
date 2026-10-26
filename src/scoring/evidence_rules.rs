@@ -23,6 +23,10 @@ fn transport(scan: &Scan) -> Option<&evidence::Evidence> {
 }
 
 fn weight(scan: &Scan, id: &str) -> Weight {
+    if id == crate::identity::correlation::RULE {
+        return crate::identity::correlation::weight(scan)
+            .map_or(Weight::Unavailable, Weight::Observed);
+    }
     if !matches!(
         id,
         "spf_fail"
@@ -99,6 +103,31 @@ pub(super) fn reconcile(scan: &Scan, entries: &mut [Contribution]) {
                 entry.adjustment = Adjustment::DetectorPolicy;
             }
             Weight::Observed(_) => (),
+        }
+    }
+    // A changed reply target and the old cross-domain Reply-To heuristic are
+    // one identity family. Retain the larger weight, not their sum. Demand and
+    // authentication remain separate observed facts, each accounted once.
+    let identity = entries
+        .iter()
+        .find(|e| e.id == crate::identity::correlation::RULE)
+        .and_then(|e| e.retained)
+        .filter(|w| *w > 0.);
+    let reply = entries
+        .iter()
+        .find(|e| e.id == "reply_to")
+        .and_then(|e| e.retained)
+        .filter(|w| *w > 0.);
+    if let (Some(identity), Some(reply)) = (identity, reply) {
+        let (removed, retained) = if identity >= reply {
+            ("reply_to", crate::identity::correlation::RULE)
+        } else {
+            (crate::identity::correlation::RULE, "reply_to")
+        };
+        for entry in entries.iter_mut().filter(|e| e.id == removed) {
+            entry.retained = Some(0.);
+            entry.adjustment = Adjustment::SubsumedEvidence;
+            entry.subsumed_by = Some(retained.into());
         }
     }
     let dmarc = entries

@@ -5,7 +5,20 @@ noisefence.example.org {
     request_body @cluster {
         max_size 4MB
     }
-    @console not path /api/v1/cluster/*
+    @directory path /api/v1/admin/identity/prepare
+    request_body @directory {
+        max_size 17825792
+    }
+    @ad_export path /api/v1/admin/identity/sync/active_directory
+    request_body @ad_export {
+        max_size 25165824
+    }
+    # Keep provisioning tokens and filter queries out of any operator-added logs.
+    @scim path /scim/*
+    request_body @scim {
+        max_size 1048576
+    }
+    @console not path /scim/* /api/v1/cluster/* /api/v1/admin/identity/prepare /api/v1/admin/identity/sync/active_directory
     request_body @console {
         max_size 128KB
     }

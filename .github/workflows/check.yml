@@ -34,6 +34,28 @@ jobs:
       - name: Explain non-PR execution
         if: github.event_name != 'pull_request'
         run: echo 'Dependency changes are reviewed on pull requests; Dependabot monitors the default branch.'
+  ad-collector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.sha }}
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify locked collector dependencies and offline contracts
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        run: |
+          dotnet restore tools/ad-collector --locked-mode
+          dotnet build tools/ad-collector --no-restore -c Release
+          dotnet run --project tools/ad-collector --no-build -c Release -- self-test
   postgres:
     runs-on: ubuntu-latest
     services:
@@ -68,7 +90,7 @@ jobs:
           umask 077
           printf '%s' 'synthetic-ci-only-password' > "$NOISEFENCE_TEST_PG_PASSWORD_FILE"
           trap 'rm -f "$NOISEFENCE_TEST_PG_PASSWORD_FILE"' EXIT
-          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning --test central_research_worker --test central_runtime_history --test central_reliability --test central_catalog --test central_preview --test central_retention --test central_operator --test central_import --test central_import_quality --test central_import_delivery_ids --test central_import_policy --test central_binding --test central_import_spool --test central_staged_import --test central_activation --test central_restore --test central_recovery --test central_recovery_policy --test central_recovery_prepare --test central_replay --test central_transport_binding --test central_offline_cli --test import_session -- --ignored
+          cargo test --locked --test central_postgres --test central_console --test central_search --test central_logs --test central_commands --test central_policies --test central_transport --test central_quality --test central_adaptive --test central_research --test central_learning --test central_research_worker --test central_runtime_history --test central_identity_sync --test central_identity_connections --test central_scim --test central_reliability --test central_catalog --test central_preview --test central_retention --test central_operator --test central_import --test central_import_quality --test central_import_delivery_ids --test central_import_policy --test central_binding --test central_import_spool --test central_staged_import --test central_activation --test central_restore --test central_recovery --test central_recovery_policy --test central_recovery_prepare --test central_replay --test central_transport_binding --test central_offline_cli --test import_session -- --ignored
   container:
     strategy:
       matrix:
@@ -137,6 +159,11 @@ jobs:
           sudo /usr/bin/python3 tests/systemd_vision.py
   rust:
     env:
+      # Debug assertions stay enabled; full symbols and incremental artifacts
+      # otherwise exhaust hosted-runner storage before archive-reserve tests.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       # Network deadline fixtures must not compete with unrelated test runtimes.
       RUST_TEST_THREADS: '1'
     strategy:
@@ -168,7 +195,32 @@ jobs:
       - run: python3 scripts/version.py --check
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets ${{ matrix.profile }} ${{ matrix.features }} -- -D warnings
+      - name: Build tests and verify archive-reserve headroom
+        run: |
+          cargo test --locked --no-run ${{ matrix.profile }} ${{ matrix.features }}
+          python3 - <<'PY'
+          import shutil
+          from pathlib import Path
+          import tempfile
+          # Archive persistence intentionally keeps >2 GiB free. Check after
+          # linking every test, before fixtures start, and retain that safeguard.
+          for path in {Path.cwd(), Path(tempfile.gettempdir())}:
+              free = shutil.disk_usage(path).free
+              print(f'{path}: {free / 1024**3:.2f} GiB available', flush=True)
+              if free < 3 * 1024**3:
+                  raise SystemExit('Insufficient CI disk headroom for archive tests (3 GiB required)')
+          PY
       - run: cargo test --locked ${{ matrix.profile }} ${{ matrix.features }}
+      - name: Verify chronological identity replay with separate labels
+        run: |
+          cargo test --locked ${{ matrix.profile }} ${{ matrix.features }} --example contact_memory_replay
+          cargo build --locked ${{ matrix.profile }} ${{ matrix.features }} --example contact_memory_replay
+          profile_dir=debug
+          if [ "${{ matrix.profile }}" = "--release" ]; then profile_dir=release; fi
+          mkdir -p var
+          "target/$profile_dir/examples/contact_memory_replay" --synthetic-fixture var/identity-replay
+          "target/$profile_dir/examples/contact_memory_replay" var/identity-replay/events.json > var/identity-replay/results.json
+          python3 research/evaluate_identity.py var/identity-replay/results.json var/identity-replay/labels.json > var/identity-replay/evaluation.json
       - name: Verify full-processing measurement controls
         run: |
           cargo build --locked ${{ matrix.profile }} ${{ matrix.features }} --example pipeline_probe

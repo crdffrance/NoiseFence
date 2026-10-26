@@ -378,6 +378,24 @@ async fn restore_queue_mode(
             File::open(store.root.join("spool"))?.sync_all()?;
             copied += 1;
         }
+        // A durable peer candidate is not proof that the owner accepted DATA.
+        // Recovery may retain it for manual resolution, but it must not teach
+        // correspondent memory. A committed owner checkpoint above supplies
+        // confirmation and preserves the original sample when available.
+        if !m.confirmed
+            && let Some(contact) = m
+                .scan
+                .get_mut("contact_learning")
+                .and_then(serde_json::Value::as_object_mut)
+        {
+            contact.insert("sample".into(), serde_json::Value::Null);
+            if let Some(report) = contact
+                .get_mut("report")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                report.insert("learning_eligible".into(), json!(false));
+            }
+        }
         let uncertain = !m.confirmed && !m.resolved();
         for d in &mut m.deliveries {
             // "notified" records local DSN enqueue, not necessarily its delivery.

@@ -213,9 +213,13 @@ impl Central {
             let tx=db.transaction().await.map_err(database_error)?;
             super::super::admin::management_lock(&tx).await?;
             tx.batch_execute("LOCK TABLE noisefence.migration_state IN ACCESS EXCLUSIVE MODE").await.map_err(database_error)?;
+            // The credential component registry is infrastructure only. Validate
+            // it before excluding it; actual connection rows still block import.
+            crate::central::identity_connections::check(&tx).await?;
+            crate::central::identity_scim::check(&tx).await?;
             // Inspect ALL application tables, including future additions, rather
             // than infer emptiness merely from the account/source counts.
-            let tables=tx.query("SELECT quote_ident(n.nspname)||'.'||quote_ident(c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='noisefence' AND c.relkind IN ('r','p') AND c.relname NOT IN ('schema_migrations','quality_exposure_state') ORDER BY c.relname",&[]).await.map_err(database_error)?;
+            let tables=tx.query("SELECT quote_ident(n.nspname)||'.'||quote_ident(c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='noisefence' AND c.relkind IN ('r','p') AND c.relname NOT IN ('schema_migrations','quality_exposure_state','identity_connection_schema','identity_scim_schema') ORDER BY c.relname",&[]).await.map_err(database_error)?;
             for table in tables {
                 let table:String=table.get(0);
                 let populated:bool=tx.query_one(&format!("SELECT EXISTS(SELECT 1 FROM {table})"),&[]).await.map_err(database_error)?.get(0);
