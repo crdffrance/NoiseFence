@@ -88,6 +88,7 @@ impl Controller {
             )?);
             Ok(Arc::new(Snapshot {
                 activation_epoch: Some(epoch),
+                retained_bundle: Some(Arc::new(bundle.clone())),
                 rbl,
                 revision: bundle.revision,
                 settings: bundle.settings,

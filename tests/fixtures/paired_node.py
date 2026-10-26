@@ -1,6 +1,7 @@
 """Fixed-path helper used only inside disposable paired-lifecycle containers."""
 import argparse
 import hashlib
+import http.cookiejar
 import json
 import os
 from pathlib import Path
@@ -245,6 +246,59 @@ def policy_status():
     return json.loads(raw)
 
 
+def policy_change(expected_build):
+    # This helper is gated by main() to a disposable, network-isolated lab.
+    # Authenticate the generated test account normally; no forged session or
+    # direct policy SQL writes. Credentials/cookies never enter the report.
+    identity = json.loads((PRIVATE/'identity.json').read_text())
+    require(expected_build == identity['new'], 'Only test the final candidate')
+    readiness('mx1', expected_build)
+    origin = 'http://127.0.0.1:18080'
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    csrf = ''
+    def api(path, body=None):
+        request = urllib.request.Request(origin+'/api/v1'+path,
+            data=None if body is None else json.dumps(body).encode(),
+            headers={'Origin': origin, 'Content-Type': 'application/json', 'X-CSRF-Token': csrf})
+        with opener.open(request, timeout=20) as response:
+            raw = response.read(4*1024*1024+1)
+        require(len(raw) <= 4*1024*1024, 'Oversized synthetic API response')
+        return json.loads(raw)
+    credentials = json.loads(Path('/root/fixture/test-admin.json').read_text())
+    user = api('/login', credentials)
+    require(user['admin'] is True, 'Synthetic administrator login failed')
+    csrf = user['csrf']
+    before = api('/admin/config')
+    old = api('/admin/cluster/activation')['activation']['current']
+    require(old['revision'] == before['revision'] and old['build'] != expected_build,
+            'Expected an unchanged retained policy from the old archive')
+    settings = json.loads(json.dumps(before['settings']))
+    require(settings['gateways'], 'Synthetic gateway missing')
+    settings['gateways'][0]['name'] += ' - upgraded console'
+    staged = api('/admin/config', {'revision': before['revision'], 'settings': settings})
+    require(staged.get('staged') is True, 'Web configuration was not staged')
+    epoch = staged['epoch']
+    require(epoch['revision'] > before['revision'] and epoch['digest'] != old['digest'],
+            'Staging did not create a new policy epoch')
+    deadline = time.monotonic()+90
+    while time.monotonic() < deadline:
+        status = api('/admin/cluster/activation')
+        journal = status['activation']
+        if (journal['current']['digest'] == epoch['digest']
+                and journal['rollout']['phase'] == 'released' and status['smtp_ready']):
+            require(journal['current']['build'] == expected_build, 'New policy has an old build')
+            require(journal['current']['settings'] == settings, 'Web policy changed unexpected fields')
+            require(journal['current']['files'] == old['files'] and
+                    journal['current'].get('credential_generation') == old.get('credential_generation'),
+                    'Policy edit changed models or provider credentials')
+            return {'before_digest': old['digest'], 'before_revision': old['revision'],
+                    'epoch': epoch, 'change': 'gateway_display_name',
+                    'authenticated_web_change': True, 'released': True}
+        time.sleep(.25)
+    raise RuntimeError('Post-upgrade Web policy activation did not converge')
+
+
 def switch(version):
     # Deliberately a laboratory operation, not a production updater or rollback guard.
     identity = json.loads((PRIVATE/'identity.json').read_text())
@@ -265,7 +319,7 @@ def main():
             and Path('/run/systemd/container').read_text().strip() == 'docker', 'Disposable container required')
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['bootstrap', 'migration', 'ready', 'submit', 'inspect', 'switch', 'policy', 'deferred', 'confinement'])
+    parser.add_argument('action', choices=['bootstrap', 'migration', 'ready', 'submit', 'inspect', 'switch', 'policy', 'policy-change', 'deferred', 'confinement'])
     parser.add_argument('--node', choices=['mx1', 'mx2'], required=True)
     parser.add_argument('--old', required=True); parser.add_argument('--new', required=True)
     parser.add_argument('--value')
@@ -278,6 +332,9 @@ def main():
     elif args.action == 'inspect': result = inspect(args.node)
     elif args.action == 'deferred': result = deferred(args.node)
     elif args.action == 'confinement': result = confinement_node.inspect(args.value)
+    elif args.action == 'policy-change':
+        require(args.node == 'mx1', 'Policy change requires the synthetic coordinator')
+        result = policy_change(args.value)
     elif args.action == 'policy':
         require(args.node == 'mx1', 'Policy snapshot requires the synthetic coordinator')
         result = policy_status()

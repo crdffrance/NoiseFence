@@ -593,6 +593,16 @@ impl PolicyScenario {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL on 127.0.0.1:15432 and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
 async fn controller_uses_central_policy_and_local_admission_fences() {
+    controller_policy_roundtrip(env!("CARGO_PKG_VERSION")).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL on 127.0.0.1:15432 and NOISEFENCE_TEST_PG_PASSWORD_FILE"]
+async fn upgraded_controller_can_stage_after_retaining_an_older_policy() {
+    controller_policy_roundtrip("0.28.0-rc.9").await;
+}
+
+async fn controller_policy_roundtrip(retained_build: &str) {
     use noisefence::{central::outbox, cluster, control::Controller, store::Store};
     use std::sync::Arc;
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -621,10 +631,24 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     for node in [&owner, &peer] {
         f.central.register_source(node).await.unwrap();
     }
-    let publication = artifacts::bind_credentials(
+    let mut publication = artifacts::bind_credentials(
         artifacts::capture(&config, Settings::from_config(&config), 0).unwrap(),
     )
     .unwrap();
+    publication.bundle.build = retained_build.into();
+    if retained_build != env!("CARGO_PKG_VERSION") {
+        // These keys did not exist when this retained production-era policy
+        // was committed. Recapturing current defaults must not replace its identity.
+        for key in ["identity", "identity_policy", "contact_learning"] {
+            publication
+                .bundle
+                .shared
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+        }
+    }
+    publication.bundle.digest = publication.bundle.hash().unwrap();
     artifacts::freeze(a.path(), &publication, 0).unwrap();
     let base = publication.bundle.clone();
     f.central
@@ -653,6 +677,11 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
         .unwrap();
     let control = Controller::load(config.clone(), store).await.unwrap();
     assert_eq!(control.snapshot().revision, 0);
+    assert_eq!(
+        serde_json::to_value(&control.publication().await.unwrap().bundle).unwrap(),
+        serde_json::to_value(&base).unwrap(),
+        "publication must retain the exact committed policy across upgrades"
+    );
     assert!(
         control
             .apply_session(0, base.settings.clone(), "admin".into(), session.clone())
@@ -717,6 +746,10 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
     assert!(control.cluster_ready());
     assert!(worker.cluster_ready());
     assert_eq!(control.snapshot().revision, 1);
+    let installed = control.publication().await.unwrap();
+    assert_eq!(installed.bundle.build, env!("CARGO_PKG_VERSION"));
+    assert_eq!(installed.bundle.digest, epoch.digest);
+    assert_ne!(installed.bundle.digest, base.digest);
     assert_eq!(control.snapshot().settings.filters.threshold, 96.);
     let identity_policy = control.snapshot().settings.identity_policy.clone().unwrap();
     assert_eq!(
@@ -842,6 +875,10 @@ async fn controller_uses_central_policy_and_local_admission_fences() {
         .await
         .unwrap();
     assert_eq!(restarted.snapshot().revision, 1);
+    assert_eq!(
+        restarted.publication().await.unwrap().bundle.digest,
+        epoch.digest
+    );
     assert!(!restarted.cluster_ready()); // An expired cache cannot accept mail.
     assert!(
         restarted

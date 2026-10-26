@@ -1072,6 +1072,39 @@ class Lab:
             self.submit('after_pair_'+phase)
             if phase == 'upgrade':self.nonforward_validation_refused(version)
 
+    def post_upgrade_web_policy(self):
+        self.invariant()
+        if self.final_release != self.new['version']:
+            raise RuntimeError('Post-upgrade policy test requires the final candidate')
+        result = self.node('mx1', 'policy-change', self.new['version'])
+        if (result['before_digest'] != self.baseline['mx1']['policy_digest']
+                or result['before_revision'] != self.baseline['mx1']['policy_epoch']['revision']
+                or result['authenticated_web_change'] is not True or result['released'] is not True):
+            raise RuntimeError('Post-upgrade policy change did not use the retained baseline')
+        for node in self.names:
+            self.ready(node, self.new['version'])
+        rows = self.verify_bodies()
+        for node, row in rows.items():
+            if row['policy_epoch'] != result['epoch'] or row['policy_digest'] != result['epoch']['digest']:
+                raise RuntimeError('Participants did not install the same new Web policy')
+            for key in ['config_sha256', 'selection']:
+                if row[key] != self.baseline[node][key]:
+                    raise RuntimeError('Web change altered installation or management authority')
+            # Only the epoch explicitly approved through the synthetic Web login
+            # is allowed to change the invariant for the remaining restart checks.
+            self.baseline[node]['policy_epoch'] = result['epoch']
+            self.baseline[node]['policy_digest'] = result['epoch']['digest']
+        since = int(time.time())
+        for node in self.names:
+            self.command(node, 'systemctl', 'restart', 'noisefence.service')
+        self.fresh_policy(self.new['version'], since)
+        for node in self.names:
+            self.ready(node, self.new['version'])
+        self.invariant()
+        self.submit('after_web_policy_activation')
+        self.record('authenticated_web_policy_after_archive_upgrade', **result,
+                    restart_verified=True, models_and_credentials_unchanged=True)
+
     def finish(self, metadata):
         self.invariant()
         snapshots = self.wait_replicas()
@@ -1173,6 +1206,7 @@ def main():
         lab.start(); lab.submit('before_migration'); lab.migrate(); lab.submit('selected_old_pair')
         lab.maintenance_reservation(); lab.precommit_promotion(); lab.precommit_promotion(abandon=True); lab.failure_recovery(); lab.rollout(); lab.precommit_promotion(activation_outcome='abort'); lab.precommit_promotion(activation_outcome='activate'); lab.rollback_identity_prerequisites()
         if args.require_retained_activation:lab.retained_activation_roundtrip()
+        lab.post_upgrade_web_policy()
         lab.finish(metadata)
     except BaseException as error:
         (lab.root/'failed.json').write_text(json.dumps({'status': 'failed', 'error': type(error).__name__,

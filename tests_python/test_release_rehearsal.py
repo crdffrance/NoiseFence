@@ -57,6 +57,7 @@ class RehearsalTests(unittest.TestCase):
             'final_running':{node:{'smtp_ready':True,'running_release':self.version,'binary_sha256':files['noisefence']} for node in ['mx1','mx2']},
             'accepted':[{'id':str(i),'node':'mx1' if i%2 else 'mx2','private':'never upload'} for i in range(24)],
             'checks':[{'check':name,'private':'never upload'} for name in [
+                'authenticated_web_policy_after_archive_upgrade',
                 'unqualified_downgrade_and_replacement_refused',
                 'candidate_expired_stopped_and_preserved_selected_data',
                 'candidate_peer_loss_invalidates_readiness','mandatory_peer_outage_deferred',
@@ -72,6 +73,12 @@ class RehearsalTests(unittest.TestCase):
         (self.root/'paired/paired-lifecycle-report.json').write_text(json.dumps(self.paired))
         (self.root/'standalone/lifecycle-report.json').write_text(json.dumps(self.standalone))
         return rehearsal.summarize(self.platform,self.archive,self.root,version=self.version,commit=self.commit,kind=kind)
+
+    def test_post_upgrade_web_activation_is_required(self):
+        self.paired['checks'] = [row for row in self.paired['checks']
+            if row['check'] != 'authenticated_web_policy_after_archive_upgrade']
+        with self.assertRaisesRegex(ValueError, 'Required native recovery coverage'):
+            self.summarize()
 
     def test_retained_gate_requires_positive_runtime_and_reverse_activation_evidence(self):
         with patch.object(rehearsal,'RETAINED_BASELINE',rehearsal.BASELINE):
@@ -96,7 +103,7 @@ class RehearsalTests(unittest.TestCase):
     def test_retained_pin_is_explicit_and_does_not_replace_historical_baseline(self):
         old=rehearsal.baseline()
         retained=rehearsal.baseline('retained')
-        self.assertEqual(retained['version'],'0.32.0-rc.3')
+        self.assertEqual(retained['version'],'0.32.0-rc.4')
         self.assertEqual(old['version'],self.pin['version'])
         self.assertNotEqual(retained['archives'],old['archives'])
         with self.assertRaisesRegex(ValueError,'Unknown baseline'):rehearsal.baseline('automatic-latest')

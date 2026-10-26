@@ -170,7 +170,8 @@ def summarize(platform, archive, directory, *, version, commit, kind='historical
                    and {row['node'] for row in accepted} == {'mx1', 'mx2'},
                    'Native lifecycle mail acceptance coverage is missing')
     checks = sorted({row['check'] for row in paired['checks']})
-    required = {'unqualified_downgrade_and_replacement_refused',
+    required = {'authenticated_web_policy_after_archive_upgrade',
+        'unqualified_downgrade_and_replacement_refused',
         'candidate_expired_stopped_and_preserved_selected_data',
         'candidate_peer_loss_invalidates_readiness', 'mandatory_peer_outage_deferred',
         'committed_start_failure_recovered_forward_and_auxiliary_jobs_held',
