@@ -9,7 +9,7 @@ use crate::{
     fusion::runtime::{DecisionSource, Outcome},
 };
 
-pub const VERSION: &str = "confirmation-5";
+pub const VERSION: &str = "confirmation-6";
 pub const REVIEW_REASON: &str = "confirmation_missing";
 
 /// Additional observations, not statistically independent votes. Weak SMTP
@@ -65,8 +65,9 @@ pub fn corroborated(scan: &Scan) -> bool {
         .any(|d| eligibility::malicious_query(e, &d.result, Dataset::Dbl))
 }
 
-/// Apply only to a fresh, complete legacy decision. A separately validated
-/// fusion keeps its own policy. Abstention preserves the original score and
+/// Apply to a fresh legacy decision, including incomplete coverage. A failed
+/// optional check must not let the same content index bypass this requirement.
+/// A separately validated fusion keeps its own policy. Abstention preserves the original score and
 /// extraction status, so training does not mistake caution for a failed scan.
 pub fn apply(scan: &mut Scan, enabled: bool) {
     let already_reviewed = scan
@@ -74,7 +75,7 @@ pub fn apply(scan: &mut Scan, enabled: bool) {
         .iter()
         .any(|r| r.id == REVIEW_REASON || r.id == crate::decision::REVIEW_REASON);
     scan.reasons.retain(|r| r.id != REVIEW_REASON);
-    if !enabled || !scan.complete || corroborated(scan) {
+    if !enabled || corroborated(scan) {
         return;
     }
     let Some(decision) = &mut scan.decision else {
@@ -82,7 +83,7 @@ pub fn apply(scan: &mut Scan, enabled: bool) {
     };
     if decision.source == DecisionSource::Legacy
         && (decision.outcome == Outcome::Unwanted
-            || (decision.outcome == Outcome::Undetermined && already_reviewed))
+            || (decision.outcome == Outcome::Undetermined && (already_reviewed || !scan.complete)))
     {
         decision.outcome = Outcome::Undetermined;
         scan.tagged = false;

@@ -103,7 +103,7 @@ class RehearsalTests(unittest.TestCase):
     def test_retained_pin_is_explicit_and_does_not_replace_historical_baseline(self):
         old=rehearsal.baseline()
         retained=rehearsal.baseline('retained')
-        self.assertEqual(retained['version'],'0.32.0-rc.4')
+        self.assertEqual(retained['version'],'0.32.0-rc.5')
         self.assertEqual(old['version'],self.pin['version'])
         self.assertNotEqual(retained['archives'],old['archives'])
         with self.assertRaisesRegex(ValueError,'Unknown baseline'):rehearsal.baseline('automatic-latest')

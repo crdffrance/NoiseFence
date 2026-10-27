@@ -6,7 +6,7 @@ use crate::{
 };
 pub mod replay;
 
-pub const VERSION: &str = "decision-policy-14";
+pub const VERSION: &str = "decision-policy-15";
 pub const MALWARE_REASON: &str = "malware_priority";
 pub const REVIEW_REASON: &str = "advisory_disagreement";
 pub const CONTEXT_REASON: &str = "context_requires_review";
@@ -358,6 +358,7 @@ pub fn apply(scan: &mut Scan, require_corroboration: bool) {
                 | "decision-policy-11"
                 | "decision-policy-12"
                 | "decision-policy-13"
+                | "decision-policy-14"
                 | VERSION
         )
         && scan.complete

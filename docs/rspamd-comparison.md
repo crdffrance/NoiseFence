@@ -104,3 +104,17 @@ false positives fell from 76 to 40, with 19 of 22 unwanted representatives detec
 in both runs. These are selected historical, mixed-version regressions with
 repeated campaigns, not production false-positive rates or release qualification.
 The remaining errors require further work and independent future labels.
+
+The rc.6 follow-up reused those same 434 digest-bound, recipient-labelled
+regressions with an rc.5 baseline binary: false positives fell from 55 to 40,
+while 84 of 87 unwanted messages remained detected. On the same 261 campaign
+representatives, false positives fell from 40 to 32 and detected unwanted
+representatives remained 19 of 22. Structured service events and automatic
+payment notices explain these changes; thresholds, scores and models were held
+constant. This is still development evidence, not an independent accuracy claim.
+
+Recent comparison metadata can identify investigation candidates after original
+bodies expire, but it cannot support a new content replay. Do not reconstruct a
+body, recipient consent or a human label from a subject, sender or comparator
+action. Automated operator assessments must retain their own provenance instead
+of entering the human-labelled training or evaluation reference.
