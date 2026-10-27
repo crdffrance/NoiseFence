@@ -483,55 +483,78 @@ fn recipient_profiles_reapply_arbitration_with_their_own_threshold() {
 
 #[test]
 fn automatic_resolution_uses_recipient_threshold_and_keeps_partial_delivery_safe() {
+    use noisefence::evidence::{Artifacts, AuthResult, Evidence, Source, State};
     use noisefence::fusion::runtime::Decision;
     let root = tempfile::tempdir().unwrap();
     let mut cfg = (*common::config(root.path())).clone();
     cfg.filter.resolve_uncertain_by_score = true;
     cfg.filter.mode = Mode::Enforce;
     let recipient = cfg.recipient("alice@example.test").unwrap();
+    let mut evidence = Evidence::new(&cfg, Artifacts::new(&cfg, None, None, false), false);
+    evidence.source = Source::SmtpSession;
+    evidence.authentication.state = State::Complete;
+    evidence.authentication.dmarc_state = State::Complete;
+    evidence.authentication.dmarc_spf = Some(AuthResult::Fail);
+    evidence.authentication.dmarc_dkim = Some(AuthResult::Fail);
     for complete in [false, true] {
-        let mut scan = Scan {
-            score: 96.,
-            complete,
-            features_complete: Some(true),
-            ..Default::default()
-        };
-        scan.decision = Some(Decision::legacy(&scan, 95.));
-        noisefence::decision::apply(&mut scan, true);
-        noisefence::decision::resolve_by_score(&mut scan, true, 95.);
-        for (threshold, threshold_expected) in [(90., Category::Spam), (98., Category::Legitimate)]
-        {
-            let expected = if complete {
-                Category::Legitimate
-            } else {
-                threshold_expected
+        for confirmed in [false, true] {
+            let mut scan = Scan {
+                score: 96.,
+                complete,
+                features_complete: Some(true),
+                evidence: confirmed.then(|| evidence.clone()),
+                ..Default::default()
             };
-            let result = assess(
-                &level_policy(threshold),
-                &cfg,
-                &scan,
-                &Facts::default(),
-                &recipient,
-                100,
-            );
-            assert_eq!(result.category, expected);
-            assert_eq!(result.threshold, threshold);
-            let mut receipt = scan.clone();
-            noisefence::decision_record::record_recipient(&mut receipt, &cfg, Some(&result), 100);
-            let boundary = noisefence::assessment::historical(&receipt)
-                .score_boundary
-                .unwrap();
-            assert_eq!(boundary.source, noisefence::score_boundary::Source::Content);
-            assert_eq!(boundary.cutoff, threshold);
-            assert_eq!(boundary.above, 96. >= threshold);
-            assert_eq!(
-                result.action.effective,
-                if complete && expected == Category::Spam {
-                    Action::Quarantine
+            scan.decision = Some(Decision::legacy(&scan, 95.));
+            noisefence::decision::apply(&mut scan, true);
+            noisefence::decision::resolve_by_score(&mut scan, true, 95.);
+            for (threshold, threshold_expected) in
+                [(90., Category::Spam), (98., Category::Legitimate)]
+            {
+                // The recipient operating level requires corroboration even when
+                // an unrelated check leaves analysis incomplete.
+                let expected = if confirmed {
+                    threshold_expected
                 } else {
-                    Action::Deliver
-                }
-            );
+                    Category::Legitimate
+                };
+                let before = serde_json::to_value(&scan).unwrap();
+                let result = assess(
+                    &level_policy(threshold),
+                    &cfg,
+                    &scan,
+                    &Facts::default(),
+                    &recipient,
+                    100,
+                );
+                assert_eq!(
+                    result.category, expected,
+                    "complete={complete}, confirmed={confirmed}, threshold={threshold}"
+                );
+                assert_eq!(serde_json::to_value(&scan).unwrap(), before);
+                assert_eq!(result.threshold, threshold);
+                let mut receipt = scan.clone();
+                noisefence::decision_record::record_recipient(
+                    &mut receipt,
+                    &cfg,
+                    Some(&result),
+                    100,
+                );
+                let boundary = noisefence::assessment::historical(&receipt)
+                    .score_boundary
+                    .unwrap();
+                assert_eq!(boundary.source, noisefence::score_boundary::Source::Content);
+                assert_eq!(boundary.cutoff, threshold);
+                assert_eq!(boundary.above, 96. >= threshold);
+                assert_eq!(
+                    result.action.effective,
+                    if complete && expected == Category::Spam {
+                        Action::Quarantine
+                    } else {
+                        Action::Deliver
+                    }
+                );
+            }
         }
     }
 }

@@ -68,11 +68,16 @@ configured threshold and does not activate enforcement.
 <a id="vérification"></a>
 ## Verification and limits
 
-`cargo test --test transport_evidence --test confirmation --test decision --test observations`
+`cargo test --test transport_evidence --test confirmation --test decision --test observations --test custom_filtering --test score_resolution`
 checks shared availability, malformed facts, domain bounds, ARC independence,
 retained contributions and decision-specific requirements. Additional LLM tests
 verify that invalid authentication cannot become a trusted citation. Fixtures are
 synthetic; no production message is published.
+
+Recipient-profile regressions exercise both complete and incomplete analyses,
+with and without corroboration, above and below the selected threshold. A partial
+analysis cannot bypass the profile's corroboration requirement; recorded scores
+and thresholds remain unchanged, and delivery constraints still apply separately.
 
 `noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` compares recorded
 decisions with explicit current-policy projections. It opens SQLite read-only,
