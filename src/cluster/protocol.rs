@@ -40,6 +40,7 @@ pub fn compatible_build(build: &str) -> bool {
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
                 | "0.32.0-rc.5"
+                | "0.32.0-rc.6"
         ) && matches!(
             build,
             "0.14.0"
@@ -94,6 +95,7 @@ pub fn compatible_build(build: &str) -> bool {
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
+                | "0.32.0-rc.5"
         ))
 }
 

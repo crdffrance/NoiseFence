@@ -1702,7 +1702,7 @@ fn postgresql_release_preserves_rc9_policy_and_refuses_mixed_bound_activation() 
     assert!(bundle.for_build("0.32.0-rc.2").is_err());
     assert!(bundle.for_build("0.32.0-rc.3").is_err());
     assert!(bundle.for_build(env!("CARGO_PKG_VERSION")).is_ok());
-    for unsupported_build in ["0.29.1", "0.32.0-rc.6", "0.32.0", "9.9.9"] {
+    for unsupported_build in ["0.29.1", "0.32.0-rc.7", "0.32.0", "9.9.9"] {
         let mut unknown = prior.clone();
         unknown.build = unsupported_build.into();
         unknown.digest = unknown.hash().unwrap();

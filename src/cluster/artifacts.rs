@@ -551,6 +551,7 @@ impl Bundle {
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
                 | "0.32.0-rc.5"
+                | "0.32.0-rc.6"
         ) && build == "0.28.0-rc.7"
         {
             let mut bundle = self.clone();
@@ -586,6 +587,7 @@ impl Bundle {
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
                 | "0.32.0-rc.5"
+                | "0.32.0-rc.6"
         ) && matches!(
             build,
             "0.28.0-rc.9"
@@ -610,6 +612,7 @@ impl Bundle {
                 | "0.32.0-rc.2"
                 | "0.32.0-rc.3"
                 | "0.32.0-rc.4"
+                | "0.32.0-rc.5"
         ) {
             let mut bundle = self.clone();
             bundle.build = build.into();
@@ -866,7 +869,7 @@ impl Bundle {
         );
         // The published rc.3 schema predates these fields. A forged legacy
         // build label cannot bypass the new-policy gate during retained reads.
-        // rc.5 retains rc.4's unchanged identity schema; transport still requires
+        // rc.5/rc.6 retain rc.4's unchanged identity schema; transport still requires
         // identical live builds for newly staged credential-bound activation.
         let identity_selected = self.settings.identity_directory.is_some()
             || self.settings.identity_policy.is_some()
@@ -877,7 +880,9 @@ impl Bundle {
         ensure!(
             !identity_selected
                 || self.build == env!("CARGO_PKG_VERSION")
-                || (env!("CARGO_PKG_VERSION") == "0.32.0-rc.5" && self.build == "0.32.0-rc.4"),
+                || (env!("CARGO_PKG_VERSION") == "0.32.0-rc.5" && self.build == "0.32.0-rc.4")
+                || (env!("CARGO_PKG_VERSION") == "0.32.0-rc.6"
+                    && matches!(self.build.as_str(), "0.32.0-rc.4" | "0.32.0-rc.5")),
             "Identity policy requires a matching application build"
         );
         let identity_policy: Option<crate::identity::correlation::Settings> =

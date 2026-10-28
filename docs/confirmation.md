@@ -6,7 +6,7 @@ additional evidence before a high legacy content score is accepted as an engine
 verdict. Without that evidence, the internal verdict is `undetermined`; the score
 and analysis coverage remain recorded. This is not proof of legitimacy.
 
-Automatic classification remains mandatory, but a complete legacy analysis with
+Automatic classification remains mandatory, but a legacy analysis with
 missing required corroboration is accepted as Ham (or Pub when supported by the
 existing mail-kind assessment). The original content index cannot undo the
 corroboration requirement. `score-resolution-2` records the guard; the
@@ -15,9 +15,15 @@ This is an operator policy, not a calibrated probability of legitimacy. Explicit
 recipient rules, observation mode, partial-analysis restrictions and Proton
 marking guards remain separate. Existing receipts are never reclassified.
 
+Missing required corroboration also applies to incomplete analyses. A DNS or
+other optional-check failure must not restore an unwanted verdict solely from
+the same high index. Coverage stays incomplete; the guard never supplies a clean
+scanner result. Primary malware and positively observed threats retain their
+separate priority paths, and validated fusion decisions keep their own policy.
+
 ## Eligible evidence
 
-`confirmation-5` retains these eligible observations:
+`confirmation-6` retains these eligible observations:
 
 - Malware detected by the primary antivirus.
 - Verified DMARC failure on both alignment branches.
@@ -62,11 +68,16 @@ configured threshold and does not activate enforcement.
 <a id="vérification"></a>
 ## Verification and limits
 
-`cargo test --test transport_evidence --test confirmation --test decision --test observations`
+`cargo test --test transport_evidence --test confirmation --test decision --test observations --test custom_filtering --test score_resolution`
 checks shared availability, malformed facts, domain bounds, ARC independence,
 retained contributions and decision-specific requirements. Additional LLM tests
 verify that invalid authentication cannot become a trusted citation. Fixtures are
 synthetic; no production message is published.
+
+Recipient-profile regressions exercise both complete and incomplete analyses,
+with and without corroboration, above and below the selected threshold. A partial
+analysis cannot bypass the profile's corroboration requirement; recorded scores
+and thresholds remain unchanged, and delivery constraints still apply separately.
 
 `noisefence audit-confirmation /var/lib/noisefence/state.sqlite3` compares recorded
 decisions with explicit current-policy projections. It opens SQLite read-only,

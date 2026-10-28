@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.32.0-rc.6 — Fewer false positives on service notifications
+
+- Recognize structured monitor and backup events, application acknowledgements,
+  scheduled automatic debits and completed payment/order receipts. Context needs
+  body evidence; sender names, subject lines and successful authentication alone
+  never create an allowlist. Threat findings and sensitive demands keep priority.
+- Preserve an explicit corroboration requirement when an optional check fails;
+  a high content index cannot bypass that requirement through incomplete coverage.
+- Keep original scores and receipt-time history. Rspamd disagreements inform
+  regression selection, without creating recipient labels or changing delivery
+  after acceptance. Models, thresholds and provider activation remain unchanged.
+- Qualify upgrades from the exact rc.5 archives and retain the unchanged identity
+  and correspondent-memory policy schema. Detection accuracy still requires an
+  independent evaluation.
+
 ## 0.32.0-rc.5 — Policy activation after upgrades
 
 - Preserve the exact committed policy bundle when publishing an installed runtime.

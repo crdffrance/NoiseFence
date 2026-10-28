@@ -1,6 +1,6 @@
 # Context, coverage and calibration
 
-NoiseFence records decision policy `decision-policy-14`. Recorded policy and detector versions distinguish new observations from historical results. The contextual safeguards described here do not activate the LLM or change its configured selection.
+NoiseFence records decision policy `decision-policy-15`. Recorded policy and detector versions distinguish new observations from historical results. The contextual safeguards described here do not activate the LLM or change its configured selection.
 
 ## Readable content survives independent failures
 
@@ -58,6 +58,20 @@ An administrator can edit **Filters → Engine parameters → Semantic analysis 
 Choose a deadline based on measurements on the slowest MX. Identical software does not imply identical execution speed on different CPU allocations. A longer bounded deadline addresses unavailable inference, not a miscalibrated model. Recorded semantic failures distinguish capacity, deadline, inference and worker errors; older rows may lack this detail.
 
 ## Validate before enforcing
+
+Structured notification context also covers monitor incidents with named checks,
+root cause and event dates; automatic backup reports with a host and timestamp;
+and acknowledgements that explicitly confirm a received application and its review.
+Scheduled-debit context requires an amount, a date and an explicit automatic charge.
+Additional completed-payment receipts require a transaction reference; order
+receipts require payment details and a date. HTML table labels may touch their
+values without changing that context. Model feature extraction remains unchanged.
+
+These observations use the same authenticated benign-conflict guard, including
+scanner, threat and sensitive-demand vetoes. They trigger an automatic final
+decision, not a request for manual classification. A marketing message, a new
+payment demand or a service-themed subject alone does not qualify. Successful
+authentication and Rspamd acceptance do not establish recipient consent.
 
 Do not lower a threshold just to clear a review queue or treat comparator agreement as a reference label. High raw scores on confirmed legitimate traffic call for calibration on recent labelled examples. Keep security reports, transactional notices, wanted newsletters, phishing and spam represented; deduplicate campaigns and reserve an independent evaluation set. Corrections used to develop a safeguard are development examples, not an unbiased test set.
 

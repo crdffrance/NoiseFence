@@ -4,6 +4,7 @@ use mail_parser::MimeHeaders;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+mod notices;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Context {
@@ -204,8 +205,10 @@ impl Context {
         self.transaction_notice = shipment
             || (payment_subject && (payment_body || completed_payment))
             || transfer
-            || trip_receipt;
-        self.passive_service_notice = passive_service_notice(&subject, &body);
+            || trip_receipt
+            || notices::transaction(&subject, &body);
+        self.passive_service_notice =
+            passive_service_notice(&subject, &body) || notices::service(&subject, &body);
         static SECURITY_EVENT: OnceLock<Regex> = OnceLock::new();
         static OPTIONAL_ACTION: OnceLock<Regex> = OnceLock::new();
         self.conditional_security_notice = SECURITY_EVENT.get_or_init(|| Regex::new(

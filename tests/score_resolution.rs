@@ -280,6 +280,86 @@ fn required_confirmation_cannot_be_undone_by_a_saturated_score() {
     }
 }
 
+#[test]
+fn a_failed_optional_check_cannot_bypass_required_confirmation() {
+    for score in [95., 99.99, 100.] {
+        let mut scan = review(score, false);
+        scan.decision = Some(Decision::legacy(&scan, 95.));
+        scan.reasons.push(noisefence::engine::Signal {
+            id: "checks_unavailable".into(),
+            detail: "Synthetic DNS timeout".into(),
+            weight: 0.,
+        });
+        decision::apply(&mut scan, true);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Legitimate);
+        assert!(!scan.complete);
+        assert_eq!(scan.score, score);
+        assert_eq!(
+            scan.score_resolution.as_ref().unwrap().guard.as_deref(),
+            Some("corroboration_required")
+        );
+        let once = serde_json::to_value(&scan).unwrap();
+        decision::apply(&mut scan, true);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(serde_json::to_value(&scan).unwrap(), once);
+        scan.antivirus.status = noisefence::antivirus::AntivirusStatus::Malware;
+        decision::apply(&mut scan, true);
+        decision::finalize(&mut scan, 95.);
+        assert_eq!(
+            scan.decision.as_ref().unwrap().source,
+            DecisionSource::Antivirus
+        );
+        assert_eq!(scan.decision.as_ref().unwrap().outcome, Outcome::Unwanted);
+    }
+}
+
+#[test]
+fn structured_notices_resolve_automatically_but_sensitive_demands_keep_priority() {
+    let fixtures = [
+        (
+            "Monitor is DOWN: Example",
+            "Monitor name Example. Checked URL https://example.test. Root cause timeout. Incident started at 2026-10-10 12:00.",
+        ),
+        (
+            "Votre facture est arrivée",
+            "Facture du 06/10/2026 : 12,34 €. Ce montant sera prélevé le 16/10/2026.",
+        ),
+        (
+            "Merci pour ta candidature",
+            "Nous te remercions pour ta candidature. Nous allons prendre le temps de l'étudier.",
+        ),
+    ];
+    for (subject, body) in fixtures {
+        for attack in [false, true] {
+            let mut scan = authenticated_conflict();
+            scan.llm = Default::default();
+            let raw = format!(
+                "Subject: {subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}{}",
+                if attack {
+                    " Enter your password to prevent account closure."
+                } else {
+                    ""
+                }
+            );
+            scan.message_context = Some(noisefence::message_context::inspect(raw.as_bytes()));
+            scan.decision = Some(Decision::legacy(&scan, 95.));
+            decision::apply(&mut scan, false);
+            decision::finalize(&mut scan, 95.);
+            assert_eq!(
+                scan.decision.as_ref().unwrap().outcome,
+                if attack {
+                    Outcome::Unwanted
+                } else {
+                    Outcome::Legitimate
+                },
+                "{subject}: attack={attack}"
+            );
+            assert_eq!(scan.score, 99.8);
+        }
+    }
+}
+
 fn authenticated_conflict() -> Scan {
     use noisefence::{
         antivirus::AntivirusStatus,
