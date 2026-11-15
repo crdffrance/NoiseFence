@@ -9,5 +9,5 @@
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="System.DirectoryServices.Protocols" Version="10.0.14" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.DirectoryServices.Protocols" Version="11.0.0" /></ItemGroup>
 </Project>
